@@ -111,7 +111,7 @@ void McmcSamples::writeDataBin(const string &title){
         throw("Error: cannot open file " + filename);
     }
     
-    int xyn[3] = {datMatSp.rows(), datMatSp.cols(), datMatSp.nonZeros()};
+    int xyn[3] = {static_cast<int>(datMatSp.rows()), static_cast<int>(datMatSp.cols()), static_cast<int>(datMatSp.nonZeros())};
     fwrite(xyn, sizeof(unsigned), 3, out);
     
     for (int i=0; i < datMatSp.outerSize(); ++i) {
