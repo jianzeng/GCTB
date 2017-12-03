@@ -1105,8 +1105,8 @@ void ApproxBayesC::SnpEffects::hmcSampler(VectorXf &rcorr, const VectorXf &ZPy, 
                                             const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                                             const float sigmaSq, const float pi, const float vare){
     
-    float stepSize = 0.01;
-    unsigned numSteps = 100;
+    float stepSize = 0.001;
+    unsigned numSteps = 1;
     
     
 #pragma omp parallel for
@@ -1123,6 +1123,16 @@ void ApproxBayesC::SnpEffects::hmcSampler(VectorXf &rcorr, const VectorXf &ZPy, 
         VectorXi chrWindSize = windSize.segment(chrStart, chrSize);
         chrWindStart.array() -= chrStart;
         
+
+        VectorXf delta;
+        delta.setZero(chrSize);
+        for (unsigned i=chrStart, j=0; i<=chrEnd; ++i) {
+            if (values[i]) {
+                delta[j++] = 1;
+            }
+        }
+        
+        
         VectorXf curr = values.segment(chrStart, chrSize);
         VectorXf curr_p(chrSize);
         
@@ -1130,17 +1140,17 @@ void ApproxBayesC::SnpEffects::hmcSampler(VectorXf &rcorr, const VectorXf &ZPy, 
             curr_p[i] = Stat::snorm();
         }
         
-        VectorXf cand = curr;
+        VectorXf cand = curr.cwiseProduct(delta);
         // Make a half step for momentum at the beginning
         VectorXf rc = chrZPy;
-        VectorXf cand_p = curr_p - 0.5*stepSize * gradientU(curr, rc, chrZPy, ZPZ, chrWindStart, chrWindSize, chrStart, chrSize, sigmaSq, vare);
+        VectorXf cand_p = curr_p.cwiseProduct(delta) - 0.5*stepSize * gradientU(curr, rc, chrZPy, ZPZ, chrWindStart, chrWindSize, chrStart, chrSize, sigmaSq, vare).cwiseProduct(delta);
         
         for (unsigned i=0; i<numSteps; ++i) {
-            cand += stepSize * cand_p;
+            cand += stepSize * cand_p.cwiseProduct(delta);
             if (i < numSteps-1) {
-                cand_p -= stepSize * gradientU(cand, rc, chrZPy, ZPZ, chrWindStart, chrWindSize, chrStart, chrSize, sigmaSq, vare);
+                cand_p -= stepSize * gradientU(cand, rc, chrZPy, ZPZ, chrWindStart, chrWindSize, chrStart, chrSize, sigmaSq, vare).cwiseProduct(delta);
             } else {
-                cand_p -= 0.5* stepSize * gradientU(cand, rc, chrZPy, ZPZ, chrWindStart, chrWindSize, chrStart, chrSize, sigmaSq, vare);
+                cand_p -= 0.5* stepSize * gradientU(cand, rc, chrZPy, ZPZ, chrWindStart, chrWindSize, chrStart, chrSize, sigmaSq, vare).cwiseProduct(delta);
             }
         }
         
@@ -1155,13 +1165,20 @@ void ApproxBayesC::SnpEffects::hmcSampler(VectorXf &rcorr, const VectorXf &ZPy, 
     }
     
     sumSq = values.squaredNorm();
-    numNonZeros = size;
+    //numNonZeros = size;
     
-    if (!(++cnt % 100) && myMPI::rank==0) {
-        float ar = mhr/float(cnt*22);
-        if      (ar < 0.5) cout << "Warning: acceptance rate for SNP effects is too low "  << ar << endl;
-        else if (ar > 0.9) cout << "Warning: acceptance rate for SNP effects is too high " << ar << endl;
+    for (unsigned i=0; i<size; ++i) {
+        if(values[i]) ++numNonZeros;
     }
+    //cout << sumSq << " " << nnz << " " << numNonZeros << endl;
+    
+    //cout << values.head(10).transpose() << endl;
+    
+//    if (!(++cnt % 100) && myMPI::rank==0) {
+//        float ar = mhr/float(cnt*22);
+//        if      (ar < 0.5) cout << "Warning: acceptance rate for SNP effects is too low "  << ar << endl;
+//        else if (ar > 0.9) cout << "Warning: acceptance rate for SNP effects is too high " << ar << endl;
+//    }
 
 }
 
@@ -1226,8 +1243,9 @@ void ApproxBayesC::sampleUnknowns(){
     fixedEffects.sampleFromFC(data.XPX, data.XPXdiag, data.ZPX, data.XPy, snpEffects.values, vare.value, rcorr);
     unsigned cnt=0;
     do {
+        //snpEffects.sampleFromFC(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, sse, data.n, data.snp2pq, sigmaSq.value, pi.value, vare.value);
+        snpEffects.hmcSampler(rcorr, data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, sigmaSq.value, pi.value, vare.value);
         snpEffects.sampleFromFC(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, sse, data.n, data.snp2pq, sigmaSq.value, pi.value, vare.value);
-        //snpEffects.hmcSampler(rcorr, data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, sigmaSq.value, pi.value, vare.value);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
@@ -1362,6 +1380,107 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<VectorX
     values = VectorXf::Map(valueTmp, size);
 }
 
+void ApproxBayesS::SnpEffects::hmcSampler(VectorXf &rcorr, const VectorXf &ZPy, const vector<VectorXf> &ZPZ,
+                                          const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
+                                          const float sigmaSq, const float pi, const float vare, const VectorXf &snp2pqPowS){
+    
+    float stepSize = 0.001;
+    unsigned numSteps = 1;
+    
+    
+#pragma omp parallel for
+    for (unsigned chr=0; chr<chromInfoVec.size(); ++chr) {
+        //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;
+        
+        ChromInfo *chromInfo = chromInfoVec[chr];
+        unsigned chrStart = chromInfo->startSnpIdx;
+        unsigned chrEnd   = chromInfo->endSnpIdx;
+        unsigned chrSize  = chromInfo->size;
+        
+        VectorXf chrZPy = ZPy.segment(chrStart, chrSize);
+        VectorXf chrSnp2pqPowS = snp2pqPowS.segment(chrStart, chrSize);
+        VectorXi chrWindStart = windStart.segment(chrStart, chrSize);
+        VectorXi chrWindSize = windSize.segment(chrStart, chrSize);
+        chrWindStart.array() -= chrStart;
+        
+        
+        VectorXf delta;
+        delta.setZero(chrSize);
+        for (unsigned i=chrStart, j=0; i<=chrEnd; ++i) {
+            if (values[i]) {
+                delta[j++] = 1;
+            }
+        }
+        
+        
+        VectorXf curr = values.segment(chrStart, chrSize);
+        VectorXf curr_p(chrSize);
+        
+        for (unsigned i=0; i<chrSize; ++i) {
+            curr_p[i] = Stat::snorm();
+        }
+        
+        VectorXf cand = curr.cwiseProduct(delta);
+        // Make a half step for momentum at the beginning
+        VectorXf rc = chrZPy;
+        VectorXf cand_p = curr_p.cwiseProduct(delta) - 0.5*stepSize * gradientU(curr, rc, chrZPy, ZPZ, chrWindStart, chrWindSize, chrStart, chrSize, sigmaSq, vare, chrSnp2pqPowS).cwiseProduct(delta);
+        
+        for (unsigned i=0; i<numSteps; ++i) {
+            cand += stepSize * cand_p.cwiseProduct(delta);
+            if (i < numSteps-1) {
+                cand_p -= stepSize * gradientU(cand, rc, chrZPy, ZPZ, chrWindStart, chrWindSize, chrStart, chrSize, sigmaSq, vare, chrSnp2pqPowS).cwiseProduct(delta);
+            } else {
+                cand_p -= 0.5* stepSize * gradientU(cand, rc, chrZPy, ZPZ, chrWindStart, chrWindSize, chrStart, chrSize, sigmaSq, vare, chrSnp2pqPowS).cwiseProduct(delta);
+            }
+        }
+        
+        float curr_H = computeU(curr, rcorr.segment(chrStart, chrSize), chrZPy, sigmaSq, vare, chrSnp2pqPowS) + 0.5*curr_p.squaredNorm();
+        float cand_H = computeU(cand, rc, chrZPy, sigmaSq, vare, chrSnp2pqPowS) + 0.5*cand_p.squaredNorm();
+        
+        if (Stat::ranf() < exp(curr_H-cand_H)) {  // accept
+            values.segment(chrStart, chrSize) = cand;
+            rcorr.segment(chrStart, chrSize) = rc;
+            ++mhr;
+            //cout << "accept " << curr_H << " " << cand_H << " " << exp(curr_H-cand_H) << endl;
+        } else {
+            //cout << "reject!!" << endl;
+        }
+    }
+    
+    sumSq = values.squaredNorm();
+    //numNonZeros = size;
+    
+    for (unsigned i=0; i<size; ++i) {
+        if(values[i]) ++numNonZeros;
+    }
+    //cout << sumSq << " " << nnz << " " << numNonZeros << endl;
+    
+    //cout << values.head(10).transpose() << endl;
+    
+//    if (!(++cnt % 100) && myMPI::rank==0) {
+//        float ar = mhr/float(cnt);
+//        if      (ar < 0.5) cout << "Warning: acceptance rate for SNP effects is too low "  << ar << endl;
+//        else if (ar > 0.9) cout << "Warning: acceptance rate for SNP effects is too high " << ar << endl;
+//    }
+    
+}
+
+VectorXf ApproxBayesS::SnpEffects::gradientU(const VectorXf &effects, VectorXf &rcorr, const VectorXf &ZPy, const vector<VectorXf> &ZPZ,
+                                             const VectorXi &windStart, const VectorXi &windSize, const unsigned chrStart, const unsigned chrSize,
+                                             const float sigmaSq, const float vare, const VectorXf &snp2pqPowS){
+    rcorr = ZPy;
+    for (unsigned i=0; i<chrSize; ++i) {
+        if (effects[i]) {
+            rcorr.segment(windStart[i], windSize[i]) -= ZPZ[chrStart+i]*effects[i];
+        }
+    }
+    return -rcorr/vare + effects.cwiseProduct(snp2pqPowS.cwiseInverse())/sigmaSq;
+}
+
+float ApproxBayesS::SnpEffects::computeU(const VectorXf &effects, const VectorXf &rcorr, const VectorXf &ZPy,                                             const float sigmaSq, const float vare, const VectorXf &snp2pqPowS){
+    return -0.5f/vare*effects.dot(ZPy+rcorr) + 0.5/sigmaSq*effects.cwiseProduct(snp2pqPowS.cwiseInverse()).squaredNorm();
+}
+
 
 void ApproxBayesS::sampleUnknowns(){
     static unsigned iter = 0;
@@ -1370,6 +1489,7 @@ void ApproxBayesS::sampleUnknowns(){
     
     unsigned cnt=0;
     do {
+        snpEffects.hmcSampler(rcorr, data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, sigmaSq.value, pi.value, vare.value, snp2pqPowS);
         snpEffects.sampleFromFC(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, sigmaSq.value, pi.value, vare.value, snp2pqPowS, data.snp2pq, data.se, sse, data.n, genVarPrior, sigmaSq.scale);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
@@ -1377,6 +1497,9 @@ void ApproxBayesS::sampleUnknowns(){
     if(estimatePi) pi.sampleFromFC(data.numIncdSnps, snpEffects.numNonZeros);
     
     sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
+    //sigmaSq.value = varg.value/((snp2pqPowS.array()*data.snp2pq.array()).sum()*pi.value);
+    //cout << sigmaSq.value << endl;
+    
     vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr);
     
 //    VectorXf ZPZb(data.numIncdSnps);
@@ -1408,5 +1531,7 @@ void ApproxBayesS::sampleUnknowns(){
         genVarPrior += (varg.value - genVarPrior)/iter;
         scalePrior += (sigmaSq.scale - scalePrior)/iter;
     }
+    
+    //sigmaSq.value = varg.value/((snp2pqPowS.array()*data.snp2pq.array()).sum()*pi.value);
 }
 

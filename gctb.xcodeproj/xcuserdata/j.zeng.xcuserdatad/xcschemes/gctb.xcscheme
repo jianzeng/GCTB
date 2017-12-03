@@ -68,6 +68,14 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "/Users/j.zeng/XCode/gctb/test/res/test.inp"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "/Users/j.zeng/Work/Projects/test_amber/data2/test.inp"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "/Users/j.zeng/Work/Projects/test_amber/height/height.inp"
             isEnabled = "YES">
          </CommandLineArgument>
       </CommandLineArguments>

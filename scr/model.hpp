@@ -676,6 +676,13 @@ public:
                           const VectorXf &snp2pqPowS, const VectorXf &snp2pq,
                           const VectorXf &se, VectorXf &sse, const VectorXf &n,
                           const float vg, float &scale);
+        void hmcSampler(VectorXf &rcorr, const VectorXf &ZPy, const vector<VectorXf> &ZPZ,
+                        const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
+                        const float sigmaSq, const float pi, const float vare, const VectorXf &snp2pqPowS);
+        VectorXf gradientU(const VectorXf &effects, VectorXf &rcorr, const VectorXf &ZPy, const vector<VectorXf> &ZPZ,
+                           const VectorXi &windStart, const VectorXi &windSize, const unsigned chrStart, const unsigned chrSize,
+                           const float sigmaSq, const float vare, const VectorXf &snp2pqPowS);
+        float computeU(const VectorXf &effects, const VectorXf &rcorr, const VectorXf &ZPy,                                             const float sigmaSq, const float vare, const VectorXf &snp2pqPowS);
     };
     
 
