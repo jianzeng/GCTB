@@ -984,6 +984,7 @@ void Data::readGwasSummaryFile(const string &gwasFile){
     map<string, SnpInfo*>::iterator it;
     string id, allele1, allele2, freq, b, se, pval, n;
     unsigned line=0, match=0;
+    unsigned incon=0;
     while (in >> id >> allele1 >> allele2 >> freq >> b >> se >> pval >> n) {
         ++line;
         it = snpInfoMap.find(id);
@@ -993,15 +994,20 @@ void Data::readGwasSummaryFile(const string &gwasFile){
         if (allele1 == snp->a1 && allele2 == snp->a2) {
             snp->gwas_b  = atof(b.c_str());
             snp->gwas_af = atof(freq.c_str());
+            snp->gwas_se = atof(se.c_str());
+            snp->gwas_n  = atof(n.c_str());
+            ++match;
         } else if (allele1 == snp->a2 && allele2 == snp->a1) {
             snp->gwas_b  = -atof(b.c_str());
             snp->gwas_af = 1.0-atof(freq.c_str());
+            snp->gwas_se = atof(se.c_str());
+            snp->gwas_n  = atof(n.c_str());
+            ++match;
         } else {
-            throw("Error: SNP " + id + " has inconsistent allele coding in between the reference and GWAS samples.");
+            cout << "WARNING: SNP " + id + " has inconsistent allele coding in between the reference and GWAS samples." << endl;
+            snp->included = false;
+            ++incon;
         }
-        snp->gwas_se = atof(se.c_str());
-        snp->gwas_n  = atof(n.c_str());
-        ++match;
     }
     in.close();
     
@@ -1013,8 +1019,10 @@ void Data::readGwasSummaryFile(const string &gwasFile){
         }
     }
 
-    if (myMPI::rank==0)
+    if (myMPI::rank==0) {
+        if (incon) cout << "removed " << incon << " SNPs with inconsistent allele coding in between the reference and GWAS samples." << endl;
         cout << match << " matched SNPs in the GWAS summary data (in total " << line << " SNPs)." << endl;
+    }
 
 }
 
