@@ -1008,6 +1008,7 @@ void Data::readGwasSummaryFile(const string &gwasFile){
             snp->included = false;
             ++incon;
         }
+        if (snp->gwas_af==0 || snp->gwas_af==1) throw("Error: SNP " + id + " is a fixed SNP!");
     }
     in.close();
     
@@ -1124,6 +1125,8 @@ void Data::makeLDmatrix(const string &bedFile, const unsigned windowWidth, const
             // compute allele frequency
             snpj->af = 0.5f*mean;
             snp2pq[inc] = 2.0f*snpj->af*(1.0f-snpj->af);
+            
+            if (snp2pq[inc]==0) throw("Error: " + snpj->ID + " is a fixed SNP!");
             
             // standardize genotypes
             D[inc] = snp2pq[inc]*(numKeptInds-nmiss);
