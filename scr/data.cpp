@@ -1008,7 +1008,7 @@ void Data::readGwasSummaryFile(const string &gwasFile){
             snp->included = false;
             ++incon;
         }
-        if (snp->gwas_af==0 || snp->gwas_af==1) throw("Error: SNP " + id + " is a fixed SNP!");
+        if (snp->gwas_af==0 || snp->gwas_af==1) throw ("Error: SNP " + id + " is a fixed SNP!");
     }
     in.close();
     
@@ -1037,6 +1037,7 @@ void Data::makeLDmatrix(const string &bedFile, const unsigned windowWidth, const
     if (numKeptInds == 0) throw ("Error: No individual is retained for analysis.");
     
     ZPZ.resize(numIncdSnps);
+    ZPZdiag.resize(numIncdSnps);
     for (unsigned i=0; i<numIncdSnps; ++i) {
         ZPZ[i].resize(windSize[i]);
     }
@@ -1126,7 +1127,7 @@ void Data::makeLDmatrix(const string &bedFile, const unsigned windowWidth, const
             snpj->af = 0.5f*mean;
             snp2pq[inc] = 2.0f*snpj->af*(1.0f-snpj->af);
             
-            if (snp2pq[inc]==0) throw("Error: " + snpj->ID + " is a fixed SNP!");
+            if (snp2pq[inc]==0) throw ("Error: " + snpj->ID + " is a fixed SNP!");
             
             // standardize genotypes
             D[inc] = snp2pq[inc]*(numKeptInds-nmiss);
@@ -1135,7 +1136,7 @@ void Data::makeLDmatrix(const string &bedFile, const unsigned windowWidth, const
             snpj->genotypes = genotypes;
             
             // compute Zj'Z[j] with Z[j] for genotype matrix of SNPs in the window of SNP j
-            ZPZ[inc][inc - snpj->windStart] = genotypes.squaredNorm();
+            ZPZdiag[inc] = ZPZ[inc][inc - snpj->windStart] = genotypes.squaredNorm();
             for (k = snpj->windStart; k<inc; ++k) {
                 snpk = incdSnpInfoVec[k];
                 ZPZ[inc][k - snpj->windStart] = ZPZ[k][inc - snpk->windStart] = genotypes.dot(snpk->genotypes);
@@ -1160,6 +1161,7 @@ void Data::makeLDmatrix(const string &bedFile, const unsigned windowWidth, const
     timer.getTime();
     
     cout << "Average window size " << windSize.sum()/numIncdSnps << "." << endl;
+    cout << "LD matrix diagonal mean " << ZPZdiag.mean() << " variance " << ZPZdiag.squaredNorm()/numIncdSnps << "." << endl;
     cout << "Genotype data for " << numKeptInds << " individuals and " << numIncdSnps << " SNPs are included from [" + bedFile + "]." << endl;
     cout << "Build of LD matrix completed (time used: " << timer.format(timer.getElapse()) << ")." << endl;
     
