@@ -1161,7 +1161,7 @@ void Data::makeLDmatrix(const string &bedFile, const unsigned windowWidth, const
     timer.getTime();
     
     cout << "Average window size " << windSize.sum()/numIncdSnps << "." << endl;
-    cout << "LD matrix diagonal mean " << ZPZdiag.mean() << " variance " << ZPZdiag.squaredNorm()/numIncdSnps << "." << endl;
+    cout << "LD matrix diagonal mean " << ZPZdiag.mean() << " variance " << (ZPZdiag.array()-ZPZdiag.mean()).square().sum()/numIncdSnps << "." << endl;
     cout << "Genotype data for " << numKeptInds << " individuals and " << numIncdSnps << " SNPs are included from [" + bedFile + "]." << endl;
     cout << "Build of LD matrix completed (time used: " << timer.format(timer.getElapse()) << ")." << endl;
     
