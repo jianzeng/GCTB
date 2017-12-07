@@ -76,6 +76,10 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "/Users/j.zeng/Work/Projects/test_amber/height/height.inp"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "/Users/j.zeng/Work/Projects/test_gctb/mergeldm/tr5.inp"
             isEnabled = "YES">
          </CommandLineArgument>
       </CommandLineArguments>
