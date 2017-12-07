@@ -46,6 +46,8 @@ public:
     void predict(const Data &data, const string &filename);
 
     void clearGenotypes(Data &data);
+    
+    void mergeLDmat(Data &data, const string &ldmatrixFile, const string &filename);
 };
 
 #endif /* amber_hpp */

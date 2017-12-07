@@ -41,6 +41,13 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     data.buildSparseMME();
 }
 
+void GCTB::mergeLDmat(Data &data, const string &ldmatrixFile, const string &filename){
+    data.readMultiLDmatInfoFile(ldmatrixFile);
+    data.includeMatchedSnp();
+    data.readMultiLDmatBinFile(ldmatrixFile);
+    data.outputLDmatrix(filename);
+}
+
 Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
                          const float heritability, const float probFixed, const bool estimatePi,
                          const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S){

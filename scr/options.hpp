@@ -48,6 +48,7 @@ public:
 //    float varResidual;
     float varS; // prior variance of S in BayesS and BayesNS
     vector<float> S;    // starting value of S in BayesS and BayesNS
+    float LDthreshold;  // used to define the two ends of per-SNP LD window in the banded LD matrix
     
     bool estimatePi;
     bool estimateScale;
@@ -71,6 +72,7 @@ public:
     string mcmcSampleFile;
     string gwasSummaryFile;
     string ldmatrixFile;
+    string snpRange;
     
     Options(){
         chainLength             = 21000;
@@ -92,6 +94,7 @@ public:
         varS                    = 1.0;
         S.resize(1);
         S[0]                    = 0.0;
+        LDthreshold             = -1;
         
         estimatePi              = true;
         estimateScale           = false;
@@ -115,6 +118,7 @@ public:
         mcmcSampleFile          = "";
         gwasSummaryFile         = "";
         ldmatrixFile            = "";
+        snpRange                = "";
     }
     
     void inputOptions(const int argc, const char* argv[]);
