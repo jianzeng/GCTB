@@ -187,6 +187,9 @@ public:
     void getNonoverlapWindowInfo(const unsigned windowWidth);
     void buildSparseMME(const string &bedFile, const unsigned windowWidth);
     void makeLDmatrix(const string &bedFile, const unsigned windowWidth, const string &filename);
+    void makeLDmatrix(const string &bedFile, const float LDthreshold, const string &snpRange, const string &filename);
+    void resizeWindow(const vector<SnpInfo*> &incdSnpInfoVec, const VectorXi &windStartOri, const VectorXi &windSizeOri,
+                      VectorXi &windStartNew, VectorXi &windSizeNew);
     void computeAlleleFreq(const MatrixXf &Z, vector<SnpInfo*> &incdSnpInfoVec, VectorXf &snp2pq);
     void reindexSnp(vector<SnpInfo*> snpInfoVec);
     void initVariances(const float heritability);
@@ -199,6 +202,7 @@ public:
     void readMultiLDmatInfoFile(const string &mldmatFile);
     void readMultiLDmatBinFile(const string &mldmatFile);
     void outputSnpEffectSamples(const SparseMatrix<float> &snpEffects, const unsigned burnin, const unsigned outputFreq, const string &snpResFile, const string &filename) const;
+    void outputLDmatrix(const string &filename) const;
 };
 
 #endif /* data_hpp */
