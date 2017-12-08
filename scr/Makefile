@@ -8,7 +8,7 @@
 # ---------------------------------------------------------------------
 
 # Set this variable to either LINUX, MAC or WIN
-SYS = MAC
+SYS = LINUX
 OUTPUT = gctb
 
 # Put C++ compiler here
