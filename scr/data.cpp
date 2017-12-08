@@ -1160,8 +1160,8 @@ void Data::makeLDmatrix(const string &bedFile, const unsigned windowWidth, const
     
     timer.getTime();
     
-    cout << "Average window size " << windSize.sum()/numIncdSnps << "." << endl;
-    cout << "LD matrix diagonal mean " << ZPZdiag.mean() << " variance " << (ZPZdiag.array()-ZPZdiag.mean()).square().sum()/numIncdSnps << "." << endl;
+    cout << "Average window size " << windSize.mean() << "." << endl;
+    cout << "LD matrix diagonal mean " << ZPZdiag.mean() << " variance " << Gadget::calcVariance(ZPZdiag) << "." << endl;
     cout << "Genotype data for " << numKeptInds << " individuals and " << numIncdSnps << " SNPs are included from [" + bedFile + "]." << endl;
     cout << "Build of LD matrix completed (time used: " << timer.format(timer.getElapse()) << ")." << endl;
     
@@ -1499,6 +1499,7 @@ void Data::resizeWindow(const vector<SnpInfo *> &incdSnpInfoVec, const VectorXi 
         unsigned windEndOri = windStartOri[i] + windSizeOri[i];
         for (unsigned j=windStartOri[i]; j<windEndOri; ++j) {
             SnpInfo *snpj = snpInfoVec[j];
+            if (j>=numSnps) cout << i << " " << j << " " << windSizeOri[i] << " " << snpInfoVec.size() << endl;
             if (!snpj->included) continue;
             if (!windSize[snpi->index]) {
                 windStart[snpi->index] = snpj->index;
@@ -1661,11 +1662,12 @@ void Data::readMultiLDmatInfoFile(const string &mldmatFile){
     string inputStr;
     numSnpMldVec.clear();
     while (getline(in, inputStr)) {
-//        vector<SnpInfo*> vec;
         readLDmatrixInfoFile(inputStr+".info");
         numSnpMldVec.push_back(numSnps);
-//        mldmVec.push_back(vec);
     }
+    SnpInfo *snp = snpInfoVec[numSnpMldVec[0]];
+    if (snp->index == 0) reindexed = true;
+    else reindexed = false;
 }
 
 void Data::readMultiLDmatBinFile(const string &mldmatFile){
@@ -1688,7 +1690,7 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
     for (unsigned j=0, i=0, cnt=0; j<numSnps; ++j) {
         SnpInfo *snp = snpInfoVec[j];
         if (j==numSnpMldVec[i]) {
-            if (snp->windStart == 0)
+            if (reindexed)
                 cnt = numSnpMldVec[i++];
             else
                 cnt = 0;

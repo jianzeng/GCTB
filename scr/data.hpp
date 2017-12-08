@@ -140,6 +140,8 @@ public:
     float varGenotypic;
     float varResidual;
     
+    bool reindexed;
+    
     vector<SnpInfo*> snpInfoVec;
     vector<IndInfo*> indInfoVec;
     
@@ -158,7 +160,6 @@ public:
     vector<bool> fullSnpFlag;
     
     vector<unsigned> numSnpMldVec;
-//    vector<vector<SnpInfo*> > mldmVec;
     
     unsigned numFixedEffects;
     unsigned numSnps;
@@ -174,7 +175,6 @@ public:
     void readCovariateFile(const string &covarFile);
     void readGwasSummaryFile(const string &gwasFile);
     void readLDmatrixInfoFile(const string &ldmatrixFile);
-//    void readLDmatrixInfoFile(const string &ldmatrixFile, vector<SnpInfo*> &vec);
     void readLDmatrixBinFile(const string &ldmatrixFile);
     void keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax);
     void includeSnp(const string &includeSnpFile);
