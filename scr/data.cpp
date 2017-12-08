@@ -1409,7 +1409,7 @@ void Data::makeLDmatrix(const string &bedFile, const float LDthreshold, const st
                 break;
             }
         }
-        windSize[i] = snp->windSize = windEndi - windStart[i] + 1;
+        windSize[i] = snp->windSize = windEndi - windStart[i];
         ZPZ[i].resize(windSize[i]);
         VectorXf::Map(&ZPZ[i][0], windSize[i]) = denseZPZ.row(i).segment(windStart[i], windSize[i]);
     }
@@ -1431,8 +1431,10 @@ void Data::makeLDmatrix(const string &bedFile, const float LDthreshold, const st
     if (!snpRange.empty()) outfilename += ".snp" + snpRange;
     string outfile1 = outfilename + ".info";
     string outfile2 = outfilename + ".bin";
+//    string outfile3 = outfilename + ".txt";
     ofstream out1(outfile1.c_str());
     FILE *out2 = fopen(outfile2.c_str(), "wb");
+//    ofstream out3(outfile3.c_str());
     if (!out2) {
         throw("Error: cannot open file " + outfile2);
     }
@@ -1450,13 +1452,16 @@ void Data::makeLDmatrix(const string &bedFile, const float LDthreshold, const st
         %snp->windStart
         %snp->windSize;
         fwrite(&ZPZ[i][0], sizeof(float), snp->windSize, out2);
+//        out3 << ZPZ[i].transpose() << endl;
     }
     out1.close();
     fclose(out2);
+//    out3.close();
     
     cout << "Written the LD matrix into file [" << outfile1 << "]." << endl;
     cout << "Written the SNP info into file [" << outfile2 << "]." << endl;
-    
+//    cout << "Written the LD matrix into text file [" << outfile3 << "]." << endl;
+
 }
 
 void Data::readLDmatrixInfoFile(const string &ldmatrixFile){
@@ -1483,28 +1488,6 @@ void Data::readLDmatrixInfoFile(const string &ldmatrixFile){
     cout << numSnps << " SNPs to be included from [" + ldmatrixFile + "]." << endl;
 }
 
-//void Data::readLDmatrixInfoFile(const string &ldmatrixFile, vector<SnpInfo*> &vec){
-//    ifstream in(ldmatrixFile.c_str());
-//    if (!in) throw ("Error: can not open the file [" + ldmatrixFile + "] to read.");
-//    cout << "Reading SNP info from [" + ldmatrixFile + "]." << endl;
-//    string id, allele1, allele2;
-//    unsigned chr, physPos;
-//    float genPos;
-//    unsigned idx, windStart, windSize;
-//    while (in >> chr >> id >> genPos >> physPos >> allele1 >> allele2 >> idx >> windStart >> windSize) {
-//        SnpInfo *snp = new SnpInfo(idx, id, allele1, allele2, chr, genPos, physPos);
-//        snp->windStart = windStart;
-//        snp->windSize = windSize;
-//        snpInfoVec.push_back(snp);
-//        if (snpInfoMap.insert(pair<string, SnpInfo*>(id, snp)).second == false) {
-//            throw ("Error: Duplicate SNP ID found: \"" + id + "\".");
-//        }
-//        vec.push_back(snp);
-//    }
-//    in.close();
-//    numSnps = (unsigned) snpInfoVec.size();
-//    cout << numSnps << " SNPs to be included from [" + ldmatrixFile + "]." << endl;
-//}
 
 void Data::resizeWindow(const vector<SnpInfo *> &incdSnpInfoVec, const VectorXi &windStartOri, const VectorXi &windSizeOri,
                         VectorXi &windStart, VectorXi &windSize){
@@ -1514,7 +1497,6 @@ void Data::resizeWindow(const vector<SnpInfo *> &incdSnpInfoVec, const VectorXi 
         SnpInfo *snpi = snpInfoVec[i];
         if (!snpi->included) continue;
         unsigned windEndOri = windStartOri[i] + windSizeOri[i];
-        if (windEndOri > numSnps) windEndOri = numSnps;
         for (unsigned j=windStartOri[i]; j<windEndOri; ++j) {
             SnpInfo *snpj = snpInfoVec[j];
             if (!snpj->included) continue;
@@ -1560,6 +1542,7 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
     cout << "Reading LD matrix from [" + ldmatrixFile + "]..." << endl;
     
     ZPZ.resize(numIncdSnps);
+    ZPZdiag.resize(numIncdSnps);
     for (unsigned i=0; i<numIncdSnps; ++i) {
         ZPZ[i].resize(windSize[i]);
     }
@@ -1583,6 +1566,8 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
             snpj = snpInfoVec[windStartLDM[i]+j];
             if (snpj->included) {
                 ZPZ[inci][incj++] = v[j];
+                if (snpj == snpi)
+                    ZPZdiag[inci] = v[j];
             }
         }
         
@@ -1595,6 +1580,7 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
     
 //    cout << "Window width " << windowWidth << " Mb." << endl;
     cout << "Window size mean " << windSize.mean() << " sd " << unsigned(sqrt(Gadget::calcVariance(windSize.cast<float>()))) << "." << endl;
+    cout << "LD matrix diagnal mean " << ZPZdiag.mean() << " sd " << sqrt(Gadget::calcVariance(ZPZdiag)) << "." << endl;
     cout << "Read LD matrix for " << numIncdSnps << " SNPs (time used: " << timer.format(timer.getElapse()) << ")." << endl;
 }
 
@@ -1655,6 +1641,17 @@ void Data::buildSparseMME(){
     XPX.resize(0,0);
     ZPX.resize(0,0);
     XPy.resize(0);
+    
+    // data summary
+    cout << "\nData summary:" << endl;
+    cout << boost::format("%30s %8s %8s\n") %"" %"mean" %"sd";
+    cout << boost::format("%30s %8.3f %8.3f\n") %"GWAS SNP heterozygosity" %snp2pq.mean() %sqrt(Gadget::calcVariance(snp2pq));
+    cout << boost::format("%30s %8.0f %8.0f\n") %"GWAS SNP sample size" %n.mean() %sqrt(Gadget::calcVariance(n));
+    cout << boost::format("%30s %8.3f %8.3f\n") %"GWAS SNP effect" %b.mean() %sqrt(Gadget::calcVariance(b));
+    cout << boost::format("%30s %8.3f %8.3f\n") %"GWAS SNP SE" %se.mean() %sqrt(Gadget::calcVariance(se));
+    cout << boost::format("%30s %8.3f %8.3f\n") %"MME left-hand-side diagonals" %ZPZdiag.mean() %sqrt(Gadget::calcVariance(ZPZdiag));
+    cout << boost::format("%30s %8.3f %8.3f\n") %"MME right-hand-side" %ZPy.mean() %sqrt(Gadget::calcVariance(ZPy));
+    cout << boost::format("%30s %8.3f\n") %"Total sum of square" %ypy;
 }
 
 void Data::readMultiLDmatInfoFile(const string &mldmatFile){
@@ -1703,6 +1700,7 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
     resizeWindow(incdSnpInfoVec, windStartLDM, windSizeLDM, windStart, windSize);
     
     ZPZ.resize(numIncdSnps);
+    ZPZdiag.resize(numIncdSnps);
     for (unsigned j=0; j<numIncdSnps; ++j) {
         ZPZ[j].resize(windSize[j]);
     }
@@ -1716,8 +1714,6 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
         if (!in2) {
             throw("Error: cannot open LD matrix file " + filenameVec[i]);
         }
-        
-        fseek(in2, sizeof(float), SEEK_SET);
         
         SnpInfo *snpj = NULL;
         SnpInfo *snpk = NULL;
@@ -1737,6 +1733,8 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
                 snpk = snpInfoVec[windStartLDM[j]+k];
                 if (snpk->included) {
                     ZPZ[incj][inck++] = v[k];
+                    if (snpk == snpj)
+                        ZPZdiag[incj] = v[k];
                 }
             }
             ++incj;
@@ -1751,6 +1749,7 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
     timer.getTime();
     
     cout << "Window size mean " << windSize.mean() << " sd " << unsigned(sqrt(Gadget::calcVariance(windSize.cast<float>()))) << "." << endl;
+    cout << "LD matrix diagnal mean " << ZPZdiag.mean() << " sd " << sqrt(Gadget::calcVariance(ZPZdiag)) << "." << endl;
     cout << "Read LD matrix for " << numIncdSnps << " SNPs (time used: " << timer.format(timer.getElapse()) << ")." << endl;
 }
 
