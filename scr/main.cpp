@@ -79,16 +79,19 @@ int main(int argc, const char * argv[]) {
         }
         else if (opt.analysisType == "LDmatrix") {
             readGenotypes = false;
-            if (!opt.multiLDmat) {
+            if (opt.ldmatrixFile.empty()) { // make LD matrix from genotypes
                 gctb.inputIndInfo(data, opt.bedFile, opt.bedFile + ".fam", opt.keepIndFile, opt.keepIndMax,
                                   opt.mphen, opt.covariateFile);
                 gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.includeChr, readGenotypes);
-                if (opt.LDthreshold < 0)
+                if (opt.windowWidth)
                     data.makeLDmatrix(opt.bedFile + ".bed", opt.windowWidth, opt.title);
                 else
                     data.makeLDmatrix(opt.bedFile + ".bed", opt.LDthreshold, opt.snpRange, opt.title);
-            } else {
-                gctb.mergeLDmat(data, opt.ldmatrixFile, opt.title);
+            }
+            else { // manipulate an existing LD matrix or merge existing LD matrices
+                gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, "", opt.ldmatrixFile, opt.includeChr, opt.multiLDmat);
+                data.resizeLDmatrix(opt.windowWidth, opt.LDthreshold);
+                data.outputLDmatrix(opt.title);
             }
         }
         else if (opt.analysisType == "SBayes") {

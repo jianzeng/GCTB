@@ -45,9 +45,7 @@ public:
     void inputSnpResults(Data &data, const string &snpResFile);
     void predict(const Data &data, const string &filename);
 
-    void clearGenotypes(Data &data);
-    
-    void mergeLDmat(Data &data, const string &ldmatrixFile, const string &filename);
+    void clearGenotypes(Data &data);    
 };
 
 #endif /* amber_hpp */
