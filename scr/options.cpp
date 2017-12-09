@@ -192,6 +192,9 @@ void Options::inputOptions(const int argc, const char* argv[]){
     
     omp_set_num_threads(numThread);
     if (numThread > 1) {
+        Eigen::initParallel();
+        Eigen::setNbThreads(numThread);
+        cout << "Eigen library is using " << Eigen::nbThreads( ) << " threads." << endl;
 #pragma omp parallel
         printf("Hello from thread %d, nthreads %d\n", omp_get_thread_num(), omp_get_num_threads());
     }
@@ -307,6 +310,9 @@ void Options::readFile(const string &file){  // input options from file
     
     omp_set_num_threads(numThread);
     if (numThread > 1) {
+        Eigen::initParallel();
+        Eigen::setNbThreads(numThread);
+        cout << "Eigen library is using " << Eigen::nbThreads( ) << " threads." << endl;
 #pragma omp parallel
         printf("Hello from thread %d, nthreads %d\n", omp_get_thread_num(), omp_get_num_threads());
     }
