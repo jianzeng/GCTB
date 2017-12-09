@@ -1236,7 +1236,7 @@ void Data::makeLDmatrix(const string &bedFile, const float LDthreshold, const st
     
     if (numIncdSnps == 0) throw ("Error: No SNP is retained for analysis.");
     if (numKeptInds == 0) throw ("Error: No individual is retained for analysis.");
-    if (start >= numIncdSnps) throw ("Error: Specified a SNP range of " + snpRange + " but " + to_string(numIncdSnps) + " SNPs are included.");
+    if (start >= numIncdSnps) throw ("Error: Specified a SNP range of " + snpRange + " but " + to_string(static_cast<long long>(numIncdSnps)) + " SNPs are included.");
 
     Gadget::Timer timer;
     timer.setTime();
@@ -1421,7 +1421,7 @@ void Data::makeLDmatrix(const string &bedFile, const float LDthreshold, const st
     timer.getTime();
     
     
-    cout << "\nWindow size mean " << windSize.sum()/numIncdSnps << " sd " << unsigned(sqrt((windSize.array()-windSize.sum()/numIncdSnps).square().sum()/numIncdSnps)) << "." << endl;
+    cout << "\nWindow size mean " << windSize.sum()/numSnpInRange << " sd " << unsigned(sqrt((windSize.array()-windSize.sum()/numSnpInRange).square().sum()/numSnpInRange)) << "." << endl;
     cout << "LD matrix diagonal mean " << ZPZdiag.mean() << " variance " << Gadget::calcVariance(ZPZdiag) << "." << endl;
     cout << "Genotype data for " << numKeptInds << " individuals and " << numSnpInRange << " SNPs are included from [" + bedFile + "]." << endl;
     cout << "Build of LD matrix completed (time used: " << timer.format(timer.getElapse()) << ")." << endl;
