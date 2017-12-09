@@ -19,6 +19,7 @@
 #include <mpi.h>
 #include <omp.h>
 #include <boost/format.hpp>
+#include <Eigen/Core>
 #include "mympi.hpp"
 #include "gadgets.hpp"
 
