@@ -202,6 +202,7 @@ public:
     void readMultiLDmatInfoFile(const string &mldmatFile);
     void readMultiLDmatBinFile(const string &mldmatFile);
     void outputSnpEffectSamples(const SparseMatrix<float> &snpEffects, const unsigned burnin, const unsigned outputFreq, const string &snpResFile, const string &filename) const;
+    void resizeLDmatrix(const unsigned windowWidth, const float LDthreshold);
     void outputLDmatrix(const string &filename) const;
 };
 

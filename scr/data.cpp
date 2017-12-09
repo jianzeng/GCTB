@@ -680,6 +680,7 @@ void Data::getWindowInfo(const vector<SnpInfo*> &incdSnpInfoVec, const unsigned 
 }
 
 void Data::getNonoverlapWindowInfo(const unsigned windowWidth){
+    if (!windowWidth) throw("Error: Did you forget to set window width by --wind [Mb]?");
     unsigned window = 0;
     unsigned currChr = incdSnpInfoVec[0]->chrom;
     unsigned long startPos = incdSnpInfoVec[0]->physPos;
@@ -1753,6 +1754,41 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
     cout << "Window size mean " << windSize.sum()/numIncdSnps << " sd " << unsigned(sqrt((windSize.array()-windSize.sum()/numIncdSnps).square().sum()/numIncdSnps)) << "." << endl;
     cout << "LD matrix diagnal mean " << ZPZdiag.mean() << " sd " << sqrt(Gadget::calcVariance(ZPZdiag)) << "." << endl;
     cout << "Read LD matrix for " << numIncdSnps << " SNPs (time used: " << timer.format(timer.getElapse()) << ")." << endl;
+}
+
+void Data::resizeLDmatrix(const unsigned windowWidth, const float LDthreshold) {
+    VectorXi windStartOri = windStart;
+    VectorXi windSizeOri = windSize;
+    if (windowWidth) {
+        getWindowInfo(incdSnpInfoVec, windowWidth, windStart, windSize);
+        for (unsigned i=0; i<numIncdSnps; ++i) {
+            SnpInfo *snp = incdSnpInfoVec[i];
+            windStart[i] = snp->windStart = max(windStart[i], windStartOri[i]);
+            windSize[i]  = snp->windSize  = min(windSize[i], windSizeOri[i]);
+            ZPZ[i] = ZPZ[i].segment(windStart[i]-windStartOri[i], windSize[i]);
+        }
+        cout << "Resized LD matrix based on a window width of " << windowWidth*1e-6 << " Mb." << endl;
+    } else {
+        for (unsigned i=0; i<numIncdSnps; ++i) {
+            SnpInfo *snp = incdSnpInfoVec[i];
+            unsigned windEndi = windSizeOri[i];
+            for (unsigned j=0; j<windSizeOri[i]; ++j) {
+                if (abs(ZPZ[i][j]) > LDthreshold) {
+                    windStart[i] = snp->windStart = j;
+                    break;
+                }
+            }
+            for (unsigned j=windSizeOri[i]; j>0; --j) {
+                if (abs(ZPZ[i][j-1]) > LDthreshold) {
+                    windEndi = j;
+                    break;
+                }
+            }
+            windSize[i] = snp->windSize = windEndi - windStart[i];
+            ZPZ[i] = ZPZ[i].segment(windStart[i], windSize[i]);
+        }
+        cout << "Resized LD matrix based on a LD threshold of " << LDthreshold << "." << endl;
+    }
 }
 
 

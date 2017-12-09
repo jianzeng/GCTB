@@ -32,20 +32,13 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
     data.includeChr(includeChr);
-    data.readGwasSummaryFile(gwasSummaryFile);
+    if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile);
     data.includeMatchedSnp();
     if (multiLDmat)
         data.readMultiLDmatBinFile(ldmatrixFile);
     else
         data.readLDmatrixBinFile(ldmatrixFile + ".bin");
-    data.buildSparseMME();
-}
-
-void GCTB::mergeLDmat(Data &data, const string &ldmatrixFile, const string &filename){
-    data.readMultiLDmatInfoFile(ldmatrixFile);
-    data.includeMatchedSnp();
-    data.readMultiLDmatBinFile(ldmatrixFile);
-    data.outputLDmatrix(filename);
+    if (!gwasSummaryFile.empty()) data.buildSparseMME();
 }
 
 Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,

@@ -87,7 +87,7 @@ public:
         thin                    = 10;
         includeChr              = 0;
                 
-        windowWidth             = Megabase;
+        windowWidth             = 0*Megabase;
         probFixed               = 0.05;
         heritability            = 0.5;
 //        varGenotypic            = 1.0;
@@ -95,7 +95,7 @@ public:
         varS                    = 1.0;
         S.resize(1);
         S[0]                    = 0.0;
-        LDthreshold             = -1;
+        LDthreshold             = 0.0;
         
         estimatePi              = true;
         estimateScale           = false;
