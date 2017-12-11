@@ -79,7 +79,7 @@
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "/Users/j.zeng/Work/Projects/test_gctb/mergeldm/merge.inp"
+            argument = "/Users/j.zeng/Work/Projects/test_gctb/mergeldm/resize.inp"
             isEnabled = "YES">
          </CommandLineArgument>
       </CommandLineArguments>
