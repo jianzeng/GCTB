@@ -178,6 +178,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             snpRange = argv[++i];
             ss << "--snp " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--multi-thread-eigen")) {
+            multiThreadEigen = true;
+            ss << "--multi-thread-eigen " << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";
@@ -187,18 +191,8 @@ void Options::inputOptions(const int argc, const char* argv[]){
     
     MPI_Comm_rank(MPI_COMM_WORLD, &myMPI::rank);
     if(myMPI::rank==0) cout << ss.str() << endl;
-    
-    //if (bayesType == "Cap" || bayesType == "Sap") myMPI::partition = "bycol";
-    
-    omp_set_num_threads(numThread);
-    if (numThread > 1) {
-        Eigen::initParallel();
-        Eigen::setNbThreads(numThread);
-        cout << "Eigen library is using " << Eigen::nbThreads( ) << " threads." << endl;
-#pragma omp parallel
-        printf("Hello from thread %d, nthreads %d\n", omp_get_thread_num(), omp_get_num_threads());
-    }
 
+    setThread();
 }
 
 void Options::readFile(const string &file){  // input options from file
@@ -293,6 +287,8 @@ void Options::readFile(const string &file){  // input options from file
             LDthreshold = stof(value);
         } else if (key == "snpRange") {
             snpRange = value;
+        } else if (key == "multiThreadEigen" && value == "Yes") {
+            multiThreadEigen = true;
         } else if (key.substr(0,2) == "//" ||
                    key.substr(0,1) == "#") {
             continue;
@@ -305,18 +301,8 @@ void Options::readFile(const string &file){  // input options from file
     
     MPI_Comm_rank(MPI_COMM_WORLD, &myMPI::rank);
     if(myMPI::rank==0) cout << ss.str() << endl;
-    
-    //if (bayesType == "Cap" || bayesType == "Sap") myMPI::partition = "bycol";
-    
-    omp_set_num_threads(numThread);
-    if (numThread > 1) {
-        Eigen::initParallel();
-        Eigen::setNbThreads(numThread);
-        cout << "Eigen library is using " << Eigen::nbThreads( ) << " threads." << endl;
-#pragma omp parallel
-        printf("Hello from thread %d, nthreads %d\n", omp_get_thread_num(), omp_get_num_threads());
-    }
-
+        
+    setThread();
 }
 
 void Options::makeTitle(void){
@@ -325,4 +311,16 @@ void Options::makeTitle(void){
     if (pos != string::npos) {
         title = optionFile.substr(0,pos);
     }
+}
+
+void Options::setThread(void){
+    omp_set_num_threads(numThread);
+    if (numThread == 1) return;
+    if (multiThreadEigen) {
+        Eigen::initParallel();
+        Eigen::setNbThreads(numThread);
+        cout << "Eigen library is using " << Eigen::nbThreads( ) << " threads." << endl;
+    }
+#pragma omp parallel
+    printf("Hello from thread %d, nthreads %d\n", omp_get_thread_num(), omp_get_num_threads());
 }
