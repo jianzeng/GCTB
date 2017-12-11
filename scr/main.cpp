@@ -90,7 +90,7 @@ int main(int argc, const char * argv[]) {
             }
             else { // manipulate an existing LD matrix or merge existing LD matrices
                 gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, "", opt.ldmatrixFile, opt.includeChr, opt.multiLDmat);
-                data.resizeLDmatrix(opt.windowWidth, opt.LDthreshold);
+                if (opt.windowWidth || opt.LDthreshold) data.resizeLDmatrix(opt.windowWidth, opt.LDthreshold);
                 data.outputLDmatrix(opt.title);
             }
         }

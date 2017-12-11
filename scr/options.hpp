@@ -56,6 +56,7 @@ public:
     bool writeBinPosterior;
     bool outputResults;
     bool multiLDmat;
+    bool multiThreadEigen;
     
     string title;
     string analysisType;
@@ -102,6 +103,7 @@ public:
         writeBinPosterior       = true;
         outputResults           = true;
         multiLDmat              = false;
+        multiThreadEigen        = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";
@@ -128,6 +130,7 @@ private:
     void readFile(const string &file);
     void makeTitle(void);
     void seedEngine(void);
+    void setThread(void);
 };
 
 #endif /* options_hpp */

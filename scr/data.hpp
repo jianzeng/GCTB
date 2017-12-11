@@ -204,6 +204,7 @@ public:
     void outputSnpEffectSamples(const SparseMatrix<float> &snpEffects, const unsigned burnin, const unsigned outputFreq, const string &snpResFile, const string &filename) const;
     void resizeLDmatrix(const unsigned windowWidth, const float LDthreshold);
     void outputLDmatrix(const string &filename) const;
+    void displayAverageWindowSize(const VectorXi &windSize);
 };
 
 #endif /* data_hpp */
