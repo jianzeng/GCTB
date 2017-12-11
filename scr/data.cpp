@@ -1395,8 +1395,8 @@ void Data::makeLDmatrix(const string &bedFile, const float LDthreshold, const st
 //    cout << denseZPZ.block(0,0,10,10) << endl;
 //    cout << LDthreshold << endl;
     
-    float windSizeMean = incdSnpInfoVec[start]->windSize;
-    float windSizeSqMean = windSizeMean*windSizeMean;
+    float windSizeMean = 0.0;
+    float windSizeSqMean = 0.0;
     for (int i=0; i<numSnpInRange; ++i) {
         SnpInfo *snp = incdSnpInfoVec[start+i];
         unsigned windEndi = numIncdSnps;
@@ -1415,8 +1415,8 @@ void Data::makeLDmatrix(const string &bedFile, const float LDthreshold, const st
         windSize[i] = snp->windSize = windEndi - windStart[i];
         ZPZ[i].resize(windSize[i]);
         VectorXf::Map(&ZPZ[i][0], windSize[i]) = denseZPZ.row(i).segment(windStart[i], windSize[i]);
-        windSizeMean += (snp->windSize - windSizeMean)/numSnpInRange;
-        windSizeSqMean += (float(snp->windSize)*snp->windSize - windSizeSqMean)/numSnpInRange;
+        windSizeMean += (snp->windSize - windSizeMean)/(i+1);
+        windSizeSqMean += (float(snp->windSize)*snp->windSize - windSizeSqMean)/(i+1);
     }
     
 //    cout << windStart.transpose() << endl;
@@ -1426,7 +1426,7 @@ void Data::makeLDmatrix(const string &bedFile, const float LDthreshold, const st
     timer.getTime();
     
     
-    cout << "\nWindow size mean " << windSizeMean << " sd " << windSizeSqMean-windSizeMean*windSizeMean << "." << endl;
+    cout << "\nPer-SNP window size mean " << windSizeMean << " sd " << windSizeSqMean-windSizeMean*windSizeMean << "." << endl;
     cout << "LD matrix diagonal mean " << ZPZdiag.mean() << " variance " << Gadget::calcVariance(ZPZdiag) << "." << endl;
     cout << "Genotype data for " << numKeptInds << " individuals and " << numSnpInRange << " SNPs are included from [" + bedFile + "]." << endl;
     cout << "Build of LD matrix completed (time used: " << timer.format(timer.getElapse()) << ")." << endl;
@@ -1496,8 +1496,8 @@ void Data::readLDmatrixInfoFile(const string &ldmatrixFile){
 
 void Data::resizeWindow(const vector<SnpInfo *> &incdSnpInfoVec, const VectorXi &windStartOri, const VectorXi &windSizeOri,
                         VectorXi &windStart, VectorXi &windSize){
-    float windSizeMean = incdSnpInfoVec[0]->windSize;
-    float windSizeSqMean = windSizeMean*windSizeMean;
+    float windSizeMean = 0.0;
+    float windSizeSqMean = 0.0;
     windStart.setZero(numIncdSnps);
     windSize.setZero(numIncdSnps);
     for (unsigned i=0; i<numSnps; ++i) {
@@ -1514,8 +1514,8 @@ void Data::resizeWindow(const vector<SnpInfo *> &incdSnpInfoVec, const VectorXi 
         }
         snpi->windStart = windStart[snpi->index];
         snpi->windSize  = windSize[snpi->index];
-        windSizeMean += (snpi->windSize - windSizeMean)/numIncdSnps;
-        windSizeSqMean += (float(snpi->windSize)*snpi->windSize - windSizeSqMean)/numIncdSnps;
+        windSizeMean += (snpi->windSize - windSizeMean)/(snpi->index+1);
+        windSizeSqMean += (float(snpi->windSize)*snpi->windSize - windSizeSqMean)/(snpi->index+1);
     }
     cout << "Per-SNP window size mean " << windSizeMean << " sd " << windSizeSqMean-windSizeMean*windSizeMean << "." << endl;
 }
@@ -1764,10 +1764,11 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
 }
 
 void Data::resizeLDmatrix(const unsigned windowWidth, const float LDthreshold) {
-    float windSizeMean = incdSnpInfoVec[0]->windSize;
-    float windSizeSqMean = windSizeMean*windSizeMean;
+    float windSizeMean = 0.0;
+    float windSizeSqMean = 0.0;
     VectorXi windStartOri = windStart;
     VectorXi windSizeOri = windSize;
+    VectorXf ZPZiTmp;
     if (windowWidth) {
         cout << "Resizing LD matrix based on a window width of " << windowWidth*1e-6 << " Mb..." << endl;
         getWindowInfo(incdSnpInfoVec, windowWidth, windStart, windSize);
@@ -1775,9 +1776,10 @@ void Data::resizeLDmatrix(const unsigned windowWidth, const float LDthreshold) {
             SnpInfo *snp = incdSnpInfoVec[i];
             windStart[i] = snp->windStart = max(windStart[i], windStartOri[i]);
             windSize[i]  = snp->windSize  = min(windSize[i], windSizeOri[i]);
-            ZPZ[i] = ZPZ[i].segment(windStart[i]-windStartOri[i], windSize[i]);
-            windSizeMean += (snp->windSize - windSizeMean)/numIncdSnps;
-            windSizeSqMean += (float(snp->windSize)*snp->windSize - windSizeSqMean)/numIncdSnps;
+            ZPZiTmp = ZPZ[i].segment(windStart[i]-windStartOri[i], windSize[i]);
+            ZPZ[i] = ZPZiTmp;
+            windSizeMean += (snp->windSize - windSizeMean)/(i+1);
+            windSizeSqMean += (float(snp->windSize)*snp->windSize - windSizeSqMean)/(i+1);
         }
     } else {
         cout << "Resizing LD matrix based on a LD threshold of " << LDthreshold << "..." << endl;
@@ -1797,9 +1799,10 @@ void Data::resizeLDmatrix(const unsigned windowWidth, const float LDthreshold) {
                 }
             }
             windSize[i] = snp->windSize = windStartOri[i] + windEndi - windStart[i];
-            ZPZ[i] = ZPZ[i].segment(windStart[i] - windStartOri[i], windSize[i]);
-            windSizeMean += (snp->windSize - windSizeMean)/numIncdSnps;
-            windSizeSqMean += (float(snp->windSize)*snp->windSize - windSizeSqMean)/numIncdSnps;
+            ZPZiTmp = ZPZ[i].segment(windStart[i] - windStartOri[i], windSize[i]);
+            ZPZ[i] = ZPZiTmp;
+            windSizeMean += (snp->windSize - windSizeMean)/(i+1);
+            windSizeSqMean += (float(snp->windSize)*snp->windSize - windSizeSqMean)/(i+1);
         }
     }
     cout << "Resized per-SNP window size mean " << windSizeMean << " sd " << windSizeSqMean-windSizeMean*windSizeMean << "." << endl;
