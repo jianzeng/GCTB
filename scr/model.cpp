@@ -512,10 +512,18 @@ void BayesS::Sp::hmcSampler(const unsigned numNonZeros, const float sigmaSq, con
     // Hamiltonian Monte Carlo
     // note that the scale factor of sigmaSq will be simultaneously updated
     
+    // Cautious:
+    // The sampled value of SNP effect can be exactly zero even it is in the model. In this case, the numNonZeros will be inflated and cause zero element at the end of snp2pqDelta1 vector.
+    // To get around this, recalculate numNonZeros here.
+    
+    unsigned nnz = 0;
+    for (unsigned i=0; i<numSnps; ++i)
+        if (snpEffects[i]) ++nnz;
+    
     // Prepare
-    ArrayXf snpEffectDelta1(numNonZeros);
-    ArrayXf snp2pqDelta1(numNonZeros);
-    ArrayXf logSnp2pqDelta1(numNonZeros);
+    ArrayXf snpEffectDelta1(nnz);
+    ArrayXf snp2pqDelta1(nnz);
+    ArrayXf logSnp2pqDelta1(nnz);
     
     for (unsigned i=0, j=0; i<numSnps; ++i) {
         if (snpEffects[i]) {
@@ -1364,8 +1372,6 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<VectorX
                 }
                 valueTmp[i] = 0.0;
             }
-            
-            if (isnan(valueTmp[i])) cout << "i " << i << " value " << valueTmp[i] << " ZPZdiag " << ZPZdiag[i] << " invLhs " << invLhs << " rhs " << rhs << " uhat " << uhat << endl;
         }
     }
     
