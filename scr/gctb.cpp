@@ -42,43 +42,43 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
 }
 
 Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
-                         const float heritability, const float probFixed, const bool estimatePi,
+                         const float heritability, const float pi, const bool estimatePi,
                          const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S){
     data.initVariances(heritability);
     if (!gwasFile.empty()) {
         if (bayesType == "C")
-            return new ApproxBayesC(data, data.varGenotypic, data.varResidual, probFixed, estimatePi);
+            return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi);
         else if (bayesType == "S")
-            return new ApproxBayesS(data, data.varGenotypic, data.varResidual, probFixed, estimatePi, varS, S, algorithm);
+            return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, varS, S, algorithm);
         else
             throw(" Error: Wrong bayes type: " + bayesType + " in the summary-data-based Bayes analysis.");
     }
     if (bayesType == "C") {
         data.readBedFile(bedFile + ".bed");
-        return new BayesC(data, data.varGenotypic, data.varResidual, probFixed, estimatePi, algorithm);
+        return new BayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, algorithm);
     }
     else if (bayesType == "S") {
         data.readBedFile(bedFile + ".bed");
-        return new BayesS(data, data.varGenotypic, data.varResidual, probFixed, estimatePi, varS, S, algorithm);
+        return new BayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, varS, S, algorithm);
     }
     else if (bayesType == "N") {
         data.readBedFile(bedFile + ".bed");
         data.getNonoverlapWindowInfo(windowWidth);
-        return new BayesN(data, data.varGenotypic, data.varResidual, probFixed, estimatePi, snpFittedPerWindow);
+        return new BayesN(data, data.varGenotypic, data.varResidual, pi, estimatePi, snpFittedPerWindow);
     }
     else if (bayesType == "NS") {
         data.readBedFile(bedFile + ".bed");
         data.getNonoverlapWindowInfo(windowWidth);
-        return new BayesNS(data, data.varGenotypic, data.varResidual, probFixed, estimatePi, varS, S, snpFittedPerWindow, algorithm);
+        return new BayesNS(data, data.varGenotypic, data.varResidual, pi, estimatePi, varS, S, snpFittedPerWindow, algorithm);
     }
     else if (bayesType == "Cap") {
         //data.readBedFile(bedFile + ".bed");
         data.buildSparseMME(bedFile + ".bed", windowWidth);
-        return new ApproxBayesC(data, data.varGenotypic, data.varResidual, probFixed, estimatePi);
+        return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi);
     }
     else if (bayesType == "Sap") {
         data.buildSparseMME(bedFile + ".bed", windowWidth);
-        return new ApproxBayesS(data, data.varGenotypic, data.varResidual, probFixed, estimatePi, varS, S, algorithm);
+        return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, varS, S, algorithm);
     }
     else {
         throw(" Error: Wrong bayes type: " + bayesType);

@@ -33,7 +33,7 @@ public:
                       const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool multiLDmatrix);
 
     Model* buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
-                      const float heritability, const float probFixed, const bool estimatePi,
+                      const float heritability, const float pi, const bool estimatePi,
                       const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S);
     vector<McmcSamples*> runMcmc(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior);
     void saveMcmcSamples(const vector<McmcSamples*> &mcmcSampleVec, const string &filename);

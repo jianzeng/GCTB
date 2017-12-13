@@ -43,7 +43,7 @@ public:
     unsigned thin;  // save every this th sampled value in MCMC
     unsigned includeChr;  // chromosome to include
     
-    float probFixed;
+    float pi;
     float heritability;
 //    float varGenotypic;
 //    float varResidual;
@@ -89,7 +89,7 @@ public:
         includeChr              = 0;
                 
         windowWidth             = 0*Megabase;
-        probFixed               = 0.05;
+        pi                      = 0.05;
         heritability            = 0.5;
 //        varGenotypic            = 1.0;
 //        varResidual             = 1.0;

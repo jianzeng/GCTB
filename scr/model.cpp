@@ -229,7 +229,7 @@ void BayesC::ScaleVar::sampleFromFC(const float sigmaSq, const float df, float &
     scaleVar = value;
 }
 
-void BayesC::ProbFixed::sampleFromFC(const unsigned numSnps, const unsigned numSnpEff){
+void BayesC::Pi::sampleFromFC(const unsigned numSnps, const unsigned numSnpEff){
     float alphaTilde = numSnpEff + alpha;
     float betaTilde  = numSnps - numSnpEff + beta;
     value = Beta::sample(alphaTilde, betaTilde);
@@ -1364,6 +1364,8 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<VectorX
                 }
                 valueTmp[i] = 0.0;
             }
+            
+            if (isnan(valueTmp[i])) cout << "i " << i << " value " << valueTmp[i] << " ZPZdiag " << ZPZdiag[i] << " invLhs " << invLhs << " rhs " << rhs << " uhat " << uhat << endl;
         }
     }
     
