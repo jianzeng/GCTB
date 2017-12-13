@@ -98,7 +98,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
             ss << "--wind " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--pi")) {
-            probFixed = atof(argv[++i]);
+            pi = atof(argv[++i]);
             ss << "--pi " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--hsq")) {
@@ -244,8 +244,8 @@ void Options::readFile(const string &file){  // input options from file
             snpResFile = value;
         } else if (key == "windowWidth") {
             windowWidth = unsigned(stof(value) * Megabase);
-        } else if (key == "probFixed") {
-            probFixed = stof(value);
+        } else if (key == "pi") {
+            pi = stof(value);
         } else if (key == "heritability") {
             heritability = stof(value);
 //        } else if (key == "varGenotypic") {

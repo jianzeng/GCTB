@@ -26,7 +26,7 @@ public:
                       const unsigned keepIndMax, const unsigned mphen, const string &covariateFile);
     void sortIndBySex(vector<IndInfo*> &indInfoVec);
     void restoreFamFileOrder(vector<IndInfo*> &indInfoVec);
-    Model* buildModel(Data &data, const float heritability, const float probFixed, const bool estimatePi);
+    Model* buildModel(Data &data, const float heritability, const float pi, const bool estimatePi);
     void simu(Data &data, const unsigned numQTL, const float heritability, const float probNDC, const bool removeQTL);
     void outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &title);
 };
@@ -101,14 +101,14 @@ public:
     VectorXf ZPZdiagMale;
     VectorXf ZPZdiagFemale;
     
-    BayesXCI(const Data &data, const float varGenotypic, const float varResidual, const float probFixed, const bool estimatePi, const unsigned nmale, const unsigned nfemale):
-    BayesC(data, varGenotypic, varResidual, probFixed, estimatePi, "Gibbs", false),
+    BayesXCI(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const unsigned nmale, const unsigned nfemale):
+    BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false),
     p(0.15),
     gamma(data.snpEffectNames),
     snpEffects(data.snpEffectNames),
     scale(data.snp2pq.sum(), sigmaSq.scale),
     genVarPrior(varGenotypic),
-    piPrior(probFixed),
+    piPrior(pival),
     nmale(nmale), nfemale(nfemale) {
         
         // MPI

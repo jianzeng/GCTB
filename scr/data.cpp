@@ -1501,7 +1501,11 @@ void Data::resizeWindow(const vector<SnpInfo *> &incdSnpInfoVec, const VectorXi 
             break;
         }
     }
-    if (reindexed == false) return;
+    if (reindexed == false) {
+        windStart = windStartOri;
+        windSize  = windSizeOri;
+        return;
+    }
     cout << "Resizing per-SNP LD window..." << endl;
     windStart.setZero(numIncdSnps);
     windSize.setZero(numIncdSnps);
@@ -1621,6 +1625,7 @@ void Data::buildSparseMME(){
         snp = incdSnpInfoVec[i];
         snp->af = snp->gwas_af;
         snp2pq[i] = 2.0f*snp->gwas_af*(1.0f-snp->gwas_af);
+        if(snp2pq[i]==0) cout << "Error: SNP " << snp->ID << " af " << snp->af << " has 2pq = 0." << endl;
         D[i] = snp2pq[i]*snp->gwas_n;
         b[i] = snp->gwas_b;
         n[i] = snp->gwas_n;

@@ -69,7 +69,7 @@ int main(int argc, const char * argv[]) {
             gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.includeChr, readGenotypes);
             
             Model *model = gctb.buildModel(data, opt.bedFile, "", opt.bayesType, opt.windowWidth,
-                                            opt.heritability, opt.probFixed, opt.estimatePi,
+                                            opt.heritability, opt.pi, opt.estimatePi,
                                             opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior);
@@ -98,7 +98,7 @@ int main(int argc, const char * argv[]) {
             gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.multiLDmat);
             
             Model *model = gctb.buildModel(data, "", opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
-                                            opt.heritability, opt.probFixed, opt.estimatePi,
+                                            opt.heritability, opt.pi, opt.estimatePi,
                                             opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior);
@@ -141,7 +141,7 @@ int main(int argc, const char * argv[]) {
             if (opt.bayesType == "Simu") {
                 xci.simu(data, 1000, 0.02, 0.15, false);  // ad hoc simulation to test BayesXCI method
             }
-            Model *model = xci.buildModel(data, opt.heritability, opt.probFixed, opt.estimatePi);
+            Model *model = xci.buildModel(data, opt.heritability, opt.pi, opt.estimatePi);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior);
             gctb.saveMcmcSamples(mcmcSampleVec, opt.title);

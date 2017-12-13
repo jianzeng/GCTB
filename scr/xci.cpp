@@ -63,9 +63,9 @@ void XCI::inputIndInfo(Data &data, const string &bedFile, const string &phenotyp
     restoreFamFileOrder(data.indInfoVec);
 }
 
-Model* XCI::buildModel(Data &data, const float heritability, const float probFixed, const bool estimatePi){
+Model* XCI::buildModel(Data &data, const float heritability, const float pi, const bool estimatePi){
     data.initVariances(heritability);
-    return new BayesXCI(data, data.varGenotypic, data.varResidual, probFixed, estimatePi, numKeptMales, numKeptFemales);
+    return new BayesXCI(data, data.varGenotypic, data.varResidual, pi, estimatePi, numKeptMales, numKeptFemales);
 }
 
 void XCI::simu(Data &data, const unsigned numQTL, const float heritability, const float probNDC, const bool removeQTL){
