@@ -43,6 +43,7 @@ public:
     float af;       // allele frequency
     bool included;  // flag for inclusion in panel
     bool isQTL;     // for simulation
+    long sampleSize;
     
     VectorXf genotypes; // temporary storage of genotypes of individuals used for building sparse Z'Z
     
@@ -63,6 +64,7 @@ public:
         af = -1;
         included = true;
         isQTL = false;
+        sampleSize = 0;
         effect = 0;
         gwas_b  = -999;
         gwas_se = -999;
@@ -118,6 +120,7 @@ public:
     
     //SparseMatrix<float> ZPZ; // sparse Z'Z because LE is assumed for distant SNPs
     vector<VectorXf> ZPZ;
+    vector<SparseVector<float> > ZPZsp;
     SparseMatrix<float> ZPZinv;
 
     MatrixXf XPX;            // X'X the MME lhs
@@ -205,6 +208,7 @@ public:
     void resizeLDmatrix(const unsigned windowWidth, const float LDthreshold);
     void outputLDmatrix(const string &filename) const;
     void displayAverageWindowSize(const VectorXi &windSize);
+    void makeSparseLDmatrix(const float ldThreshold, const string &filename);
 };
 
 #endif /* data_hpp */

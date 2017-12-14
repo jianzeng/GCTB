@@ -579,7 +579,7 @@ public:
             sum2pq = 0.0;
         }
         
-        void sampleFromFC(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
+        void sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const VectorXf &se, VectorXf &sse, const VectorXf &n, const VectorXf &snp2pq,
                           const float sigmaSq, const float pi, const float vare);
@@ -610,7 +610,7 @@ public:
 
     class Rounding : public BayesC::Rounding {
     public:
-        void computeRcorr(const VectorXf &ZPy, const vector<VectorXf> &ZPZ,
+        void computeRcorr(const VectorXf &ZPy, const vector<SparseVector<float> > &ZPZ,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const VectorXf &snpEffects, VectorXf &rcorr);
     };
@@ -670,7 +670,7 @@ public:
             sum2pqOneMinusS = snp2pq.sum()*pi;  // starting value of S is 0
         }
         
-        void sampleFromFC(VectorXf &rcorr,const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
+        void sampleFromFC(VectorXf &rcorr,const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const float sigmaSq, const float pi, const float vare,
                           const VectorXf &snp2pqPowS, const VectorXf &snp2pq,
