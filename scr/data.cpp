@@ -1130,6 +1130,8 @@ void Data::makeLDmatrix(const string &bedFile, const unsigned windowWidth, const
             
             if (snp2pq[inc]==0) throw ("Error: " + snpj->ID + " is a fixed SNP!");
             
+            snpj->sampleSize = numKeptInds;
+            
             // standardize genotypes
             D[inc] = snp2pq[inc]*(numKeptInds-nmiss);
             genotypes.array() -= genotypes.mean();
@@ -1174,7 +1176,7 @@ void Data::makeLDmatrix(const string &bedFile, const unsigned windowWidth, const
     SnpInfo *snp;
     for (unsigned i=0; i<numIncdSnps; ++i) {
         snp = incdSnpInfoVec[i];
-        out1 << boost::format("%6s %15s %6s %15s %6s %6s %6s %6s %6s\n")
+        out1 << boost::format("%6s %15s %6s %15s %6s %6s %10s %10s %10s %10s\n")
         %snp->chrom
         %snp->ID
         %snp->genPos
@@ -1183,7 +1185,8 @@ void Data::makeLDmatrix(const string &bedFile, const unsigned windowWidth, const
         %snp->a2
         %snp->index
         %snp->windStart
-        %snp->windSize;
+        %snp->windSize
+        %snp->sampleSize;
     }
     out1.close();
     
@@ -1308,6 +1311,8 @@ void Data::makeLDmatrix(const string &bedFile, const float LDthreshold, const st
         
         if (snp2pq[inc]==0) throw ("Error: " + snpj->ID + " is a fixed SNP!");
         
+        snpj->sampleSize = numKeptInds;
+        
         // standardize genotypes
         D[inc] = snp2pq[inc]*(numKeptInds-nmiss);
         
@@ -1372,7 +1377,9 @@ void Data::makeLDmatrix(const string &bedFile, const float LDthreshold, const st
         snp2pq[inc] = 2.0f*snpj->af*(1.0f-snpj->af);
         
         if (snp2pq[inc]==0) throw ("Error: " + snpj->ID + " is a fixed SNP!");
-        
+  
+        snpj->sampleSize = numKeptInds;
+
         // standardize genotypes
         D[inc] = snp2pq[inc]*(numKeptInds-nmiss);
         genotypes.array() -= genotypes.mean();
@@ -1444,7 +1451,7 @@ void Data::makeLDmatrix(const string &bedFile, const float LDthreshold, const st
     SnpInfo *snp;
     for (unsigned i=0; i<numSnpInRange; ++i) {
         snp = incdSnpInfoVec[i+start];
-        out1 << boost::format("%6s %15s %6s %15s %6s %6s %6s %6s %6s\n")
+        out1 << boost::format("%6s %15s %6s %15s %6s %6s %10s %10s %10s %10s\n")
         %snp->chrom
         %snp->ID
         %snp->genPos
@@ -1453,7 +1460,8 @@ void Data::makeLDmatrix(const string &bedFile, const float LDthreshold, const st
         %snp->a2
         %snp->index
         %snp->windStart
-        %snp->windSize;
+        %snp->windSize
+        %snp->sampleSize;
         fwrite(&ZPZ[i][0], sizeof(float), snp->windSize, out2);
 //        out3 << ZPZ[i].transpose() << endl;
     }
@@ -1477,10 +1485,12 @@ void Data::readLDmatrixInfoFile(const string &ldmatrixFile){
     unsigned chr, physPos;
     float genPos;
     unsigned idx, windStart, windSize;
-    while (in >> chr >> id >> genPos >> physPos >> allele1 >> allele2 >> idx >> windStart >> windSize) {
+    long sampleSize;
+    while (in >> chr >> id >> genPos >> physPos >> allele1 >> allele2 >> idx >> windStart >> windSize >> sampleSize) {
         SnpInfo *snp = new SnpInfo(idx, id, allele1, allele2, chr, genPos, physPos);
         snp->windStart = windStart;
         snp->windSize = windSize;
+        snp->sampleSize = sampleSize;
         snpInfoVec.push_back(snp);
         if (snpInfoMap.insert(pair<string, SnpInfo*>(id, snp)).second == false) {
             throw ("Error: Duplicate SNP ID found: \"" + id + "\".");
@@ -1633,13 +1643,20 @@ void Data::buildSparseMME(){
         tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
     }
     
+//    for (unsigned i=0; i<numIncdSnps; ++i) {
+//        snp = incdSnpInfoVec[i];
+//        for (unsigned j=0; j<snp->windSize; ++j) {
+//            ZPZ[i][j] *= sqrt(D[i]*D[snp->windStart+j]);
+//        }
+//    }
+    
     for (unsigned i=0; i<numIncdSnps; ++i) {
         snp = incdSnpInfoVec[i];
-        for (unsigned j=0; j<snp->windSize; ++j) {
-            ZPZ[i][j] *= sqrt(D[i]*D[snp->windStart+j]);
+        for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
+            ZPZsp[i].coeffRef(it.index()) *= sqrt(D[i]*D[snp->windStart+it.index()]);
         }
-        //ZPZdiag[i] = ZPZ[i][i-snp->windStart];
     }
+    
     ZPZdiag = D;
     
     //b.array() -= b.mean();
@@ -1822,6 +1839,30 @@ void Data::resizeLDmatrix(const unsigned windowWidth, const float LDthreshold) {
     displayAverageWindowSize(windSize);
 }
 
+void Data::makeSparseLDmatrix(const float chisqThreshold, const string &filename) {
+    cout << "Making a sparse LD matrix by setting the non-significant LD to be zero..." << endl;
+    ZPZsp.resize(numIncdSnps);
+    long cnt=0, cnt2=0;
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+        SnpInfo *snp = incdSnpInfoVec[i];
+        ZPZsp[i].resize(snp->windSize);
+        SparseVector<float> vec(snp->windSize);
+        for (unsigned j=0; j<snp->windSize; ++j) {
+            if (ZPZ[i][j]*ZPZ[i][j]*snp->sampleSize > chisqThreshold) {
+                ZPZsp[i].insertBack(j) = ZPZ[i][j];
+                //cout << i << " " << j << " " << ZPZsp[i].coeff(j) << endl;
+            }
+        }
+        ZPZ[i].resize(0);
+        //cout << i << " windsize " << snp->windSize << " " << ZPZsp[i].size() << endl;
+        long nnz = ZPZsp[i].nonZeros();
+        cnt  += nnz;
+        cnt2 += nnz*nnz;
+    }
+    cout << "Average number of non-zeros in the per-SNP sparse window " << cnt/numIncdSnps << " sd " << sqrt(cnt2/numIncdSnps - (cnt/numIncdSnps)*(cnt/numIncdSnps)) << "." << endl;
+}
+
+
 
 void Data::outputLDmatrix(const string &filename) const {
     string outfilename = filename + ".ldm";
@@ -1835,7 +1876,7 @@ void Data::outputLDmatrix(const string &filename) const {
     SnpInfo *snp;
     for (unsigned i=0; i<numIncdSnps; ++i) {
         snp = incdSnpInfoVec[i];
-        out1 << boost::format("%6s %15s %6s %15s %6s %6s %6s %6s %6s\n")
+        out1 << boost::format("%6s %15s %6s %15s %6s %6s %10s %10s %10s %10s\n")
         %snp->chrom
         %snp->ID
         %snp->genPos
@@ -1844,7 +1885,8 @@ void Data::outputLDmatrix(const string &filename) const {
         %snp->a2
         %snp->index
         %snp->windStart
-        %snp->windSize;
+        %snp->windSize
+        %snp->sampleSize;
         fwrite(&ZPZ[i][0], sizeof(float), snp->windSize, out2);
     }
     out1.close();
