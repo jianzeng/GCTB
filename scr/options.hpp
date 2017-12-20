@@ -50,6 +50,7 @@ public:
     float varS; // prior variance of S in BayesS and BayesNS
     vector<float> S;    // starting value of S in BayesS and BayesNS
     float LDthreshold;  // used to define the two ends of per-SNP LD window in the banded LD matrix
+    float chisqThreshold;  // significance threshold for nonzero LD chi-square test
     
     bool estimatePi;
     bool estimateScale;
@@ -75,6 +76,7 @@ public:
     string gwasSummaryFile;
     string ldmatrixFile;
     string snpRange;
+    string outLDmatType;
     
     Options(){
         chainLength             = 21000;
@@ -97,6 +99,7 @@ public:
         S.resize(1);
         S[0]                    = 0.0;
         LDthreshold             = 0.0;
+        chisqThreshold          = 10;
         
         estimatePi              = true;
         estimateScale           = false;
@@ -122,6 +125,7 @@ public:
         gwasSummaryFile         = "";
         ldmatrixFile            = "";
         snpRange                = "";
+        outLDmatType            = "sparse";
     }
     
     void inputOptions(const int argc, const char* argv[]);
