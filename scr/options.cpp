@@ -28,9 +28,24 @@ void Options::inputOptions(const int argc, const char* argv[]){
             bayesType = argv[++i];
             ss << "--sbayes " << argv[i] << "\n";
         }
-        else if (!strcmp(argv[i], "--make-ldm")) {
+//        else if (!strcmp(argv[i], "--make-ldm")) {
+//            analysisType = "LDmatrix";
+//            ss << "--make-ldm " << "\n";
+//        }
+        else if (!strcmp(argv[i], "--make-full-ldm")) {
             analysisType = "LDmatrix";
-            ss << "--make-ldm " << "\n";
+            outLDmatType = "full";
+            ss << "--make-full-ldm " << "\n";
+        }
+        else if (!strcmp(argv[i], "--make-band-ldm")) {
+            analysisType = "LDmatrix";
+            outLDmatType = "band";
+            ss << "--make-band-ldm " << "\n";
+        }
+        else if (!strcmp(argv[i], "--make-sparse-ldm")) {
+            analysisType = "LDmatrix";
+            outLDmatType = "sparse";
+            ss << "--make-sparse-ldm " << "\n";
         }
         else if (!strcmp(argv[i], "--alg")) {
             algorithm = argv[++i];
@@ -289,6 +304,8 @@ void Options::readFile(const string &file){  // input options from file
             snpRange = value;
         } else if (key == "multiThreadEigen" && value == "Yes") {
             multiThreadEigen = true;
+        } else if (key == "outLDmatType") {
+            outLDmatType = value;
         } else if (key.substr(0,2) == "//" ||
                    key.substr(0,1) == "#") {
             continue;
