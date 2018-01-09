@@ -1250,7 +1250,8 @@ void ApproxBayesC::Rounding::computeRcorr(const VectorXf &ZPy, const vector<Spar
         unsigned chrEnd   = chromInfo->endSnpIdx;
         for (unsigned i=chrStart; i<=chrEnd; ++i) {
             for (SparseVector<float>::InnerIterator it(ZPZ[i]); it; ++it) {
-                rcorr[windStart[i]+it.index()] -= it.value() * snpEffects[i];
+                //rcorr[windStart[i]+it.index()] -= it.value() * snpEffects[i];
+                rcorr[it.index()] -= it.value() * snpEffects[i];
             }
 //            rcorr.segment(windStart[i], windSize[i]) -= ZPZ[i]*snpEffects[i];
         }
@@ -1375,7 +1376,8 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
                 //rcorr.segment(windStart[i], windSize[i]) += ZPZ[i]*(oldSample - values[i]);
                 float sampleDiff = oldSample - values[i];
                 for (SparseVector<float>::InnerIterator it(ZPZ[i]); it; ++it) {
-                    rcorr[windStart[i]+it.index()] += it.value() * sampleDiff;
+                    //rcorr[windStart[i]+it.index()] += it.value() * sampleDiff;
+                    rcorr[it.index()] += it.value() * sampleDiff;
                 }
                 
                 //sse.segment(windStart[i], windSize[i]) += (ZPy.segment(windStart[i], windSize[i]) + rcorr.segment(windStart[i], windSize[i]))*(oldSample - values[i]);
@@ -1386,7 +1388,8 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
                 if (oldSample) {
                     //rcorr.segment(windStart[i], windSize[i]) += ZPZ[i]*oldSample;
                     for (SparseVector<float>::InnerIterator it(ZPZ[i]); it; ++it) {
-                        rcorr[windStart[i]+it.index()] += it.value() * oldSample;
+                        //rcorr[windStart[i]+it.index()] += it.value() * oldSample;
+                        rcorr[it.index()] += it.value() * oldSample;
                     }
                     
                     //sse.segment(windStart[i], windSize[i]) += (ZPy.segment(windStart[i], windSize[i]) + rcorr.segment(windStart[i], windSize[i]))*oldSample;

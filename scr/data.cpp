@@ -1679,7 +1679,7 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
             fread(d, sizeof(d), 1, in);
             fread(v, sizeof(v), 1, in);
             
-            ZPZsp[inci].reserve(windSizeLDM[inci]);
+            ZPZsp[inci].resize(windSizeLDM[i]);
             for (unsigned j=0; j<windSizeLDM[i]; ++j) {
                 snpj = snpInfoVec[d[j]];
                 if (snpj->included) {
@@ -1826,7 +1826,7 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
                 fread(d, sizeof(d), 1, in2);
                 fread(v, sizeof(v), 1, in2);
                 
-                ZPZsp[incj].reserve(windSizeLDM[incj]);
+                ZPZsp[incj].resize(windSizeLDM[j]);
                 for (unsigned k=0; k<windSizeLDM[j]; ++k) {
                     snpk = snpInfoVec[windStartLDM[j]+d[k]-d[0]];
                     if (snpk->included) {
@@ -1896,6 +1896,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
 //            }
             windStart[i] = snp->windStart = it.index();
             windSize[i] = snp->windSize = ZPZsp[i].nonZeros();
+            for (; it; ++it) snp->windEnd = it.index();
             ZPZ[i].resize(0);
             //cout << i << " windsize " << snp->windSize << " " << ZPZsp[i].size() << endl;
         }
@@ -1969,10 +1970,19 @@ void Data::buildSparseMME(){
     //        }
     //    }
     
+    if (!ZPZsp.size()) {
+        ZPZsp.resize(numIncdSnps);
+        for (unsigned i=0; i<numIncdSnps; ++i) {
+            ZPZsp[i] = ZPZ[i].sparseView();
+            ZPZ[i].resize(0);
+        }
+    }
     for (unsigned i=0; i<numIncdSnps; ++i) {
         snp = incdSnpInfoVec[i];
+        //cout << i << " " << ZPZsp[i].nonZeros() << " " << D.size() << endl;
         for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
-            ZPZsp[i].coeffRef(it.index()) *= sqrt(D[i]*D[snp->windStart+it.index()]);
+            //cout << it.index() << " ";
+            it.valueRef() *= sqrt(D[i]*D[it.index()]);
         }
     }
     
