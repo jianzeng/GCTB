@@ -1789,6 +1789,8 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
     }
     
     if (sparse) {
+        windStart.setZero(numIncdSnps);
+        windSize.setZero(numIncdSnps);
         ZPZsp.resize(numIncdSnps);
     }
     else {

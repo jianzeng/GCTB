@@ -579,7 +579,11 @@ public:
             sum2pq = 0.0;
         }
         
-        void sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
+        void sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
+                          const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
+                          const VectorXf &se, VectorXf &sse, const VectorXf &n, const VectorXf &snp2pq,
+                          const float sigmaSq, const float pi, const float vare);
+        void sampleFromFC(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const VectorXf &se, VectorXf &sse, const VectorXf &n, const VectorXf &snp2pq,
                           const float sigmaSq, const float pi, const float vare);
@@ -610,7 +614,10 @@ public:
 
     class Rounding : public BayesC::Rounding {
     public:
-        void computeRcorr(const VectorXf &ZPy, const vector<SparseVector<float> > &ZPZ,
+        void computeRcorr(const VectorXf &ZPy, const vector<SparseVector<float> > &ZPZsp,
+                          const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
+                          const VectorXf &snpEffects, VectorXf &rcorr);
+        void computeRcorr(const VectorXf &ZPy, const vector<VectorXf> &ZPZ,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const VectorXf &snpEffects, VectorXf &rcorr);
     };
@@ -621,6 +628,8 @@ public:
     
     VectorXf rcorr;
     VectorXf sse;
+    
+    bool sparse;
     
     FixedEffects fixedEffects;
     SnpEffects snpEffects;
@@ -644,6 +653,7 @@ public:
     , vare(varResidual, data.numKeptInds)
     , varg(varGenotypic, data.numKeptInds)
     {
+        sparse = data.ZPZsp.size() ? true : false;
         paramSetVec = {&snpEffects, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &sigmaSqG, &rounding};
@@ -676,6 +686,12 @@ public:
                           const VectorXf &snp2pqPowS, const VectorXf &snp2pq,
                           const VectorXf &se, VectorXf &sse, const VectorXf &n,
                           const float vg, float &scale);
+        void sampleFromFC(VectorXf &rcorr,const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
+                          const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
+                          const float sigmaSq, const float pi, const float vare,
+                          const VectorXf &snp2pqPowS, const VectorXf &snp2pq,
+                          const VectorXf &se, VectorXf &sse, const VectorXf &n,
+                          const float vg, float &scale);
         void hmcSampler(VectorXf &rcorr, const VectorXf &ZPy, const vector<VectorXf> &ZPZ,
                         const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                         const float sigmaSq, const float pi, const float vare, const VectorXf &snp2pqPowS);
@@ -690,6 +706,8 @@ public:
 public:
     VectorXf rcorr;
     VectorXf sse;
+    
+    bool sparse;
 
     SnpEffects snpEffects;
     ApproxBayesC::FixedEffects fixedEffects;
@@ -708,6 +726,7 @@ public:
     , vare(varResidual, data.numKeptInds)
     , varg(varGenotypic, data.numKeptInds)
     {
+        sparse = data.ZPZsp.size() ? true : false;
         paramSetVec = {&snpEffects, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &sigmaSqG, &S.ar, &S.tuner, &rounding};
