@@ -1034,196 +1034,6 @@ void Data::readGwasSummaryFile(const string &gwasFile){
 
 }
 
-//void Data::makeLDmatrix(const string &bedFile, const unsigned windowWidth, const string &filename){
-//
-//    cout << "Building LD matrix ..." << endl;
-//    
-//    getWindowInfo(incdSnpInfoVec, windowWidth, windStart, windSize);
-//    
-//    if (numIncdSnps == 0) throw ("Error: No SNP is retained for analysis.");
-//    if (numKeptInds == 0) throw ("Error: No individual is retained for analysis.");
-//    
-//    ZPZ.resize(numIncdSnps);
-//    ZPZdiag.resize(numIncdSnps);
-//    for (unsigned i=0; i<numIncdSnps; ++i) {
-//        ZPZ[i].resize(windSize[i]);
-//    }
-//    D.setZero(numIncdSnps);
-//    
-//    Gadget::Timer timer;
-//    timer.setTime();
-//    
-//    const int bedToGeno[4] = {2, -9, 1, 0};
-//    
-//#pragma omp parallel for
-//    for (unsigned chr=0; chr<numChroms; ++chr) {
-//        
-//        // Read bed file
-//        VectorXf genotypes(numKeptInds);
-//        ifstream in(bedFile.c_str(), ios::binary);
-//        if (!in) throw ("Error: can not open the file [" + bedFile + "] to read.");
-//        if (chr==0)
-//            cout << "Reading PLINK BED file from [" + bedFile + "] in SNP-major format ..." << endl;
-//        char header[3];
-//        in.read((char *) header, 3);
-//        if (!in || header[0] != 0x6c || header[1] != 0x1b || header[2] != 0x01) {
-//            cerr << "Error: Incorrect first three bytes of bed file: " << bedFile << endl;
-//            exit(1);
-//        }
-//        
-//        ChromInfo *chrinfo = chromInfoVec[chr];
-//        
-//        unsigned start = chrinfo->startSnpIdx;
-//        unsigned end = chrinfo->endSnpIdx;
-//        unsigned lastWindStart = chrinfo->startSnpIdx;
-//        
-//        cout << "thread " << omp_get_thread_num() << " of " << omp_get_num_threads() << " is processing chrom " << chrinfo->id << " (" << chrinfo->size << " SNPs)." << endl;
-//        
-//        //cout << "chrom " << chrinfo->id << " start " << start << " end " << end << " lastWindStart " << lastWindStart << endl;
-//        
-//        IndInfo *indi = NULL;
-//        SnpInfo *snpj = NULL;
-//        SnpInfo *snpk = NULL;
-//        
-//        int genoValue;
-//        unsigned i, j, k;
-//        unsigned inc; // index of included SNP
-//        
-//        for (j = 0, inc = start; j < numSnps; j++) {
-//            
-//            unsigned size = (numInds+3)>>2;
-//            
-//            snpj = snpInfoVec[j];
-//            
-//            if (snpj->index < start || !snpj->included) {
-//                in.ignore(size);
-//                continue;
-//            }
-//
-//            char *bedLineIn = new char[size];
-//            in.read((char *)bedLineIn, size);
-//
-//            if(!(inc%1000) && myMPI::rank==0) {
-//                cout << " thread " << omp_get_thread_num() << " read snp " << inc << " windStart " << snpj->windStart << " windSize " << snpj->windSize << endl;
-//            }
-//            
-//            float mean = 0.0;
-//            unsigned nmiss = 0;
-//            
-//            for (i = 0; i < numInds; i++) {
-//                indi = indInfoVec[i];
-//                if (!indi->kept) continue;
-//                genoValue = bedToGeno[(bedLineIn[i>>2]>>((i&3)<<1))&3];
-//                genotypes[indi->index] = genoValue;
-//                if (genoValue == -9) ++nmiss;   // missing genotype
-//                else mean += genoValue;
-//            }
-//            delete[] bedLineIn;
-//            
-//            // fill missing values with the mean
-//            mean /= float(numKeptInds-nmiss);
-//            if (nmiss) {
-//                for (i=0; i<numKeptInds; ++i) {
-//                    if (genotypes[i] == -9) genotypes[i] = mean;
-//                }
-//            }
-//            
-//            //if (snpj->ID=="rs10165221") cout << snpj->ID << " af " << snpj->af << " z " << genotypes.head(10).transpose() << endl;
-//
-//            // compute allele frequency
-//            snpj->af = 0.5f*mean;
-//            snp2pq[inc] = 2.0f*snpj->af*(1.0f-snpj->af);
-//            
-//            if (snp2pq[inc]==0) throw ("Error: " + snpj->ID + " is a fixed SNP!");
-//            
-//            snpj->sampleSize = numKeptInds;
-//            
-//            // standardize genotypes
-//            D[inc] = snp2pq[inc]*(numKeptInds-nmiss);
-//            genotypes.array() -= genotypes.mean();
-//            genotypes.array() /= sqrtf(D[inc]);
-//            snpj->genotypes = genotypes;
-//            
-//            // compute Zj'Z[j] with Z[j] for genotype matrix of SNPs in the window of SNP j
-//            ZPZdiag[inc] = ZPZ[inc][inc - snpj->windStart] = genotypes.squaredNorm();
-//            for (k = snpj->windStart; k<inc; ++k) {
-//                snpk = incdSnpInfoVec[k];
-//                ZPZ[inc][k - snpj->windStart] = ZPZ[k][inc - snpk->windStart] = genotypes.dot(snpk->genotypes);
-//            }
-//            
-//            //if (snpj->ID=="rs10165221") cout << snpj->ID << " af " << snpj->af << " z " << genotypes.head(10).transpose() << endl;
-//            
-//            // release memory for genotypes of anterior SNPs of the window
-//            if (lastWindStart != snpj->windStart) {
-//                for (k=lastWindStart; k<snpj->windStart; ++k) {
-//                    incdSnpInfoVec[k]->genotypes.resize(0);
-//                }
-//                lastWindStart = snpj->windStart;
-//            }
-//            
-//            if (++inc == end) break;
-//        }
-//        
-//        in.close();
-//    }
-//    
-//    timer.getTime();
-//    
-////    cout << "Average window size " << windSize.mean() << "." << endl;
-//    displayAverageWindowSize(windSize);
-//    cout << "LD matrix diagonal mean " << ZPZdiag.mean() << " variance " << Gadget::calcVariance(ZPZdiag) << "." << endl;
-//    cout << "Genotype data for " << numKeptInds << " individuals and " << numIncdSnps << " SNPs are included from [" + bedFile + "]." << endl;
-//    cout << "Build of LD matrix completed (time used: " << timer.format(timer.getElapse()) << ")." << endl;
-//    
-//    
-//    string outfilename = filename + ".ldm.w" + to_string(static_cast<long long>(windowWidth/1e6)) + "mb";
-//    string outfile1 = outfilename + ".info";
-//    ofstream out1(outfile1.c_str());
-//    SnpInfo *snp;
-//    for (unsigned i=0; i<numIncdSnps; ++i) {
-//        snp = incdSnpInfoVec[i];
-//        out1 << boost::format("%6s %15s %6s %15s %6s %6s %10s %10s %10s %10s\n")
-//        %snp->chrom
-//        %snp->ID
-//        %snp->genPos
-//        %snp->physPos
-//        %snp->a1
-//        %snp->a2
-//        %snp->index
-//        %snp->windStart
-//        %snp->windSize
-//        %snp->sampleSize;
-//    }
-//    out1.close();
-//    
-//    
-//    string outfile2 = outfilename + ".bin";
-//    FILE *out2 = fopen(outfile2.c_str(), "wb");
-//    if (!out2) {
-//        throw("Error: cannot open file " + outfile2);
-//    }
-//    
-////    float ww = float(windowWidth)/1e6f;
-////    fwrite(&ww, sizeof(float), 1, out2);
-//    
-//    for (unsigned i=0; i<numIncdSnps; ++i) {
-//        SnpInfo *snp = incdSnpInfoVec[i];
-//        fwrite(&ZPZ[i][0], sizeof(float), snp->windSize, out2);
-//        //cout << "chr " << snp->chrom << " SNP " << snp->ID << " ZPZ[" << i << "] "; //<< ZPZ[i].transpose() << endl;
-//        //if(i==51) cout << ZPZ[i].transpose() << endl;
-////        for (unsigned j=0; j<snp->windSize; ++j) {
-////            SnpInfo *snp2 = incdSnpInfoVec[snp->windStart+j];
-////            cout << snp2->ID << " " << ZPZ[i][j] << " ";
-////            fwrite(&ZPZ[i][j], sizeof(float), 1, out2);
-////        }
-//        //cout << endl;
-//    }
-//    fclose(out2);
-//    
-//    cout << "Written the LD matrix into file [" << outfile1 << "] ..." << endl;
-//    cout << "Written the SNP info into file [" << outfile2 << "] ..." << endl;
-//}
-
 //void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const float chisqThreshold, const float LDthreshold, const unsigned windowWidth, const string &snpRange, const string &filename){
 //    
 //    Gadget::Tokenizer token;
@@ -1239,7 +1049,7 @@ void Data::readGwasSummaryFile(const string &gwasFile){
 //    }
 //    
 //    unsigned numSnpInRange = end - start;
-//
+//    
 //    if (snpRange.empty())
 //        cout << "Building " + LDmatType + " LD matrix for all SNPs ..." << endl;
 //    else
@@ -1258,168 +1068,210 @@ void Data::readGwasSummaryFile(const string &gwasFile){
 //        getWindowInfo(incdSnpInfoVec, windowWidth, windStart, windSize);
 //    }
 //    
-//    
-//    const int bedToGeno[4] = {2, -9, 1, 0};
-//    
 //    // first read in the genotypes of SNPs in the given range
 //    
-//    MatrixXf ZP(numSnpInRange, numKeptInds);  // SNP x Ind
+//    const int bedToGeno[4] = {2, -9, 1, 0};
+//    Vector4f bedToAlleleCnt = {2, 0, 1, 0};
+//    unsigned size = (numInds+3)>>2;
+//    
+//    MatrixXi genoCode(numKeptInds, numSnpInRange);  // SNP x Ind stores the 0,1,2,3 position for the genotype encoding in bedToGeno vector
+//    MatrixXf adjGeno(4, numSnpInRange);  // (Z-2p)/sqrt(2pq) for each SNP
 //    D.setZero(numSnpInRange);
-//    ifstream in(bedFile.c_str(), ios::binary);
-//    if (!in) throw ("Error: can not open the file [" + bedFile + "] to read.");
+//    
+//    FILE *in1 = fopen(bedFile.c_str(), "rb");
+//    if (!in1) throw ("Error: can not open the file [" + bedFile + "] to read.");
 //    cout << "Reading PLINK BED file from [" + bedFile + "] in SNP-major format ..." << endl;
 //    char header[3];
-//    in.read((char *) header, 3);
-//    if (!in || header[0] != 0x6c || header[1] != 0x1b || header[2] != 0x01) {
+//    fread(header, sizeof(header), 1, in1);
+//    if (!in1 || header[0] != 0x6c || header[1] != 0x1b || header[2] != 0x01) {
 //        cerr << "Error: Incorrect first three bytes of bed file: " << bedFile << endl;
 //        exit(1);
 //    }
 //    
+//    
 //    IndInfo *indi = NULL;
 //    SnpInfo *snpj = NULL;
+//    SnpInfo *snpk = NULL;
 //    
-//    int genoValue;
-//    unsigned i, j;
-//    unsigned inc; // index of included SNP
+//    //    VectorXi genoValue(numSnpInRange);
+//    unsigned i, j, k;
+//    unsigned incj, inck; // index of included SNP
+//    unsigned skipj = 0;
+//    unsigned alleleCnt;
+//    unsigned value;
+//    unsigned nmiss;
 //    
-//    for (j = 0, inc = 0; j < numSnps; j++) {
-//        
-//        unsigned size = (numInds+3)>>2;
-//        
+//    for (j = 0, incj = 0; j < numSnps; j++) {
 //        snpj = snpInfoVec[j];
 //        
 //        if (snpj->index < start || !snpj->included) {
-//            in.ignore(size);
+//            skipj += size;
 //            continue;
 //        }
 //        
-//        char *bedLineIn = new char[size];
-//        in.read((char *)bedLineIn, size);
+//        if (skipj) fseek(in1, skipj, SEEK_CUR);
+//        skipj = 0;
 //        
-//        float mean = 0.0;
-//        unsigned nmiss = 0;
+//        char *bedLineIn = new char[size];
+//        fread(bedLineIn, sizeof(char), size, in1);
+//        
+//        //        float mean = 0.0;
+//        //        unsigned nmiss = 0;
+//        
+//        alleleCnt = 0;
+//        nmiss = 0;
 //        
 //        for (i = 0; i < numInds; i++) {
 //            indi = indInfoVec[i];
 //            if (!indi->kept) continue;
-//            genoValue = bedToGeno[(bedLineIn[i>>2]>>((i&3)<<1))&3];
-//            ZP(inc, indi->index) = genoValue;
-//            if (genoValue == -9) ++nmiss;   // missing genotype
-//            else mean += genoValue;
+//            value = (bedLineIn[i>>2]>>((i&3)<<1))&3;
+//            genoCode(indi->index, incj) = value;
+//            alleleCnt += bedToAlleleCnt[value];
+//            if (value==1) ++nmiss;
+//            //            genoValue = bedToGeno[(bedLineIn[i>>2]>>((i&3)<<1))&3];
+//            //            ZP(incj, indi->index) = genoValue;
+//            //            if (genoValue == -9) ++nmiss;   // missing genotype
+//            //            else mean += genoValue;
 //        }
 //        delete[] bedLineIn;
 //        
 //        // fill missing values with the mean
-//        mean /= float(numKeptInds-nmiss);
-//        if (nmiss) {
-//            for (i=0; i<numKeptInds; ++i) {
-//                if (ZP(inc, i) == -9) ZP(inc, i) = mean;
-//            }
-//        }
+//        //        mean /= float(numKeptInds-nmiss);
+//        //        if (nmiss) {
+//        //            for (i=0; i<numKeptInds; ++i) {
+//        //                if (ZP(incj, i) == -9) ZP(incj, i) = mean;
+//        //            }
+//        //        }
 //        
 //        // compute allele frequency
-//        snpj->af = 0.5f*mean;
-//        snp2pq[inc] = 2.0f*snpj->af*(1.0f-snpj->af);
+//        snpj->sampleSize = numKeptInds-nmiss;
+//        snpj->af = alleleCnt/float(2.0f*snpj->sampleSize);
+//        snp2pq[incj] = 2.0f*snpj->af*(1.0f-snpj->af);
 //        
-//        if (snp2pq[inc]==0) throw ("Error: " + snpj->ID + " is a fixed SNP!");
+//        if (snp2pq[incj]==0) throw ("Error: " + snpj->ID + " is a fixed SNP!");
 //        
-//        snpj->sampleSize = numKeptInds;
 //        
 //        // standardize genotypes
-//        D[inc] = snp2pq[inc]*(numKeptInds-nmiss);
+//        D[incj] = snp2pq[incj]*snpj->sampleSize;
+//        
+//        adjGeno.col(incj) = (bedToAlleleCnt.array() - 2.0f*snpj->af)/sqrt(D[incj]);
 //        
 //        if (windowWidth) {
-//            if (inc == 0) firstWindStart = snpj->windStart;
-//            if (inc == numSnpInRange-1) lastWindEnd = snpj->windStart + snpj->windSize;
+//            if (incj == 0) firstWindStart = snpj->windStart;
+//            if (incj == numSnpInRange-1) lastWindEnd = snpj->windStart + snpj->windSize;
 //        }
 //        
-//        if (++inc == numSnpInRange) break;
+//        if (++incj == numSnpInRange) break;
 //    }
 //    
-//    in.close();
+//    fclose(in1);
 //    
-//    ZP = ZP.colwise() - ZP.rowwise().mean();
-//    ZP = ZP.array().colwise() / D.cwiseSqrt().array();
-//    
-//    ZPZdiag = ZP.rowwise().squaredNorm();
-//    
+//    //    ZP = ZP.colwise() - ZP.rowwise().mean();
+//    //    ZP = ZP.array().colwise() / D.cwiseSqrt().array();
+//    //    ZPZdiag = ZP.rowwise().squaredNorm();
+//    //
 //    
 //    // then read in the bed file again to compute Z'Z
 //    
-//    in.open(bedFile.c_str(), ios::binary);
-//    in.seekg(0, ios::beg);
-//    in.read((char *) header, 3);
 //    
 //    MatrixXf denseZPZ;
 //    denseZPZ.setZero(numSnpInRange, numIncdSnps);
-//    VectorXf genotypes(numKeptInds);
+//    VectorXi genoCodeSnpk(numKeptInds);
+//    RowVector4f adjGenoSnpk;
+//    Matrix4f lookupTable;
+//    VectorXf cp(numKeptInds);
+//    float ssq;
 //    
-//    for (j = 0, inc = 0; j < numSnps; j++) {
+//    FILE *in2 = fopen(bedFile.c_str(), "rb");
+//    fseek(in2, 3, SEEK_SET);
+//    unsigned skipk = 0;
+//    
+//    for (k = 0, inck = 0; k < numSnps; k++) {
+//        snpk = snpInfoVec[k];
 //        
-//        unsigned size = (numInds+3)>>2;
-//        
-//        snpj = snpInfoVec[j];
-//        
-//        if (!snpj->included) {
-//            in.ignore(size);
+//        if (!snpk->included) {
+//            skipk += size;
 //            continue;
 //        }
 //        
 //        if (windowWidth) {
-//            if (inc < firstWindStart) {
-//                in.ignore(size);
+//            if (inck < firstWindStart) {
+//                skipk += size;
 //                continue;
-//            } else if (inc > lastWindEnd) {
+//            } else if (inck > lastWindEnd) {
 //                break;
 //            }
 //        }
 //        
-//        char *bedLineIn = new char[size];
-//        in.read((char *)bedLineIn, size);
+//        if (skipk) fseek(in2, skipk, SEEK_CUR);
+//        skipk = 0;
 //        
-//        float mean = 0.0;
-//        unsigned nmiss = 0;
+//        char *bedLineIn = new char[size];
+//        fread(bedLineIn, sizeof(char), size, in2);
+//        
+//        //        float mean = 0.0;
+//        //        unsigned nmiss = 0;
+//        
+//        alleleCnt = 0;
+//        nmiss = 0;
 //        
 //        for (i = 0; i < numInds; i++) {
 //            indi = indInfoVec[i];
 //            if (!indi->kept) continue;
-//            genoValue = bedToGeno[(bedLineIn[i>>2]>>((i&3)<<1))&3];
-//            genotypes[indi->index] = genoValue;
-//            if (genoValue == -9) ++nmiss;   // missing genotype
-//            else mean += genoValue;
+//            value = (bedLineIn[i>>2]>>((i&3)<<1))&3;
+//            genoCodeSnpk[indi->index] = value;
+//            alleleCnt += bedToAlleleCnt[value];
+//            if (value == 1) ++nmiss;   // missing genotype
 //        }
 //        delete[] bedLineIn;
 //        
-//        // fill missing values with the mean
-//        mean /= float(numKeptInds-nmiss);
-//        if (nmiss) {
-//            for (i=0; i<numKeptInds; ++i) {
-//                if (genotypes[i] == -9) genotypes[i] = mean;
-//            }
-//        }
+//        //        // fill missing values with the mean
+//        //        mean /= float(numKeptInds-nmiss);
+//        //        if (nmiss) {
+//        //            for (i=0; i<numKeptInds; ++i) {
+//        //                if (Zk[i] == -9) Zk[i] = mean;
+//        //            }
+//        //        }
 //        
 //        // compute allele frequency
-//        snpj->af = 0.5f*mean;
-//        snp2pq[inc] = 2.0f*snpj->af*(1.0f-snpj->af);
+//        snpk->sampleSize = numKeptInds-nmiss;
+//        snpk->af = alleleCnt/float(2.0f*snpk->sampleSize);;
+//        snp2pq[inck] = 2.0f*snpk->af*(1.0f-snpk->af);
 //        
-//        if (snp2pq[inc]==0) throw ("Error: " + snpj->ID + " is a fixed SNP!");
-//  
-//        snpj->sampleSize = numKeptInds;
-//
+//        if (snp2pq[inck]==0) throw ("Error: " + snpk->ID + " is a fixed SNP!");
+//        
 //        // standardize genotypes
-//        float var = snp2pq[inc]*(numKeptInds-nmiss);
-//        genotypes.array() -= genotypes.mean();
-//        genotypes.array() /= sqrtf(var);
+//        D[inck] = snp2pq[inck]*snpk->sampleSize;
 //        
-//        denseZPZ.col(inc) = ZP * genotypes;
+//        adjGenoSnpk = (bedToAlleleCnt.array() - 2.0f*snpk->af)/sqrt(D[inck]);
 //        
-//        if(!(inc%1000) && myMPI::rank==0) cout << " read snp " << inc << "\r" << flush;
-//
-//        ++inc;
+//        for (j=0; j<numSnpInRange; ++j) {
+//            lookupTable = adjGeno.col(j)*adjGenoSnpk;
+//            ssq = 0.0;
+//            for (i=0; i<numKeptInds; ++i) {
+//                cp[i]= lookupTable(genoCode(i,j), genoCodeSnpk[i]);
+//            }
+//            denseZPZ(j, inck) = cp.sum();
+//        }
+//        
+//        //        float var = snp2pq[inck]*(numKeptInds-nmiss);
+//        //        Zk.array() -= Zk.mean();
+//        //        Zk.array() /= sqrtf(var);
+//        //
+//        //        denseZPZ.col(inck) = ZP * Zk;
+//        
+//        if(!(inck%1000) && myMPI::rank==0) cout << " read snp " << inck << "\r" << flush;
+//        
+//        ++inck;
 //    }
 //    
-//    in.close();
-//
+//    fclose(in2);
+//    
+//    ZPZdiag.resize(numSnpInRange);
+//    for (j=start; j<end; ++j) {
+//        ZPZdiag[j-start] = denseZPZ(j-start, j);
+//    }
+//    
 //    
 //    // find out per-SNP window position
 //    
@@ -1486,10 +1338,10 @@ void Data::readGwasSummaryFile(const string &gwasFile){
 //    
 //    denseZPZ.resize(0,0);
 //    
-////    cout << denseZPZ.block(0,0,10,10) << endl;
-////    cout << windStart.transpose() << endl;
-////    cout << windSize.transpose() << endl;
-//
+//    //    cout << denseZPZ.block(0,0,10,10) << endl;
+//    //    cout << windStart.transpose() << endl;
+//    //    cout << windSize.transpose() << endl;
+//    
 //    
 //    timer.getTime();
 //    
@@ -1546,10 +1398,10 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
         getWindowInfo(incdSnpInfoVec, windowWidth, windStart, windSize);
     }
     
+    // first read in the genotypes of SNPs in the given range
+    
     const int bedToGeno[4] = {2, -9, 1, 0};
     unsigned size = (numInds+3)>>2;
-    
-    // first read in the genotypes of SNPs in the given range
     
     MatrixXf ZP(numSnpInRange, numKeptInds);  // SNP x Ind
     D.setZero(numSnpInRange);
@@ -1572,8 +1424,9 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
     int genoValue;
     unsigned i, j, k;
     unsigned incj, inck; // index of included SNP
-    
     unsigned skipj = 0;
+    unsigned nmiss;
+    float mean;
     
     for (j = 0, incj = 0; j < numSnps; j++) {
         snpj = snpInfoVec[j];
@@ -1589,21 +1442,22 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
         char *bedLineIn = new char[size];
         fread(bedLineIn, sizeof(char), size, in1);
         
-        float mean = 0.0;
-        unsigned nmiss = 0;
+        mean = 0.0;
+        nmiss = 0;
         
         for (i = 0; i < numInds; i++) {
             indi = indInfoVec[i];
             if (!indi->kept) continue;
             genoValue = bedToGeno[(bedLineIn[i>>2]>>((i&3)<<1))&3];
             ZP(incj, indi->index) = genoValue;
-            if (genoValue == -9) ++nmiss;   // missing genotype
+            if (genoValue == -9) ++nmiss;
             else mean += genoValue;
         }
         delete[] bedLineIn;
         
         // fill missing values with the mean
-        mean /= float(numKeptInds-nmiss);
+        snpj->sampleSize = numKeptInds-nmiss;
+        mean /= float(snpj->sampleSize);
         if (nmiss) {
             for (i=0; i<numKeptInds; ++i) {
                 if (ZP(incj, i) == -9) ZP(incj, i) = mean;
@@ -1616,10 +1470,10 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
         
         if (snp2pq[incj]==0) throw ("Error: " + snpj->ID + " is a fixed SNP!");
         
-        snpj->sampleSize = numKeptInds;
-        
         // standardize genotypes
-        D[incj] = snp2pq[incj]*(numKeptInds-nmiss);
+        D[incj] = snp2pq[incj]*snpj->sampleSize;
+        
+        ZP.row(incj) = (ZP.row(incj).array() - mean)/sqrt(D[incj]);
         
         if (windowWidth) {
             if (incj == 0) firstWindStart = snpj->windStart;
@@ -1631,12 +1485,13 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
     
     fclose(in1);
     
-    ZP = ZP.colwise() - ZP.rowwise().mean();
-    ZP = ZP.array().colwise() / D.cwiseSqrt().array();
+//    ZP = ZP.colwise() - ZP.rowwise().mean();
+//    ZP = ZP.array().colwise() / D.cwiseSqrt().array();
     ZPZdiag = ZP.rowwise().squaredNorm();
 
     
     // then read in the bed file again to compute Z'Z
+    
 
     MatrixXf denseZPZ;
     denseZPZ.setZero(numSnpInRange, numIncdSnps);
@@ -1669,8 +1524,8 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
         char *bedLineIn = new char[size];
         fread(bedLineIn, sizeof(char), size, in2);
         
-        float mean = 0.0;
-        unsigned nmiss = 0;
+        mean = 0.0;
+        nmiss = 0;
         
         for (i = 0; i < numInds; i++) {
             indi = indInfoVec[i];
@@ -1683,7 +1538,8 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
         delete[] bedLineIn;
         
         // fill missing values with the mean
-        mean /= float(numKeptInds-nmiss);
+        snpk->sampleSize = numKeptInds-nmiss;
+        mean /= float(snpk->sampleSize);
         if (nmiss) {
             for (i=0; i<numKeptInds; ++i) {
                 if (Zk[i] == -9) Zk[i] = mean;
@@ -1694,14 +1550,12 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
         snpk->af = 0.5f*mean;
         snp2pq[inck] = 2.0f*snpk->af*(1.0f-snpk->af);
         
-        if (snp2pq[inck]==0) throw ("Error: " + snpj->ID + " is a fixed SNP!");
-        
-        snpj->sampleSize = numKeptInds;
+        if (snp2pq[inck]==0) throw ("Error: " + snpk->ID + " is a fixed SNP!");
         
         // standardize genotypes
-        float var = snp2pq[inck]*(numKeptInds-nmiss);
-        Zk.array() -= Zk.mean();
-        Zk.array() /= sqrtf(var);
+        D[inck] = snp2pq[inck]*snpk->sampleSize;
+        
+        Zk = (Zk.array() - mean)/sqrt(D[inck]);
         
         denseZPZ.col(inck) = ZP * Zk;
         
@@ -1712,6 +1566,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
 
     fclose(in2);
     
+
     // find out per-SNP window position
     
     if (LDmatType == "full") {
