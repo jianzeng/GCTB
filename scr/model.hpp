@@ -581,11 +581,11 @@ public:
         
         void sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
-                          const VectorXf &se, VectorXf &sse, const VectorXf &n, const VectorXf &snp2pq,
+                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq,
                           const float sigmaSq, const float pi, const float vare);
         void sampleFromFC(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
-                          const VectorXf &se, VectorXf &sse, const VectorXf &n, const VectorXf &snp2pq,
+                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq,
                           const float sigmaSq, const float pi, const float vare);
         void hmcSampler(VectorXf &rcorr, const VectorXf &ZPy, const vector<VectorXf> &ZPZ,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
@@ -627,7 +627,7 @@ public:
     const Data &data;
     
     VectorXf rcorr;
-    VectorXf sse;
+    VectorXf varei;   // residual variance specific to each snp
     
     bool sparse;
     
@@ -645,7 +645,7 @@ public:
     : BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false)
     , data(data)
     , rcorr(data.ZPy)
-    , sse(data.tss)
+    , varei(data.tss.array()/data.n.array())
     , fixedEffects(data.fixedEffectNames)
     , snpEffects(data.snpEffectNames)
     , sigmaSq(varGenotypic, data.snp2pq, pival)
@@ -684,13 +684,13 @@ public:
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const float sigmaSq, const float pi, const float vare,
                           const VectorXf &snp2pqPowS, const VectorXf &snp2pq,
-                          const VectorXf &se, VectorXf &sse, const VectorXf &n,
+                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n,
                           const float vg, float &scale);
         void sampleFromFC(VectorXf &rcorr,const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const float sigmaSq, const float pi, const float vare,
                           const VectorXf &snp2pqPowS, const VectorXf &snp2pq,
-                          const VectorXf &se, VectorXf &sse, const VectorXf &n,
+                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n,
                           const float vg, float &scale);
         void hmcSampler(VectorXf &rcorr, const VectorXf &ZPy, const vector<VectorXf> &ZPZ,
                         const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
@@ -705,7 +705,7 @@ public:
 
 public:
     VectorXf rcorr;
-    VectorXf sse;
+    VectorXf varei;   // residual variance specific to each snp
     
     bool sparse;
 
@@ -720,7 +720,7 @@ public:
                  const string &algorithm, const bool message = true)
     : BayesS(data, varGenotypic, varResidual, pival, estimatePi, varS, svalue, algorithm, false)
     , rcorr(data.ZPy)
-    , sse(data.tss)
+    , varei(data.tss.array()/data.n.array())
     , snpEffects(data.snpEffectNames, data.snp2pq, pival)
     , fixedEffects(data.fixedEffectNames)
     , vare(varResidual, data.numKeptInds)
