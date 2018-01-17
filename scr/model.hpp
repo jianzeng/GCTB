@@ -653,7 +653,7 @@ public:
     , vare(varResidual, data.numKeptInds)
     , varg(varGenotypic, data.numKeptInds)
     {
-        sparse = data.ZPZsp.size() ? true : false;
+        sparse = data.sparseLDM;
         paramSetVec = {&snpEffects, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &sigmaSqG, &rounding};
@@ -726,7 +726,7 @@ public:
     , vare(varResidual, data.numKeptInds)
     , varg(varGenotypic, data.numKeptInds)
     {
-        sparse = data.ZPZsp.size() ? true : false;
+        sparse = data.sparseLDM;
         paramSetVec = {&snpEffects, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &sigmaSqG, &S.ar, &S.tuner, &rounding};
