@@ -146,6 +146,7 @@ public:
     float varResidual;
     
     bool reindexed;
+    bool sparseLDM;
     
     vector<SnpInfo*> snpInfoVec;
     vector<IndInfo*> indInfoVec;

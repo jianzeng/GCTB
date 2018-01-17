@@ -1489,6 +1489,8 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
 //    ZP = ZP.array().colwise() / D.cwiseSqrt().array();
     ZPZdiag = ZP.rowwise().squaredNorm();
 
+//    cout << ZP.rowwise().mean() << endl << endl;
+//    cout << ZP.block(0, 0, 10, 10) << endl;
     
     // then read in the bed file again to compute Z'Z
     
@@ -1565,6 +1567,8 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
     }
 
     fclose(in2);
+    
+//    cout << denseZPZ << endl;
     
 
     // find out per-SNP window position
@@ -1793,7 +1797,7 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
     Gadget::Tokenizer token;
     token.getTokens(ldmatrixFile, ".");
     string ldmType = token[token.size()-2];
-    bool sparse = ldmType == "sparse" ? true : false;
+    sparseLDM = ldmType == "sparse" ? true : false;
     
     VectorXi windStartLDM(numSnps);
     VectorXi windSizeLDM(numSnps);
@@ -1814,13 +1818,13 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
         throw("Error: cannot open LD matrix file " + ldmatrixFile);
     }
     
-    if (!sparse) resizeWindow(incdSnpInfoVec, windStartLDM, windSizeLDM, windStart, windSize);
+    if (!sparseLDM) resizeWindow(incdSnpInfoVec, windStartLDM, windSizeLDM, windStart, windSize);
     
     if (numIncdSnps == 0) throw ("Error: No SNP is retained for analysis.");
     
     cout << "Reading " + ldmType + " LD matrix from [" + ldmatrixFile + "]..." << endl;
     
-    if (sparse) {
+    if (sparseLDM) {
         ZPZsp.resize(numIncdSnps);
         ZPZdiag.resize(numIncdSnps);
        
@@ -1921,13 +1925,13 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
     
     string inputStr;
     string ldmType;
-    bool sparse = true;
+    sparseLDM = true;
     while (getline(in1, inputStr)) {
         filenameVec.push_back(inputStr + ".bin");
         Gadget::Tokenizer token;
         token.getTokens(inputStr, ".");
         ldmType = token[token.size()-1];
-        sparse = ldmType == "sparse" ? true : false;
+        sparseLDM = ldmType == "sparse" ? true : false;
     }
 
     cout << "Reading " + ldmType + " LD matrices from [" + mldmatFile + "]..." << endl;
@@ -1944,11 +1948,12 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
                 cnt = 0;
         }
         snp->windStart += cnt;
+        snp->windEnd   += cnt;
         windSizeLDM[j]  = snp->windSize;
         windStartLDM[j] = snp->windStart;
     }
     
-    if (sparse) {
+    if (sparseLDM) {
         windStart.setZero(numIncdSnps);
         windSize.setZero(numIncdSnps);
         ZPZsp.resize(numIncdSnps);
@@ -1972,7 +1977,7 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
         SnpInfo *snpj = NULL;
         SnpInfo *snpk = NULL;
         
-        if (sparse) {
+        if (sparseLDM) {
             for (unsigned j=starti; j<numSnpMldVec[i]; j++) {
                 snpj = snpInfoVec[j];
                 
@@ -2042,6 +2047,7 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
 }
 
 void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, const unsigned windowWidth, const float LDthreshold) {
+    if (LDmatType == "full") return;
     if (LDmatType == "sparse" && ZPZsp.size() == 0) {
         cout << "Making a sparse LD matrix by setting the non-significant LD to be zero..." << endl;
         ZPZsp.resize(numIncdSnps);
@@ -2125,29 +2131,24 @@ void Data::buildSparseMME(){
         tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
     }
     
-    //    for (unsigned i=0; i<numIncdSnps; ++i) {
-    //        snp = incdSnpInfoVec[i];
-    //        for (unsigned j=0; j<snp->windSize; ++j) {
-    //            ZPZ[i][j] *= sqrt(D[i]*D[snp->windStart+j]);
-    //        }
-    //    }
-    
-    if (!ZPZsp.size()) {
-        ZPZsp.resize(numIncdSnps);
+    if (sparseLDM == true) {
         for (unsigned i=0; i<numIncdSnps; ++i) {
-            ZPZsp[i] = ZPZ[i].sparseView();
-            ZPZ[i].resize(0);
+            snp = incdSnpInfoVec[i];
+            //cout << i << " " << ZPZsp[i].nonZeros() << " " << D.size() << endl;
+            for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
+                //cout << it.index() << " ";
+                it.valueRef() *= sqrt(D[i]*D[it.index()]);
+            }
+        }
+    } else {
+        for (unsigned i=0; i<numIncdSnps; ++i) {
+            snp = incdSnpInfoVec[i];
+            for (unsigned j=0; j<snp->windSize; ++j) {
+                ZPZ[i][j] *= sqrt(D[i]*D[snp->windStart+j]);
+            }
         }
     }
-    for (unsigned i=0; i<numIncdSnps; ++i) {
-        snp = incdSnpInfoVec[i];
-        //cout << i << " " << ZPZsp[i].nonZeros() << " " << D.size() << endl;
-        for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
-            //cout << it.index() << " ";
-            it.valueRef() *= sqrt(D[i]*D[it.index()]);
-        }
-    }
-    
+        
     ZPZdiag = D;
     
     //b.array() -= b.mean();

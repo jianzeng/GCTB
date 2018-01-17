@@ -1363,7 +1363,10 @@ void ApproxBayesC::sampleUnknowns(){
     vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr);
     varg.compute(snpEffects.values, data.ZPy, rcorr);
     hsq.compute(varg.value, vare.value);
-    rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
+    if (sparse)
+        rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
+    else
+        rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
 }
@@ -1762,7 +1765,11 @@ void ApproxBayesS::sampleUnknowns(){
     if (iter >= 2000) sigmaSq.scale = scalePrior;
     scale.getValue(sigmaSq.scale);
 
-    rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
+    if (sparse)
+        rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
+    else
+        rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
+        
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pqOneMinusS);
     
