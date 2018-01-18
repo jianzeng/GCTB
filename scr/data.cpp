@@ -1621,16 +1621,30 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
         ZPZsp.resize(numSnpInRange);
         windStart.setZero(numSnpInRange);
         windSize.setZero(numSnpInRange);
-        for (unsigned i=0; i<numSnpInRange; ++i) {
-            SnpInfo *snp = incdSnpInfoVec[start+i];
-            for (unsigned j=0; j<numIncdSnps; ++j) {
-                if (denseZPZ(i,j)*denseZPZ(i,j)*snp->sampleSize < chisqThreshold) denseZPZ(i,j) = 0;
+        if (LDthreshold) {
+            for (unsigned i=0; i<numSnpInRange; ++i) {
+                SnpInfo *snp = incdSnpInfoVec[start+i];
+                for (unsigned j=0; j<numIncdSnps; ++j) {
+                    if (denseZPZ(i,j) < LDthreshold) denseZPZ(i,j) = 0;
+                }
+                ZPZsp[i] = denseZPZ.row(i).sparseView();
+                SparseVector<float>::InnerIterator it(ZPZsp[i]);
+                windStart[i] = snp->windStart = it.index();
+                windSize[i] = snp->windSize = ZPZsp[i].nonZeros();
+                for (; it; ++it) snp->windEnd = it.index();
             }
-            ZPZsp[i] = denseZPZ.row(i).sparseView();
-            SparseVector<float>::InnerIterator it(ZPZsp[i]);
-            windStart[i] = snp->windStart = it.index();
-            windSize[i] = snp->windSize = ZPZsp[i].nonZeros();
-            for (; it; ++it) snp->windEnd = it.index();
+        } else {
+            for (unsigned i=0; i<numSnpInRange; ++i) {
+                SnpInfo *snp = incdSnpInfoVec[start+i];
+                for (unsigned j=0; j<numIncdSnps; ++j) {
+                    if (denseZPZ(i,j)*denseZPZ(i,j)*snp->sampleSize < chisqThreshold) denseZPZ(i,j) = 0;
+                }
+                ZPZsp[i] = denseZPZ.row(i).sparseView();
+                SparseVector<float>::InnerIterator it(ZPZsp[i]);
+                windStart[i] = snp->windStart = it.index();
+                windSize[i] = snp->windSize = ZPZsp[i].nonZeros();
+                for (; it; ++it) snp->windEnd = it.index();
+            }
         }
     }
     
@@ -2051,22 +2065,34 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
     if (LDmatType == "sparse" && ZPZsp.size() == 0) {
         cout << "Making a sparse LD matrix by setting the non-significant LD to be zero..." << endl;
         ZPZsp.resize(numIncdSnps);
-        for (unsigned i=0; i<numIncdSnps; ++i) {
-            SnpInfo *snp = incdSnpInfoVec[i];
-            ZPZsp[i].resize(snp->windSize);
-            for (unsigned j=0; j<snp->windSize; ++j) {
-                if (ZPZ[i][j]*ZPZ[i][j]*snp->sampleSize > chisqThreshold) ZPZsp[i].insertBack(snp->windStart + j) = ZPZ[i][j];
+        if (LDthreshold) {
+            for (unsigned i=0; i<numIncdSnps; ++i) {
+                SnpInfo *snp = incdSnpInfoVec[i];
+                ZPZsp[i].resize(snp->windSize);
+                for (unsigned j=0; j<snp->windSize; ++j) {
+                    if (ZPZ[i][j] > LDthreshold) ZPZsp[i].insertBack(snp->windStart + j) = ZPZ[i][j];
+                }
+                SparseVector<float>::InnerIterator it(ZPZsp[i]);
+                windStart[i] = snp->windStart = it.index();
+                windSize[i] = snp->windSize = ZPZsp[i].nonZeros();
+                for (; it; ++it) snp->windEnd = it.index();
+                ZPZ[i].resize(0);
             }
-//            ZPZsp[i] = ZPZ[i].sparseView();
-            SparseVector<float>::InnerIterator it(ZPZsp[i]);
-//            for (; it; ++it) {
-//                if (i==1100) cout << it.index() << " " << it.value() << endl;
-//            }
-            windStart[i] = snp->windStart = it.index();
-            windSize[i] = snp->windSize = ZPZsp[i].nonZeros();
-            for (; it; ++it) snp->windEnd = it.index();
-            ZPZ[i].resize(0);
-            //cout << i << " windsize " << snp->windSize << " " << ZPZsp[i].size() << endl;
+        } else {
+            for (unsigned i=0; i<numIncdSnps; ++i) {
+                SnpInfo *snp = incdSnpInfoVec[i];
+                ZPZsp[i].resize(snp->windSize);
+                for (unsigned j=0; j<snp->windSize; ++j) {
+                    if (ZPZ[i][j]*ZPZ[i][j]*snp->sampleSize > chisqThreshold) ZPZsp[i].insertBack(snp->windStart + j) = ZPZ[i][j];
+                }
+                //            ZPZsp[i] = ZPZ[i].sparseView();
+                SparseVector<float>::InnerIterator it(ZPZsp[i]);
+                windStart[i] = snp->windStart = it.index();
+                windSize[i] = snp->windSize = ZPZsp[i].nonZeros();
+                for (; it; ++it) snp->windEnd = it.index();
+                ZPZ[i].resize(0);
+                //cout << i << " windsize " << snp->windSize << " " << ZPZsp[i].size() << endl;
+            }
         }
     }
     if (LDmatType == "band") {
