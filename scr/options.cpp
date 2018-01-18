@@ -197,6 +197,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             multiThreadEigen = true;
             ss << "--multi-thread-eigen " << "\n";
         }
+        else if (!strcmp(argv[i], "--chisq")) {
+            chisqThreshold = atof(argv[++i]);
+            ss << "--chisq " << argv[i] << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";
@@ -300,6 +304,8 @@ void Options::readFile(const string &file){  // input options from file
             includeChr = stoi(value);
         } else if (key == "LDthreshold") {
             LDthreshold = stof(value);
+        } else if (key == "chisqThreshold") {
+            chisqThreshold = stof(value);
         } else if (key == "snpRange") {
             snpRange = value;
         } else if (key == "multiThreadEigen" && value == "Yes") {
