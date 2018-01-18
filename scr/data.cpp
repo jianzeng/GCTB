@@ -1176,12 +1176,13 @@ void Data::readGwasSummaryFile(const string &gwasFile){
 //    
 //    MatrixXf denseZPZ;
 //    denseZPZ.setZero(numSnpInRange, numIncdSnps);
+//    D.setZero(numIncdSnps);
 //    VectorXi genoCodeSnpk(numKeptInds);
 //    RowVector4f adjGenoSnpk;
 //    Matrix4f lookupTable;
 //    VectorXf cp(numKeptInds);
 //    float ssq;
-//    
+//
 //    FILE *in2 = fopen(bedFile.c_str(), "rb");
 //    fseek(in2, 3, SEEK_SET);
 //    unsigned skipk = 0;
@@ -1498,6 +1499,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
     MatrixXf denseZPZ;
     denseZPZ.setZero(numSnpInRange, numIncdSnps);
     VectorXf Zk(numKeptInds);
+    D.setZero(numIncdSnps);
 
     FILE *in2 = fopen(bedFile.c_str(), "rb");
     fseek(in2, 3, SEEK_SET);

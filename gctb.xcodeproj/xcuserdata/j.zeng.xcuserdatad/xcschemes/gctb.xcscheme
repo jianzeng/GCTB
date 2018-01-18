@@ -79,7 +79,7 @@
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "/Users/j.zeng/Work/Projects/test_gctb/test/test.inp"
+            argument = "/Users/j.zeng/Work/Projects/test_gctb/ukb/ukb.inp"
             isEnabled = "YES">
          </CommandLineArgument>
       </CommandLineArguments>
