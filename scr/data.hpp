@@ -40,9 +40,11 @@ public:
     int window;
     int windStart;  // for window surrounding the SNP
     int windSize;   // for window surrounding the SNP
+    int windEnd;
     float af;       // allele frequency
     bool included;  // flag for inclusion in panel
     bool isQTL;     // for simulation
+    long sampleSize;
     
     VectorXf genotypes; // temporary storage of genotypes of individuals used for building sparse Z'Z
     
@@ -60,9 +62,11 @@ public:
         window = 0;
         windStart = -1;
         windSize  = 0;
+        windEnd   = -1;
         af = -1;
         included = true;
         isQTL = false;
+        sampleSize = 0;
         effect = 0;
         gwas_b  = -999;
         gwas_se = -999;
@@ -118,6 +122,7 @@ public:
     
     //SparseMatrix<float> ZPZ; // sparse Z'Z because LE is assumed for distant SNPs
     vector<VectorXf> ZPZ;
+    vector<SparseVector<float> > ZPZsp;
     SparseMatrix<float> ZPZinv;
 
     MatrixXf XPX;            // X'X the MME lhs
@@ -141,6 +146,7 @@ public:
     float varResidual;
     
     bool reindexed;
+    bool sparseLDM;
     
     vector<SnpInfo*> snpInfoVec;
     vector<IndInfo*> indInfoVec;
@@ -186,8 +192,8 @@ public:
     void getWindowInfo(const vector<SnpInfo*> &incdSnpInfoVec, const unsigned windowWidth, VectorXi &windStart, VectorXi &windSize);
     void getNonoverlapWindowInfo(const unsigned windowWidth);
     void buildSparseMME(const string &bedFile, const unsigned windowWidth);
-    void makeLDmatrix(const string &bedFile, const unsigned windowWidth, const string &filename);
-    void makeLDmatrix(const string &bedFile, const float LDthreshold, const string &snpRange, const string &filename);
+//    void makeLDmatrix(const string &bedFile, const unsigned windowWidth, const string &filename);
+    void makeLDmatrix(const string &bedFile, const string &LDmatType, const float chisqThreshold, const float LDthreshold, const unsigned windowWidth, const string &snpRange, const string &filename);
     void resizeWindow(const vector<SnpInfo*> &incdSnpInfoVec, const VectorXi &windStartOri, const VectorXi &windSizeOri,
                       VectorXi &windStartNew, VectorXi &windSizeNew);
     void computeAlleleFreq(const MatrixXf &Z, vector<SnpInfo*> &incdSnpInfoVec, VectorXf &snp2pq);
@@ -202,8 +208,8 @@ public:
     void readMultiLDmatInfoFile(const string &mldmatFile);
     void readMultiLDmatBinFile(const string &mldmatFile);
     void outputSnpEffectSamples(const SparseMatrix<float> &snpEffects, const unsigned burnin, const unsigned outputFreq, const string &snpResFile, const string &filename) const;
-    void resizeLDmatrix(const unsigned windowWidth, const float LDthreshold);
-    void outputLDmatrix(const string &filename) const;
+    void resizeLDmatrix(const string &LDmatType, const float chisqThreshold, const unsigned windowWidth, const float LDthreshold);
+    void outputLDmatrix(const string &LDmatType, const string &filename) const;
     void displayAverageWindowSize(const VectorXi &windSize);
 };
 
