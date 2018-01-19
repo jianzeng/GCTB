@@ -1679,7 +1679,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
 }
 
 void Data::outputLDmatrix(const string &LDmatType, const string &filename) const {
-    bool outText = true;
+    bool outText = false;
     string outfilename = filename + ".ldm." + LDmatType;
     string outfile1 = outfilename + ".info";
     string outfile2 = outfilename + ".bin";
