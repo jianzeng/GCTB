@@ -1627,7 +1627,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
             for (unsigned i=0; i<numSnpInRange; ++i) {
                 SnpInfo *snp = incdSnpInfoVec[start+i];
                 for (unsigned j=0; j<numIncdSnps; ++j) {
-                    if (denseZPZ(i,j) < LDthreshold) denseZPZ(i,j) = 0;
+                    if (abs(denseZPZ(i,j)) < LDthreshold) denseZPZ(i,j) = 0;
                 }
                 ZPZsp[i] = denseZPZ.row(i).sparseView();
                 SparseVector<float>::InnerIterator it(ZPZsp[i]);
@@ -2072,7 +2072,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 SnpInfo *snp = incdSnpInfoVec[i];
                 ZPZsp[i].resize(snp->windSize);
                 for (unsigned j=0; j<snp->windSize; ++j) {
-                    if (ZPZ[i][j] > LDthreshold) ZPZsp[i].insertBack(snp->windStart + j) = ZPZ[i][j];
+                    if (abs(ZPZ[i][j]) > LDthreshold) ZPZsp[i].insertBack(snp->windStart + j) = ZPZ[i][j];
                 }
                 SparseVector<float>::InnerIterator it(ZPZsp[i]);
                 windStart[i] = snp->windStart = it.index();
