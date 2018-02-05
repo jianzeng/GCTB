@@ -16,7 +16,7 @@
 #include <cstring>
 #include <string>
 #include <limits.h>
-#include <mpi.h>
+#include </Users/l.lloydjones/homebrew/Cellar/open-mpi/3.0.0_2/include/mpi.h>
 #include <omp.h>
 #include <boost/format.hpp>
 #include <Eigen/Core>

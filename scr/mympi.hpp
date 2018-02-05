@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include <vector>
 #include <string>
-#include <mpi.h>
+#include </Users/l.lloydjones/homebrew/Cellar/open-mpi/3.0.0_2/include/mpi.h>
 
 namespace myMPI {
     extern int clusterSize;

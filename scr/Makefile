@@ -12,7 +12,7 @@ SYS = LINUX
 OUTPUT = gctb
 
 # Put C++ compiler here
-CXX_UNIX = mpicxx   #g++
+CXX_UNIX = /Users/l.lloydjones/homebrew/Cellar/llvm/5.0.1/bin/clang++   #g++
 CXX_MAC = clang-omp   #g++
 
 # Any other compiler flags here ( -Wall, -g, etc)
@@ -20,8 +20,8 @@ CXXFLAGS = -w -O3 -m64 -DEIGEN_NO_DEBUG -msse2 -std=c++0x -I.
 
 # Some system specific flags
 ifeq ($(SYS),LINUX)
- CXXFLAGS += -fopenmp -I ../../Eigen3 -I ../.. -DUNIX -m64 -ldl
-# LIB += -static -Wl,--start-group -Wl,--end-group -lpthread -lm -ldl
+ CXXFLAGS += -fopenmp -I/Users/l.lloydjones/homebrew/Cellar/eigen/3.3.4/include/eigen3/ -I/Users/l.lloydjones/homebrew/Cellar/boost/1.62.0/include -I /Users/l.lloydjones/homebrew/Cellar/open-mpi/3.0.0_2/include  -DUNIX -Dfopen64=fopen
+ LIB += -L /Users/l.lloydjones/homebrew/Cellar/open-mpi/3.0.0_2/lib -L /Users/l.lloydjones/homebrew/Cellar/llvm/5.0.1/lib -lz -lmpi -lm
  CXX = $(CXX_UNIX)
 endif
 

@@ -741,4 +741,92 @@ public:
     void sampleUnknowns(void);
 };
 
+// *************************************************************
+// Approximate Bayes R
+// *************************************************************
+
+class ApproxBayesR : public ApproxBayesC {
+    
+public:
+    
+    class SnpEffects : public ApproxBayesC::SnpEffects {
+    public:
+        float sum2pq;
+        
+        SnpEffects(const vector<string> &header): ApproxBayesC::SnpEffects(header){
+            sum2pq = 0.0;
+            
+        }
+        
+        void sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float>> &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
+                          const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
+                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq,
+                          const float sigmaSq, float &pi1, float &pi2, float &pi3, float &pi4, const float vare);
+        void sampleFromFC(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
+                          const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
+                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq,
+                          const float sigmaSq, float &pi1, float &pi2, float &pi3, float &pi4, const float vare);
+    };
+    
+    class ProbMixComp1 : public Parameter, public Stat::Beta {
+        // prior probability of a snp with a non-zero effect has a beta prior
+    public:
+        const float alpha;  // hyperparameter
+        const float beta;   // hyperparameter
+        
+        ProbMixComp1(const float pi): Parameter("Pi1"), alpha(1), beta(10){  // informative prior
+            value = pi;
+        }
+        
+        void sampleFromFC(const unsigned numSnps, const unsigned numSnpEff); //TODO:: NEED WRITE HERE
+    };
+    
+    class ProbMixComp2 : public Parameter {
+    public:
+        ProbMixComp2(const float pi): Parameter("Pi2"){value = pi;}
+    };
+    
+    class ProbMixComp3 : public Parameter {
+    public:
+        ProbMixComp3(const float pi): Parameter("Pi3"){value = pi;}
+    };
+    
+    class ProbMixComp4 : public Parameter {
+    public:
+        ProbMixComp4(const float pi): Parameter("Pi4"){value = pi;}
+    };
+    
+public:
+    
+    SnpEffects snpEffects;
+    ProbMixComp1 pi1;
+    ProbMixComp2 pi2;
+    ProbMixComp3 pi3;
+    ProbMixComp4 pi4;
+    
+    // , sigmaSq(data) TODO
+    // , pi(data.ZPy)  TODO down
+    //    , pi(ProbMixComp)
+    //, sigmaSq(varGenotypic, data.snp2pq, probFixed)
+    ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const float probFixed, const bool estimatePi, const bool message = true)
+    : ApproxBayesC(data, varGenotypic, varResidual, probFixed, estimatePi, false)
+    , pi1(0.5)
+    , pi2(0.15)
+    , pi3(0.15)
+    , pi4(0.20)
+    , snpEffects(data.snpEffectNames)
+    {
+        sparse = data.sparseLDM;
+        varg.value = varGenotypic; //// NOTE: write it into constructor!!!
+        paramSetVec = {&snpEffects, &fixedEffects};
+        paramVec = {&pi1, &pi2, &pi3, &pi4, &nnzSnp, &sigmaSq, &vare, &varg, &hsq};
+        paramToPrint = {&pi1, &pi2, &pi3, &pi4, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &sigmaSqG, &rounding};
+        if (message && myMPI::rank==0) {
+            cout << "\nApproximate BayesR model fitted." << endl;
+        }
+    }
+    
+    void sampleUnknowns(void);
+};
+
 #endif /* model_hpp */
