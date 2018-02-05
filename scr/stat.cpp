@@ -47,3 +47,17 @@ unsigned Stat::Bernoulli::sample(const float p){
 float Stat::NormalZeroMixture::sample(const float mean, const float variance, const float p){
     return bernoulli.sample(p) ? normal.sample(mean, variance) : 0;
 }
+
+// Sample Dirichlet
+
+VectorXd Stat::Dirichlet::sample(int n, VectorXd irx, VectorXd ps)
+{
+        double sx = 0.0;
+        for (int i = 0; i < n; i++)
+        {
+            ps[i] = gamma.sample(irx(i), 1.0);
+            sx += ps[i];
+        }
+        ps = ps / sx;
+        return ps;
+}
