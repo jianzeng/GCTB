@@ -12,6 +12,7 @@
 #include <iostream>
 #include <sstream>
 #include <fstream>
+#include <set>
 #include <stdio.h>
 #include <cstring>
 #include <string>
@@ -20,12 +21,13 @@
 #include <omp.h>
 #include <boost/format.hpp>
 #include <Eigen/Core>
+#include <Eigen/Eigen>
 #include "mympi.hpp"
 #include "gadgets.hpp"
 
 using namespace std;
 using namespace boost;
-
+using namespace Eigen;
 
 const unsigned Megabase = 1e6;
 
@@ -58,6 +60,10 @@ public:
     bool outputResults;
     bool multiLDmat;
     bool multiThreadEigen;
+
+    // Bayes R defauls
+    VectorXf gamma;  // Default scaling parameters for Bayes R
+    VectorXf pis;    // Default pis for Bayes R
     
     string title;
     string analysisType;
@@ -100,7 +106,11 @@ public:
         S[0]                    = 0.0;
         LDthreshold             = 0.0;
         chisqThreshold          = 10;
-        
+
+        // Bayes R defaults
+        gamma                   << 0.0, 0.01, 0.1, 1;                        
+        pis                     << 0.95, 0.03, 0.01, 0.01;
+
         estimatePi              = true;
         estimateScale           = false;
         writeBinPosterior       = true;

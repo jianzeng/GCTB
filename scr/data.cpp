@@ -2179,33 +2179,8 @@ void Data::buildSparseMME(){
         
     ZPZdiag = D;
     
-    //b.array() -= b.mean();
-    // ----------------------- 
-    // Dangerous read function
-    // -----------------------
-    VectorXf Zpy2;
-    Zpy2.setZero(100);
-    string pathZpy;
-    pathZpy = "/Users/l.lloydjones/Desktop/zpy_test2.txt";
-    ifstream in(pathZpy);
-    if (!in) throw ("Error: can not open Zpy file to read.");
-    unsigned line = 0;
-    int cnt = 0;
-    string vals;
-    while (in >> vals) {
-        Zpy2[cnt] = atof(vals.c_str());
-        cnt++;
-    }
-    in.close();
-    cout << "I'm in the mixed model equation building thing" << endl;
-    // ZPy = Zpy2;
-    // cout << "Zpy "<< ZPy << endl;
-    // ----------------------- 
-    // Dangerous read function
-    // -----------------------
     ZPy.array() = D.array()*b.array();
-    ZPy = Zpy2;
-    cout << "I'm in the mixed model equation building thing and print Zpy" << ZPy <<  endl;
+    // cout << "I'm in the mixed model equation building thing and print Zpy" << ZPy <<  endl;
     //    cout << "ZPZdiag " << ZPZdiag.transpose() << endl;
     //    cout << "ZPZ.back() " << ZPZ.back().transpose() << endl;
     //    cout << "ZPZ.front() " << ZPZ.front().transpose() << endl;

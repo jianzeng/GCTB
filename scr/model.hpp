@@ -361,6 +361,90 @@ public:
     void sampleUnknowns(void);
 };
 
+// -----------------------------------------------------------------------------------------------
+// Bayes R
+// -----------------------------------------------------------------------------------------------
+
+   // class Pi : public Parameter, public Stat::Beta {
+   //      // prior probability of a snp with a non-zero effect has a beta prior
+   //  public:
+   //      const float alpha;  // hyperparameter
+   //      const float beta;   // hyperparameter
+        
+   //      Pi(const float pi): Parameter("Pi"), alpha(1), beta(1){  // informative prior
+   //          value = pi;
+   //      }
+        
+   //      void sampleFromFC(const unsigned numSnps, const unsigned numSnpEff);
+   //  };
+
+
+class BayesR : public BayesC {
+    // Prior for snp efect pi_1 * N(0, 0) + pi_2 * N(0, sig^2_beta * gamma_2) + pi_3 * N(0, sig^2_beta * gamma_3) + pi_3 * N(0, sig^2_beta * gamma_4)
+    // consider S as unknown to make inference on the relationship between MAF and effect size
+public:
+    
+    class SnpEffects : public BayesC::SnpEffects {
+    public:
+      float sum2pq;
+        SnpEffects(const vector<string> &header, const string &alg): BayesC::SnpEffects(header, "Gibbs"){
+            sum2pq = 0.0;
+        }
+        
+        void sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
+                          const float sigmaSq, const VectorXf &pis, 
+                          const float vare, VectorXf &ghat);
+    };
+
+    // class ProbMixComps : public ParamSet {
+    //     // all fixed effects has flat prior
+    // public:
+    //     ProbMixComps(VectorXf &pis)
+    //     : ParamSet("pis", header){values = pis;}
+    // };
+
+    class ProbMixComps : public ParamSet, public Stat::Dirichlet {
+        // prior probability of a snp being in any of the distributions effect has a dirichlet prior
+    public:
+        const VectorXf alphaVec;  // hyperparameter
+        const unsigned ndist;
+        
+        ProbMixComps(const VectorXf &pis): ParamSet("pis", header), alphaVec(VectorXf::setOnes(pis.size())), ndist(pis.size()){  // informative prior
+            values = pis;
+        }
+        
+        void sampleFromFC(const VectorXf snpstore, const VectorXf pis);
+    };
+    
+    
+public:    
+    SnpEffects snpEffects;
+    ProbMixComps pis;
+
+    BayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, 
+           const string &algorithm, const bool message = true):
+    BayesC(data, varGenotypic, varResidual, pis[0], estimatePi, "Gibbs", false),
+    pis(pis),
+    snpEffects(data.snpEffectNames, algorithm)
+    {
+        paramSetVec = {&snpEffects, &fixedEffects};
+        paramVec = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq};
+        // paramVec << pis, paramVec;
+        paramToPrint = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq, &rounding};
+        // paramToPrint << pis, paramToPrint;
+        if (message && myMPI::rank==0) {
+            string alg = algorithm;
+            if (alg!="HMC") alg = "Gibbs (default)";
+            cout << "\nBayesR model fitted. Algorithm: " << alg << "." << endl;
+        }
+    }   
+    void sampleUnknowns(void);
+};
+
+// -----------------------------------------------------------------------------------------------
+// Bayes S
+// -----------------------------------------------------------------------------------------------
+
 class BayesS : public BayesC {
     // Prior for snp efect alpha_j ~ N(0, sigma^2_a / (2p_j q_j)^S)
     // consider S as unknown to make inference on the relationship between MAF and effect size
@@ -830,3 +914,86 @@ public:
 };
 
 #endif /* model_hpp */
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// TO DELETE ONCE FINISHED
+
+
+
+// class BayesR : public BayesC {
+//     // Prior for snp efect pi_1 * N(0, 0) + pi_2 * N(0, sig^2_beta * gamma_2) + pi_3 * N(0, sig^2_beta * gamma_3) + pi_3 * N(0, sig^2_beta * gamma_4)
+//     // consider S as unknown to make inference on the relationship between MAF and effect size
+// public:
+    
+//     class SnpEffects : public BayesC::SnpEffects {
+//     public:
+//       float sum2pq;
+//         SnpEffects(const vector<string> &header, const string &alg): BayesC::SnpEffects(header, "Gibbs"){
+//             sum2pq = 0.0;
+//         }
+        
+//         void sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
+//                           const float sigmaSq, float &pi1, float &pi2, float &pi3, float &pi4, 
+//                           const float vare, VectorXf &ghat);
+//     };
+
+//     class ProbMixComp1 : public Parameter {
+//     public:
+//         ProbMixComp1(const float pi): Parameter("Pi1"){value = pi;}
+//     };
+    
+//     class ProbMixComp2 : public Parameter {
+//     public:
+//         ProbMixComp2(const float pi): Parameter("Pi2"){value = pi;}
+//     };
+    
+//     class ProbMixComp3 : public Parameter {
+//     public:
+//         ProbMixComp3(const float pi): Parameter("Pi3"){value = pi;}
+//     };
+    
+//     class ProbMixComp4 : public Parameter {
+//     public:
+//         ProbMixComp4(const float pi): Parameter("Pi4"){value = pi;}
+//     };
+    
+    
+// public:    
+//     SnpEffects snpEffects;
+//     ProbMixComp1 pi1;
+//     ProbMixComp2 pi2;
+//     ProbMixComp3 pi3;
+//     ProbMixComp4 pi4;
+
+//     BayesR(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, 
+//            const string &algorithm, const bool message = true):
+//     BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false),
+//     pi1(0.5),
+//     pi2(0.15),
+//     pi3(0.15),
+//     pi4(0.20),
+//     snpEffects(data.snpEffectNames, algorithm)
+//     {
+//         paramSetVec = {&snpEffects, &fixedEffects};
+//         paramVec = {&pi1, &pi2, &pi3, &pi4, &nnzSnp, &sigmaSq, &vare, &varg, &hsq};
+//         paramToPrint = {&pi1, &pi2, &pi3, &pi4, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &rounding};
+//         if (message && myMPI::rank==0) {
+//             string alg = algorithm;
+//             if (alg!="HMC") alg = "Gibbs (default)";
+//             cout << "\nBayesR model fitted. Algorithm: " << alg << "." << endl;
+//         }
+//     }   
+//     void sampleUnknowns(void);
+// };

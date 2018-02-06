@@ -69,7 +69,7 @@ int main(int argc, const char * argv[]) {
             gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.includeChr, readGenotypes);
             
             Model *model = gctb.buildModel(data, opt.bedFile, "", opt.bayesType, opt.windowWidth,
-                                            opt.heritability, opt.pi, opt.estimatePi,
+                                            opt.heritability, opt.pi, opt.estimatePi, opt.pis, opt.gamma,
                                             opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior);
@@ -95,7 +95,7 @@ int main(int argc, const char * argv[]) {
             gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.multiLDmat);
             
             Model *model = gctb.buildModel(data, "", opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
-                                            opt.heritability, opt.pi, opt.estimatePi,
+                                            opt.heritability, opt.pi, opt.estimatePi, opt.pis, opt.gamma,
                                             opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior);

@@ -421,6 +421,144 @@ void BayesN::sampleUnknowns(){
     windDelta.getValues(snpEffects.windDelta);
 }
 
+// ----------------------------------------------------------------------------------------
+// Bayes R
+// ----------------------------------------------------------------------------------------
+
+void BayesR::ProbMixComps::sampleFromFC(const VectorXf snpstore, const VectorXf pis.values) {
+	
+	dirx = snpstore + alphaVec;
+    Stat::Dirichlet dirichlet;
+    values = Dirichlet::sample(alphaVec.size(), dirx, p);
+}
+
+
+void BayesR::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
+                                      const float sigmaSq, VectorXf &pis, const float vare, VectorXf &ghat){
+    sumSq = 0.0;
+    numNonZeros = 0;
+    
+    ghat.setZero(ycorr.size());
+    
+    float oldSample;
+    float my_rhs, rhs, invLhs, uhat;
+    float logDelta0, logDelta1, probDelta1;
+    float logSigmaSq = log(sigmaSq);
+    float invVare = 1.0f/vare;
+    float invSigmaSq = 1.0f/sigmaSq;
+    // -----------------------------------------
+    // Initialise the parameters in MCMC sampler
+    // -----------------------------------------
+    // VectorXf ssq, s2pq, nnz;
+    // ----------------
+    // Bayes R specific
+    // ----------------
+    int ndist, indistflag;
+    double v1,  b_ls, ssculm, r;
+    VectorXf p, dirx;
+    VectorXd alpha, gp, gpin, ll, pll, snpindist, var_b_ls, snpstore, rcorr;
+    ndist = 4;
+    alpha.resize(ndist);
+    alpha.fill(1.0);
+    gpin.resize(ndist);
+    gpin.fill(0);
+    p.setZero(ndist);
+    p = pis.values;
+    snpstore.resize(ndist);
+    snpstore.fill(0);
+    // --------------------------------------------------------------------------------
+    // Scale the variances in each of the normal distributions by the genetic variance
+    // and initialise the class membership probabilities
+    // --------------------------------------------------------------------------------
+    gpin << 0.0,
+    0.01,
+    0.05,
+    1;
+    gp = gpin * sigmaSq;
+    
+    for (unsigned i=0; i<size; ++i) {
+        // ------------------------------
+        // Derived Bayes R implementation
+        // ------------------------------
+        // ----------------------------------------------------
+        // Add back the content for the corrected rhs for SNP k
+        // ----------------------------------------------------
+        my_rhs = Z.col(i).dot(ycorr);
+        oldSample = values[i];
+        rhs = my_rhs + ZPZdiag[i] * oldSample;
+        // ------------------------------------------------------
+        // Calculate the beta least squares updates and variances
+        // ------------------------------------------------------
+        b_ls = rhs / ZPZdiag[i];
+        var_b_ls = gp.array() + vare / ZPZdiag[i];
+        // ------------------------------------------------------
+        // Calculate the likelihoods for each distribution
+        // ------------------------------------------------------
+        ll = (-1.0 / 2.0) * var_b_ls.array().log()  - (b_ls * b_ls)  / (2 * var_b_ls.array());
+        // --------------------------------------------------------------
+        // Calculate probability that snp is in each of the distributions
+        // in this iteration
+        // --------------------------------------------------------------
+        pll = (ll.array().exp().cwiseProduct(p.array())) / ((ll.array().exp()).cwiseProduct(p.array())).sum();
+        // --------------------------------------------------------------
+        // Sample the group based on the calculated probabilities
+        // --------------------------------------------------------------
+        ssculm = 0.0;
+        r = Stat::ranf();
+        indistflag = 1;
+        for (int kk = 0; kk < ndist; kk++)
+        {
+            ssculm += pll(kk);
+            if (r < ssculm)
+            {
+                indistflag = kk + 1;
+                snpstore(kk) = snpstore(kk) + 1; 
+                break;
+            }
+        }
+        // --------------------------------------------------------------
+        // Sample the effect given the group and adjust the rhs
+        // --------------------------------------------------------------
+        if (indistflag != 1)
+        {
+            v1 = ZPZdiag[i] + vare / gp((indistflag - 1));
+            values[i] = normal.sample(rhs / v1, vare / v1);
+            ycorr += Z.col(i) * (oldSample - values[i]);
+            ghat  += Z.col(i) * values[i];
+            sumSq += (values[i] * values[i]) / gpin[indistflag - 1];
+            ++numNonZeros;
+        } else {
+            if (oldSample) ycorr += Z.col(i) * oldSample;
+            values[i] = 0.0;
+        }
+    }
+    // ---------------------------------------------------------------------------------
+    // Sample the proportion of snps in each distribution via the Dirichlet distribution
+    // ---------------------------------------------------------------------------------
+}
+
+
+
+void BayesR::sampleUnknowns(){
+    fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
+    unsigned cnt=0;
+    do {
+        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, sigmaSq.value, pis.values, vare.value, ghat);
+        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+    } while (snpEffects.numNonZeros == 0);
+    sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
+    vare.sampleFromFC(ycorr);
+    pis.sampleFromFC(ycorr);
+    varg.compute(ghat);
+    hsq.compute(varg.value, vare.value);
+    rounding.computeYcorr(data.y, data.X, data.Z, fixedEffects.values, snpEffects.values, ycorr);
+    nnzSnp.getValue(snpEffects.numNonZeros);
+}
+
+
+// ----------------------------------------------------------------------------------------
+// Bayes R
+// ----------------------------------------------------------------------------------------
 
 void BayesS::AcceptanceRate::count(const bool state, const float lower, const float upper){
     accepted += state;
@@ -2006,7 +2144,8 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
     // ----------------
     int ndist, indistflag;
     double rhs, v1,  b_ls, ssculm, r;
-    VectorXd alpha, dirx, p, gp, gpin, ll, pll, snpindist, var_b_ls, snpstore;
+    VectorXf p, dirx;
+    VectorXd alpha, gp, gpin, ll, pll, snpindist, var_b_ls, snpstore;
     ndist = 4;
     alpha.resize(ndist);
     alpha.fill(1.0);
@@ -2025,29 +2164,6 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
     0.05,
     1;
     gp = gpin * sigmaSq;
-    // // ----------------------- 
-    // // Dangerous read function
-    // // -----------------------
-    // VectorXf Zpy2;
-    // Zpy2.setZero(100);
-    // string pathZpy;
-    // pathZpy = "/Users/l.lloydjones/Desktop/zpy_test2.txt";
-    // ifstream in(pathZpy);
-    // if (!in) throw ("Error: can not open Zpy file to read.");
-    // unsigned line = 0;
-    // int cnt = 0;
-    // string vals;
-    // while (in >> vals) {
-    //     Zpy2[cnt] = atof(vals.c_str());
-    //     cnt++;
-    // }
-    // in.close();
-    // cout << "Zpy2 "<< Zpy2 << endl;
-    // ZPy = Zpy2;
-    // cout << "Zpy "<< ZPy << endl;
-    // ----------------------- 
-    // Dangerous read function
-    // -----------------------
     // --------------------------------------------------------------------------------
     // Cycle over all variants in the window and sample the genetics effects
     // --------------------------------------------------------------------------------
@@ -2131,7 +2247,6 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
             }
         }
     }
-    cout << "Varei 1 max" << varei.maxCoeff() << endl; 
     // ---------------------------------------------------------------------
     // Tally up the effect sum of squares and the number of non-zero effects
     // ---------------------------------------------------------------------

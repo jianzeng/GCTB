@@ -42,7 +42,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
 }
 
 Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
-                         const float heritability, const float pi, const bool estimatePi,
+                         const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, 
                          const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S){
     data.initVariances(heritability);
     if (!gwasFile.empty()) {
@@ -58,6 +58,10 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
     if (bayesType == "C") {
         data.readBedFile(bedFile + ".bed");
         return new BayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, algorithm);
+    }
+    if (bayesType == "R") {
+        data.readBedFile(bedFile + ".bed");
+        return new BayesR(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi, algorithm);
     }
     else if (bayesType == "S") {
         data.readBedFile(bedFile + ".bed");

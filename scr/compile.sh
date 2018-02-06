@@ -19,6 +19,13 @@ make
              --out ../test2/out/ukb_subset_height_chr17_sub_C_full \
              --chain-length 1000 --burn-in 100 --out-freq 1 2>&1 | tee ../test2/out/ukb_subset_height_chr17_sub_C_full.log
 
+./gctb       --bfile ../test2/ukb_subset_height_chr17_sub \
+             --bayes R \
+             --seed 2345 \
+             --pheno ../test2/ukb_subset_height_chr17_sub.phen \
+             --out ../test2/out/ukb_subset_height_chr17_sub_R_full \
+             --chain-length 1000 --burn-in 100 --out-freq 1 2>&1 | tee ../test2/out/ukb_subset_height_chr17_sub_R_full.log
+
 # Test 2 
 ./gctb       --bayes Cap \
              --bfile ../test2/ukb_subset_height_chr17_sub \
@@ -33,6 +40,12 @@ make
              --gwas-summary ../test2/ukb_subset_height_chr17_sub.ma \
              --out ../test2/out/ukb_subset_height_chr17_sub_C \
              --chain-length 1000000 --burn-in 100000 --out-freq 1 2>&1 | tee ../test2/out/ukb_subset_height_chr17_sub_C.log
+
+./gctb       --sbayes R \
+             --ldm ../test2/ukb_subset_height_chr17_sub.ldm.full \
+             --gwas-summary ../test2/ukb_subset_height_chr17_sub.ma \
+             --out ../test2/out/ukb_subset_height_chr17_sub_R \
+             --chain-length 1000000 --burn-in 100000 --out-freq 1 2>&1 | tee ../test2/out/ukb_subset_height_chr17_sub_R.log
 # ../bin/amber --sbayes C \
 #              --ldmText ~/Dropbox/Post_Doc_QBI/summary_stats_prob/amber/test2/ukb_subset_height_chr17_sub.ldm.w1mb \
 #              --gwas-summary ~/Dropbox/Post_Doc_QBI/summary_stats_prob/amber/test2/ukb_subset_height_chr17_sub.ma \
