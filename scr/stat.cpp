@@ -50,7 +50,7 @@ float Stat::NormalZeroMixture::sample(const float mean, const float variance, co
 
 // Sample Dirichlet
 
-VectorXd Stat::Dirichlet::sample(int n, VectorXd irx, VectorXd ps)
+VectorXf Stat::Dirichlet::sample(int n, VectorXf irx, VectorXf ps)
 {
         double sx = 0.0;
         for (int i = 0; i < n; i++)

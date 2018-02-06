@@ -303,7 +303,7 @@ void MCMC::printSummary(const vector<Parameter*> &paramToPrint, const vector<Mcm
 
 vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin,
                                const unsigned outputFreq, const string &title, const bool writeBinPosterior){
-    if (myMPI::rank==0) cout << "MCMC lauched ...\n" << endl;
+    if (myMPI::rank==0) cout << "MCMC launched ...\n" << endl;
 
     vector<McmcSamples*> mcmcSampleVec = initMcmcSamples(model, chainLength, burnin, thin, title, writeBinPosterior);
     
