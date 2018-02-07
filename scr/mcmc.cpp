@@ -269,6 +269,8 @@ void MCMC::printStatus(const vector<Parameter*> &paramToPrint, const unsigned th
     cout.flush();
 }
 
+
+
 void MCMC::printSummary(const vector<Parameter*> &paramToPrint, const vector<McmcSamples*> &mcmcSampleVec, const string &filename){
     ofstream out;
     out.open(filename.c_str());
@@ -314,7 +316,6 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const u
         unsigned thisIter = iteration + 1;
         
         model.sampleUnknowns();
-        
         if (myMPI::rank==0) {
             collectSamples(model, mcmcSampleVec, iteration, writeBinPosterior);
         }

@@ -44,6 +44,7 @@ public:
     unsigned snpFittedPerWindow;    // for BayesN
     unsigned thin;  // save every this th sampled value in MCMC
     unsigned includeChr;  // chromosome to include
+    unsigned ndists; // Number of distributions for base Bayes R
     
     float pi;
     float heritability;
@@ -108,7 +109,10 @@ public:
         chisqThreshold          = 10;
 
         // Bayes R defaults
-        gamma                   << 0.0, 0.01, 0.1, 1;                        
+        ndists                  = 4;
+        gamma.resize(ndists);
+        gamma                   << 0.0, 0.01, 0.1, 1;  
+        pis.resize(ndists);                      
         pis                     << 0.95, 0.03, 0.01, 0.01;
 
         estimatePi              = true;

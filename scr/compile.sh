@@ -24,7 +24,7 @@ make
              --seed 2345 \
              --pheno ../test2/ukb_subset_height_chr17_sub.phen \
              --out ../test2/out/ukb_subset_height_chr17_sub_R_full \
-             --chain-length 1000 --burn-in 100 --out-freq 1 2>&1 | tee ../test2/out/ukb_subset_height_chr17_sub_R_full.log
+             --chain-length 10 --burn-in 1 --out-freq 1 2>&1 | tee ../test2/out/ukb_subset_height_chr17_sub_R_full.log
 
 # Test 2 
 ./gctb       --bayes Cap \
