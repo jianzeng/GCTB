@@ -58,9 +58,11 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
     if (bayesType == "C") {
         data.readBedFile(bedFile + ".bed");
         return new BayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, algorithm);
-    }
+    } 
     if (bayesType == "R") {
         data.readBedFile(bedFile + ".bed");
+        // cout << "Pis and gamma " << pis << " " << gamma << endl;
+        // cout << "pis.size() " << pis.size() << endl;
         return new BayesR(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi, algorithm);
     }
     else if (bayesType == "S") {

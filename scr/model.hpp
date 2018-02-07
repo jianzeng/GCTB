@@ -378,6 +378,16 @@ public:
    //      void sampleFromFC(const unsigned numSnps, const unsigned numSnpEff);
    //  };
 
+// class Parameter {
+//     // base class for a single parameter
+// public:
+//     const string label;
+//     float value;   // sampled value
+    
+//     Parameter(const string &label): label(label){
+//         value = 0.0;
+//     }
+// };
 
 class BayesR : public BayesC {
     // Prior for snp efect pi_1 * N(0, 0) + pi_2 * N(0, sig^2_beta * gamma_2) + pi_3 * N(0, sig^2_beta * gamma_3) + pi_3 * N(0, sig^2_beta * gamma_4)
@@ -393,45 +403,60 @@ public:
         
         void sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
                           const float sigmaSq, const VectorXf &pis, 
-                          const float vare, VectorXf &ghat);
+                          const float vare, VectorXf &ghat, VectorXf &snpStore);
     };
 
-    // class ProbMixComps : public ParamSet {
-    //     // all fixed effects has flat prior
-    // public:
-    //     ProbMixComps(VectorXf &pis)
-    //     : ParamSet("pis", header){values = pis;}
-    // };
+    class ProbMixComps : public vector<Parameter*>, public Stat::Dirichlet {
 
-    class ProbMixComps : public ParamSet, public Stat::Dirichlet {
         // prior probability of a snp being in any of the distributions effect has a dirichlet prior
     public:
-        const VectorXf alphaVec;  // hyperparameter
+        VectorXf alphaVec;  // hyperparameter
+        VectorXf values;
         const unsigned ndist;
-        
-        ProbMixComps(const VectorXf &pis): ParamSet("pis", header), alphaVec(VectorXf::setOnes(pis.size())), ndist(pis.size()){  // informative prior
+
+        ProbMixComps(const VectorXf &pis, const vector<string> &header): ParamSet("pis", header), ndist(pis.size()){  // informative prior
+            this->resize(ndist);
+            for (unsigned i = 0; i<ndist; ++i) {
+                this[i]=new Parameter pi("Pi" + to_string(i + 1));
+            }
+            alphaVec.setOnes(pis.size());
             values = pis;
         }
         
-        void sampleFromFC(const VectorXf snpstore, const VectorXf pis);
+        void sampleFromFC(const VectorXf snpStore, const VectorXf &pis);
     };
+
+    //     class Pi : public Parameter, public Stat::Beta {
+    //     // prior probability of a snp with a non-zero effect has a beta prior
+    // public:
+    //     const float alpha;  // hyperparameter
+    //     const float beta;   // hyperparameter
+        
+    //     Pi(const float pi): Parameter("Pi"), alpha(1), beta(1){  // informative prior
+    //         value = pi;
+    //     }
+        
+    //     void sampleFromFC(const unsigned numSnps, const unsigned numSnpEff);
+    // };
     
     
-public:    
+public:
+    VectorXf snpStore;   
     SnpEffects snpEffects;
-    ProbMixComps pis;
+    ProbMixComps pis; 
+
 
     BayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, 
            const string &algorithm, const bool message = true):
     BayesC(data, varGenotypic, varResidual, pis[0], estimatePi, "Gibbs", false),
-    pis(pis),
+    pis(pis, vector<string>(pis.size())),
     snpEffects(data.snpEffectNames, algorithm)
     {
-        paramSetVec = {&snpEffects, &fixedEffects};
-        paramVec = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq};
-        // paramVec << pis, paramVec;
-        paramToPrint = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq, &rounding};
-        // paramToPrint << pis, paramToPrint;
+        paramSetVec  = {&snpEffects, &fixedEffects};
+        // cout << "Pis values" << pis[1] << endl;
+        // We can use push back here
+        paramVec     = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq};
+        paramToPrint = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq, &rounding}; 
         if (message && myMPI::rank==0) {
             string alg = algorithm;
             if (alg!="HMC") alg = "Gibbs (default)";
@@ -441,6 +466,41 @@ public:
     void sampleUnknowns(void);
 };
 
+    // class ProbMixComps : public vector<Parameter*>, public Stat::Dirichlet {
+
+    //     // prior probability of a snp being in any of the distributions effect has a dirichlet prior
+    // public:
+    //     VectorXf alphaVec;  // hyperparameter
+    //     VectorXf values;
+    //     const unsigned ndist;
+
+    //     ProbMixComps(const VectorXf &pis, const vector<string> &header): ParamSet("pis", header), ndist(pis.size()){  // informative prior
+    //         this->resize(ndist);
+    //         for (unsigned i = 0; i<ndist; ++i) {
+    //             this[i]=new Parameter pi("Pi" + to_string(i + 1));
+    //         }
+    //         alphaVec.setOnes(pis.size());
+    //         values = pis;
+    //     }
+        
+    //     void sampleFromFC(const VectorXf snpStore, const VectorXf &pis);
+    // };
+
+    // class ProbMixComps : public ParamSet, public Stat::Dirichlet {
+
+    //     // prior probability of a snp being in any of the distributions effect has a dirichlet prior
+    // public:
+    //     VectorXf alphaVec;  // hyperparameter
+    //     const unsigned ndist;
+
+    //     ProbMixComps(const VectorXf &pis, const vector<string> &header): ParamSet("pis", header), ndist(pis.size()){  // informative prior
+    //         alphaVec.setOnes(pis.size());
+    //         values = pis;
+    //     }
+        
+    //     void sampleFromFC(const VectorXf snpStore, const VectorXf &pis);
+    // };
+    
 // -----------------------------------------------------------------------------------------------
 // Bayes S
 // -----------------------------------------------------------------------------------------------
