@@ -455,16 +455,11 @@ void BayesR::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
     double v1,  b_ls, ssculm, r;
     VectorXf gp, ll, pll, snpindist, var_b_ls;
     ndist = pis.size();
-    // VectorXd alpha, gp, gpin, ll, pll, snpindist, var_b_ls, snpstore, rcorr;
     snpStore.setZero(pis.size());
-    // cout << pis[0] << endl;
-    // Parameter *par = pis[0];
-    // cout << par->label << endl;
     // --------------------------------------------------------------------------------
     // Scale the variances in each of the normal distributions by the genetic variance
     // and initialise the class membership probabilities
     // --------------------------------------------------------------------------------
-    // cout << "Gamma " << gamma << " and  Pis" << pis << endl;
     gp = gamma * sigmaSq;
     for (unsigned i=0; i<size; ++i) {
         // ------------------------------
@@ -1936,21 +1931,31 @@ void ApproxBayesS::sampleUnknowns(){
 // Bayes R - Approximate
 // *******************************************************
 
+void ApproxBayesR::ProbMixComps::sampleFromFC(const VectorXf snpStore, const VectorXf &pis) {
+    VectorXf dirx;
+    dirx = snpStore + alphaVec;
+    values = Dirichlet::sample(alphaVec.size(), dirx, pis);  
+    for (unsigned i=0; i<pis.size(); ++i) { 
+      (*this)[i]->value=values[i];  
+    }
+}
+
 
 void ApproxBayesR::sampleUnknowns(){
     fixedEffects.sampleFromFC(data.XPX, data.XPXdiag, data.ZPX, data.XPy, snpEffects.values, vare.value, rcorr);
     unsigned cnt=0;
     do {
         if (sparse)
-            snpEffects.sampleFromFC(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, data.tss, varei, data.n, data.snp2pq, sigmaSq.value, pi1.value, pi2.value, pi3.value, pi4.value, vare.value);
+            snpEffects.sampleFromFC(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, data.tss, varei, data.n, data.snp2pq, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore);
         else
-            snpEffects.sampleFromFC(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, data.tss, varei, data.n, data.snp2pq, sigmaSq.value, pi1.value, pi2.value, pi3.value, pi4.value, vare.value);
+            snpEffects.sampleFromFC(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, data.tss, varei, data.n, data.snp2pq, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr);
     varg.compute(snpEffects.values, data.ZPy, rcorr);
     hsq.compute(varg.value, vare.value);
+    Pis.sampleFromFC(snpStore, Pis.values);
     if (sparse)
         rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     else
@@ -1966,7 +1971,7 @@ void ApproxBayesR::sampleUnknowns(){
 void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float>> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                                             const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                                             const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq,
-                                            const float sigmaSq, float &pi1, float &pi2, float &pi3, float &pi4, const float vare){
+                                            const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, VectorXf &snpStore){
     // -----------------------------------------
     // Initialise the parameters in MCMC sampler
     // -----------------------------------------
@@ -1977,30 +1982,16 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
     ssq.setZero(numChr);
     s2pq.setZero(numChr);
     nnz.setZero(numChr);
-
     // R specific parameters
-
     int ndist, indistflag;
     double rhs, v1,  b_ls, ssculm, r;
-    VectorXf p, dirx, alpha, gp, gpin, ll, pll, snpindist, var_b_ls, snpstore;
-    ndist = 4;
-    alpha.resize(ndist);
-    alpha.fill(1.0);
-    gpin.resize(ndist);
-    gpin.fill(0);
-    p.setZero(ndist);
-    p << pi1, pi2, pi3, pi4;
-    snpstore.resize(ndist);
-    snpstore.fill(0);
+    VectorXf gp, ll, pll, snpindist, var_b_ls;
+    snpStore.setZero(pis.size());
     // --------------------------------------------------------------------------------
     // Scale the variances in each of the normal distributions by the genetic variance
     // and initialise the class membership probabilities
     // --------------------------------------------------------------------------------
-    gpin << 0.0,
-    0.01,
-    0.05,
-    1;
-    gp = gpin * sigmaSq;
+    gp = gamma * sigmaSq;
     // --------------------------------------------------------------------------------
     // Cycle over all variants in the window and sample the genetics effects
     // --------------------------------------------------------------------------------
@@ -2051,7 +2042,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
             // Calculate probability that snp is in each of the distributions
             // in this iteration
             // --------------------------------------------------------------
-            pll = (ll.array().exp().cwiseProduct(p.array())) / ((ll.array().exp()).cwiseProduct(p.array())).sum();
+            pll = (ll.array().exp().cwiseProduct(pis.array())) / ((ll.array().exp()).cwiseProduct(pis.array())).sum();
             // --------------------------------------------------------------
             // Sample the group based on the calculated probabilities
             // --------------------------------------------------------------
@@ -2064,7 +2055,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
                 if (r < ssculm)
                 {
                     indistflag = kk + 1;
-                    snpstore(kk) = snpstore(kk) + 1; 
+                    snpStore(kk) = snpStore(kk) + 1; 
                     break;
                 }
             }
@@ -2079,7 +2070,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
                 for (SparseVector<float>::InnerIterator it(ZPZ[i]); it; ++it) {
                     rcorr[it.index()] += it.value() * sampleDiff;
                 }
-                ssq[chr] += (values[i] * values[i]) / gpin[indistflag - 1];
+                ssq[chr] += (values[i] * values[i]) / gamma[indistflag - 1];
                 s2pq[chr] += snp2pq[i];
                 ++nnz[chr];
             } else {
@@ -2099,13 +2090,6 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
     sum2pq = s2pq.sum();
     numNonZeros = nnz.sum();
     ++iter;
-    // ---------------------------------------------------------------------------------
-    // Sample the proportion of snps in each distribution via the Dirichlet distribution
-    // ---------------------------------------------------------------------------------
-    dirx = snpstore + alpha;
-    Stat::Dirichlet dirichlet;
-    p = dirichlet.sample(ndist, dirx, p);
-    pi1 = p[0]; pi2 = p[1]; pi3 = p[2]; pi4 = p[3];
 }
 
 // ==============================================================
@@ -2115,7 +2099,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
 void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                                             const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                                             const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq,
-                                            const float sigmaSq, float &pi1, float &pi2, float &pi3, float &pi4, const float vare){
+                                            const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, VectorXf &snpStore){
     // -----------------------------------------
     // Initialise the parameters in MCMC sampler
     // -----------------------------------------
@@ -2130,26 +2114,14 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
     // ----------------
     int ndist, indistflag;
     double rhs, v1,  b_ls, ssculm, r;
-    VectorXf p, dirx, alpha, gp, gpin, ll, pll, snpindist, var_b_ls, snpstore;
-    // VectorXd alpha, gp, gpin, ll, pll, snpindist, var_b_ls, snpstore;
-    ndist = 4;
-    alpha.resize(ndist);
-    alpha.fill(1.0);
-    gpin.resize(ndist);
-    gpin.fill(0);
-    p.setZero(ndist);
-    p << pi1, pi2, pi3, pi4;
-    snpstore.resize(ndist);
-    snpstore.fill(0);
+    VectorXf gp, ll, pll, snpindist, var_b_ls;
+    snpStore.setZero(pis.size());
     // --------------------------------------------------------------------------------
     // Scale the variances in each of the normal distributions by the genetic variance
     // and initialise the class membership probabilities
     // --------------------------------------------------------------------------------
-    gpin << 0.0,
-    0.01,
-    0.05,
-    1;
-    gp = gpin * sigmaSq;
+    ndist = pis.size();
+    gp = gamma * sigmaSq;
     // --------------------------------------------------------------------------------
     // Cycle over all variants in the window and sample the genetics effects
     // --------------------------------------------------------------------------------
@@ -2167,7 +2139,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
             // Calculate residual variance from local region
             // ---------------------------------------------
             // cout << "Varei i " << varei[i] << endl;
-             if (!(iter % 100)) {
+            if (!(iter % 100)) {
                 //float varei = (sse[i] - values.segment(windStart[i], windSize[i]).dot(ZPy.segment(windStart[i], windSize[i]) + rcorr.segment(windStart[i], windSize[i])))/n[i];
                 windEnd = windStart[i] + windSize[i];
                 varei[i] = tss[i];
@@ -2199,7 +2171,8 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
             // Calculate probability that snp is in each of the distributions
             // in this iteration
             // --------------------------------------------------------------
-            pll = (ll.array().exp().cwiseProduct(p.array())) / ((ll.array().exp()).cwiseProduct(p.array())).sum();
+            pll = (ll.array().exp().cwiseProduct(pis.array())) / ((ll.array().exp()).cwiseProduct(pis.array())).sum();
+            // cout << "Likelihoods " << pll << endl;
             // --------------------------------------------------------------
             // Sample the group based on the calculated probabilities
             // --------------------------------------------------------------
@@ -2212,7 +2185,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
                 if (r < ssculm)
                 {
                     indistflag = kk + 1;
-                    snpstore(kk) = snpstore(kk) + 1; 
+                    snpStore(kk) = snpStore(kk) + 1; 
                     break;
                 }
             }
@@ -2224,7 +2197,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
                 v1 = ZPZdiag[i] + varei[i] / gp((indistflag - 1));
                 values[i] = normal.sample(rhs / v1, varei[i] / v1);
                 rcorr.segment(windStart[i], windSize[i]) += ZPZ[i] * (oldSample - values[i]);
-                ssq[chr] += (values[i] * values[i]) / gpin[indistflag - 1];
+                ssq[chr] += (values[i] * values[i]) / gamma[indistflag - 1];
                 s2pq[chr] += snp2pq[i];
                 ++nnz[chr];
             } else {
@@ -2240,13 +2213,6 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
     sum2pq = s2pq.sum();
     numNonZeros = nnz.sum();
     ++iter;
-    // ---------------------------------------------------------------------------------
-    // Sample the proportion of snps in each distribution via the Dirichlet distribution
-    // ---------------------------------------------------------------------------------
-    dirx = snpstore + alpha;
-    Stat::Dirichlet dirichlet;
-    p = dirichlet.sample(ndist, dirx, p);
-    pi1 = p[0]; pi2 = p[1]; pi3 = p[2]; pi4 = p[3];
 }
 
 
