@@ -24,7 +24,24 @@ make
              --seed 2345 \
              --pheno ../test2/ukb_subset_height_chr17_sub.phen \
              --out ../test2/out/ukb_subset_height_chr17_sub_R_full \
-             --chain-length 10 --burn-in 1 --out-freq 1 2>&1 | tee ../test2/out/ukb_subset_height_chr17_sub_R_full.log
+             --chain-length 1000 --burn-in 100 --out-freq 1 2>&1 | tee ../test2/out/ukb_subset_height_chr17_sub_R_full.log
+
+              Mean            SD             
+       Pi1    0.112507        0.066887       
+       Pi2    0.887493        0.066887       
+    NNZsnp    89.077774       6.736749       
+   SigmaSq    0.857834        0.145436       
+    ResVar    26.921997       0.066750       
+    GenVar    26.877459       0.092768       
+       hsq    0.499585        0.000992  
+
+./gctb       --bfile ../test2/ukb_subset_height_chr17_sub \
+             --bayes R \
+             --seed 2345 \
+             --set-Pis 0.92,0.02,0.02,0.02 \
+             --pheno ../test2/ukb_subset_height_chr17_sub.phen \
+             --out ../test2/out/ukb_subset_height_chr17_sub_R_full \
+             --chain-length 1000 --burn-in 1 --out-freq 1 2>&1 | tee ../test2/out/ukb_subset_height_chr17_sub_R_full.log
 
 # Test 2 
 ./gctb       --bayes Cap \

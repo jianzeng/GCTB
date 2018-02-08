@@ -428,57 +428,44 @@ void BayesN::sampleUnknowns(){
 void BayesR::ProbMixComps::sampleFromFC(const VectorXf snpStore, const VectorXf &pis) {
 	VectorXf dirx;
 	dirx = snpStore + alphaVec;
-    values = Dirichlet::sample(alphaVec.size(), dirx, pis);    
+    values = Dirichlet::sample(alphaVec.size(), dirx, pis);  
+    for (unsigned i=0; i<pis.size(); ++i) { 
+      (*this)[i]->value=values[i];  
+    }
 }
-
-// void BayesC::Pi::sampleFromFC(const unsigned numSnps, const unsigned numSnpEff){
-//     float alphaTilde = numSnpEff + alpha;
-//     float betaTilde  = numSnps - numSnpEff + beta;
-//     value = Beta::sample(alphaTilde, betaTilde);
-// }
 
 
 void BayesR::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
-                                      const float sigmaSq, const VectorXf &pis, const float vare, VectorXf &ghat,
+                                      const float sigmaSq, const VectorXf &pis, const VectorXf &gamma,
+                                      const float vare, VectorXf &ghat,
                                       VectorXf &snpStore){
     sumSq = 0.0;
     numNonZeros = 0;
     
     ghat.setZero(ycorr.size());
-    
     float oldSample;
-    float my_rhs, rhs, invLhs, uhat;
-    float logDelta0, logDelta1, probDelta1;
-    float logSigmaSq = log(sigmaSq);
-    float invVare = 1.0f/vare;
-    float invSigmaSq = 1.0f/sigmaSq;
+    float my_rhs, rhs;
     // -----------------------------------------
     // Initialise the parameters in MCMC sampler
     // -----------------------------------------
-    // VectorXf ssq, s2pq, nnz;
     // ----------------
     // Bayes R specific
     // ----------------
     int ndist, indistflag;
     double v1,  b_ls, ssculm, r;
-    VectorXf p, dirx, alpha, gp, gpin, ll, pll, snpindist, var_b_ls, rcorr;
+    VectorXf gp, ll, pll, snpindist, var_b_ls;
+    ndist = pis.size();
     // VectorXd alpha, gp, gpin, ll, pll, snpindist, var_b_ls, snpstore, rcorr;
-    ndist = 4;
-    alpha.resize(ndist);
-    alpha.fill(1.0);
-    gpin.resize(ndist);
-    gpin.fill(0);
     snpStore.setZero(pis.size());
+    // cout << pis[0] << endl;
+    // Parameter *par = pis[0];
+    // cout << par->label << endl;
     // --------------------------------------------------------------------------------
     // Scale the variances in each of the normal distributions by the genetic variance
     // and initialise the class membership probabilities
     // --------------------------------------------------------------------------------
-    gpin << 0.0,
-    0.01,
-    0.05,
-    1;
-    gp = gpin * sigmaSq;
-    cout << "Pis values" << pis << endl;
+    // cout << "Gamma " << gamma << " and  Pis" << pis << endl;
+    gp = gamma * sigmaSq;
     for (unsigned i=0; i<size; ++i) {
         // ------------------------------
         // Derived Bayes R implementation
@@ -529,7 +516,7 @@ void BayesR::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
             values[i] = normal.sample(rhs / v1, vare / v1);
             ycorr += Z.col(i) * (oldSample - values[i]);
             ghat  += Z.col(i) * values[i];
-            sumSq += (values[i] * values[i]) / gpin[indistflag - 1];
+            sumSq += (values[i] * values[i]) / gamma[indistflag - 1];
             ++numNonZeros;
         } else {
             if (oldSample) ycorr += Z.col(i) * oldSample;
@@ -543,37 +530,17 @@ void BayesR::sampleUnknowns(){
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
     unsigned cnt=0;
     do {
-        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, sigmaSq.value, pis.values, vare.value, ghat, snpStore);
+        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, sigmaSq.value, Pis.values, gamma.values, vare.value, ghat, snpStore);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-    } while (snpEffects.numNonZeros == 0);
+    } while (snpEffects.numNonZeros == 0);  
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     vare.sampleFromFC(ycorr);
-    pis.sampleFromFC(snpStore, pis.values);
+    Pis.sampleFromFC(snpStore, Pis.values);
     varg.compute(ghat);
     hsq.compute(varg.value, vare.value);
     rounding.computeYcorr(data.y, data.X, data.Z, fixedEffects.values, snpEffects.values, ycorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
 }
-
-
-// void BayesC::sampleUnknowns(){
-//     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
-//     unsigned cnt=0;
-//     do {
-//         snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, sigmaSq.value, pi.value, vare.value, ghat);
-//         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-//     } while (snpEffects.numNonZeros == 0);
-//     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
-//     //scale.sampleFromFC(sigmaSq.value, sigmaSq.df, sigmaSq.scale);
-//     if (estimatePi) pi.sampleFromFC(snpEffects.size, snpEffects.numNonZeros);
-//     vare.sampleFromFC(ycorr);
-    
-//     varg.compute(ghat);
-//     hsq.compute(varg.value, vare.value);
-    
-//     rounding.computeYcorr(data.y, data.X, data.Z, fixedEffects.values, snpEffects.values, ycorr);
-//     nnzSnp.getValue(snpEffects.numNonZeros);
-// }
 
 // ----------------------------------------------------------------------------------------
 // Bayes R
