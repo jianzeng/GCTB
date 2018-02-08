@@ -56,13 +56,16 @@ make
              --ldm ../test2/ukb_subset_height_chr17_sub.ldm.full \
              --gwas-summary ../test2/ukb_subset_height_chr17_sub.ma \
              --out ../test2/out/ukb_subset_height_chr17_sub_C \
-             --chain-length 1000000 --burn-in 100000 --out-freq 1 2>&1 | tee ../test2/out/ukb_subset_height_chr17_sub_C.log
+             --chain-length 1000 --burn-in 100 --out-freq 1 2>&1 | tee ../test2/out/ukb_subset_height_chr17_sub_C.log
 
 ./gctb       --sbayes R \
              --ldm ../test2/ukb_subset_height_chr17_sub.ldm.full \
              --gwas-summary ../test2/ukb_subset_height_chr17_sub.ma \
+             --set-Pis 0.94,0.02,0.02,0.02 \
+             --set-Gammas 0,0.001,0.01,1.0 \
              --out ../test2/out/ukb_subset_height_chr17_sub_R \
-             --chain-length 1000000 --burn-in 100000 --out-freq 1 2>&1 | tee ../test2/out/ukb_subset_height_chr17_sub_R.log
+             --seed 2345 \
+             --chain-length 1000 --burn-in 100 --out-freq 1 2>&1 | tee ../test2/out/ukb_subset_height_chr17_sub_R.log
 # ../bin/amber --sbayes C \
 #              --ldmText ~/Dropbox/Post_Doc_QBI/summary_stats_prob/amber/test2/ukb_subset_height_chr17_sub.ldm.w1mb \
 #              --gwas-summary ~/Dropbox/Post_Doc_QBI/summary_stats_prob/amber/test2/ukb_subset_height_chr17_sub.ma \
