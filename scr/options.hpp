@@ -12,6 +12,7 @@
 #include <iostream>
 #include <sstream>
 #include <fstream>
+#include <set>
 #include <stdio.h>
 #include <cstring>
 #include <string>
@@ -20,12 +21,13 @@
 #include <omp.h>
 #include <boost/format.hpp>
 #include <Eigen/Core>
+#include <Eigen/Eigen>
 #include "mympi.hpp"
 #include "gadgets.hpp"
 
 using namespace std;
 using namespace boost;
-
+using namespace Eigen;
 
 const unsigned Megabase = 1e6;
 
@@ -42,6 +44,7 @@ public:
     unsigned snpFittedPerWindow;    // for BayesN
     unsigned thin;  // save every this th sampled value in MCMC
     unsigned includeChr;  // chromosome to include
+    unsigned ndists; // Number of distributions for base Bayes R
     
     float pi;
     float heritability;
@@ -58,6 +61,10 @@ public:
     bool outputResults;
     bool multiLDmat;
     bool multiThreadEigen;
+
+    // Bayes R defauls
+    VectorXf gamma;  // Default scaling parameters for Bayes R
+    VectorXf pis;    // Default pis for Bayes R
     
     string title;
     string analysisType;
@@ -100,7 +107,14 @@ public:
         S[0]                    = 0.0;
         LDthreshold             = 0.0;
         chisqThreshold          = 10;
-        
+
+        // Bayes R defaults
+        ndists                  = 4;
+        gamma.resize(ndists);
+        gamma                   << 0.0, 0.01, 0.1, 1;  
+        pis.resize(ndists);                      
+        pis                     << 0.95, 0.03, 0.01, 0.01;
+
         estimatePi              = true;
         estimateScale           = false;
         writeBinPosterior       = true;

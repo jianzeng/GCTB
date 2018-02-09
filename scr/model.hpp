@@ -361,6 +361,87 @@ public:
     void sampleUnknowns(void);
 };
 
+// -----------------------------------------------------------------------------------------------
+// Bayes R
+// -----------------------------------------------------------------------------------------------
+
+class BayesR : public BayesC {
+    // Prior for snp efect pi_1 * N(0, 0) + pi_2 * N(0, sig^2_beta * gamma_2) + pi_3 * N(0, sig^2_beta * gamma_3) + pi_3 * N(0, sig^2_beta * gamma_4)
+    // consider S as unknown to make inference on the relationship between MAF and effect size
+public:
+    
+    class SnpEffects : public BayesC::SnpEffects {
+    public:
+      float sum2pq;
+        SnpEffects(const vector<string> &header, const string &alg): BayesC::SnpEffects(header, "Gibbs"){
+            sum2pq = 0.0;
+        }
+        
+        void sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
+                          const float sigmaSq, const VectorXf &pis,  const VectorXf &gamma,
+                          const float vare, VectorXf &ghat, VectorXf &snpStore);
+    };
+
+    class ProbMixComps : public vector<Parameter*>, public Stat::Dirichlet {
+
+        // prior probability of a snp being in any of the distributions effect has a dirichlet prior
+    public:
+        VectorXf alphaVec;  // hyperparameter
+        VectorXf values;
+        const unsigned ndist;
+
+        ProbMixComps(const VectorXf &pis): ndist(pis.size()){  
+            for (unsigned i = 0; i<ndist; ++i) {
+                 //Parameter * pi = new Parameter("Pi");
+                 this->push_back(new Parameter("Pi" + to_string(i + 1)));
+            }
+            alphaVec.setOnes(pis.size());
+            values = pis;
+        }
+        
+        void sampleFromFC(const VectorXf snpStore, const VectorXf &pis);
+    };
+
+    class Gammas : public ParamSet {
+        // Set of scaling factors for each of the distributions
+    public:
+        Gammas(const VectorXf &gamma, const vector<string> &header): ParamSet("gamma", header){ 
+            values = gamma;
+        }
+    };
+    
+    
+public:
+    VectorXf snpStore;   
+    SnpEffects snpEffects;
+    ProbMixComps Pis; 
+    Gammas gamma;
+
+    BayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, 
+           const string &algorithm, const bool message = true):
+    BayesC(data, varGenotypic, varResidual, pis[0], estimatePi, "Gibbs", false),
+    Pis(pis),
+    gamma(gamma, vector<string>(gamma.size())),
+    snpEffects(data.snpEffectNames, algorithm)
+    {
+        paramSetVec  = {&snpEffects, &fixedEffects};
+        for (unsigned i=0; i<Pis.size(); ++i) { 
+           Pis[i]->value=Pis.values[i];  
+        }
+        paramVec     = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq};
+        paramVec.insert(paramVec.begin(), Pis.begin(), Pis.end());
+        paramToPrint = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq, &rounding};
+        paramToPrint.insert(paramToPrint.begin(), Pis.begin(), Pis.end());
+        if (message && myMPI::rank==0) {
+            string alg = algorithm;
+            if (alg!="HMC") alg = "Gibbs (default)";
+            cout << "\nBayesR model fitted. Algorithm: " << alg << "." << endl;
+        }
+    }   
+    void sampleUnknowns(void);
+};
+    
+
 class BayesS : public BayesC {
     // Prior for snp efect alpha_j ~ N(0, sigma^2_a / (2p_j q_j)^S)
     // consider S as unknown to make inference on the relationship between MAF and effect size
@@ -741,4 +822,98 @@ public:
     void sampleUnknowns(void);
 };
 
+// -----------------------------------------------------------------------------------------------
+// Approximate Bayes R
+// -----------------------------------------------------------------------------------------------
+
+class ApproxBayesR : public ApproxBayesC {
+    
+public:
+    
+    class SnpEffects : public ApproxBayesC::SnpEffects {
+    public:
+        float sum2pq;
+        
+        SnpEffects(const vector<string> &header): ApproxBayesC::SnpEffects(header){
+            sum2pq = 0.0;
+            
+        }
+        
+        void sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float>> &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
+                          const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
+                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq,
+                          const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, VectorXf &snpStore);
+        void sampleFromFC(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
+                          const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
+                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq,
+                          const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, VectorXf &snpStore);
+    };
+    
+
+    class ProbMixComps : public vector<Parameter*>, public Stat::Dirichlet {
+
+        // prior probability of a snp being in any of the distributions effect has a dirichlet prior
+    public:
+        VectorXf alphaVec;  // hyperparameter
+        VectorXf values;
+        const unsigned ndist;
+
+        ProbMixComps(const VectorXf &pis): ndist(pis.size()){  
+            for (unsigned i = 0; i<ndist; ++i) {
+                 //Parameter * pi = new Parameter("Pi");
+                 this->push_back(new Parameter("Pi" + to_string(i + 1)));
+            }
+            alphaVec.setOnes(pis.size());
+            values = pis;
+        }
+        
+        void sampleFromFC(const VectorXf snpStore, const VectorXf &pis);
+    };
+
+    class Gammas : public ParamSet {
+        // Set of scaling factors for each of the distributions
+    public:
+        Gammas(const VectorXf &gamma, const vector<string> &header): ParamSet("gamma", header){ 
+            values = gamma;
+        }
+    };
+
+public:
+    
+    VectorXf snpStore;   
+    SnpEffects snpEffects;
+    ProbMixComps Pis; 
+    Gammas gamma;
+    ApproxBayesC::GenotypicVar varg;
+    
+    ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, 
+                 const bool message = true):
+    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, false),
+    Pis(pis),
+    gamma(gamma, vector<string>(gamma.size())),
+    varg(varGenotypic, data.numKeptInds),
+    snpEffects(data.snpEffectNames)
+    {
+        sparse = data.sparseLDM;
+        // varg.value = varGenotypic; //// NOTE: write it into constructor!!!
+        paramSetVec = {&snpEffects, &fixedEffects};
+        for (unsigned i=0; i<Pis.size(); ++i) { 
+           Pis[i]->value=Pis.values[i];  
+        }
+        paramVec     = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq};
+        paramVec.insert(paramVec.begin(), Pis.begin(), Pis.end());
+        paramToPrint = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq, &rounding};
+        paramToPrint.insert(paramToPrint.begin(), Pis.begin(), Pis.end());
+        if (message && myMPI::rank==0) {
+            cout << "\nApproximate BayesR model fitted." << endl;
+        }
+    }
+    
+    void sampleUnknowns(void);
+};
+
 #endif /* model_hpp */
+
+
+
+

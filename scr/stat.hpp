@@ -13,7 +13,9 @@
 //#include <random>
 #include <boost/math/distributions.hpp>
 #include <boost/random.hpp>
+#include <Eigen/Eigen>
 
+using namespace Eigen;
 //using namespace std;
 
 
@@ -64,6 +66,12 @@ namespace Stat {
     class Bernoulli {
     public:
         unsigned sample(const float p);
+    };
+
+    class Dirichlet {
+    public:
+        Gamma gamma;
+        VectorXf sample(int n, VectorXf irx, VectorXf ps);
     };
     
     class NormalZeroMixture {
