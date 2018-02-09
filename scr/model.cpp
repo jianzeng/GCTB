@@ -293,6 +293,74 @@ void BayesC::sampleUnknowns(){
 }
 
 
+void BayesB::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
+                                      const VectorXf &sigmaSq, const float pi, const float vare, VectorXf &ghat){
+    numNonZeros = 0;
+    
+    ghat.setZero(ycorr.size());
+    
+    float oldSample;
+    float my_rhs, rhs, invLhs, uhat;
+    float logDelta0, logDelta1, probDelta1;
+    float logPi = log(pi);
+    float logPiComp = log(1.0-pi);
+    float invVare = 1.0f/vare;
+    float beta;
+    
+    for (unsigned i=0; i<size; ++i) {
+        oldSample = values[i];
+        my_rhs = Z.col(i).dot(ycorr);
+        MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+        rhs += ZPZdiag[i]*oldSample;
+        rhs *= invVare;
+        invLhs = 1.0f/(ZPZdiag[i]*invVare + 1.0f/sigmaSq[i]);
+        uhat = invLhs*rhs;
+        logDelta1 = 0.5*(logf(invLhs) - logf(sigmaSq[i]) + uhat*rhs) + logPi;
+        logDelta0 = logPiComp;
+        probDelta1 = 1.0f/(1.0f + expf(logDelta0-logDelta1));
+        
+        //cout << i << " rhs " << rhs << " invLhs " << invLhs << " uhat " << uhat << endl;
+        
+        if (bernoulli.sample(probDelta1)) {
+            values[i] = normal.sample(uhat, invLhs);
+            ycorr += Z.col(i) * (oldSample - values[i]);
+            ghat  += Z.col(i) * values[i];
+            betaSq[i] = values[i]*values[i];
+            ++numNonZeros;
+        } else {
+            if (oldSample) ycorr += Z.col(i) * oldSample;
+            beta = normal.sample(0, sigmaSq[i]);
+            betaSq[i] = beta*beta;
+            values[i] = 0.0;
+        }
+    }
+}
+
+void BayesB::VarEffects::sampleFromFC(const VectorXf &betaSq){
+    float dfTilde = df + 1.0f;
+    ArrayXf scaleTilde = betaSq.array() + df*scale;
+    for (unsigned i=0; i<size; ++i) {
+        values[i] = InvChiSq::sample(dfTilde, scaleTilde[i]);
+    }
+}
+
+void BayesB::sampleUnknowns(){
+    fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
+    unsigned cnt=0;
+    do {
+        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, sigmaSq.values, pi.value, vare.value, ghat);
+        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+    } while (snpEffects.numNonZeros == 0);
+    sigmaSq.sampleFromFC(snpEffects.betaSq);
+    if (estimatePi) pi.sampleFromFC(snpEffects.size, snpEffects.numNonZeros);
+    vare.sampleFromFC(ycorr);
+    varg.compute(ghat);
+    hsq.compute(varg.value, vare.value);
+    rounding.computeYcorr(data.y, data.X, data.Z, fixedEffects.values, snpEffects.values, ycorr);
+    nnzSnp.getValue(snpEffects.numNonZeros);
+}
+
+
 void BayesN::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
                                       const float sigmaSq, const float pi, const float vare, VectorXf &ghat){
     sumSq = 0.0;

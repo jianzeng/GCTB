@@ -55,6 +55,10 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
         else
             throw(" Error: Wrong bayes type: " + bayesType + " in the summary-data-based Bayes analysis.");
     }
+    if (bayesType == "B") {
+        data.readBedFile(bedFile + ".bed");
+        return new BayesB(data, data.varGenotypic, data.varResidual, pi, estimatePi);
+    }
     if (bayesType == "C") {
         data.readBedFile(bedFile + ".bed");
         return new BayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, algorithm);
