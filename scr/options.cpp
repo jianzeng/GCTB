@@ -177,7 +177,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
             }
             ss << "--S " << argv[i] << "\n";
         }
-        else if (!strcmp(argv[i], "--set-Pis")) {
+        else if (!strcmp(argv[i], "--set-pis")) {
             Gadget::Tokenizer strvec;
             strvec.getTokens(argv[++i], " ,");
             pis.resize(strvec.size());
@@ -186,7 +186,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
             }
             ss << "--set-pis " << argv[i] << "\n";
         }
-        else if (!strcmp(argv[i], "--set-Gammas")) {
+        else if (!strcmp(argv[i], "--set-gammas")) {
             Gadget::Tokenizer strvec;
             strvec.getTokens(argv[++i], " ,");
             gamma.resize(strvec.size());
@@ -233,8 +233,12 @@ void Options::inputOptions(const int argc, const char* argv[]){
     }
     if (pis.size() != gamma.size()) 
     {
-        throw("Error: Length of mixing proportions vector " + to_string(pis.size()) + " does not match length of variance scaling factors vector " + to_string(gamma.size()) + 
-              ". \n" + "When using Bayes R option please specify starting mixing proportions and variance scaling factors." + "\n" + 
+        throw("Error: Length of mixing proportions vector " + to_string(pis.size()) + 
+              " does not match length of variance scaling factors vector " + 
+              to_string(gamma.size()) + 
+              ". \n" + 
+              "When using Bayes R option please specify starting mixing proportions and variance scaling factors." +
+              "\n" + 
               "The flags for these are --set-pis and --set-gammas.");
     }    
     
