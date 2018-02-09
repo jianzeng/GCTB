@@ -2179,9 +2179,8 @@ void Data::buildSparseMME(){
         
     ZPZdiag = D;
     
-    //b.array() -= b.mean();
     ZPy.array() = D.array()*b.array();
-    
+    // cout << "I'm in the mixed model equation building thing and print Zpy" << ZPy <<  endl;
     //    cout << "ZPZdiag " << ZPZdiag.transpose() << endl;
     //    cout << "ZPZ.back() " << ZPZ.back().transpose() << endl;
     //    cout << "ZPZ.front() " << ZPZ.front().transpose() << endl;
