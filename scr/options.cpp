@@ -184,7 +184,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
             for (unsigned j=0; j<strvec.size(); ++j) {
                 pis[j] = stof(strvec[j]);
             }
-            ss << "--set-Pis " << argv[i] << "\n";
+            ss << "--set-pis " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--set-Gammas")) {
             Gadget::Tokenizer strvec;
@@ -193,7 +193,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
             for (unsigned j=0; j<strvec.size(); ++j) {
                 gamma[j] = stof(strvec[j]);
             }
-            ss << "--set-Gammas " << argv[i] << "\n";
+            ss << "--set-gammas " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--thread")) {
             numThread = atoi(argv[++i]);
@@ -229,13 +229,13 @@ void Options::inputOptions(const int argc, const char* argv[]){
     // cout << pis << " and " << pis.sum() << endl;
     if (pis.sum() != 1.0) 
     {
-        throw(" Error: When using Bayes R option and --set-Pis the pis must sum to 1. Please adjust.");
+        throw(" Error: When using Bayes R option and --set-pis the pis must sum to 1. Please adjust.");
     }
     if (pis.size() != gamma.size()) 
     {
         throw("Error: Length of mixing proportions vector " + to_string(pis.size()) + " does not match length of variance scaling factors vector " + to_string(gamma.size()) + 
               ". \n" + "When using Bayes R option please specify starting mixing proportions and variance scaling factors." + "\n" + 
-              "The flags for these are --set-Pis and --set-Gammas.");
+              "The flags for these are --set-pis and --set-gammas.");
     }    
     
     MPI_Comm_rank(MPI_COMM_WORLD, &myMPI::rank);
