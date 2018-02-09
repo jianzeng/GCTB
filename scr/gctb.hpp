@@ -10,7 +10,7 @@
 #define amber_hpp
 
 #include <stdio.h>
-#include </Users/l.lloydjones/homebrew/Cellar/open-mpi/3.0.0_2/include/mpi.h>
+#include <mpi.h>
 #include <omp.h>
 #include "options.hpp"
 #include "data.hpp"
