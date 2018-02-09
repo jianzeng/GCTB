@@ -275,6 +275,56 @@ public:
     void sampleUnknowns(void);
 };
 
+
+class BayesB : public BayesC {
+public:
+    
+    class SnpEffects : public BayesC::SnpEffects {
+    // for the ease of sampling, we model the SNP effect to be alpha_j = beta_j * delta_j where beta_j has a univariate normal prior.
+    public:
+        VectorXf betaSq;     // save sample squres of full conditional normal distribution regardless of delta values
+        
+        SnpEffects(const vector<string> &header): BayesC::SnpEffects(header, "Gibbs"){
+            betaSq.setZero(size);
+        }
+        
+        void sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
+                          const VectorXf &sigmaSq, const float pi, const float vare, VectorXf &ghat);
+    };
+
+    class VarEffects : public ParamSet, public BayesC::VarEffects {
+    public:
+        VarEffects(const float vg, const VectorXf &snp2pq, const float pi):
+        ParamSet("SigmaSqs", vector<string>(snp2pq.size())),
+        BayesC::VarEffects(vg, snp2pq, pi){
+            values.setConstant(size, value);
+        }
+        
+        void sampleFromFC(const VectorXf &betaSq);
+    };
+    
+    SnpEffects snpEffects;
+    VarEffects sigmaSq;
+
+    BayesB(const Data &data, const float varGenotypic, const float varResidual, const float pival,
+           const bool estimatePi, const bool message = true):
+    BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false),
+    snpEffects(data.snpEffectNames),
+    sigmaSq(varGenotypic, data.snp2pq, pival)
+    {
+        paramSetVec = {&snpEffects, &fixedEffects};           // for which collect mcmc samples
+        paramVec = {&pi, &nnzSnp, &vare, &varg, &hsq};       // for which collect mcmc samples
+        paramToPrint = {&pi, &nnzSnp, &vare, &varg, &hsq, &rounding};   // print in order
+        if (message && myMPI::rank==0) {
+            cout << "\nBayesB model fitted." << endl;
+            cout << "scale factor: " << sigmaSq.scale << endl;
+        }
+    }
+    
+    void sampleUnknowns(void);
+
+};
+
 class BayesN : public BayesC {
     // Nested model
 public:
