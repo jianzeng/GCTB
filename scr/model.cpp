@@ -537,9 +537,6 @@ void BayesR::sampleUnknowns(){
     nnzSnp.getValue(snpEffects.numNonZeros);
 }
 
-// ----------------------------------------------------------------------------------------
-// Bayes R
-// ----------------------------------------------------------------------------------------
 
 void BayesS::AcceptanceRate::count(const bool state, const float lower, const float upper){
     accepted += state;
@@ -1246,31 +1243,7 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<VectorX
     ssq.setZero(numChr);
     s2pq.setZero(numChr);
     nnz.setZero(numChr);
-    // cout << "ZPy " << ZPy << endl;
-    // VectorXf Zpy2;
-    // Zpy2.setZero(100);
-    // ----------------------- 
-    // Dangerous read function
-    // -----------------------
-    // string pathZpy;
-    // pathZpy = "/Users/l.lloydjones/Desktop/zpy_test2.txt";
-    // ifstream in(pathZpy);
-    // if (!in) throw ("Error: can not open Zpy file to read.");
-    // unsigned line = 0;
-    // int cnt = 0;
-    // string vals;
-    // while (in >> vals) {
-    //     Zpy2[cnt] = atof(vals.c_str());
-    //     cnt++;
-    // }
-    // in.close();
-    // cout << "Zpy2 "<< Zpy2 << endl;
-    // ZPy = Zpy2;
-    // cout << "Zpy "<< ZPy << endl;
-    // cout << "Zpy "<< ZPy << endl;
-    // ----------------------- 
-    // Dangerous read function
-    // -----------------------
+
 #pragma omp parallel for
     for (unsigned chr=0; chr<numChr; ++chr) {
         //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;

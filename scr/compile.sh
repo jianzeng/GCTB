@@ -38,7 +38,8 @@ make
 ./gctb       --bfile ../test2/ukb_subset_height_chr17_sub \
              --bayes R \
              --seed 2345 \
-             --set-Pis 0.92,0.02,0.02,0.02 \
+             --set-pis 0.92,0.04,0.02,0.02 \
+             --set-gammas 0,0.01,0.02,1 \
              --pheno ../test2/ukb_subset_height_chr17_sub.phen \
              --out ../test2/out/ukb_subset_height_chr17_sub_R_full \
              --chain-length 1000 --burn-in 1 --out-freq 1 2>&1 | tee ../test2/out/ukb_subset_height_chr17_sub_R_full.log
@@ -61,8 +62,8 @@ make
 ./gctb       --sbayes R \
              --ldm ../test2/ukb_subset_height_chr17_sub.ldm.full \
              --gwas-summary ../test2/ukb_subset_height_chr17_sub.ma \
-             --set-Pis 0.94,0.02,0.02,0.02 \
-             --set-Gammas 0,0.001,0.01,1.0 \
+             --set-pis 0.93,0.03,0.02,0.01,0.01 \
+             --set-gammas 0,0.001,0.01,0.1,1.0 \
              --out ../test2/out/ukb_subset_height_chr17_sub_R \
              --seed 2345 \
              --chain-length 1000 --burn-in 100 --out-freq 1 2>&1 | tee ../test2/out/ukb_subset_height_chr17_sub_R.log
