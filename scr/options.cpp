@@ -7,6 +7,7 @@
 //
 
 #include "options.hpp"
+#include <limits>
 
 void Options::inputOptions(const int argc, const char* argv[]){
     stringstream ss;
@@ -113,7 +114,26 @@ void Options::inputOptions(const int argc, const char* argv[]){
             ss << "--wind " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--pi")) {
-            pi = atof(argv[++i]);
+            Gadget::Tokenizer strvec;
+            strvec.getTokens(argv[++i], " ,");
+            if (strvec.size() != 1 && bayesType != "R") 
+            {
+                throw("Error: When NOT using Bayes R option you can only specify one mixture proportion parameter.");
+            } 
+            if (strvec.size() == 1)
+            {
+                for (unsigned j=0; j<strvec.size(); ++j) 
+                {
+                    pi = stof(strvec[j]);
+                }
+            } else 
+            {
+                pis.resize(strvec.size());
+                for (unsigned j=0; j<strvec.size(); ++j) 
+                {
+                    pis[j] = stof(strvec[j]);
+                }
+            }
             ss << "--pi " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--hsq")) {
@@ -177,23 +197,23 @@ void Options::inputOptions(const int argc, const char* argv[]){
             }
             ss << "--S " << argv[i] << "\n";
         }
-        else if (!strcmp(argv[i], "--set-pis")) {
-            Gadget::Tokenizer strvec;
-            strvec.getTokens(argv[++i], " ,");
-            pis.resize(strvec.size());
-            for (unsigned j=0; j<strvec.size(); ++j) {
-                pis[j] = stof(strvec[j]);
-            }
-            ss << "--set-pis " << argv[i] << "\n";
-        }
-        else if (!strcmp(argv[i], "--set-gammas")) {
+        // else if (!strcmp(argv[i], "--set-pis")) {
+        //     Gadget::Tokenizer strvec;
+        //     strvec.getTokens(argv[++i], " ,");
+        //     pis.resize(strvec.size());
+        //     for (unsigned j=0; j<strvec.size(); ++j) {
+        //         pis[j] = stof(strvec[j]);
+        //     }
+        //     ss << "--set-pis " << argv[i] << "\n";
+        // }
+        else if (!strcmp(argv[i], "--gamma")) {
             Gadget::Tokenizer strvec;
             strvec.getTokens(argv[++i], " ,");
             gamma.resize(strvec.size());
             for (unsigned j=0; j<strvec.size(); ++j) {
                 gamma[j] = stof(strvec[j]);
             }
-            ss << "--set-gammas " << argv[i] << "\n";
+            ss << "--gamma " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--thread")) {
             numThread = atoi(argv[++i]);
@@ -225,11 +245,12 @@ void Options::inputOptions(const int argc, const char* argv[]){
             throw (errmsg.str());
         }
     }
-    // Error throwing for Bayes R specific options 
-    // cout << pis << " and " << pis.sum() << endl;
-    if (pis.sum() != 1.0) 
+    // Error throwing for Bayes R specific options
+    // cout << "diff " << std::abs(pis.sum() - 1.0) << endl;
+    float epsilon = std::numeric_limits<float>::epsilon();
+    if (std::abs(pis.sum() - 1.0) > epsilon) 
     {
-        throw(" Error: When using Bayes R option and --set-pis the pis must sum to 1. Please adjust.");
+        throw("Error: When using Bayes R option and --pi the pis must sum to 1. Please adjust.");
     }
     if (pis.size() != gamma.size()) 
     {
@@ -239,7 +260,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
               ". \n" + 
               "When using Bayes R option please specify starting mixing proportions and variance scaling factors." +
               "\n" + 
-              "The flags for these are --set-pis and --set-gammas.");
+              "The flags for these are --pi and --gamma.");
     }    
     
     MPI_Comm_rank(MPI_COMM_WORLD, &myMPI::rank);
