@@ -17,7 +17,7 @@ public:
     VectorXf ghat;
     float cor, reg;
     
-    void getAccuracy(const Data &data);
+    void getAccuracy(const Data &data, const string &filename);
     void writeRes(const Data &data, const string &filename);
 };
 
