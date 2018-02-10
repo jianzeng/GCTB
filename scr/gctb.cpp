@@ -150,8 +150,8 @@ void GCTB::inputSnpResults(Data &data, const string &snpResFile){
 
 void GCTB::predict(const Data &data, const string &filename){
     Predict pred;
-    pred.getAccuracy(data);
-    pred.writeRes(data, filename + ".pred");
+    pred.getAccuracy(data, filename + ".predRes");
+    pred.writeRes(data, filename + ".ghat");
 }
 
 void GCTB::clearGenotypes(Data &data){

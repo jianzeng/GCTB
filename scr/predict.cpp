@@ -8,7 +8,11 @@
 
 #include "predict.hpp"
 
-void Predict::getAccuracy(const Data &data) {
+void Predict::getAccuracy(const Data &data, const string &filename) {
+    ofstream out(filename.c_str());
+    if (!out) {
+        throw("Error: cannot open file " + filename);
+    }
     ghat.setZero(data.numKeptInds);
     SnpInfo *snp;
     for (unsigned i=0; i<data.numIncdSnps; ++i) {
@@ -21,6 +25,9 @@ void Predict::getAccuracy(const Data &data) {
     
     cout << " Accuracy of prediction (correlation between y and ghat) : " << boost::format("%-10.4f") % cor << endl;
     cout << " Bias of prediction (one minus regression of y on  ghat) : " << boost::format("%-10.4f") % (1.0f-reg) << endl;
+    
+    out << " Accuracy of prediction (correlation between y and ghat) : " << boost::format("%-10.4f") % cor << endl;
+    out << " Bias of prediction (one minus regression of y on  ghat) : " << boost::format("%-10.4f") % (1.0f-reg) << endl;
 }
 
 void Predict::writeRes(const Data &data, const string &filename) {
