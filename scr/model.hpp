@@ -443,7 +443,7 @@ public:
         ProbMixComps(const VectorXf &pis): ndist(pis.size()){  
             for (unsigned i = 0; i<ndist; ++i) {
                  //Parameter * pi = new Parameter("Pi");
-                 this->push_back(new Parameter("Pi" + to_string(i + 1)));
+                 this->push_back(new Parameter("Pi" + to_string(static_cast<long long>(i + 1))));
             }
             alphaVec.setOnes(pis.size());
             values = pis;
@@ -911,7 +911,7 @@ public:
         ProbMixComps(const VectorXf &pis): ndist(pis.size()){  
             for (unsigned i = 0; i<ndist; ++i) {
                  //Parameter * pi = new Parameter("Pi");
-                 this->push_back(new Parameter("Pi" + to_string(i + 1)));
+                 this->push_back(new Parameter("Pi" + to_string(static_cast<long long>(i + 1))));
             }
             alphaVec.setOnes(pis.size());
             values = pis;

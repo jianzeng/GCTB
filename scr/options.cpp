@@ -254,9 +254,9 @@ void Options::inputOptions(const int argc, const char* argv[]){
     }
     if (pis.size() != gamma.size()) 
     {
-        throw("Error: Length of mixing proportions vector " + to_string(pis.size()) + 
+        throw("Error: Length of mixing proportions vector " + to_string(static_cast<long long>(pis.size())) +
               " does not match length of variance scaling factors vector " + 
-              to_string(gamma.size()) + 
+              to_string(static_cast<long long>(gamma.size())) +
               ". \n" + 
               "When using Bayes R option please specify starting mixing proportions and variance scaling factors." +
               "\n" + 

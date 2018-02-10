@@ -911,6 +911,35 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
     out.close();
 }
 
+void Data::inputSnpResults(const string &snpResFile){
+    ifstream in(snpResFile.c_str());
+    if (!in) throw ("Error: can not open the SNP result file [" + snpResFile + "] to read.");
+    if (myMPI::rank==0)
+        cout << "Reading SNP results from [" + snpResFile + "]." << endl;
+    
+    SnpInfo *snp;
+    map<string, SnpInfo*>::iterator it;
+    string name;
+    int id, chrom, pos, window;
+    float freq, effect, se, pip;
+    unsigned line=0, match=0;
+    while (in >> id >> name >> chrom >> pos >> freq >> effect >> se >> pip >> window) {
+        ++line;
+        it = snpInfoMap.find(name);
+        if (it == snpInfoMap.end()) continue;
+        snp = it->second;
+        if (!snp->included) continue;
+        snp->effect = effect;
+        ++match;
+    }
+    in.close();
+    
+    if (myMPI::rank==0) {
+        cout << match << " matched SNPs in the SNP result file (in total " << line << " SNPs)." << endl;
+    }
+}
+
+
 void Data::summarizeSnpResults(const SparseMatrix<float> &snpEffects, const string &filename) const {
     if (myMPI::rank==0) {
         cout << "SNP results to be summarized in " << filename << endl;
@@ -2268,3 +2297,5 @@ void Data::outputSnpEffectSamples(const SparseMatrix<float> &snpEffects, const u
     
     out.close();
 }
+
+

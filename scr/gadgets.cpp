@@ -72,7 +72,25 @@ void Gadget::fileExist(const string &filename){
 }
 
 float Gadget::calcVariance(const VectorXf &vec){
-    long size = vec.size();
-    float mean = vec.mean();
-    return vec.squaredNorm()/size - mean*mean;
+    return (vec.array() - vec.mean()).square().sum()/vec.size();
+}
+
+float Gadget::calcCovariance(const VectorXf &vec1, const VectorXf &vec2){
+    if (vec1.size() != vec2.size()) {
+        throw("Error: Gadget::calcCovariance: the two vectors have different sizes.");
+    }
+    return (vec1.array()-vec1.mean()).cwiseProduct(vec2.array()-vec2.mean()).sum()/vec1.size();
+}
+
+float Gadget::calcCorrelation(const VectorXf &vec1, const VectorXf &vec2){
+    float cov = calcCovariance(vec1, vec2);
+    float var1 = calcVariance(vec1);
+    float var2 = calcVariance(vec2);
+    return cov/sqrt(var1*var2);
+}
+
+float Gadget::calcRegression(const VectorXf &y, const VectorXf &x){
+    float cov = calcCovariance(y, x);
+    float varx = calcVariance(x);
+    return cov/varx;
 }

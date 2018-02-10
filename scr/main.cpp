@@ -117,7 +117,7 @@ int main(int argc, const char * argv[]) {
                                opt.mphen, opt.covariateFile);
             gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.includeChr, readGenotypes);
             
-            gctb.inputSnpResults(data, opt.snpResFile);
+            data.inputSnpResults(opt.snpResFile);
             gctb.predict(data, opt.title);
         }
         else if (opt.analysisType == "Summarize") {  // ad hoc method for producing summary from binary MCMC samples of SNP effects
