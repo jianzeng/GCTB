@@ -17,6 +17,7 @@
 #include "model.hpp"
 #include "mcmc.hpp"
 #include "hsq.hpp"
+#include "predict.hpp"
 #include "mympi.hpp"
 
 class GCTB {

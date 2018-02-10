@@ -211,6 +211,9 @@ public:
     void resizeLDmatrix(const string &LDmatType, const float chisqThreshold, const unsigned windowWidth, const float LDthreshold);
     void outputLDmatrix(const string &LDmatType, const string &filename) const;
     void displayAverageWindowSize(const VectorXi &windSize);
+    
+    void inputSnpResults(const string &snpResFile);
+
 };
 
 #endif /* data_hpp */

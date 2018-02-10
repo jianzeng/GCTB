@@ -74,6 +74,9 @@ namespace Gadget {
     
     // statistics functions
     float calcVariance(const VectorXf &vec);
+    float calcCovariance(const VectorXf &vec1, const VectorXf &vec2);
+    float calcCorrelation(const VectorXf &vec1, const VectorXf &vec2);
+    float calcRegression(const VectorXf &y, const VectorXf &x);
 
 }
 

@@ -10,5 +10,15 @@
 #define predict_hpp
 
 #include <stdio.h>
+#include "data.hpp"
+
+class Predict {
+public:
+    VectorXf ghat;
+    float cor, reg;
+    
+    void getAccuracy(const Data &data);
+    void writeRes(const Data &data, const string &filename);
+};
 
 #endif /* predict_hpp */
