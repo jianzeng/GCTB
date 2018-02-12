@@ -923,14 +923,17 @@ void Data::inputSnpResults(const string &snpResFile){
     int id, chrom, pos, window;
     float freq, effect, se, pip;
     unsigned line=0, match=0;
+    string header;
+    getline(in, header);
     while (in >> id >> name >> chrom >> pos >> freq >> effect >> se >> pip >> window) {
         ++line;
         it = snpInfoMap.find(name);
         if (it == snpInfoMap.end()) continue;
         snp = it->second;
-        if (!snp->included) continue;
-        snp->effect = effect;
-        ++match;
+        if (snp->included) {
+            snp->effect = effect;
+            ++match;
+        }
     }
     in.close();
     
