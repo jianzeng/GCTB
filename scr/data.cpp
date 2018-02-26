@@ -199,6 +199,7 @@ void Data::readBedFile(const string &bedFile){
         }
         
         if (skip) fseek(in, skip, SEEK_CUR);
+        skip = 0;
  
         char *bedLineIn = new char[size];
         fread(bedLineIn, 1, size, in);
