@@ -838,6 +838,8 @@ public:
     VectorXf rcorr;
     VectorXf varei;   // residual variance specific to each snp
     
+    VectorXf vareiMean;  ///TMP
+    
     bool sparse;
 
     SnpEffects snpEffects;

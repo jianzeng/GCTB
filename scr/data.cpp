@@ -231,6 +231,8 @@ void Data::readBedFile(const string &bedFile){
         snp2pq[snp] = 2.0f*snpInfo->af*(1.0f-snpInfo->af);
         
         //cout << "snp " << snp << "     " << Z.col(snp).sum() << endl;
+        
+        Z.col(snp).array() -= mean_all; // center column by 2p rather than the real mean
 
         if (++snp == numIncdSnps) break;
     }
@@ -243,7 +245,7 @@ void Data::readBedFile(const string &bedFile){
     
     MPI_Allreduce(&colsums[0], &colsums_all[0], numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
     
-    Z.rowwise() -= colsums_all.transpose()/numKeptInds_all;  // center
+    //Z.rowwise() -= colsums_all.transpose()/numKeptInds_all;  // center
     VectorXf my_ZPZdiag = Z.colwise().squaredNorm();
     
     MPI_Allreduce(&my_ZPZdiag[0], &ZPZdiag[0], numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
