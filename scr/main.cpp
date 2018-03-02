@@ -134,7 +134,7 @@ int main(int argc, const char * argv[]) {
             readGenotypes = true;
             xci.inputIndInfo(data, opt.bedFile, opt.phenotypeFile, opt.keepIndFile, opt.keepIndMax,
                              opt.mphen, opt.covariateFile);
-            gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.includeChr, readGenotypes);
+            xci.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.includeChr, readGenotypes);
             if (opt.bayesType == "Simu") {
                 xci.simu(data, 1000, 0.02, 0.15, false);  // ad hoc simulation to test BayesXCI method
             }

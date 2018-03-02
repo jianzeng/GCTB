@@ -63,6 +63,136 @@ void XCI::inputIndInfo(Data &data, const string &bedFile, const string &phenotyp
     restoreFamFileOrder(data.indInfoVec);
 }
 
+void XCI::inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile,
+                       const unsigned includeChr, const bool readGenotypes){
+    data.readBimFile(bedFile + ".bim");
+    if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
+    if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
+    data.includeChr(includeChr);
+    data.includeMatchedSnp();
+    if (readGenotypes) readBedFile(data, bedFile + ".bed");  // XCI method: (1) adjust column mean separately in males and females, (2) compute snp2pq from females only
+}
+
+void XCI::readBedFile(Data &data, const string &bedFile){
+    // features: (1) adjust column mean separately in males and females, (2) compute snp2pq from females only
+    unsigned i = 0, j = 0;
+    
+    if (data.numIncdSnps == 0) throw ("Error: No SNP is retained for analysis.");
+    if (data.numKeptInds == 0) throw ("Error: No individual is retained for analysis.");
+    
+    data.Z.resize(data.numKeptInds, data.numIncdSnps);
+    data.ZPZdiag.resize(data.numIncdSnps);
+    data.snp2pq.resize(data.numIncdSnps);
+    
+    // Read bed file
+    FILE *in = fopen(bedFile.c_str(), "rb");
+    if (!in) throw ("Error: can not open the file [" + bedFile + "] to read.");
+    if (myMPI::rank==0)
+        cout << "Reading PLINK BED file from [" + bedFile + "] in SNP-major format ..." << endl;
+    char header[3];
+    fread(header, sizeof(header), 1, in);
+    if (!in || header[0] != 0x6c || header[1] != 0x1b || header[2] != 0x01) {
+        cerr << "Error: Incorrect first three bytes of bed file: " << bedFile << endl;
+        exit(1);
+    }
+    
+    unsigned numKeptMales_all;
+    unsigned numKeptFemales_all;
+    MPI_Allreduce(&numKeptMales, &numKeptMales_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&numKeptFemales, &numKeptFemales_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+    
+    // Read genotypes
+    SnpInfo *snpInfo = NULL;
+    IndInfo *indInfo = NULL;
+    unsigned snp = 0;
+    unsigned nmiss_male=0, nmiss_male_all;
+    unsigned nmiss_female=0, nmiss_female_all;
+    float sum_male=0.0, sum_male_all=0.0, mean_male_all;
+    float sum_female=0.0, sum_female_all=0.0, mean_female_all;
+    
+    const int bedToGeno[4] = {2, -9, 1, 0};
+    unsigned size = (data.numInds+3)>>2;
+    int genoValue;
+    unsigned skip = 0;
+    
+    for (j = 0, snp = 0; j < data.numSnps; j++) {  // code adopted from BOLT-LMM with modification
+        snpInfo = data.snpInfoVec[j];
+        sum_male = 0.0;
+        sum_female = 0.0;
+        nmiss_male = 0;
+        nmiss_female = 0;
+        
+        if (!snpInfo->included) {
+            //            in.ignore(size);
+            skip += size;
+            continue;
+        }
+        
+        if (skip) fseek(in, skip, SEEK_CUR);
+        skip = 0;
+        
+        char *bedLineIn = new char[size];
+        fread(bedLineIn, 1, size, in);
+        
+        for (i = 0; i < data.numInds; i++) {
+            indInfo = data.indInfoVec[i];
+            if (!indInfo->kept) continue;
+            genoValue = bedToGeno[(bedLineIn[i>>2]>>((i&3)<<1))&3];
+            
+            data.Z(indInfo->index, snp) = genoValue;
+            if (indInfo->sex == 1) {
+                if (genoValue == -9) ++nmiss_male;   // missing genotype
+                else sum_male += genoValue;
+            } else {
+                if (genoValue == -9) ++nmiss_female;   // missing genotype
+                else sum_female += genoValue;
+            }
+        }
+        delete[] bedLineIn;
+        
+        MPI_Allreduce(&sum_male, &sum_male_all, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+        MPI_Allreduce(&nmiss_male, &nmiss_male_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+        MPI_Allreduce(&sum_female, &sum_female_all, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+        MPI_Allreduce(&nmiss_female, &nmiss_female_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+        
+        // fill missing values with the mean
+        mean_male_all = sum_male_all/float(numKeptMales_all - nmiss_male_all);
+        mean_female_all = sum_female_all/float(numKeptFemales_all - nmiss_female_all);
+        if (nmiss_male) {
+            for (i=0; i<numKeptMales; ++i) {
+                if (data.Z(i,snp) == -9) data.Z(i,snp) = mean_male_all;
+            }
+        }
+        if (nmiss_female) {
+            for (i=numKeptMales; i<data.numKeptInds; ++i) {
+                if (data.Z(i,snp) == -9) data.Z(i,snp) = mean_female_all;
+            }
+        }
+        
+        // compute allele frequency
+        snpInfo->af = 0.5f*mean_female_all;
+        data.snp2pq[snp] = 2.0f*snpInfo->af*(1.0f-snpInfo->af);
+        
+        //cout << "snp " << snp << "     " << Z.col(snp).sum() << endl;
+        
+        data.Z.col(snp).head(numKeptMales).array() -= mean_male_all; // center column by 2p rather than the real mean
+        data.Z.col(snp).tail(numKeptFemales).array() -= mean_female_all; // center column by 2p rather than the real mean
+        
+        if (++snp == data.numIncdSnps) break;
+    }
+    fclose(in);
+    
+    
+    // standardize genotypes
+//    VectorXf my_ZPZdiag = data.Z.colwise().squaredNorm();
+//    
+//    MPI_Allreduce(&my_ZPZdiag[0], &data.ZPZdiag[0], data.numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    
+    if (myMPI::rank==0)
+        cout << "Genotype data for " << numKeptMales_all + numKeptFemales_all << " individuals (" << numKeptMales_all << " males and " << numKeptFemales_all << " females) and " << data.numIncdSnps << " SNPs are included from [" + bedFile + "]." << endl;
+}
+
+
 Model* XCI::buildModel(Data &data, const float heritability, const float pi, const bool estimatePi){
     data.initVariances(heritability);
     return new BayesXCI(data, data.varGenotypic, data.varResidual, pi, estimatePi, numKeptMales, numKeptFemales);
@@ -111,6 +241,9 @@ void XCI::simu(Data &data, const unsigned numQTL, const float heritability, cons
     for (unsigned i=0; i<data.numKeptInds; ++i) {
         data.y[i] = g[i] + Stat::snorm()*resSD;
     }
+    float my_ypy = (data.y.array()-data.y.mean()).square().sum();
+    
+    MPI_Allreduce(&my_ypy, &data.ypy, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
     
     data.varGenotypic = genVar;
     data.varResidual  = resVar;
@@ -188,6 +321,8 @@ void BayesXCI::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, cons
     // sample beta, delta, gamma jointly
     // f(beta, delta, gamma) propto f(beta | delta, gamma) f(delta | gamma) f(gamma)
     
+    //cout << "check pi " << pi << " p " << p << " sigmaSq " << sigmaSq << endl;
+    
     sumSq = 0.0;
     numNonZeros = 0;
     
@@ -236,8 +371,8 @@ void BayesXCI::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, cons
         
         //sample gamma
         
-        logGamma[1] = 0.5f*rhs[1]*uhat[1] + logf(sqrt(invLhs[1])*(1.0f-pi) + expf(0.5f*(logSigmaSq-rhs[1]*uhat[1]))*pi) + logP;
-        logGamma[0] = 0.5f*rhs[0]*uhat[0] + logf(sqrt(invLhs[0])*(1.0f-pi) + expf(0.5f*(logSigmaSq-rhs[0]*uhat[0]))*pi) + logPcomp;
+        logGamma[1] = 0.5f*rhs[1]*uhat[1] + logf(sqrt(invLhs[1])*pi + expf(0.5f*(logSigmaSq-rhs[1]*uhat[1]))*(1.0f-pi)) + logP;
+        logGamma[0] = 0.5f*rhs[0]*uhat[0] + logf(sqrt(invLhs[0])*pi + expf(0.5f*(logSigmaSq-rhs[0]*uhat[0]))*(1.0f-pi)) + logPcomp;
         probGamma1 = 1.0f/(1.0f + expf(logGamma[0] - logGamma[1]));
         sampleGamma = bernoulli.sample(probGamma1);
         gamma[i] = sampleGamma;
