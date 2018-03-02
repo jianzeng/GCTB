@@ -336,6 +336,12 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const u
         cout << "\nMCMC cycles completed." << endl;
         printSummary(model.paramToPrint, mcmcSampleVec, title + ".parRes");
     }
+
+    ///TMP
+    ofstream tmpOut;
+    tmpOut.open(title + ".varei");
+    tmpOut << static_cast<ApproxBayesS*>(&model)->vareiMean/(chainLength/100) << endl;
+
     
     return mcmcSampleVec;
 }

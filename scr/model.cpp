@@ -1909,6 +1909,8 @@ float ApproxBayesS::SnpEffects::computeU(const VectorXf &effects, const VectorXf
 
 void ApproxBayesS::sampleUnknowns(){
     static unsigned iter = 0;
+    
+    if (iter==0) vareiMean.setZero(data.numIncdSnps); ///TMP
 
     fixedEffects.sampleFromFC(data.XPX, data.XPXdiag, data.ZPX, data.XPy, snpEffects.values, vare.value, rcorr);
     
@@ -1959,6 +1961,8 @@ void ApproxBayesS::sampleUnknowns(){
         
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pqOneMinusS);
+    
+    if (!(iter % 100)) vareiMean += varei;  ///TMP
     
     if (++iter < 2000) {
         genVarPrior += (varg.value - genVarPrior)/iter;
