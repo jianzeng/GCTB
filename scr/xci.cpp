@@ -245,8 +245,8 @@ void BayesXCI::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, cons
         
         // sample delta
         
-        logDelta1 = 0.5*(logf(invLhs[sampleGamma]) + uhat[sampleGamma]*rhs[sampleGamma]) + logPiComp;
-        logDelta0 = 0.5*logSigmaSq + logPi;
+        logDelta1 = 0.5*(logf(invLhs[sampleGamma]) + uhat[sampleGamma]*rhs[sampleGamma]) + logPi;
+        logDelta0 = 0.5*logSigmaSq + logPiComp;
         probDelta1 = 1.0f/(1.0f + expf(logDelta0-logDelta1));
         
         if (bernoulli.sample(probDelta1)) {

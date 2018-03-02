@@ -74,7 +74,7 @@ public:
         ScaleVar(const float sum2pq, const float val): BayesC::ScaleVar(val), sum2pq(sum2pq){}
         
         void compute(const float vg, const float pi, float &scaleVar){
-            value = 0.5f*vg/(sum2pq*(1.0f-pi));
+            value = 0.5f*vg/(sum2pq*pi);
             scaleVar = value;
         };
     };
