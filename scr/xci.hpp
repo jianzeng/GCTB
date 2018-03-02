@@ -26,6 +26,10 @@ public:
                       const unsigned keepIndMax, const unsigned mphen, const string &covariateFile);
     void sortIndBySex(vector<IndInfo*> &indInfoVec);
     void restoreFamFileOrder(vector<IndInfo*> &indInfoVec);
+    void inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile,
+                      const unsigned includeChr, const bool readGenotypes);
+    void readBedFile(Data &data, const string &bedFile);
+
     Model* buildModel(Data &data, const float heritability, const float pi, const bool estimatePi);
     void simu(Data &data, const unsigned numQTL, const float heritability, const float probNDC, const bool removeQTL);
     void outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &title);
@@ -110,7 +114,7 @@ public:
     genVarPrior(varGenotypic),
     piPrior(pival),
     nmale(nmale), nfemale(nfemale) {
-        
+                
         // MPI
         ZPZdiagMale.setZero(data.numIncdSnps);
         ZPZdiagFemale.setZero(data.numIncdSnps);

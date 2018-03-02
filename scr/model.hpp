@@ -125,6 +125,8 @@ public:
                 value = vg/(snp2pq.sum()*pi);  // derived from prior knowledge on Vg and pi
             }
             scale = 0.5f*value;  // due to df = 4
+            
+            //cout << vg << " " << snp2pq.sum() << " " << pi << endl;
         }
         
         void sampleFromFC(const float snpEffSumSq, const unsigned numSnpEff);
