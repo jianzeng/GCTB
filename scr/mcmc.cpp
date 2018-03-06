@@ -338,9 +338,9 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const u
     }
 
     ///TMP
-    ofstream tmpOut;
-    tmpOut.open(title + ".varei");
-    tmpOut << static_cast<ApproxBayesS*>(&model)->vareiMean/(chainLength/100) << endl;
+//    ofstream tmpOut;
+//    tmpOut.open(title + ".varei");
+//    tmpOut << static_cast<ApproxBayesS*>(&model)->vareiMean/(chainLength/100) << endl;
 
     
     return mcmcSampleVec;

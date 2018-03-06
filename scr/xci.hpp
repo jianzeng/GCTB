@@ -107,7 +107,7 @@ public:
     
     BayesXCI(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const unsigned nmale, const unsigned nfemale):
     BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false),
-    p(0.15),
+    p(0.5),
     gamma(data.snpEffectNames),
     snpEffects(data.snpEffectNames),
     scale(data.snp2pq.sum(), sigmaSq.scale),

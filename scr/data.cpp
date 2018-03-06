@@ -2212,7 +2212,7 @@ void Data::buildSparseMME(){
         }
     }
         
-    ZPZdiag = D;
+    ZPZdiag.array() *= D.array();
     
     ZPy.array() = D.array()*b.array();
     // cout << "I'm in the mixed model equation building thing and print Zpy" << ZPy <<  endl;
