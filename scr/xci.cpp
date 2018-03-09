@@ -198,13 +198,14 @@ Model* XCI::buildModel(Data &data, const float heritability, const float pi, con
     return new BayesXCI(data, data.varGenotypic, data.varResidual, pi, estimatePi, numKeptMales, numKeptFemales);
 }
 
-void XCI::simu(Data &data, const unsigned numQTL, const float heritability, const float probNDC, const bool removeQTL){
+void XCI::simu(Data &data, const unsigned numQTL, const float heritability, const float probNDC, const bool removeQTL, const string &title){
     vector<unsigned> indices(data.numIncdSnps);
     std::iota(indices.begin(), indices.end(), 0);
     std::random_shuffle(indices.begin(), indices.end());
     vector<SnpInfo*> QTLvec(numQTL);
     MatrixXf Q(data.numKeptInds, numQTL);
     VectorXf alpha(numQTL);
+    VectorXf isNDC(numQTL);
     SnpInfo *qtl;
     unsigned numFDC = 0;
     for (unsigned j=0; j<numQTL; ++j) {
@@ -219,7 +220,10 @@ void XCI::simu(Data &data, const unsigned numQTL, const float heritability, cons
                 else Q(i,j) *= 0.5f;
             }
             //Q.col(j).tail(numKeptFemales) *= 0.5f;
+            isNDC[j] = 0;
             ++numFDC;
+        } else {
+            isNDC[j] = 1;
         }
     }
     
@@ -268,13 +272,37 @@ void XCI::simu(Data &data, const unsigned numQTL, const float heritability, cons
         data.numIncdSnps -= numQTL;
     }
     
+    string filename = title + ".QTLinfo";
+    ofstream out(filename.c_str());
+    out << boost::format("%6s %20s %6s %12s %8s %12s %6s\n")
+    % "Id"
+    % "Name"
+    % "Chrom"
+    % "Position"
+    % "GeneFrq"
+    % "Effect"
+    % "EscapeXCI";
+    for (unsigned j=0; j<numQTL; ++j) {
+        qtl = data.incdSnpInfoVec[indices[j]];
+        out << boost::format("%6s %20s %6s %12s %8s %12s %6s\n")
+        % (j+1)
+        % qtl->ID
+        % qtl->chrom
+        % qtl->physPos
+        % qtl->af
+        % alpha[j]
+        % isNDC[j];
+    }
+    out.close();
+    
     if (!myMPI::rank) {
         cout << "\nSimulated " << numQTL << " QTL with " << numQTL - numFDC << " QTL escaped from XCI." << endl;
         cout << "Simulated genotypic variance: " << genVar << endl;
         cout << "Simulated residual  variance: " << resVar << endl;
-        if (removeQTL)
-            cout << "QTL removed from the analysis." << endl;
+        if (removeQTL) cout << "QTL removed from the analysis." << endl;
+        cout << "Saved simulated QTL info to [" << filename << "]." << endl;
     }
+    
 }
 
 void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &title){
