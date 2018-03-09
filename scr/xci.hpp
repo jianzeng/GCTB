@@ -31,7 +31,7 @@ public:
     void readBedFile(Data &data, const string &bedFile);
 
     Model* buildModel(Data &data, const float heritability, const float pi, const bool estimatePi);
-    void simu(Data &data, const unsigned numQTL, const float heritability, const float probNDC, const bool removeQTL);
+    void simu(Data &data, const unsigned numQTL, const float heritability, const float probNDC, const bool removeQTL, const string &title);
     void outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &title);
 };
 
