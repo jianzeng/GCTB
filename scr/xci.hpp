@@ -30,13 +30,13 @@ public:
                       const unsigned includeChr, const bool readGenotypes);
     void readBedFile(Data &data, const string &bedFile);
 
-    Model* buildModel(Data &data, const float heritability, const float pi, const bool estimatePi);
+    Model* buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const bool estimatePi);
     void simu(Data &data, const unsigned numQTL, const float heritability, const float probNDC, const bool removeQTL, const string &title);
     void outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &title);
 };
 
 
-class BayesXCI : public BayesC {
+class BayesCXCI : public BayesC {
 public:
     // y = mu + sum_j Z_j beta_j delta_j + e
     // For males,   Z_mj = X_mj
@@ -105,9 +105,9 @@ public:
     VectorXf ZPZdiagMale;
     VectorXf ZPZdiagFemale;
     
-    BayesXCI(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const unsigned nmale, const unsigned nfemale):
+    BayesCXCI(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const unsigned nmale, const unsigned nfemale, const bool message = true):
     BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false),
-    p(0.5),
+    p(0.15),
     gamma(data.snpEffectNames),
     snpEffects(data.snpEffectNames),
     scale(data.snp2pq.sum(), sigmaSq.scale),
@@ -127,11 +127,44 @@ public:
         paramSetVec = {&snpEffects, &gamma, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &scale, &p, &vare, &varg, &hsq};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &scale, &p, &vare, &varg, &hsq, &rounding};
-        if (myMPI::rank==0)
-            cout << "\nBayesXCI model fitted." << endl;
+        if (message && myMPI::rank==0)
+            cout << "\nBayesCXCI model fitted." << endl;
     }
     
     void sampleUnknowns(void);
+};
+
+
+class BayesBXCI : public BayesCXCI {
+    // BayesB prior for the SNP effects.
+public:
+    
+    class SnpEffects : public BayesB::SnpEffects {
+    public:
+        SnpEffects(const vector<string> &header): BayesB::SnpEffects(header){};
+        
+        void sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &ZPZdiagMale,
+                          const VectorXf &ZPZdiagFemale, const unsigned nmale, const unsigned nfemale, const float p,
+                          const VectorXf &sigmaSq, const float pi, const float vare, VectorXf &gamma, VectorXf &ghat);
+    };
+
+    SnpEffects snpEffects;
+    BayesB::VarEffects sigmaSq;
+
+    BayesBXCI(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const unsigned nmale, const unsigned nfemale, const bool message = true):
+    BayesCXCI(data, varGenotypic, varResidual, pival, estimatePi, nmale, nfemale, false),
+    snpEffects(data.snpEffectNames),
+    sigmaSq(varGenotypic, data.snp2pq, pival)
+    {
+        paramSetVec = {&snpEffects, &gamma, &fixedEffects};
+        paramVec = {&pi, &nnzSnp, &scale, &p, &vare, &varg, &hsq};
+        paramToPrint = {&pi, &nnzSnp, &scale, &p, &vare, &varg, &hsq, &rounding};
+        if (message && myMPI::rank==0)
+            cout << "\nBayesBXCI model fitted." << endl;
+    }
+    
+    void sampleUnknowns(void);
+
 };
 
 

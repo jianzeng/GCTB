@@ -137,8 +137,9 @@ int main(int argc, const char * argv[]) {
             xci.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.includeChr, readGenotypes);
             if (opt.bayesType == "Simu") {
                 xci.simu(data, 1000, 0.5, 0.15, false, opt.title);  // ad hoc simulation to test BayesXCI method
+                opt.bayesType = "B";
             }
-            Model *model = xci.buildModel(data, opt.heritability, opt.pi, opt.estimatePi);
+            Model *model = xci.buildModel(data, opt.bayesType, opt.heritability, opt.pi, opt.estimatePi);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior);
             gctb.saveMcmcSamples(mcmcSampleVec, opt.title);
