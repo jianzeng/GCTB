@@ -485,7 +485,7 @@ void BayesCXCI::sampleUnknowns(){
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
     p.sampleFromFC(snpEffects.size, gamma.values.sum());
-    sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
+//    sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     if(estimatePi) pi.sampleFromFC(snpEffects.size, snpEffects.numNonZeros);
     vare.sampleFromFC(ycorr);
     
@@ -495,12 +495,13 @@ void BayesCXCI::sampleUnknowns(){
     rounding.computeYcorr(data.y, data.X, data.Z, gamma.values, nmale, nfemale, fixedEffects.values, snpEffects.values, ycorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
     
-    static unsigned iter = 0;
-    if (++iter < 5000) {
-        genVarPrior += (varg.value - genVarPrior)/iter;
-        piPrior += (pi.value - piPrior)/iter;
-        scale.compute(genVarPrior, piPrior, sigmaSq.scale);
-    }
+//    static unsigned iter = 0;
+//    if (++iter < 5000) {
+//        genVarPrior += (varg.value - genVarPrior)/iter;
+//        piPrior += (pi.value - piPrior)/iter;
+//        scale.compute(genVarPrior, piPrior, sigmaSq.scale);
+//    }
+//    scale.compute(varg.value, pi.value, sigmaSq.scale);
 }
 
 
@@ -621,6 +622,6 @@ void BayesBXCI::sampleUnknowns(){
 //        piPrior += (pi.value - piPrior)/iter;
 //        scale.compute(genVarPrior, piPrior, sigmaSq.scale);
 //    }
-            scale.compute(varg.value, pi.value, sigmaSq.scale);
+    scale.compute(varg.value, pi.value, sigmaSq.scale);
 }
 
