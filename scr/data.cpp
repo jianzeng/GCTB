@@ -185,7 +185,7 @@ void Data::readBedFile(const string &bedFile){
     const int bedToGeno[4] = {2, -9, 1, 0};
     unsigned size = (numInds+3)>>2;
     int genoValue;
-    unsigned skip = 0;
+    unsigned long long skip = 0;
     
     for (j = 0, snp = 0; j < numSnps; j++) {  // code adopted from BOLT-LMM with modification
         snpInfo = snpInfoVec[j];
@@ -1131,7 +1131,7 @@ void Data::readGwasSummaryFile(const string &gwasFile){
 //    //    VectorXi genoValue(numSnpInRange);
 //    unsigned i, j, k;
 //    unsigned incj, inck; // index of included SNP
-//    unsigned skipj = 0;
+//    unsigned long long skipj = 0;
 //    unsigned alleleCnt;
 //    unsigned value;
 //    unsigned nmiss;
@@ -1220,7 +1220,7 @@ void Data::readGwasSummaryFile(const string &gwasFile){
 //
 //    FILE *in2 = fopen(bedFile.c_str(), "rb");
 //    fseek(in2, 3, SEEK_SET);
-//    unsigned skipk = 0;
+//    unsigned long long skipk = 0;
 //    
 //    for (k = 0, inck = 0; k < numSnps; k++) {
 //        snpk = snpInfoVec[k];
@@ -1460,7 +1460,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
     int genoValue;
     unsigned i, j, k;
     unsigned incj, inck; // index of included SNP
-    unsigned skipj = 0;
+    unsigned long long skipj = 0;
     unsigned nmiss;
     float mean;
     
@@ -1524,7 +1524,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
 //    ZP = ZP.colwise() - ZP.rowwise().mean();
 //    ZP = ZP.array().colwise() / D.cwiseSqrt().array();
     ZPZdiag = ZP.rowwise().squaredNorm();
-
+    
 //    cout << ZP.rowwise().mean() << endl << endl;
 //    cout << ZP.block(0, 0, 10, 10) << endl;
     
@@ -1538,7 +1538,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
 
     FILE *in2 = fopen(bedFile.c_str(), "rb");
     fseek(in2, 3, SEEK_SET);
-    unsigned skipk = 0;
+    unsigned long long skipk = 0;
 
     for (k = 0, inck = 0; k < numSnps; k++) {
         snpk = snpInfoVec[k];

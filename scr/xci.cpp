@@ -141,9 +141,11 @@ void XCI::readBedFile(Data &data, const string &bedFile){
             
             data.Z(indInfo->index, snp) = genoValue;
             if (indInfo->sex == 1) {
+                //cout << "Male " << genoValue << endl;
                 if (genoValue == -9) ++nmiss_male;   // missing genotype
                 else sum_male += genoValue;
             } else {
+                //cout << "Female " << genoValue << endl;
                 if (genoValue == -9) ++nmiss_female;   // missing genotype
                 else sum_female += genoValue;
             }
@@ -485,7 +487,7 @@ void BayesCXCI::sampleUnknowns(){
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
     p.sampleFromFC(snpEffects.size, gamma.values.sum());
-//    sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
+    sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     if(estimatePi) pi.sampleFromFC(snpEffects.size, snpEffects.numNonZeros);
     vare.sampleFromFC(ycorr);
     
