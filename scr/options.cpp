@@ -239,6 +239,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             chisqThreshold = atof(argv[++i]);
             ss << "--chisq " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--pi-ndc")) {
+            piNDC = atof(argv[++i]);
+            ss << "--pi-ndc " << argv[i] << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";
@@ -367,6 +371,8 @@ void Options::readFile(const string &file){  // input options from file
             multiThreadEigen = true;
         } else if (key == "outLDmatType") {
             outLDmatType = value;
+        } else if (key == "piNDC") {
+            piNDC = stof(value);
         } else if (key.substr(0,2) == "//" ||
                    key.substr(0,1) == "#") {
             continue;

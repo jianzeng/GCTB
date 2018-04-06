@@ -113,7 +113,7 @@ void XCI::readBedFile(Data &data, const string &bedFile){
     const int bedToGeno[4] = {2, -9, 1, 0};
     unsigned size = (data.numInds+3)>>2;
     int genoValue;
-    unsigned skip = 0;
+    unsigned long long skip = 0;
     
     for (j = 0, snp = 0; j < data.numSnps; j++) {  // code adopted from BOLT-LMM with modification
         snpInfo = data.snpInfoVec[j];
@@ -138,10 +138,9 @@ void XCI::readBedFile(Data &data, const string &bedFile){
             indInfo = data.indInfoVec[i];
             if (!indInfo->kept) continue;
             genoValue = bedToGeno[(bedLineIn[i>>2]>>((i&3)<<1))&3];
-            
-            data.Z(indInfo->index, snp) = genoValue;
             if (indInfo->sex == 1) {
                 //cout << "Male " << genoValue << endl;
+                if (genoValue == 2) genoValue = 1;
                 if (genoValue == -9) ++nmiss_male;   // missing genotype
                 else sum_male += genoValue;
             } else {
@@ -149,6 +148,7 @@ void XCI::readBedFile(Data &data, const string &bedFile){
                 if (genoValue == -9) ++nmiss_female;   // missing genotype
                 else sum_female += genoValue;
             }
+            data.Z(indInfo->index, snp) = genoValue;
         }
         delete[] bedLineIn;
         
@@ -195,13 +195,13 @@ void XCI::readBedFile(Data &data, const string &bedFile){
 }
 
 
-Model* XCI::buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const bool estimatePi){
+Model* XCI::buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const bool estimatePi, const float piNDC){
     data.initVariances(heritability);
     if (bayesType == "B") {
-        return new BayesBXCI(data, data.varGenotypic, data.varResidual, pi, estimatePi, numKeptMales, numKeptFemales);
+        return new BayesBXCI(data, data.varGenotypic, data.varResidual, pi, estimatePi, piNDC, numKeptMales, numKeptFemales);
     }
     if (bayesType == "C") {
-        return new BayesCXCI(data, data.varGenotypic, data.varResidual, pi, estimatePi, numKeptMales, numKeptFemales);
+        return new BayesCXCI(data, data.varGenotypic, data.varResidual, pi, estimatePi, piNDC, numKeptMales, numKeptFemales);
     }
     else {
         throw(" Error: Wrong bayes type: " + bayesType);
@@ -253,6 +253,20 @@ void XCI::simu(Data &data, const unsigned numQTL, const float heritability, cons
     float resVar = genVar*(1.0-heritability)/heritability;
     float resSD  = sqrt(resVar);
     
+    my_sumg = g.head(numKeptMales).sum();
+    my_ssg  = g.head(numKeptMales).squaredNorm();
+    MPI_Allreduce(&my_sumg, &sumg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&my_ssg, &ssg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&numKeptMales, &ng, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+    float genVarMale = ssg/float(ng) - sumg*sumg/float(ng*ng);
+
+    my_sumg = g.tail(numKeptFemales).sum();
+    my_ssg  = g.tail(numKeptFemales).squaredNorm();
+    MPI_Allreduce(&my_sumg, &sumg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&my_ssg, &ssg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&numKeptFemales, &ng, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+    float genVarFemale = ssg/float(ng) - sumg*sumg/float(ng*ng);
+
     for (unsigned i=0; i<data.numKeptInds; ++i) {
         data.y[i] = g[i] + Stat::snorm()*resSD;
     }
@@ -308,7 +322,7 @@ void XCI::simu(Data &data, const unsigned numQTL, const float heritability, cons
     
     if (!myMPI::rank) {
         cout << "\nSimulated " << numQTL << " QTL with " << numQTL - numFDC << " QTL escaped from XCI." << endl;
-        cout << "Simulated genotypic variance: " << genVar << endl;
+        cout << "Simulated genotypic variance: " << genVar << " (male: " << genVarMale << "; female: " << genVarFemale << ")" <<  endl;
         cout << "Simulated residual  variance: " << resVar << endl;
         if (removeQTL) cout << "QTL removed from the analysis." << endl;
         cout << "Saved simulated QTL info to [" << filename << "]." << endl;
@@ -354,9 +368,11 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
 }
 
 
-void BayesCXCI::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &ZPZdiagMale,
-                                             const VectorXf &ZPZdiagFemale, const unsigned nmale, const unsigned nfemale, const float p,
-                                             const float sigmaSq, const float pi, const float vare, VectorXf &gamma, VectorXf &ghat){
+void BayesCXCI::SnpEffects::sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, const MatrixXf &Z, const VectorXf &ZPZdiag,
+                                         const VectorXf &ZPZdiagMale, const VectorXf &ZPZdiagFemale,
+                                         const unsigned nmale, const unsigned nfemale, const float p,
+                                         const float sigmaSq, const float pi, const float varem, const float varef,
+                                         VectorXf &gamma, VectorXf &ghatm, VectorXf &ghatf){
     // sample beta, delta, gamma jointly
     // f(beta, delta, gamma) propto f(beta | delta, gamma) f(delta | gamma) f(gamma)
     
@@ -365,8 +381,9 @@ void BayesCXCI::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, con
     sumSq = 0.0;
     numNonZeros = 0;
     
-    ghat.setZero(ycorr.size());
-    
+    ghatm.setZero(ycorrm.size());
+    ghatf.setZero(ycorrf.size());
+
     Vector2f rhsFemale;     // 0: FDC, 1: NDC, corresponding to gamma
     Vector2f my_rhs, rhs;   // 0: FDC, 1: NDC, corresponding to gamma
     Vector2f invLhs;        // 0: FDC, 1: NDC, corresponding to gamma
@@ -378,7 +395,8 @@ void BayesCXCI::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, con
     float logPi = log(pi);
     float logPiComp = log(1.0-pi);
     float logSigmaSq = log(sigmaSq);
-    float invVare = 1.0f/vare;
+    float invVarem = 1.0f/varem;
+    float invVaref = 1.0f/varef;
     float invSigmaSq = 1.0f/sigmaSq;
     float logP = log(p);
     float logPcomp = log(1.0f-p);
@@ -388,14 +406,14 @@ void BayesCXCI::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, con
     
     for (unsigned i=0; i<size; ++i) {
         oldSample = values[i];
-        ycorr.head(nmale) += Z.col(i).head(nmale) * oldSample;
+        ycorrm += Z.col(i).head(nmale) * oldSample;
         if (gamma[i])
-            ycorr.tail(nfemale) += Z.col(i).tail(nfemale) * oldSample;
+            ycorrf += Z.col(i).tail(nfemale) * oldSample;
         else
-            ycorr.tail(nfemale) += Z.col(i).tail(nfemale) * oldSample * 0.5f;
+            ycorrf += Z.col(i).tail(nfemale) * oldSample * 0.5f;
         
-        rhsMale = Z.col(i).head(nmale).dot(ycorr.head(nmale)) * invVare;
-        rhsFemale[1] = Z.col(i).tail(nfemale).dot(ycorr.tail(nfemale)) * invVare;
+        rhsMale = Z.col(i).head(nmale).dot(ycorrm) * invVarem;
+        rhsFemale[1] = Z.col(i).tail(nfemale).dot(ycorrf) * invVaref;
         rhsFemale[0] = rhsFemale[1] * 0.5f;
         
         my_rhs[1] = rhsMale + rhsFemale[1];
@@ -403,8 +421,8 @@ void BayesCXCI::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, con
         
         MPI_Allreduce(&my_rhs[0], &rhs[0], 2, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
 
-        invLhs[1] = 1.0f/((ZPZdiagMale[i] + ZPZdiagFemale[i]      )*invVare + invSigmaSq);
-        invLhs[0] = 1.0f/((ZPZdiagMale[i] + ZPZdiagFemale[i]*0.25f)*invVare + invSigmaSq);
+        invLhs[1] = 1.0f/(ZPZdiagMale[i]*invVarem + ZPZdiagFemale[i]*invVaref       + invSigmaSq);
+        invLhs[0] = 1.0f/(ZPZdiagMale[i]*invVarem + ZPZdiagFemale[i]*0.25f*invVaref + invSigmaSq);
         
         uhat.array() = invLhs.array()*rhs.array();
         
@@ -413,6 +431,7 @@ void BayesCXCI::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, con
         logGamma[1] = 0.5f*rhs[1]*uhat[1] + logf(sqrt(invLhs[1])*pi + expf(0.5f*(logSigmaSq-rhs[1]*uhat[1]))*(1.0f-pi)) + logP;
         logGamma[0] = 0.5f*rhs[0]*uhat[0] + logf(sqrt(invLhs[0])*pi + expf(0.5f*(logSigmaSq-rhs[0]*uhat[0]))*(1.0f-pi)) + logPcomp;
         probGamma1 = 1.0f/(1.0f + expf(logGamma[0] - logGamma[1]));
+        
         sampleGamma = bernoulli.sample(probGamma1);
         gamma[i] = sampleGamma;
         
@@ -432,15 +451,15 @@ void BayesCXCI::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, con
             sumSq += sample * sample;
             ++numNonZeros;
             
-            ycorr.head(nmale) -= Z.col(i).head(nmale) * sample;
-            ghat .head(nmale) += Z.col(i).head(nmale) * sample;
+            ycorrm -= Z.col(i).head(nmale) * sample;
+            ghatm += Z.col(i).head(nmale) * sample;
             
             if (gamma[i]) {
-                ycorr.tail(nfemale) -= Z.col(i).tail(nfemale) * sample;
-                ghat .tail(nfemale) += Z.col(i).tail(nfemale) * sample;
+                ycorrf -= Z.col(i).tail(nfemale) * sample;
+                ghatf += Z.col(i).tail(nfemale) * sample;
             } else {
-                ycorr.tail(nfemale) -= Z.col(i).tail(nfemale) * sample * 0.5f;
-                ghat .tail(nfemale) += Z.col(i).tail(nfemale) * sample * 0.5f;
+                ycorrf -= Z.col(i).tail(nfemale) * sample * 0.5f;
+                ghatf += Z.col(i).tail(nfemale) * sample * 0.5f;
             }
         }
         else {
@@ -448,6 +467,263 @@ void BayesCXCI::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, con
         }
     }
 }
+
+//void BayesCXCI::SnpEffects::sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, const MatrixXf &Z, const VectorXf &ZPZdiag,
+//                                         const VectorXf &ZPZdiagMale, const VectorXf &ZPZdiagFemale,
+//                                         const unsigned nmale, const unsigned nfemale, const float p,
+//                                         const float sigmaSq, const float pi, const float varem, const float varef,
+//                                         VectorXf &gamma, VectorXf &ghatm, VectorXf &ghatf){
+//    // sample beta, delta, gamma jointly
+//    // f(beta, delta, gamma) propto f(beta | delta, gamma) f(delta | gamma) f(gamma)
+//    
+//    //cout << "check pi " << pi << " p " << p << " sigmaSq " << sigmaSq << endl;
+//    
+//    sumSq = 0.0;
+//    numNonZeros = 0;
+//    
+//    ghatm.setZero(ycorrm.size());
+//    ghatf.setZero(ycorrf.size());
+//    
+//    Vector2f rhsFemale;     // 0: FDC, 1: NDC, corresponding to gamma
+//    Vector2f my_rhs, rhs;   // 0: FDC, 1: NDC, corresponding to gamma
+//    Vector2f invLhs;        // 0: FDC, 1: NDC, corresponding to gamma
+//    Vector2f uhat;          // 0: FDC, 1: NDC, corresponding to gamma
+//    Vector2f logGamma;      // 0: FDC, 1: NDC, corresponding to gamma
+//    
+//    float oldSample, sample;
+//    float oldGamma;
+//    float logDelta0, logDelta1, probDelta1;
+//    float logPi = log(pi);
+//    float logPiComp = log(1.0-pi);
+//    float logSigmaSq = log(sigmaSq);
+//    float invVarem = 1.0f/varem;
+//    float invVaref = 1.0f/varef;
+//    float invSigmaSq = 1.0f/sigmaSq;
+//    float logP = log(p);
+//    float logPcomp = log(1.0f-p);
+//    float rhsMale;
+//    float probGamma1;
+//    float sampleGamma;
+//    
+//    for (unsigned i=0; i<size; ++i) {
+//        oldSample = values[i];
+//        oldGamma = gamma[i];
+//
+//                ycorrm += Z.col(i).head(nmale) * oldSample;
+//                if (gamma[i])
+//                    ycorrf += Z.col(i).tail(nfemale) * oldSample;
+//                else
+//                    ycorrf += Z.col(i).tail(nfemale) * oldSample * 0.5f;
+//
+//        rhsMale = Z.col(i).head(nmale).dot(ycorrm) * invVarem;
+//        rhsFemale[1] = Z.col(i).tail(nfemale).dot(ycorrf) * invVaref;
+//        rhsFemale[0] = rhsFemale[1] * 0.5f;
+//        
+//        my_rhs[1] = rhsMale + rhsFemale[1];
+//        my_rhs[0] = rhsMale + rhsFemale[0];
+//        
+//        MPI_Allreduce(&my_rhs[0], &rhs[0], 2, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//        
+//        invLhs[1] = 1.0f/(ZPZdiagMale[i]*invVarem + ZPZdiagFemale[i]*invVaref       + invSigmaSq);
+//        invLhs[0] = 1.0f/(ZPZdiagMale[i]*invVarem + ZPZdiagFemale[i]*0.25f*invVaref + invSigmaSq);
+//        
+//        uhat.array() = invLhs.array()*rhs.array();
+//        
+//        //sample gamma
+//        
+//        logGamma[1] = 0.5f*rhs[1]*uhat[1] + logf(sqrt(invLhs[1])*pi + expf(0.5f*(logSigmaSq-rhs[1]*uhat[1]))*(1.0f-pi)) + logP;
+//        logGamma[0] = 0.5f*rhs[0]*uhat[0] + logf(sqrt(invLhs[0])*pi + expf(0.5f*(logSigmaSq-rhs[0]*uhat[0]))*(1.0f-pi)) + logPcomp;
+//        probGamma1 = 1.0f/(1.0f + expf(logGamma[0] - logGamma[1]));
+//        
+//        sampleGamma = bernoulli.sample(probGamma1);
+//        gamma[i] = sampleGamma;
+//        
+//        
+//        // sample delta
+//        
+//        logDelta1 = 0.5*(logf(invLhs[sampleGamma]) + uhat[sampleGamma]*rhs[sampleGamma]) + logPi;
+//        logDelta0 = 0.5*logSigmaSq + logPiComp;
+//        probDelta1 = 1.0f/(1.0f + expf(logDelta0-logDelta1));
+//        
+//        if (bernoulli.sample(probDelta1)) {
+//            
+//            // sample effect
+//            
+//            sample = normal.sample(uhat[sampleGamma], invLhs[sampleGamma]);
+//            values[i] = sample;
+//            sumSq += sample * sample;
+//            ++numNonZeros;
+//            
+//            ycorrm -= Z.col(i).head(nmale) * sample;
+////            ycorrm += Z.col(i).head(nmale) * (oldSample - sample);
+//            ghatm += Z.col(i).head(nmale) * sample;
+//            
+//            if (gamma[i]) {
+////                if (oldGamma)
+////                    ycorrf += Z.col(i).tail(nfemale) * (oldSample - sample);
+////                else
+////                    ycorrf += Z.col(i).tail(nfemale) * (0.5f*oldSample - sample);
+//
+//                ycorrf -= Z.col(i).tail(nfemale) * sample;
+//                ghatf += Z.col(i).tail(nfemale) * sample;
+//            } else {
+////                if (oldGamma)
+////                    ycorrf += Z.col(i).tail(nfemale) * (oldSample - 0.5f*sample);
+////                else
+////                    ycorrf += Z.col(i).tail(nfemale) * 0.5f*(oldSample - sample);
+//                
+//                ycorrf -= Z.col(i).tail(nfemale) * sample * 0.5f;
+//                ghatf += Z.col(i).tail(nfemale) * sample * 0.5f;
+//            }
+//        }
+//        else {
+//            if (oldSample) {
+////                ycorrm += Z.col(i).head(nmale) * oldSample;
+////                if (gamma[i]) {
+////                    if (oldGamma)
+////                        ycorrf += Z.col(i).tail(nfemale) * oldSample;
+////                    else
+////                        ycorrf -= Z.col(i).tail(nfemale) * 0.5f*oldSample;
+////                } else {
+////                    if (oldGamma)
+////                        ycorrf += Z.col(i).tail(nfemale) * 0.5f*oldSample;
+////                    else
+////                        ycorrf += Z.col(i).tail(nfemale) * 0.5f*oldSample;
+////                }
+//            }
+//            values[i] = 0.0;
+//        }
+//    }
+//}
+
+//void BayesCXCI::SnpEffects::sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, const MatrixXf &Z, const VectorXf &ZPZdiag,
+//                                         const VectorXf &ZPZdiagMale, const VectorXf &ZPZdiagFemale,
+//                                         const unsigned nmale, const unsigned nfemale, const float p,
+//                                         const float sigmaSq, const float pi, const float varem, const float varef,
+//                                         VectorXf &gamma, VectorXf &ghatm, VectorXf &ghatf){
+//    // sample beta, delta, gamma from their full conditionals
+//    
+//    //cout << "check pi " << pi << " p " << p << " sigmaSq " << sigmaSq << endl;
+//    
+//    sumSq = 0.0;
+//    numNonZeros = 0;
+//    
+//    ghatm.setZero(ycorrm.size());
+//    ghatf.setZero(ycorrf.size());
+//    
+//    float oldSample, oldGamma;
+//    float logDelta0minus1, probDelta1;
+//    float logGamma0minus1, probGamma1;
+//    float logPi = log(pi);
+//    float logPiComp = log(1.0-pi);
+//    float invVarem = 1.0f/varem;
+//    float invVaref = 1.0f/varef;
+//    float invSigmaSq = 1.0f/sigmaSq;
+//    float logP = log(p);
+//    float logPcomp = log(1.0f-p);
+//    float rhsMale, rhsFemale, rhs;
+//    float lhsMale, lhsFemale, lhs;
+//    float invLhs, uhat;
+//    
+//    for (unsigned i=0; i<size; ++i) {
+//        oldSample = values[i];
+//        oldGamma = gamma[i];
+//        
+//        ycorrm += Z.col(i).head(nmale) * oldSample;
+//        if (gamma[i])
+//            ycorrf += Z.col(i).tail(nfemale) * oldSample;
+//        else
+//            ycorrf += Z.col(i).tail(nfemale) * oldSample * 0.5f;
+//       
+//        rhsMale = Z.col(i).head(nmale).dot(ycorrm) * invVarem;
+//        rhsFemale = Z.col(i).tail(nfemale).dot(ycorrf) * invVaref;
+//        lhsMale = ZPZdiagMale[i]*invVarem;
+//        lhsFemale = ZPZdiagFemale[i]*invVaref;
+//        if (gamma[i]) {
+//            rhs = rhsMale + rhsFemale;
+//            lhs = lhsMale + lhsFemale;
+//        } else {
+//            rhs = rhsMale + 0.5f*rhsFemale;
+//            lhs = lhsMale + 0.25f*lhsFemale;
+//        }
+//        
+//        // sample delta
+//        
+//        logDelta0minus1 = 2.0f*rhs*values[i] - lhs*values[i]*values[i] + logPiComp - logPi;
+//        probDelta1 = 1.0f/(1.0f + expf(logDelta0minus1));
+//        
+//        if (bernoulli.sample(probDelta1)) {
+//            
+//            // sample gamma
+//            
+//            
+//            logGamma0minus1 = rhsFemale*values[i] - 0.75f*lhsFemale*values[i]*values[i] + logPcomp - logP;
+//            probGamma1 = 1.0f/(1.0f + expf(logGamma0minus1));
+//    
+//            if (bernoulli.sample(probGamma1)) {
+//                
+//                // sample beta
+//               
+//                rhs = rhsMale + rhsFemale;
+//                invLhs = 1.0f/(lhsMale + lhsFemale + invSigmaSq);
+//                uhat = invLhs*rhs;
+//                values[i] = normal.sample(uhat, invLhs);
+//                gamma[i] = 1.0;
+//                
+////                cout << i << " male " << rhsMale/(lhsMale + invSigmaSq) << " female " << rhsFemale/(lhsFemale + invSigmaSq) << endl;
+//                
+////                if (oldGamma)
+////                    ycorrf += Z.col(i).tail(nfemale) * (oldSample - values[i]);
+////                else
+////                    ycorrf += Z.col(i).tail(nfemale) * (0.5f*oldSample - values[i]);
+//                
+//                ycorrf -= Z.col(i).tail(nfemale) * values[i];
+//                
+//                ghatf += Z.col(i).tail(nfemale) * values[i];
+//                
+//            } else {
+//                
+//                rhs = rhsMale + 0.5f*rhsFemale;
+//                invLhs = 1.0f/(lhsMale + 0.25f*lhsFemale + invSigmaSq);
+//                uhat = invLhs*rhs;
+//                values[i] = normal.sample(uhat, invLhs);
+//                gamma[i] = 0.0;
+// 
+////                cout << i << " male " << rhsMale/(lhsMale + invSigmaSq) << " female " << rhsFemale/(lhsFemale + invSigmaSq) << endl;
+//
+////                if (oldGamma)
+////                    ycorrf += Z.col(i).tail(nfemale) * (oldSample - 0.5f*values[i]);
+////                else
+////                    ycorrf += Z.col(i).tail(nfemale) * 0.5f*(oldSample - values[i]);
+//                
+//                ycorrf -= Z.col(i).tail(nfemale) * values[i] * 0.5f;
+//
+//                ghatf += Z.col(i).tail(nfemale) * 0.5f*values[i];
+//
+//            }
+//            
+////            ycorrm += Z.col(i).head(nmale) * (oldSample - values[i]);
+//            ycorrm -= Z.col(i).head(nmale) * values[i];
+//            
+//            ghatm += Z.col(i).head(nmale) * values[i];
+//            sumSq += values[i] * values[i];
+//            ++numNonZeros;
+//            
+//        } else {
+//            
+////            if (oldSample) {
+////                ycorrm += Z.col(i).head(nmale) * oldSample;
+////                if (oldGamma)
+////                    ycorrf += Z.col(i).tail(nfemale) * oldSample;
+////                else
+////                    ycorrf += Z.col(i).tail(nfemale) * 0.5f*oldSample;
+////            }
+//            gamma[i] = bernoulli.sample(p);
+//            values[i] = 0.0;
+//        }
+//    }
+//    
+//}
 
 void BayesCXCI::ProbNDC::sampleFromFC(const unsigned numSnps, const unsigned numNDC){
     //cout << numSnps << " " << numNDC << endl;
@@ -458,10 +734,11 @@ void BayesCXCI::ProbNDC::sampleFromFC(const unsigned numSnps, const unsigned num
 
 void BayesCXCI::Rounding::computeYcorr(const VectorXf &y, const MatrixXf &X, const MatrixXf &Z,
                                            const VectorXf &gamma, const unsigned int nmale, const unsigned int nfemale,
-                                           const VectorXf &fixedEffects, const VectorXf &snpEffects, VectorXf &ycorr){
+                                           const VectorXf &fixedEffects, const VectorXf &snpEffects, VectorXf &ycorrm, VectorXf &ycorrf){
     if (count++ % 100) return;
-    VectorXf oldYcorr = ycorr;
-    ycorr = y - X*fixedEffects;
+    VectorXf oldYcorrm = ycorrm;
+    VectorXf oldYcorrf = ycorrf;
+    VectorXf ycorr = y - X*fixedEffects;
     for (unsigned i=0; i<snpEffects.size(); ++i) {
         if (snpEffects[i]) {
             if (gamma[i]) {
@@ -472,29 +749,46 @@ void BayesCXCI::Rounding::computeYcorr(const VectorXf &y, const MatrixXf &X, con
             }
         }
     }
-    float my_ss = (ycorr - oldYcorr).squaredNorm();
+    ycorrm = ycorr.head(nmale);
+    ycorrf = ycorr.tail(nfemale);
+    float my_ss = (ycorrm - oldYcorrm).squaredNorm() + (ycorrf - oldYcorrf).squaredNorm();
     float ss;
     MPI_Allreduce(&my_ss, &ss, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
     value = sqrt(ss);
 }
 
 void BayesCXCI::sampleUnknowns(){
+    ycorr.head(nmale) = ycorrm;
+    ycorr.tail(nfemale) = ycorrf;
+    
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
+    
+    ycorrm = ycorr.head(nmale);
+    ycorrf = ycorr.tail(nfemale);
+    
     unsigned cnt=0;
     do {
-        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, ZPZdiagMale, ZPZdiagFemale,
-                                nmale, nfemale, p.value, sigmaSq.value, pi.value, vare.value, gamma.values, ghat);
+        snpEffects.sampleFromFC(ycorrm, ycorrf, data.Z, data.ZPZdiag, ZPZdiagMale, ZPZdiagFemale,
+                                nmale, nfemale, piNDC.value, sigmaSq.value, pi.value, varem.value, varef.value, gamma.values, ghatm, ghatf);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
-    p.sampleFromFC(snpEffects.size, gamma.values.sum());
+    
+    piNDC.sampleFromFC(snpEffects.size, gamma.values.sum());
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     if(estimatePi) pi.sampleFromFC(snpEffects.size, snpEffects.numNonZeros);
-    vare.sampleFromFC(ycorr);
     
-    varg.compute(ghat);
-    hsq.compute(varg.value, vare.value);
+    varem.sampleFromFC(ycorrm);
+    varef.sampleFromFC(ycorrf);
+    vargm.compute(ghatm);
+    vargf.compute(ghatf);
+    hsqm.compute(vargm.value, varem.value);
+    hsqf.compute(vargf.value, varef.value);
     
-    rounding.computeYcorr(data.y, data.X, data.Z, gamma.values, nmale, nfemale, fixedEffects.values, snpEffects.values, ycorr);
+//    vare.sampleFromFC(ycorr);
+//    varg.compute(ghat);
+//    hsq.compute(varg.value, vare.value);
+    
+    rounding.computeYcorr(data.y, data.X, data.Z, gamma.values, nmale, nfemale, fixedEffects.values, snpEffects.values, ycorrm, ycorrf);
     nnzSnp.getValue(snpEffects.numNonZeros);
     
 //    static unsigned iter = 0;
@@ -604,10 +898,10 @@ void BayesBXCI::sampleUnknowns(){
     unsigned cnt=0;
     do {
         snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, ZPZdiagMale, ZPZdiagFemale,
-                                nmale, nfemale, p.value, sigmaSq.values, pi.value, vare.value, gamma.values, ghat);
+                                nmale, nfemale, piNDC.value, sigmaSq.values, pi.value, vare.value, gamma.values, ghat);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
-    p.sampleFromFC(snpEffects.size, gamma.values.sum());
+    piNDC.sampleFromFC(snpEffects.size, gamma.values.sum());
     sigmaSq.sampleFromFC(snpEffects.betaSq);
     if(estimatePi) pi.sampleFromFC(snpEffects.size, snpEffects.numNonZeros);
     vare.sampleFromFC(ycorr);
@@ -615,7 +909,7 @@ void BayesBXCI::sampleUnknowns(){
     varg.compute(ghat);
     hsq.compute(varg.value, vare.value);
     
-    rounding.computeYcorr(data.y, data.X, data.Z, gamma.values, nmale, nfemale, fixedEffects.values, snpEffects.values, ycorr);
+    rounding.computeYcorr(data.y, data.X, data.Z, gamma.values, nmale, nfemale, fixedEffects.values, snpEffects.values, ycorrm, ycorrf);
     nnzSnp.getValue(snpEffects.numNonZeros);
     
 //    static unsigned iter = 0;

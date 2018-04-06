@@ -30,7 +30,7 @@ public:
                       const unsigned includeChr, const bool readGenotypes);
     void readBedFile(Data &data, const string &bedFile);
 
-    Model* buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const bool estimatePi);
+    Model* buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const bool estimatePi, const float piNDC);
     void simu(Data &data, const unsigned numQTL, const float heritability, const float probNDC, const bool removeQTL, const string &title);
     void outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &title);
 };
@@ -50,7 +50,7 @@ public:
         const float alpha;
         const float beta;
         
-        ProbNDC(const float p): Parameter("ProbNDC"), alpha(1), beta(1){  // conditional probability on nonzero SNPs, uniform prior
+        ProbNDC(const float p): Parameter("PiNDC"), alpha(1), beta(1){  // conditional probability on nonzero SNPs, uniform prior
             value = p;
         }
         
@@ -66,9 +66,9 @@ public:
     public:
         SnpEffects(const vector<string> &header): BayesC::SnpEffects(header, "Gibbs"){};
         
-        void sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &ZPZdiagMale,
+        void sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &ZPZdiagMale,
                           const VectorXf &ZPZdiagFemale, const unsigned nmale, const unsigned nfemale, const float p,
-                          const float sigmaSq, const float pi, const float vare, VectorXf &gamma, VectorXf &ghat);
+                          const float sigmaSq, const float pi, const float varem, const float varef, VectorXf &gamma, VectorXf &ghatm, VectorXf &ghatf);
     };
     
     class ScaleVar : public BayesC::ScaleVar {
@@ -89,31 +89,51 @@ public:
         void computeYcorr(const VectorXf &y, const MatrixXf &X, const MatrixXf &Z,
                           const VectorXf &gamma, const unsigned nmale, const unsigned nfemale,
                           const VectorXf &fixedEffects, const VectorXf &snpEffects,
-                          VectorXf &ycorr);
+                          VectorXf &ycorrm, VectorXf &ycorrf);
     };
     
     unsigned nmale, nfemale;
     float genVarPrior;
     float piPrior;
     
-    ProbNDC p;
+    ProbNDC piNDC;
     Gamma gamma;   // indicator variable with 1: NDC, 0: FDC
     SnpEffects snpEffects;
     ScaleVar scale;
     Rounding rounding;
+
+    VectorXf ycorrm;
+    VectorXf ycorrf;
+    VectorXf ghatm;
+    VectorXf ghatf;
+
+    ResidualVar varem;
+    ResidualVar varef;
+    GenotypicVar vargm;
+    GenotypicVar vargf;
+    Heritability hsqm;
+    Heritability hsqf;
     
     VectorXf ZPZdiagMale;
     VectorXf ZPZdiagFemale;
     
-    BayesCXCI(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const unsigned nmale, const unsigned nfemale, const bool message = true):
+    BayesCXCI(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const float piNDCval, const unsigned nmale, const unsigned nfemale, const bool message = true):
     BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false),
-    p(0.5),
+    ycorrm(data.y.head(nmale)),
+    ycorrf(data.y.tail(nfemale)),
+    piNDC(piNDCval),
     gamma(data.snpEffectNames),
     snpEffects(data.snpEffectNames),
     scale(data.snp2pq.sum(), sigmaSq.scale),
     genVarPrior(varGenotypic),
     piPrior(pival),
-    nmale(nmale), nfemale(nfemale) {
+    nmale(nmale), nfemale(nfemale),
+    varem(varResidual, nmale, "ResVarM"),
+    varef(varResidual, nfemale, "ResVarF"),
+    vargm(varGenotypic, "GenVarM"),
+    vargf(varGenotypic, "GenVarF"),
+    hsqm("hsqM"),
+    hsqf("hsqF") {
                 
         // MPI
         ZPZdiagMale.setZero(data.numIncdSnps);
@@ -125,8 +145,8 @@ public:
         
         gamma.values.setZero(data.numIncdSnps);
         paramSetVec = {&snpEffects, &gamma, &fixedEffects};
-        paramVec = {&pi, &nnzSnp, &sigmaSq, &scale, &p, &vare, &varg, &hsq};
-        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &scale, &p, &vare, &varg, &hsq, &rounding};
+        paramVec = {&pi, &nnzSnp, &piNDC, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf};
+        paramToPrint = {&pi, &nnzSnp, &piNDC, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf, &rounding};
         if (message && myMPI::rank==0)
             cout << "\nBayesCXCI model fitted." << endl;
     }
@@ -151,14 +171,14 @@ public:
     SnpEffects snpEffects;
     BayesB::VarEffects sigmaSq;
 
-    BayesBXCI(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const unsigned nmale, const unsigned nfemale, const bool message = true):
-    BayesCXCI(data, varGenotypic, varResidual, pival, estimatePi, nmale, nfemale, false),
+    BayesBXCI(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const float piNDCval, const unsigned nmale, const unsigned nfemale, const bool message = true):
+    BayesCXCI(data, varGenotypic, varResidual, pival, estimatePi, piNDCval, nmale, nfemale, false),
     snpEffects(data.snpEffectNames),
     sigmaSq(varGenotypic, data.snp2pq, pival)
     {
         paramSetVec = {&snpEffects, &gamma, &fixedEffects};
-        paramVec = {&pi, &nnzSnp, &scale, &p, &vare, &varg, &hsq};
-        paramToPrint = {&pi, &nnzSnp, &scale, &p, &vare, &varg, &hsq, &rounding};
+        paramVec = {&pi, &nnzSnp, &piNDC, &scale, &vare, &varg, &hsq};
+        paramToPrint = {&pi, &nnzSnp, &piNDC, &scale, &vare, &varg, &hsq, &rounding};
         if (message && myMPI::rank==0)
             cout << "\nBayesBXCI model fitted." << endl;
     }

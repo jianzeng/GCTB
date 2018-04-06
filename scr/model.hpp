@@ -61,8 +61,8 @@ public:
     class FixedEffects : public ParamSet, public Stat::Flat {
         // all fixed effects has flat prior
     public:
-        FixedEffects(const vector<string> &header)
-        : ParamSet("CovEffects", header){}
+        FixedEffects(const vector<string> &header, const string &lab = "CovEffects")
+        : ParamSet(lab, header){}
         
         void sampleFromFC(VectorXf &ycorr, const MatrixXf &X, const VectorXf &XPXdiag, const float vare);
     };
@@ -79,8 +79,8 @@ public:
         float mhr;
 
         
-        SnpEffects(const vector<string> &header, const string &alg)
-        : ParamSet("SnpEffects", header){
+        SnpEffects(const vector<string> &header, const string &alg, const string &lab = "SnpEffects")
+        : ParamSet(lab, header){
             sumSq = 0.0;
             numNonZeros = 0;
             if (alg=="HMC") algorithm = hmc;
@@ -111,8 +111,8 @@ public:
         const float df;  // hyperparameter
         float scale;        // hyperparameter
         
-        VarEffects(const float vg, const VectorXf &snp2pq, const float pi)
-        : Parameter("SigmaSq"), df(4)
+        VarEffects(const float vg, const VectorXf &snp2pq, const float pi, const string &lab = "SigmaSq")
+        : Parameter(lab), df(4)
         {
             if (myMPI::partition == "bycol") {
                 int sizeFull;
@@ -138,7 +138,7 @@ public:
         const float shape;
         const float scale;
         
-        ScaleVar(const float val): shape(1.0), scale(1.0), Parameter("Scale"){
+        ScaleVar(const float val, const string &lab = "Scale"): shape(1.0), scale(1.0), Parameter(lab){
             value = val;  // starting value
         }
         
@@ -152,7 +152,7 @@ public:
         const float alpha;  // hyperparameter
         const float beta;   // hyperparameter
         
-        Pi(const float pi): Parameter("Pi"), alpha(1), beta(1){  // informative prior
+        Pi(const float pi, const string &lab = "Pi"): Parameter(lab), alpha(1), beta(1){  // informative prior
             value = pi;
         }
         
@@ -167,8 +167,8 @@ public:
         const float scale;   // hyperparameter
         unsigned nobs;
         
-        ResidualVar(const float vare, unsigned n)
-        : Parameter("ResVar"), df(4)
+        ResidualVar(const float vare, const unsigned n, const string &lab = "ResVar")
+        : Parameter(lab), df(4)
         , scale(0.5f*vare){
             if (myMPI::partition == "byrow") {
                 MPI_Allreduce(&n, &nobs, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
@@ -185,7 +185,7 @@ public:
         // compute genotypic variance from the sampled SNP effects
         // strictly speaking, this is not a model parameter
     public:
-        GenotypicVar(const float varg): Parameter("GenVar"){
+        GenotypicVar(const float varg, const string &lab = "GenVar"): Parameter(lab){
             value = varg;
         };
         void compute(const VectorXf &ghat);
@@ -195,7 +195,7 @@ public:
         // compute heritability based on sampled values of genotypic and residual variances
         // strictly speaking, this is not a model parameter
     public:
-        Heritability(): Parameter("hsq"){};
+        Heritability(const string &lab = "hsq"): Parameter(lab){};
         void compute(const float genVar, const float resVar){
             value = genVar/(genVar+resVar);
         }
@@ -206,7 +206,7 @@ public:
     public:
         unsigned count;
         
-        Rounding(): Parameter("Rounding"){
+        Rounding(const string &lab = "Rounding"): Parameter(lab){
             count = 0;
         }
         void computeYcorr(const VectorXf &y, const MatrixXf &X, const MatrixXf &Z,
@@ -217,14 +217,14 @@ public:
     class NumNonZeroSnp : public Parameter {
         // number of non-zero SNP effects
     public:
-        NumNonZeroSnp(): Parameter("NNZsnp"){};
+        NumNonZeroSnp(const string &lab = "NNZsnp"): Parameter(lab){};
         void getValue(const unsigned nnz){ value = nnz; };
     };
 
     class varEffectScaled : public Parameter {
         // Alternative way to estimate genetic variance: sum 2pq sigmaSq
     public:
-        varEffectScaled() : Parameter("SigmaSqG"){};
+        varEffectScaled(const string &lab = "SigmaSqG"): Parameter(lab){};
         void compute(const float sigmaSq, const float sum2pq){value = sigmaSq*sum2pq;};
     };
 
@@ -333,7 +333,7 @@ public:
     
     class WindowDelta : public ParamSet {
     public:
-        WindowDelta(const vector<string> &header): ParamSet("WindowDelta", header){}
+        WindowDelta(const vector<string> &header, const string &lab = "WindowDelta"): ParamSet(lab, header){}
         void getValues(const VectorXf &val){ values = val; };
     };
     
@@ -384,7 +384,7 @@ public:
     class NumNonZeroWind : public Parameter {
         // number of non-zero window effects
     public:
-        NumNonZeroWind(): Parameter("NNZwind"){};
+        NumNonZeroWind(const string &lab = "NNZwind"): Parameter(lab){};
         void getValue(const unsigned nnz){ value = nnz; };
     };
     
@@ -457,7 +457,7 @@ public:
     class Gammas : public ParamSet {
         // Set of scaling factors for each of the distributions
     public:
-        Gammas(const VectorXf &gamma, const vector<string> &header): ParamSet("gamma", header){ 
+        Gammas(const VectorXf &gamma, const vector<string> &header, const string &lab = "gamma"): ParamSet(lab, header){
             values = gamma;
         }
     };
@@ -535,7 +535,7 @@ public:
         AcceptanceRate ar;
         Parameter tuner;
         
-        Sp(const unsigned m, const float var, const float start, const string &alg): Parameter("S"), mean(0), var(var), numSnps(m)
+        Sp(const unsigned m, const float var, const float start, const string &alg, const string &lab = "S"): Parameter(lab), mean(0), var(var), numSnps(m)
         , tuner(alg=="RMH" ? "varProp" : "Stepsize"){
             value = start;  // starting value
             varProp = 0.01;
@@ -927,7 +927,7 @@ public:
     class Gammas : public ParamSet {
         // Set of scaling factors for each of the distributions
     public:
-        Gammas(const VectorXf &gamma, const vector<string> &header): ParamSet("gamma", header){ 
+        Gammas(const VectorXf &gamma, const vector<string> &header, const string &lab = "gamma"): ParamSet(lab, header){
             values = gamma;
         }
     };
