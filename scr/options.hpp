@@ -54,6 +54,7 @@ public:
     vector<float> S;    // starting value of S in BayesS and BayesNS
     float LDthreshold;  // used to define the two ends of per-SNP LD window in the banded LD matrix
     float chisqThreshold;  // significance threshold for nonzero LD chi-square test
+    float piNDC;  // proportion of X-lined SNPs under no dosage compensation model (escape from X-chromosome inactivation)
     
     bool estimatePi;
     bool estimateScale;
@@ -107,6 +108,7 @@ public:
         S[0]                    = 0.0;
         LDthreshold             = 0.0;
         chisqThreshold          = 10;
+        piNDC                   = 0.15;
 
         // Bayes R defaults
         ndists                  = 4;
