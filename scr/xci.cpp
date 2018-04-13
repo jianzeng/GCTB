@@ -140,7 +140,8 @@ void XCI::readBedFile(Data &data, const string &bedFile){
             genoValue = bedToGeno[(bedLineIn[i>>2]>>((i&3)<<1))&3];
             if (indInfo->sex == 1) {
                 //cout << "Male " << genoValue << endl;
-                if (genoValue == 2) genoValue = 1;
+                if (genoValue == 1) cout << "SNP " << snpInfo->ID << " is coded as 0/1 in male's X chromosome (PLink default is 0/2)!" << endl;
+                else if (genoValue == 2) genoValue = 1;
                 if (genoValue == -9) ++nmiss_male;   // missing genotype
                 else sum_male += genoValue;
             } else {
