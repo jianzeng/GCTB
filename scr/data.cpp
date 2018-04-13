@@ -892,12 +892,13 @@ void Data::buildSparseMME(const string &bedFile, const unsigned windowWidth){
 void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const string &filename) const {
     if (myMPI::rank) return;
     ofstream out(filename.c_str());
-    out << boost::format("%6s %20s %6s %12s %8s %12s %12s %8s %8s\n")
+    out << boost::format("%6s %20s %6s %12s %6s %8s %12s %12s %8s %8s\n")
     % "Id"
     % "Name"
     % "Chrom"
     % "Position"
-    % "GeneFrq"
+    % "Allele"
+    % "Freq"
     % "Effect"
     % "SE"
     % "PIP"
@@ -906,11 +907,12 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         SnpInfo *snp = snpInfoVec[i];
         if(!fullSnpFlag[i]) continue;
         if(snp->isQTL) continue;
-        out << boost::format("%6s %20s %6s %12s %8.6f %12.6f %12.6f %8.3f %8s\n")
+        out << boost::format("%6s %20s %6s %12s %6s %8.6f %12.6f %12.6f %8.3f %8s\n")
         % (idx+1)
         % snp->ID
         % snp->chrom
         % snp->physPos
+        % snp->a2
         % snp->af
         % posteriorMean[idx]
         % sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx])
@@ -929,19 +931,22 @@ void Data::inputSnpResults(const string &snpResFile){
     
     SnpInfo *snp;
     map<string, SnpInfo*>::iterator it;
-    string name;
+    string name, a2;
     int id, chrom, pos, window;
     float freq, effect, se, pip;
     unsigned line=0, match=0;
     string header;
     getline(in, header);
-    while (in >> id >> name >> chrom >> pos >> freq >> effect >> se >> pip >> window) {
+    while (in >> id >> name >> chrom >> pos >> a2 >> freq >> effect >> se >> pip >> window) {
         ++line;
         it = snpInfoMap.find(name);
         if (it == snpInfoMap.end()) continue;
         snp = it->second;
         if (snp->included) {
-            snp->effect = effect;
+            if (snp->a2 == a2)
+                snp->effect = effect;
+            else
+                snp->effect = -effect;
             ++match;
         }
     }
@@ -973,23 +978,25 @@ void Data::summarizeSnpResults(const SparseMatrix<float> &snpEffects, const stri
     if (myMPI::rank) return;
     
     ofstream out(filename.c_str());
-    out << boost::format("%6s %20s %6s %12s %8s %12s %8s %8s\n")
+    out << boost::format("%6s %20s %6s %12s %6s %8s %12s %8s %8s\n")
     % "Id"
     % "Name"
     % "Chrom"
     % "Position"
-    % "GeneFrq"
+    % "Allele"
+    % "Freq"
     % "Effect"
     % "PIP"
     % "Window";
     for (unsigned i=0, idx=0; i<numSnps; ++i) {
         SnpInfo *snp = snpInfoVec[i];
         if(!fullSnpFlag[i]) continue;
-        out << boost::format("%6s %20s %6s %12s %8.3f %12.6f %8.3f %8s\n")
+        out << boost::format("%6s %20s %6s %12s %6s %8.3f %12.6f %8.3f %8s\n")
         % (idx+1)
         % snp->ID
         % snp->chrom
         % snp->physPos
+        % snp->a2
         % snp->af
         % effectMean[idx]
         % pip[idx]
