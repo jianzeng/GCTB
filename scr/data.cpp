@@ -449,7 +449,14 @@ void Data::readCovariateFile(const string &covarFile){
         
         X.resize(numKeptInds, numFixedEffects);
         for (unsigned i=0; i<numKeptInds; ++i) {
-            X.row(i) = keptIndInfoVec[i]->covariates;
+            ind = keptIndInfoVec[i];
+            if (ind->covariates.size() < numFixedEffects) {
+                cout << "Error: Individual " + ind->famID + " " + ind->indID + " has missing covariate(s)!";
+            }
+        }
+        for (unsigned i=0; i<numKeptInds; ++i) {
+            ind = keptIndInfoVec[i];
+            X.row(i) = ind->covariates;
         }
         VectorXf my_XPXdiag = X.colwise().squaredNorm();
         XPXdiag.setZero(numFixedEffects);
