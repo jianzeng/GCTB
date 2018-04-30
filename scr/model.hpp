@@ -735,6 +735,8 @@ public:
         
         //void sampleFromFC(VectorXf &rcorr, const SparseMatrix<float> &ZPZinv);
         void sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr);
+        
+        void randomWalkMHsampler(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const VectorXf &ZPZrss, const float sigmaSq, const float pi);
     };
     
     class GenotypicVar : public BayesC::GenotypicVar {
@@ -816,13 +818,13 @@ public:
         void sampleFromFC(VectorXf &rcorr,const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const float sigmaSq, const float pi, const float vare,
-                          const VectorXf &snp2pqPowS, const VectorXf &snp2pq,
+                          const VectorXf &snp2pqPowS, const VectorXf &snp2pq, const VectorXf &ZPZrss,
                           const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n,
                           const float vg, float &scale);
         void sampleFromFC(VectorXf &rcorr,const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const float sigmaSq, const float pi, const float vare,
-                          const VectorXf &snp2pqPowS, const VectorXf &snp2pq,
+                          const VectorXf &snp2pqPowS, const VectorXf &snp2pq, const VectorXf &ZPZrss,
                           const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n,
                           const float vg, float &scale);
         void hmcSampler(VectorXf &rcorr, const VectorXf &ZPy, const vector<VectorXf> &ZPZ,
