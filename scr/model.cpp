@@ -1233,13 +1233,23 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
     
     static unsigned iter = 0;
     long numChr = chromInfoVec.size();
-    
-    VectorXf ssq, s2pq, nnz;
-    ssq.setZero(numChr);
-    s2pq.setZero(numChr);
-    nnz.setZero(numChr);
 
-#pragma omp parallel for
+    float ssq[numChr], s2pq[numChr], nnz[numChr];
+    memset(ssq,0,sizeof(float)*numChr);
+    memset(s2pq,0,sizeof(float)*numChr);
+    memset(nnz,0, sizeof(float)*numChr);
+
+    for (unsigned chr=0; chr<numChr; ++chr) {
+        ChromInfo *chromInfo = chromInfoVec[chr];
+        unsigned chrStart = chromInfo->startSnpIdx;
+        unsigned chrEnd   = chromInfo->endSnpIdx;
+        if (iter==0) {
+            cout << "chr " << chr+1 << " start " << chrStart << " end " << chrEnd << endl;
+        }
+    }
+    if (iter==0) cout << endl; 
+
+#pragma omp parallel for 
     for (unsigned chr=0; chr<numChr; ++chr) {
         //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;
         
@@ -1266,7 +1276,6 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
                 }
                 varei[i] /= n[i];
             }
-//            varei = se[i]*se[i]*ZPZdiag[i];
             oldSample = values[i];
             rhs = rcorr[i] + ZPZdiag[i]*oldSample;
             rhs /= varei[i];
@@ -1283,7 +1292,7 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
                 for (SparseVector<float>::InnerIterator it(ZPZ[i]); it; ++it) {
                     rcorr[it.index()] += it.value() * sampleDiff;
                 }
-                ssq[chr] += values[i]*values[i];
+                ssq[chr]  += values[i]*values[i];
                 s2pq[chr] += snp2pq[i];
                 ++nnz[chr];
             } else {
@@ -1300,9 +1309,15 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
     
     //cout << ssq << " " << nnz << endl;
     
-    sumSq = ssq.sum();
-    sum2pq = s2pq.sum();
-    numNonZeros = nnz.sum();
+
+    sumSq = 0.0;
+    sum2pq = 0.0;
+    numNonZeros = 0;
+    for (unsigned i=0; i<numChr; ++i) {                                                                                                                
+        sumSq += ssq[i];
+        sum2pq += s2pq[i];                                                                                                                            
+        numNonZeros += nnz[i];                                                                                                                         
+    }
     ++iter;
 }
 
@@ -2045,10 +2060,21 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
     static unsigned iter = 0;
     long numChr = chromInfoVec.size();
 
-    VectorXf ssq, s2pq, nnz;
-    ssq.setZero(numChr);
-    s2pq.setZero(numChr);
-    nnz.setZero(numChr);
+    float ssq[numChr], s2pq[numChr], nnz[numChr];
+    memset(ssq,0,sizeof(float)*numChr);
+    memset(s2pq,0,sizeof(float)*numChr);
+    memset(nnz,0, sizeof(float)*numChr);
+
+    for (unsigned chr=0; chr<numChr; ++chr) {
+        ChromInfo *chromInfo = chromInfoVec[chr];
+        unsigned chrStart = chromInfo->startSnpIdx;
+        unsigned chrEnd   = chromInfo->endSnpIdx;
+        if (iter==0) {
+            cout << "chr " << chr+1 << " start " << chrStart << " end " << chrEnd << endl;
+        }
+    }
+    if (iter==0) cout << endl;
+
     // R specific parameters
     int ndist, indistflag;
     double rhs, v1,  b_ls, ssculm, r;
@@ -2058,6 +2084,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
     // Scale the variances in each of the normal distributions by the genetic variance
     // and initialise the class membership probabilities
     // --------------------------------------------------------------------------------
+    ndist = pis.size();
     gp = gamma * sigmaSq;
     // --------------------------------------------------------------------------------
     // Cycle over all variants in the window and sample the genetics effects
@@ -2153,10 +2180,15 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
     // ---------------------------------------------------------------------
     // Tally up the effect sum of squares and the number of non-zero effects
     // ---------------------------------------------------------------------
-    sumSq = ssq.sum();
-    sum2pq = s2pq.sum();
-    numNonZeros = nnz.sum();
-    ++iter;
+    sumSq = 0.0;                                                                                                                                                                                
+    sum2pq = 0.0;                                                                                                                                                                               
+    numNonZeros = 0;                                                                                                                                                                            
+    for (unsigned i=0; i<numChr; ++i) {                                                                                                                                                         
+        sumSq += ssq[i];                                                                                                                                                                        
+        sum2pq += s2pq[i];                                                                                                                                                                      
+        numNonZeros += nnz[i];                                                                                                                                                                  
+    }                                                                                                                                                                                           
+    ++iter; 
 }
 
 // ==============================================================
