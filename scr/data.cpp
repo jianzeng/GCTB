@@ -451,7 +451,7 @@ void Data::readCovariateFile(const string &covarFile){
         for (unsigned i=0; i<numKeptInds; ++i) {
             ind = keptIndInfoVec[i];
             if (ind->covariates.size() < numFixedEffects) {
-                cout << "Error: Individual " + ind->famID + " " + ind->indID + " has missing covariate(s)!";
+                cout << "Error: Individual " + ind->famID + " " + ind->indID + " has missing covariate(s)!" << endl;
             }
         }
         for (unsigned i=0; i<numKeptInds; ++i) {
@@ -893,7 +893,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
     if (myMPI::rank) return;
     ofstream out(filename.c_str());
     out << boost::format("%6s %20s %6s %12s %6s %8s %12s %12s %8s %8s\n")
-    % "Id"
+    % "ID"
     % "Name"
     % "Chrom"
     % "Position"
@@ -1621,6 +1621,15 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
     
 //    cout << denseZPZ << endl;
     
+    
+    VectorXf snp2pqTmp(numIncdSnps);
+    for (unsigned i=0, j=0; i<numIncdSnps; ++i) {
+        SnpInfo *snp = incdSnpInfoVec[i];
+        if (snp->included) {
+            snp2pqTmp[j++] = snp2pq[i];
+        }
+    }
+    snp2pq = snp2pqTmp;
 
     // find out per-SNP window position
     
@@ -1642,6 +1651,8 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
             for (unsigned i=0; i<numSnpInRange; ++i) {
                 SnpInfo *snp = incdSnpInfoVec[start+i];
                 ZPZ[i] = denseZPZ.row(i).segment(snp->windStart, snp->windSize);
+                snp->rsum2pqRsq = snp2pq.dot(denseZPZ.row(i).cwiseProduct(denseZPZ.row(i))) - snp2pq.segment(snp->windStart, snp->windSize).dot(ZPZ[i].cwiseProduct(ZPZ[i]));
+                snp->rsumR = denseZPZ.row(i).sum() - ZPZ[i].sum();
             }
         } else {  // based on the given LD threshold
             windStart.setZero(numSnpInRange);
@@ -1665,6 +1676,8 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
                 snp->windEnd = windEndi - 1;
                 ZPZ[i].resize(windSize[i]);
                 VectorXf::Map(&ZPZ[i][0], windSize[i]) = denseZPZ.row(i).segment(windStart[i], windSize[i]);
+                snp->rsum2pqRsq = snp2pq.dot(denseZPZ.row(i).cwiseProduct(denseZPZ.row(i))) - snp2pq.segment(snp->windStart, snp->windSize).dot(ZPZ[i].cwiseProduct(ZPZ[i]));
+                snp->rsumR = denseZPZ.row(i).sum() - ZPZ[i].sum();
             }
         }
     }
@@ -1677,6 +1690,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
                 SnpInfo *snp = incdSnpInfoVec[start+i];
                 for (unsigned j=0; j<numIncdSnps; ++j) {
                     if (abs(denseZPZ(i,j)) < LDthreshold) denseZPZ(i,j) = 0;
+                    else snp->rsum2pqRsq += snp2pq[j]*denseZPZ(i,j)*denseZPZ(i,j);
                 }
                 ZPZsp[i] = denseZPZ.row(i).sparseView();
                 SparseVector<float>::InnerIterator it(ZPZsp[i]);
@@ -1689,6 +1703,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
                 SnpInfo *snp = incdSnpInfoVec[start+i];
                 for (unsigned j=0; j<numIncdSnps; ++j) {
                     if (denseZPZ(i,j)*denseZPZ(i,j)*snp->sampleSize < chisqThreshold) denseZPZ(i,j) = 0;
+                    else snp->rsum2pqRsq += snp2pq[j]*denseZPZ(i,j)*denseZPZ(i,j);
                 }
                 ZPZsp[i] = denseZPZ.row(i).sparseView();
                 SparseVector<float>::InnerIterator it(ZPZsp[i]);
@@ -1740,25 +1755,43 @@ void Data::outputLDmatrix(const string &LDmatType, const string &filename) const
         outfile3 = outfilename + ".txt";
         out3.open(outfile3.c_str());
     }
-    if (!out2) {
-        throw("Error: cannot open file " + outfile2);
-    }
-    SnpInfo *snp;
+    out1 << boost::format("%6s %15s %10s %15s %6s %6s %12s %10s %10s %10s %10s %15s %10s %12s %12s\n")
+    % "Chrom"
+    % "ID"
+    % "GenPos"
+    % "PhysPos"
+    % "A1"
+    % "A2"
+    % "A2Freq"
+    % "Index"
+    % "WindStart"
+    % "WindEnd"
+    % "WindSize"
+    % "WindWidth"
+    % "N"
+    % "ReSumWtRsq"
+    % "ReSumR";
+    SnpInfo *snp, *windStart, *windEnd;
     for (unsigned i=0; i<numIncdSnps; ++i) {
         snp = incdSnpInfoVec[i];
-        out1 << boost::format("%6s %15s %6s %15s %6s %6s %10s %10s %10s %10s %15s %10s\n")
-        %snp->chrom
-        %snp->ID
-        %snp->genPos
-        %snp->physPos
-        %snp->a1
-        %snp->a2
-        %snp->index
-        %snp->windStart
-        %snp->windEnd
-        %snp->windSize
-        %(incdSnpInfoVec[snp->windEnd]->physPos - incdSnpInfoVec[snp->windStart]->physPos)
-        %snp->sampleSize;
+        windStart = incdSnpInfoVec[snp->windStart];
+        windEnd = incdSnpInfoVec[snp->windEnd];
+        out1 << boost::format("%6s %15s %10s %15s %6s %6s %12f %10s %10s %10s %10s %15s %10s %12.6f %12.6f\n")
+        % snp->chrom
+        % snp->ID
+        % snp->genPos
+        % snp->physPos
+        % snp->a1
+        % snp->a2
+        % snp->af
+        % snp->index
+        % snp->windStart
+        % snp->windEnd
+        % snp->windSize
+        % (windStart->chrom == windEnd->chrom ? windEnd->physPos - windStart->physPos : windStart->chrom-windEnd->chrom)
+        % snp->sampleSize
+        % snp->rsum2pqRsq
+        % snp->rsumR;
         if (LDmatType == "sparse") {
             fwrite(ZPZsp[i].innerIndexPtr(), sizeof(unsigned), ZPZsp[i].nonZeros(), out2);
             fwrite(ZPZsp[i].valuePtr(), sizeof(float), ZPZsp[i].nonZeros(), out2);
@@ -1833,17 +1866,22 @@ void Data::readLDmatrixInfoFile(const string &ldmatrixFile){
     cout << "Reading SNP info from [" + ldmatrixFile + "]." << endl;
     //snpInfoVec.clear();
     //snpInfoMap.clear();
+    string header;
     string id, allele1, allele2;
     unsigned chr, physPos;
-    float genPos;
+    float genPos, af, rsum2pqRsq, rsumR;
     unsigned idx, windStart, windEnd, windSize, windWidth;
     long sampleSize;
-    while (in >> chr >> id >> genPos >> physPos >> allele1 >> allele2 >> idx >> windStart >> windEnd >> windSize >> windWidth >> sampleSize) {
+    getline(in, header);
+    while (in >> chr >> id >> genPos >> physPos >> allele1 >> allele2 >> af >> idx >> windStart >> windEnd >> windSize >> windWidth >> sampleSize >> rsum2pqRsq >> rsumR) {
         SnpInfo *snp = new SnpInfo(idx, id, allele1, allele2, chr, genPos, physPos);
+        snp->af = af;
         snp->windStart = windStart;
         snp->windEnd = windEnd;
         snp->windSize = windSize;
         snp->sampleSize = sampleSize;
+        snp->rsum2pqRsq = rsum2pqRsq;
+        snp->rsumR = rsumR;
         snpInfoVec.push_back(snp);
         if (snpInfoMap.insert(pair<string, SnpInfo*>(id, snp)).second == false) {
             throw ("Error: Duplicate SNP ID found: \"" + id + "\".");
@@ -2113,6 +2151,11 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
 
 void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, const unsigned windowWidth, const float LDthreshold) {
     if (LDmatType == "full") return;
+    snp2pq.resize(numIncdSnps);
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+        SnpInfo *snp = incdSnpInfoVec[i];
+        snp2pq[i] = 2.0*snp->af*(1.0-snp->af);
+    }
     if (LDmatType == "sparse" && ZPZsp.size() == 0) {
         cout << "Making a sparse LD matrix by setting the non-significant LD to be zero..." << endl;
         ZPZsp.resize(numIncdSnps);
@@ -2122,6 +2165,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 ZPZsp[i].resize(snp->windSize);
                 for (unsigned j=0; j<snp->windSize; ++j) {
                     if (abs(ZPZ[i][j]) > LDthreshold) ZPZsp[i].insertBack(snp->windStart + j) = ZPZ[i][j];
+                    else snp->rsum2pqRsq += snp2pq[j]*ZPZ[i][j]*ZPZ[i][j];
                 }
                 SparseVector<float>::InnerIterator it(ZPZsp[i]);
                 windStart[i] = snp->windStart = it.index();
@@ -2135,6 +2179,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 ZPZsp[i].resize(snp->windSize);
                 for (unsigned j=0; j<snp->windSize; ++j) {
                     if (ZPZ[i][j]*ZPZ[i][j]*snp->sampleSize > chisqThreshold) ZPZsp[i].insertBack(snp->windStart + j) = ZPZ[i][j];
+                    else snp->rsum2pqRsq += snp2pq[j]*ZPZ[i][j]*ZPZ[i][j];
                 }
                 //            ZPZsp[i] = ZPZ[i].sparseView();
                 SparseVector<float>::InnerIterator it(ZPZsp[i]);
@@ -2158,6 +2203,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 windStart[i] = snp->windStart = max(windStart[i], windStartOri[i]);
                 windSize[i]  = snp->windSize  = min(windSize[i], windSizeOri[i]);
                 ZPZiTmp = ZPZ[i].segment(windStart[i]-windStartOri[i], windSize[i]);
+                snp->rsum2pqRsq += snp2pq.dot(ZPZ[i].cwiseProduct(ZPZ[i])) - snp2pq.segment(windStart[i]-windStartOri[i], windSize[i]).dot(ZPZiTmp.cwiseProduct(ZPZiTmp));
                 ZPZ[i] = ZPZiTmp;
             }
         } else if (LDthreshold) {
@@ -2179,6 +2225,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 }
                 windSize[i] = snp->windSize = windStartOri[i] + windEndi - windStart[i];
                 ZPZiTmp = ZPZ[i].segment(windStart[i] - windStartOri[i], windSize[i]);
+                snp->rsum2pqRsq += snp2pq.dot(ZPZ[i].cwiseProduct(ZPZ[i])) - snp2pq.segment(windStart[i]-windStartOri[i], windSize[i]).dot(ZPZiTmp.cwiseProduct(ZPZiTmp));
                 ZPZ[i] = ZPZiTmp;
             }
         }
@@ -2227,6 +2274,14 @@ void Data::buildSparseMME(){
     }
         
     ZPZdiag.array() *= D.array();
+    
+    // "residual" sum of squares of ZPZ for SNPs beyond the LD window
+    ZPZrss.resize(numIncdSnps);
+    float n_mean = n.mean();
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+        snp = incdSnpInfoVec[i];
+        ZPZrss[i] = D[i] * n_mean * snp->rsum2pqRsq;
+    }
     
     ZPy.array() = ZPZdiag.array()*b.array();
     // cout << "I'm in the mixed model equation building thing and print Zpy" << ZPy <<  endl;

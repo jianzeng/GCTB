@@ -44,6 +44,7 @@ public:
     float af;       // allele frequency
     bool included;  // flag for inclusion in panel
     bool isQTL;     // for simulation
+    bool recoded;   // swap A1 and A2: use A2 as the reference allele and A1 as the coded allele
     long sampleSize;
     
     VectorXf genotypes; // temporary storage of genotypes of individuals used for building sparse Z'Z
@@ -55,7 +56,10 @@ public:
     float gwas_se;
     float gwas_n;
     float gwas_af;
-    
+
+    float rsum2pqRsq;    // sum 2pq ld^2 over all SNPs left over by the thresholded LD matrix for summary-bayes method
+    float rsumR;         // TMP
+
     SnpInfo(const int idx, const string &id, const string &allele1, const string &allele2,
             const int chr, const float gpos, const int ppos)
     : ID(id), index(idx), a1(allele1), a2(allele2), chrom(chr), genPos(gpos), physPos(ppos) {
@@ -66,12 +70,15 @@ public:
         af = -1;
         included = true;
         isQTL = false;
+        recoded = false;
         sampleSize = 0;
         effect = 0;
         gwas_b  = -999;
         gwas_se = -999;
         gwas_n  = -999;
         gwas_af = -999;
+        rsum2pqRsq = 0.0;
+        rsumR = 0.0;
     };
     
     void resetWindow(void) {windStart = -1; windSize = 0;};
@@ -140,6 +147,8 @@ public:
     
     VectorXi windStart;      // leading snp position for each window
     VectorXi windSize;       // number of snps in each window
+    
+    VectorXf ZPZrss;         // "residual" sum of squares of ZPZ for SNPs beyond the LD window in summary-bayes methods
     
     float ypy;               // y'y the total sum of squares adjusted for the mean
     float varGenotypic;
