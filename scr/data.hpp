@@ -149,6 +149,7 @@ public:
     VectorXi windSize;       // number of snps in each window
     
     VectorXf ZPZrss;         // "residual" sum of squares of ZPZ for SNPs beyond the LD window in summary-bayes methods
+    VectorXf ZPZrsum;        // "residual" sum of ZPZ for SNPs beyond the LD window in summary-bayes methods
     
     float ypy;               // y'y the total sum of squares adjusted for the mean
     float varGenotypic;
