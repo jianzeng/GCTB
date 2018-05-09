@@ -2204,6 +2204,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 windSize[i]  = snp->windSize  = min(windSize[i], windSizeOri[i]);
                 ZPZiTmp = ZPZ[i].segment(windStart[i]-windStartOri[i], windSize[i]);
                 snp->rsum2pqRsq += snp2pq.dot(ZPZ[i].cwiseProduct(ZPZ[i])) - snp2pq.segment(windStart[i]-windStartOri[i], windSize[i]).dot(ZPZiTmp.cwiseProduct(ZPZiTmp));
+                snp->rsumR += ZPZ[i].sum() - ZPZiTmp.sum();
                 ZPZ[i] = ZPZiTmp;
             }
         } else if (LDthreshold) {
@@ -2226,6 +2227,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 windSize[i] = snp->windSize = windStartOri[i] + windEndi - windStart[i];
                 ZPZiTmp = ZPZ[i].segment(windStart[i] - windStartOri[i], windSize[i]);
                 snp->rsum2pqRsq += snp2pq.dot(ZPZ[i].cwiseProduct(ZPZ[i])) - snp2pq.segment(windStart[i]-windStartOri[i], windSize[i]).dot(ZPZiTmp.cwiseProduct(ZPZiTmp));
+                snp->rsumR += ZPZ[i].sum() - ZPZiTmp.sum();
                 ZPZ[i] = ZPZiTmp;
             }
         }
@@ -2277,11 +2279,16 @@ void Data::buildSparseMME(){
     
     // "residual" sum of squares of ZPZ for SNPs beyond the LD window
     ZPZrss.resize(numIncdSnps);
+    ZPZrsum.resize(numIncdSnps);
     float n_mean = n.mean();
+    float snp2pq_mean = snp2pq.mean();
     for (unsigned i=0; i<numIncdSnps; ++i) {
         snp = incdSnpInfoVec[i];
         ZPZrss[i] = D[i] * n_mean * snp->rsum2pqRsq;
+        ZPZrsum[i] = sqrt(D[i]*snp2pq_mean*n_mean) * snp->rsumR;
     }
+    
+    
     
     ZPy.array() = ZPZdiag.array()*b.array();
     // cout << "I'm in the mixed model equation building thing and print Zpy" << ZPy <<  endl;
@@ -2292,8 +2299,16 @@ void Data::buildSparseMME(){
     //    cout << "b.mean() " << b.mean() << endl;
     
     // estimate ypy
-    ypy = (D.array()*(n.array()*se.array().square()+b.array().square())).mean();
-    numKeptInds = n.mean();
+    //ypy = (D.array()*(n.array()*se.array().square()+b.array().square())).mean();
+    VectorXf ypySrt = D.array()*(n.array()*se.array().square()+b.array().square());
+    std::sort(ypySrt.data(), ypySrt.data() + ypySrt.size());
+    ypy = ypySrt[ypySrt.size()/2];  // median
+
+    //numKeptInds = n.mean();
+    
+    VectorXf nSrt = n;
+    std::sort(nSrt.data(), nSrt.data() + nSrt.size());
+    numKeptInds = nSrt[nSrt.size()/2]; // median
     
     //cout << ZPZ.size() << " " << ZPy.size() << " " << ypy << endl;
     //    cout << ZPy << endl;
