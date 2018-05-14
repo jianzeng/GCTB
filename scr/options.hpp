@@ -107,7 +107,7 @@ public:
         S.resize(1);
         S[0]                    = 0.0;
         LDthreshold             = 0.0;
-        chisqThreshold          = 10;
+        chisqThreshold          = 3.84;
         piNDC                   = 0.15;
 
         // Bayes R defaults

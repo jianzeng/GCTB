@@ -714,12 +714,12 @@ public:
         
         void sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
-                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq, const VectorXf &ZPZrss,
-                          const float sigmaSq, const float pi, const float vare);
+                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
+                          const float sigmaSq, const float pi, const float vare, const float varg);
         void sampleFromFC(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
-                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq, const VectorXf &ZPZrss, const VectorXf &ZPZrsum,
-                          const float sigmaSq, const float pi, const float vare);
+                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
+                          const float sigmaSq, const float pi, const float vare, const float varg);
         void hmcSampler(VectorXf &rcorr, const VectorXf &ZPy, const vector<VectorXf> &ZPZ,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const float sigmaSq, const float pi, const float vare);
@@ -735,6 +735,8 @@ public:
         
         //void sampleFromFC(VectorXf &rcorr, const SparseMatrix<float> &ZPZinv);
         void sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr);
+        
+        void sampleFromFC2(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &ghat);
         
         void randomWalkMHsampler(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const VectorXf &ZPZrss, const float sigmaSq, const float pi);
     };
@@ -755,6 +757,14 @@ public:
         void computeRcorr(const VectorXf &ZPy, const vector<VectorXf> &ZPZ,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const VectorXf &snpEffects, VectorXf &rcorr);
+        void computeGhat(const MatrixXf &Z, const VectorXf &snpEffects, VectorXf &ghat);
+    };
+    
+    class Overdispersion : public BayesC::ResidualVar {
+    public:
+        Overdispersion(const float vare, const unsigned nobs): BayesC::ResidualVar(vare, nobs, "TauSq"){}
+        
+        void sampleFromFC(const VectorXf &y, const VectorXf &ghat);
     };
     
 
@@ -775,6 +785,7 @@ public:
 //    BayesC::ResidualVar vare;
     Rounding rounding;
     varEffectScaled sigmaSqG;
+    Overdispersion tauSq;
     
     ApproxBayesC(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const bool message = true)
     : BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false)
@@ -787,6 +798,7 @@ public:
     , pi(pival)
     , vare(varResidual, data.numKeptInds)
     , varg(varGenotypic, data.numKeptInds)
+    , tauSq(varResidual, data.numKeptInds)
     {
         sparse = data.sparseLDM;
         paramSetVec = {&snpEffects, &fixedEffects};
@@ -818,15 +830,20 @@ public:
         void sampleFromFC(VectorXf &rcorr,const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const float sigmaSq, const float pi, const float vare,
-                          const VectorXf &snp2pqPowS, const VectorXf &snp2pq, const VectorXf &ZPZrss,
+                          const VectorXf &snp2pqPowS, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
                           const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n,
-                          const float vg, float &scale);
+                          const float varg);
         void sampleFromFC(VectorXf &rcorr,const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const float sigmaSq, const float pi, const float vare,
-                          const VectorXf &snp2pqPowS, const VectorXf &snp2pq, const VectorXf &ZPZrss,
+                          const VectorXf &snp2pqPowS, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
                           const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n,
-                          const float vg, float &scale);
+                          const float varg);
+
+        void sampleFromFC(const VectorXf &ZPy,const MatrixXf &Z, const VectorXf &ZPZdiag,
+                          const float sigmaSq, const float pi, const float vare,
+                          const VectorXf &snp2pqPowS, const VectorXf &snp2pq, VectorXf &ghat);
+
         void hmcSampler(VectorXf &rcorr, const VectorXf &ZPy, const vector<VectorXf> &ZPZ,
                         const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                         const float sigmaSq, const float pi, const float vare, const VectorXf &snp2pqPowS);
@@ -853,6 +870,8 @@ public:
     ApproxBayesC::Rounding rounding;
     varEffectScaled sigmaSqG;
     
+    ApproxBayesC::Overdispersion tauSq;
+    
     ApproxBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const float varS, const vector<float> &svalue,
                  const string &algorithm, const bool message = true)
     : BayesS(data, varGenotypic, varResidual, pival, estimatePi, varS, svalue, algorithm, false)
@@ -862,11 +881,13 @@ public:
     , fixedEffects(data.fixedEffectNames)
     , vare(varResidual, data.numKeptInds)
     , varg(varGenotypic, data.numKeptInds)
+    , tauSq(varResidual, data.numKeptInds)
     {
+        ghat.setZero(data.Z.rows());
         sparse = data.sparseLDM;
         paramSetVec = {&snpEffects, &fixedEffects};
-        paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
-        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &sigmaSqG, &S.ar, &S.tuner, &rounding};
+        paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &tauSq, &vare, &varg, &hsq};
+        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &tauSq, &vare, &varg, &hsq, &sigmaSqG, &S.ar, &S.tuner, &rounding};
         if (message && myMPI::rank==0) {
             string alg = algorithm;
             if (alg!="RMH") alg = "HMC (default)";

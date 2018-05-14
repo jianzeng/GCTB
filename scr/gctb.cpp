@@ -41,6 +41,19 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (!gwasSummaryFile.empty()) data.buildSparseMME();
 }
 
+void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile){
+    data.readFamFile(bedFile + ".fam");
+    data.readBimFile(bedFile + ".bim");
+
+    data.keptIndInfoVec = data.makeKeptIndInfoVec(data.indInfoVec);
+    data.numKeptInds =  (unsigned) data.keptIndInfoVec.size();
+    
+    data.readGwasSummaryFile(gwasSummaryFile);
+    data.includeMatchedSnp();
+    data.readBedFile(bedFile + ".bed");
+    data.buildSparseMME();
+}
+
 Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
                          const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, 
                          const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S){

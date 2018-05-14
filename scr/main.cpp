@@ -92,7 +92,11 @@ int main(int argc, const char * argv[]) {
             }
         }
         else if (opt.analysisType == "SBayes") {
-            gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.multiLDmat);
+            if (!opt.ldmatrixFile.empty()) {
+                gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.multiLDmat);
+            } else {
+                gctb.inputSnpInfo(data, opt.bedFile, opt.gwasSummaryFile);
+            }
             
             Model *model = gctb.buildModel(data, "", opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
                                             opt.heritability, opt.pi, opt.estimatePi, opt.pis, opt.gamma,

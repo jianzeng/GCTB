@@ -32,6 +32,8 @@ public:
                       const unsigned includeChr, const bool readGenotypes);
     void inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile,
                       const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool multiLDmatrix);
+    
+    void inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile);
 
     Model* buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
                       const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, 
