@@ -84,6 +84,10 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "/Users/j.zeng/Work/Projects/test_gctb/xci/testXCI.inp"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "/Users/j.zeng/Work/Projects/sbayes/test/bayes.inp"
             isEnabled = "YES">
          </CommandLineArgument>
       </CommandLineArguments>

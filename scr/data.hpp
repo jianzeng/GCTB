@@ -57,8 +57,8 @@ public:
     float gwas_n;
     float gwas_af;
 
-    float rsum2pqRsq;    // sum 2pq ld^2 over all SNPs left over by the thresholded LD matrix for summary-bayes method
-    float rsumR;         // TMP
+    float ldSamplVar;    // sum of sampling variance of LD with other SNPs for summary-bayes method
+    float ldSum;         // sum of LD with other SNPs
 
     SnpInfo(const int idx, const string &id, const string &allele1, const string &allele2,
             const int chr, const float gpos, const int ppos)
@@ -77,8 +77,8 @@ public:
         gwas_se = -999;
         gwas_n  = -999;
         gwas_af = -999;
-        rsum2pqRsq = 0.0;
-        rsumR = 0.0;
+        ldSamplVar = 0.0;
+        ldSum = 0.0;
     };
     
     void resetWindow(void) {windStart = -1; windSize = 0;};
@@ -144,12 +144,13 @@ public:
     VectorXf tss;            // total ss (ypy) for every SNP
     VectorXf b;              // beta from GWAS summary data
     VectorXf n;              // sample size for each SNP in GWAS
+    VectorXf Dratio;         // GWAS ZPZdiag over reference ZPZdiag for each SNP
+    VectorXf DratioSqrt;     // square root of GWAS ZPZdiag over reference ZPZdiag for each SNP
     
     VectorXi windStart;      // leading snp position for each window
     VectorXi windSize;       // number of snps in each window
     
-    VectorXf ZPZrss;         // "residual" sum of squares of ZPZ for SNPs beyond the LD window in summary-bayes methods
-    VectorXf ZPZrsum;        // "residual" sum of ZPZ for SNPs beyond the LD window in summary-bayes methods
+    VectorXf LDsamplVar;     // sum of sampling variance of LD for each SNP with all other SNPs; this is for summary-bayes methods
     
     float ypy;               // y'y the total sum of squares adjusted for the mean
     float varGenotypic;
