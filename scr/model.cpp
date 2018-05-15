@@ -1254,6 +1254,12 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
 
     float *valuesPtr = values.data(); // for openmp, otherwise when one thread writes to the vector, the vector locking precents the writing from other threads
 
+    vector<float> urnd(size), nrnd(size);
+    for (unsigned i=0; i<size; ++i) { // need this for openmp to work
+        urnd[i] = Stat::ranf();
+        nrnd[i] = Stat::snorm();
+    }
+    
 #pragma omp parallel for
     for (unsigned chr=0; chr<numChr; ++chr) {
         //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;
@@ -1295,8 +1301,10 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
             logDelta0 = logPiComp;
             probDelta1 = 1.0f/(1.0f + expf(logDelta0-logDelta1));
             //cout << rhs << " " << invLhs << " " << logDelta1 << " " << logSigmaSq << " " << sigmaSq << endl;
-            if (bernoulli.sample(probDelta1)) {
-                valuesPtr[i] = normal.sample(uhat, invLhs);
+//            if (bernoulli.sample(probDelta1)) {
+            if (urnd[i] < probDelta1) {
+//                valuesPtr[i] = normal.sample(uhat, invLhs);
+                valuesPtr[i] = uhat + nrnd[i]*sqrtf(invLhs);
 //                rcorr.segment(windStart[i], windSize[i]) += ZPZ[i]*(oldSample - values[i]);
                 float sampleDiff = oldSample - valuesPtr[i];
                 for (SparseVector<float>::InnerIterator it(ZPZ[i]); it; ++it) {
@@ -1347,6 +1355,12 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<VectorX
     memset(s2pq,0,sizeof(float)*numChr);
 
     float *valuesPtr = values.data(); // for openmp, otherwise when one thread writes to the vector, the vector locking precents the writing from other threads
+  
+    vector<float> urnd(size), nrnd(size);
+    for (unsigned i=0; i<size; ++i) { // need this for openmp to work
+        urnd[i] = Stat::ranf();
+        nrnd[i] = Stat::snorm();
+    }
     
 #pragma omp parallel for
     for (unsigned chr=0; chr<numChr; ++chr) {
@@ -1393,8 +1407,10 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<VectorX
             logDelta0 = logPiComp;
             probDelta1 = 1.0f/(1.0f + expf(logDelta0-logDelta1));
             //cout << rhs << " " << invLhs << " " << logDelta1 << " " << logSigmaSq << " " << sigmaSq << endl;
-            if (bernoulli.sample(probDelta1)) {
-                valuesPtr[i] = normal.sample(uhat, invLhs);
+//            if (bernoulli.sample(probDelta1)) {
+            if (urnd[i] < probDelta1) {
+//                valuesPtr[i] = normal.sample(uhat, invLhs);
+                valuesPtr[i] = uhat + nrnd[i]*sqrtf(invLhs);
                 rcorr.segment(windStart[i], windSize[i]) += ZPZ[i]*(oldSample - valuesPtr[i]);
                 ssq[chr] += valuesPtr[i]*valuesPtr[i];
                 s2pq[chr] += snp2pq[i];
@@ -1688,7 +1704,14 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
 //    if (iter==0) cout << endl;
     
     float *valuesPtr = values.data(); // for openmp, otherwise when one thread writes to the vector, the vector locking precents the writing from other threads
+
+    vector<float> urnd(size), nrnd(size);
+    for (unsigned i=0; i<size; ++i) { // need this for openmp to work
+        urnd[i] = Stat::ranf();
+        nrnd[i] = Stat::snorm();
+    }
     
+
 #pragma omp parallel for
     for (unsigned chr=0; chr<numChr; ++chr) {
         //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;
@@ -1748,8 +1771,10 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
             probDelta1 = 1.0f/(1.0f + expf(logDelta0-logDelta1));
             //if(i==0) cout << i << " chrStart " << chrStart << " chrEnd " << chrEnd << " windStart " << windStart[i] << " windSize " << windSize[i] << " rcorr " << rcorr[i] << " ZPZdiag " << ZPZdiag[i] << " vare " << vare << " sigmaSq " << sigmaSq <<  " snp2pq " << snp2pq[i] <<  " logDelta0 " << logDelta0 << " logDelta1 " << logDelta1 << " probDelta1 " << probDelta1 << endl;
             
-            if (bernoulli.sample(probDelta1)) {
-                valuesPtr[i] = normal.sample(uhat, invLhs);
+//            if (bernoulli.sample(probDelta1)) {
+            if (urnd[i] < probDelta1) {
+//                valuesPtr[i] = normal.sample(uhat, invLhs);
+                valuesPtr[i] = uhat + nrnd[i]*sqrtf(invLhs);
                 //rcorr.segment(windStart[i], windSize[i]) += ZPZ[i]*(oldSample - values[i]);
                 float sampleDiff = oldSample - valuesPtr[i];
                 for (SparseVector<float>::InnerIterator it(ZPZ[i]); it; ++it) {
@@ -1816,11 +1841,11 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<VectorX
     
     float *valuesPtr = values.data(); // for openmp, otherwise when one thread writes to the vector, the vector locking precents the writing from other threads
     
-//    vector<float> urnd(size), nrnd(size);
-//    for (unsigned i=0; i<size; ++i) {
-//        urnd[i] = Stat::ranf();
-//        nrnd[i] = Stat::snorm();
-//    }
+    vector<float> urnd(size), nrnd(size);
+    for (unsigned i=0; i<size; ++i) { // need this for openmp to work
+        urnd[i] = Stat::ranf();
+        nrnd[i] = Stat::snorm();
+    }
 
 #pragma omp parallel for
     for (unsigned chr=0; chr<numChr; ++chr) {
@@ -1888,10 +1913,10 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<VectorX
             probDelta1 = 1.0f/(1.0f + expf(logDelta0-logDelta1));
             //if(i==0) cout << i << " chrStart " << chrStart << " chrEnd " << chrEnd << " windStart " << windStart[i] << " windSize " << windSize[i] << " rcorr " << rcorr[i] << " ZPZdiag " << ZPZdiag[i] << " vare " << vare << " sigmaSq " << sigmaSq <<  " snp2pq " << snp2pq[i] <<  " logDelta0 " << logDelta0 << " logDelta1 " << logDelta1 << " probDelta1 " << probDelta1 << endl;
             
-            if (bernoulli.sample(probDelta1)) {
-//            if (urnd[i] < probDelta1) {
-                valuesPtr[i] = normal.sample(uhat, invLhs);
-//                valuesPtr[i] = uhat + nrnd[i]*sqrtf(invLhs);
+//            if (bernoulli.sample(probDelta1)) {
+            if (urnd[i] < probDelta1) {
+//                valuesPtr[i] = normal.sample(uhat, invLhs);
+                valuesPtr[i] = uhat + nrnd[i]*sqrtf(invLhs);
                 rcorr.segment(windStart[i], windSize[i]) += ZPZ[i]*(oldSample - valuesPtr[i]);
                 //sse.segment(windStart[i], windSize[i]) += (ZPy.segment(windStart[i], windSize[i]) + rcorr.segment(windStart[i], windSize[i]))*(oldSample - values[i]);
                 //sum2pqOneMinusS += snp2pqOneMinusS;
