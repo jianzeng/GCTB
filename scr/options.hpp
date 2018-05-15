@@ -62,6 +62,7 @@ public:
     bool outputResults;
     bool multiLDmat;
     bool multiThreadEigen;
+    bool writeLdmTxt;      // write ldm to txt file
 
     // Bayes R defauls
     VectorXf gamma;  // Default scaling parameters for Bayes R
@@ -107,7 +108,7 @@ public:
         S.resize(1);
         S[0]                    = 0.0;
         LDthreshold             = 0.0;
-        chisqThreshold          = 3.84;
+        chisqThreshold          = 10;
         piNDC                   = 0.15;
 
         // Bayes R defaults
@@ -123,6 +124,7 @@ public:
         outputResults           = true;
         multiLDmat              = false;
         multiThreadEigen        = false;
+        writeLdmTxt             = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";
