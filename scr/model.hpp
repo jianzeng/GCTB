@@ -870,7 +870,7 @@ public:
     ApproxBayesC::Rounding rounding;
     varEffectScaled sigmaSqG;
     
-    ApproxBayesC::Overdispersion tauSq;
+//    ApproxBayesC::Overdispersion tauSq;
     
     ApproxBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const float varS, const vector<float> &svalue,
                  const string &algorithm, const bool message = true)
@@ -881,13 +881,13 @@ public:
     , fixedEffects(data.fixedEffectNames)
     , vare(varResidual, data.numKeptInds)
     , varg(varGenotypic, data.numKeptInds)
-    , tauSq(varResidual, data.numKeptInds)
+//    , tauSq(varResidual, data.numKeptInds)
     {
         ghat.setZero(data.Z.rows());
         sparse = data.sparseLDM;
         paramSetVec = {&snpEffects, &fixedEffects};
-        paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &tauSq, &vare, &varg, &hsq};
-        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &tauSq, &vare, &varg, &hsq, &sigmaSqG, &S.ar, &S.tuner, &rounding};
+        paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
+        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &sigmaSqG, &S.ar, &S.tuner, &rounding};
         if (message && myMPI::rank==0) {
             string alg = algorithm;
             if (alg!="RMH") alg = "HMC (default)";

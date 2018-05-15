@@ -1281,7 +1281,7 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
 //                varei[i] /= n[i];
 //            }
             
-            float varei = 2*LDsamplVar[i]*varg + vare;
+            float varei = LDsamplVar[i]*varg + vare;
             
             oldSample = values[i];
             rhs = rcorr[i] + ZPZdiag[i]*oldSample;
@@ -1376,7 +1376,7 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<VectorX
             // varei[i] = tss[i] / n[i];
             //            varei = se[i]*se[i]*ZPZdiag[i];
             
-            float varei = 2*LDsamplVar[i]*varg + vare;
+            float varei = LDsamplVar[i]*varg + vare;
 
             oldSample = values[i];
             rhs = rcorr[i] + ZPZdiag[i]*oldSample;
@@ -1696,7 +1696,7 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
         for (unsigned i=chrStart; i<=chrEnd; ++i) {
             oldSample = values[i];
             
-            float varei = 2*LDsamplVar[i]*varg + vare;
+            float varei = LDsamplVar[i]*varg + vare;
             
             //float varei = se[i]*se[i]*ZPZdiag[i];
             
@@ -1820,7 +1820,7 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<VectorX
         for (unsigned i=chrStart; i<=chrEnd; ++i) {
             oldSample = values[i];
             
-            float varei = 2*LDsamplVar[i]*varg + vare;
+            float varei = LDsamplVar[i]*varg + vare;
 
             //float varei = se[i]*se[i]*ZPZdiag[i];
             
@@ -2046,7 +2046,7 @@ void ApproxBayesS::sampleUnknowns(){
 
     fixedEffects.sampleFromFC(data.XPX, data.XPXdiag, data.ZPX, data.XPy, snpEffects.values, vare.value, rcorr);
     
-    tauSq.sampleFromFC(data.y, ghat);
+//    tauSq.sampleFromFC(data.y, ghat);
     
     unsigned cnt=0;
     do {
