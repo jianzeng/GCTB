@@ -530,6 +530,22 @@ void Data::includeChr(const unsigned chr){
     }
 }
 
+void Data::excludeMHC(){
+    long cnt = 0;
+    for (unsigned i=0; i<numSnps; ++i) {
+        SnpInfo *snp = snpInfoVec[i];
+        if (snp->chrom == 6) {
+            if (snp->physPos > 28e6 && snp->physPos < 34e6) {
+                snp->included = false;
+                ++cnt;
+            }
+        }
+    }
+    if (myMPI::rank==0) {
+        cout << cnt << " SNPs in the MHC region (Chr6:28-34Mb) are excluded." << endl;
+    }
+}
+
 void Data::reindexSnp(vector<SnpInfo*> snpInfoVec){
     SnpInfo *snp;
     for (unsigned i=0, idx=0; i<snpInfoVec.size(); ++i) {
@@ -2182,24 +2198,47 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 ZPZ[i].resize(0);
             }
         } else {
-            for (unsigned i=0; i<numIncdSnps; ++i) {
-                SnpInfo *snp = incdSnpInfoVec[i];
-                ZPZsp[i].resize(snp->windSize);
-                snp->ldSamplVar = 0.0;
-                for (unsigned j=0; j<snp->windSize; ++j) {
-                    if (ZPZ[i][j]*ZPZ[i][j]*snp->sampleSize > chisqThreshold) {
-                        ZPZsp[i].insertBack(snp->windStart + j) = ZPZ[i][j];
-                        rsq = ZPZ[i][j]*ZPZ[i][j];
-                        snp->ldSamplVar += (1.0-rsq)*(1.0-rsq)/snp->sampleSize;
+            if (windowWidth) {
+                for (unsigned i=0; i<numIncdSnps; ++i) {
+                    SnpInfo *snp = incdSnpInfoVec[i];
+                    ZPZsp[i].resize(snp->windSize);
+                    snp->ldSamplVar = 0.0;
+                    for (unsigned j=0; j<snp->windSize; ++j) {
+                        if (ZPZ[i][j]*ZPZ[i][j]*snp->sampleSize > chisqThreshold ||
+                            snp->isProximal(*incdSnpInfoVec[j], windowWidth/2)) {
+                            ZPZsp[i].insertBack(snp->windStart + j) = ZPZ[i][j];
+                            rsq = ZPZ[i][j]*ZPZ[i][j];
+                            snp->ldSamplVar += (1.0-rsq)*(1.0-rsq)/snp->sampleSize;
+                        }
                     }
+                    //            ZPZsp[i] = ZPZ[i].sparseView();
+                    SparseVector<float>::InnerIterator it(ZPZsp[i]);
+                    windStart[i] = snp->windStart = it.index();
+                    windSize[i] = snp->windSize = ZPZsp[i].nonZeros();
+                    for (; it; ++it) snp->windEnd = it.index();
+                    ZPZ[i].resize(0);
+                    //cout << i << " windsize " << snp->windSize << " " << ZPZsp[i].size() << endl;
                 }
-                //            ZPZsp[i] = ZPZ[i].sparseView();
-                SparseVector<float>::InnerIterator it(ZPZsp[i]);
-                windStart[i] = snp->windStart = it.index();
-                windSize[i] = snp->windSize = ZPZsp[i].nonZeros();
-                for (; it; ++it) snp->windEnd = it.index();
-                ZPZ[i].resize(0);
-                //cout << i << " windsize " << snp->windSize << " " << ZPZsp[i].size() << endl;
+            } else {
+                for (unsigned i=0; i<numIncdSnps; ++i) {
+                    SnpInfo *snp = incdSnpInfoVec[i];
+                    ZPZsp[i].resize(snp->windSize);
+                    snp->ldSamplVar = 0.0;
+                    for (unsigned j=0; j<snp->windSize; ++j) {
+                        if (ZPZ[i][j]*ZPZ[i][j]*snp->sampleSize > chisqThreshold) {
+                            ZPZsp[i].insertBack(snp->windStart + j) = ZPZ[i][j];
+                            rsq = ZPZ[i][j]*ZPZ[i][j];
+                            snp->ldSamplVar += (1.0-rsq)*(1.0-rsq)/snp->sampleSize;
+                        }
+                    }
+                    //            ZPZsp[i] = ZPZ[i].sparseView();
+                    SparseVector<float>::InnerIterator it(ZPZsp[i]);
+                    windStart[i] = snp->windStart = it.index();
+                    windSize[i] = snp->windSize = ZPZsp[i].nonZeros();
+                    for (; it; ++it) snp->windEnd = it.index();
+                    ZPZ[i].resize(0);
+                    //cout << i << " windsize " << snp->windSize << " " << ZPZsp[i].size() << endl;
+                }
             }
         }
     }
@@ -2323,8 +2362,11 @@ void Data::buildSparseMME(){
     // estimate ypy
     //ypy = (D.array()*(n.array()*se.array().square()+b.array().square())).mean();
     VectorXf ypySrt = D.array()*(n.array()*se.array().square()+b.array().square());
+    VectorXf varpSrt = ypySrt.array()/n.array();
     std::sort(ypySrt.data(), ypySrt.data() + ypySrt.size());
+    std::sort(varpSrt.data(), varpSrt.data() + varpSrt.size());
     ypy = ypySrt[ypySrt.size()/2];  // median
+    float varp = varpSrt[varpSrt.size()/2];
 
     //numKeptInds = n.mean();
     
@@ -2349,14 +2391,15 @@ void Data::buildSparseMME(){
     
     // data summary
     cout << "\nData summary:" << endl;
-    cout << boost::format("%30s %8s %8s\n") %"" %"mean" %"sd";
-    cout << boost::format("%30s %8.3f %8.3f\n") %"GWAS SNP heterozygosity" %snp2pq.mean() %sqrt(Gadget::calcVariance(snp2pq));
-    cout << boost::format("%30s %8.0f %8.0f\n") %"GWAS SNP sample size" %n.mean() %sqrt(Gadget::calcVariance(n));
-    cout << boost::format("%30s %8.3f %8.3f\n") %"GWAS SNP effect" %b.mean() %sqrt(Gadget::calcVariance(b));
-    cout << boost::format("%30s %8.3f %8.3f\n") %"GWAS SNP SE" %se.mean() %sqrt(Gadget::calcVariance(se));
-    cout << boost::format("%30s %8.3f %8.3f\n") %"MME left-hand-side diagonals" %ZPZdiag.mean() %sqrt(Gadget::calcVariance(ZPZdiag));
-    cout << boost::format("%30s %8.3f %8.3f\n") %"MME right-hand-side" %ZPy.mean() %sqrt(Gadget::calcVariance(ZPy));
-    cout << boost::format("%30s %8.3f\n") %"Total sum of square" %ypy;
+    cout << boost::format("%40s %8s %8s\n") %"" %"mean" %"sd";
+    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP heterozygosity" %snp2pq.mean() %sqrt(Gadget::calcVariance(snp2pq));
+    cout << boost::format("%40s %8.0f %8.0f\n") %"GWAS SNP sample size" %n.mean() %sqrt(Gadget::calcVariance(n));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP effect" %b.mean() %sqrt(Gadget::calcVariance(b));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP SE" %se.mean() %sqrt(Gadget::calcVariance(se));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"MME left-hand-side diagonals" %ZPZdiag.mean() %sqrt(Gadget::calcVariance(ZPZdiag));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"MME right-hand-side" %ZPy.mean() %sqrt(Gadget::calcVariance(ZPy));
+    cout << boost::format("%40s %8.3f\n") %"Total sum of square" %ypy;
+    cout << "\nMedian of per-SNP phenotypic variance: " << varp << endl;
     
 //    ofstream out("tmp.txt");
 //    out << "refZPZdiag\t gwasZPZdiag\t b\t ZPy\t refsnp2pq\t gwassnp2pq n" << endl;

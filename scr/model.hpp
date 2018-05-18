@@ -731,10 +731,12 @@ public:
     
     class ResidualVar : public BayesC::ResidualVar {
     public:
-        ResidualVar(const float vare, const unsigned nobs): BayesC::ResidualVar(vare, nobs){}
+        const float scale;
+        
+        ResidualVar(const float vare, const unsigned nobs): BayesC::ResidualVar(vare, nobs), scale(vare){}
         
         //void sampleFromFC(VectorXf &rcorr, const SparseMatrix<float> &ZPZinv);
-        void sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr);
+        void sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float hsq);
         
         void sampleFromFC2(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &ghat);
         

@@ -31,7 +31,8 @@ public:
     void inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile,
                       const unsigned includeChr, const bool readGenotypes);
     void inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile,
-                      const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool multiLDmatrix);
+                      const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr,
+                      const bool multiLDmatrix, const bool excludeMHC);
     
     void inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile);
 

@@ -197,6 +197,7 @@ public:
     void includeSnp(const string &includeSnpFile);
     void excludeSnp(const string &excludeSnpFile);
     void includeChr(const unsigned chr);
+    void excludeMHC(void);
     void includeMatchedSnp(void);
     vector<SnpInfo*> makeIncdSnpInfoVec(const vector<SnpInfo*> &snpInfoVec);
     vector<IndInfo*> makeKeptIndInfoVec(const vector<IndInfo*> &indInfoVec);
