@@ -188,6 +188,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             varS = atof(argv[++i]);
             ss << "--varS " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--KapStr")) {
+            kappa_str = atof(argv[++i]);
+            ss << "--KapStr " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--S")) {
             Gadget::Tokenizer strvec;
             strvec.getTokens(argv[++i], " ,");

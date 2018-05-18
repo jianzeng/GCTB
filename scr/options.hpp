@@ -48,6 +48,7 @@ public:
     
     float pi;
     float heritability;
+    float kappa_str;
 //    float varGenotypic;
 //    float varResidual;
     float varS; // prior variance of S in BayesS and BayesNS
@@ -116,7 +117,10 @@ public:
         gamma                   << 0.0, 0.01, 0.1, 1;  
         pis.resize(ndists);                      
         pis                     << 0.95, 0.03, 0.01, 0.01;
-
+        
+        // Kappa defaults
+        kappa_str               = 10;
+        
         estimatePi              = true;
         estimateScale           = false;
         writeBinPosterior       = true;
