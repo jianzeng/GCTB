@@ -1541,10 +1541,11 @@ float ApproxBayesC::SnpEffects::computeU(const VectorXf &effects, const VectorXf
 //    value = InvChiSq::sample(dfTilde, scaleTilde);
 //}
 
-void ApproxBayesC::ResidualVar::sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr){
+void ApproxBayesC::ResidualVar::sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float hsq){
     float sse = ypy - effects.dot(ZPy) - effects.dot(rcorr);
     if (sse < 0) sse = 0.0;
-    if (sse > ypy) sse = ypy;
+//    if (sse > ypy) sse = ypy;
+//    float df = nobs*hsq*0.1;   // shrink the residual variance more toward the prior mean when hsq is higher to compensate the bias
     float dfTilde = df + nobs;
     float scaleTilde = sse + df*scale;
     value = InvChiSq::sample(dfTilde, scaleTilde);
@@ -1665,7 +1666,7 @@ void ApproxBayesC::sampleUnknowns(){
     } while (snpEffects.numNonZeros == 0);
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     if (estimatePi) pi.sampleFromFC(data.numIncdSnps, snpEffects.numNonZeros);
-    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr);
+    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, hsq.value);
     varg.compute(snpEffects.values, data.ZPy, rcorr);
     hsq.compute(varg.value, vare.value);
     if (sparse)
@@ -2123,7 +2124,7 @@ void ApproxBayesS::sampleUnknowns(){
     //sigmaSq.value = varg.value/((snp2pqPowS.array()*data.snp2pq.array()).sum()*pi.value);
     //cout << sigmaSq.value << endl;
     
-    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr);
+    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, hsq.value);
     //vare.sampleFromFC2(data.ypy, snpEffects.values, data.ZPy, ghat);
     //vare.randomWalkMHsampler(data.ypy, snpEffects.values, data.ZPy, rcorr, data.ZPZrss, sigmaSq.value, pi.value);
     //varei.setConstant(data.numIncdSnps, vare.value);
@@ -2141,8 +2142,8 @@ void ApproxBayesS::sampleUnknowns(){
 //    vare.value = vare.InvChiSq::sample(dfTilde, scaleTilde);
 //    varg.value = modelSS/varg.nobs;
     
-    //varg.compute(snpEffects.values, data.ZPy, rcorr);
-    varg.value = data.ypy/varg.nobs - vare.value;
+    varg.compute(snpEffects.values, data.ZPy, rcorr);
+    //varg.value = data.ypy/varg.nobs - vare.value;
     
     hsq.compute(varg.value, vare.value);
     
@@ -2196,7 +2197,7 @@ void ApproxBayesR::sampleUnknowns(){
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
-    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr);
+    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, hsq.value);
     varg.compute(snpEffects.values, data.ZPy, rcorr);
     hsq.compute(varg.value, vare.value);
     Pis.sampleFromFC(snpStore, Pis.values);

@@ -86,14 +86,14 @@ int main(int argc, const char * argv[]) {
                 data.makeLDmatrix(opt.bedFile + ".bed", opt.outLDmatType, opt.chisqThreshold, opt.LDthreshold, opt.windowWidth, opt.snpRange, opt.title, opt.writeLdmTxt);
             }
             else { // manipulate an existing LD matrix or merge existing LD matrices
-                gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, "", opt.ldmatrixFile, opt.includeChr, opt.multiLDmat);
+                gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, "", opt.ldmatrixFile, opt.includeChr, opt.multiLDmat, opt.excludeMHC);
                 data.resizeLDmatrix(opt.outLDmatType, opt.chisqThreshold, opt.windowWidth, opt.LDthreshold);
                 data.outputLDmatrix(opt.outLDmatType, opt.title, opt.writeLdmTxt);
             }
         }
         else if (opt.analysisType == "SBayes") {
             if (!opt.ldmatrixFile.empty()) {
-                gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.multiLDmat);
+                gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.multiLDmat, opt.excludeMHC);
             } else {
                 gctb.inputSnpInfo(data, opt.bedFile, opt.gwasSummaryFile);
             }

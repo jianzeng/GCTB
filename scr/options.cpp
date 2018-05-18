@@ -247,6 +247,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             writeLdmTxt = true;
             ss << "--write-ldm-txt " << "\n";
         }
+        else if (!strcmp(argv[i], "--exclude-mhc")) {
+            excludeMHC = true;
+            ss << "--exclude-mhc " << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";
@@ -379,6 +383,8 @@ void Options::readFile(const string &file){  // input options from file
             piNDC = stof(value);
         } else if (key == "writeLdmTxt") {
             writeLdmTxt = true;
+        } else if (key == "excludeMHC") {
+            excludeMHC = true;
         } else if (key.substr(0,2) == "//" ||
                    key.substr(0,1) == "#") {
             continue;

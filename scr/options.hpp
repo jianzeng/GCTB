@@ -63,6 +63,7 @@ public:
     bool multiLDmat;
     bool multiThreadEigen;
     bool writeLdmTxt;      // write ldm to txt file
+    bool excludeMHC;  // exclude SNPs in the MHC region
 
     // Bayes R defauls
     VectorXf gamma;  // Default scaling parameters for Bayes R
@@ -101,7 +102,7 @@ public:
                 
         windowWidth             = 0*Megabase;
         pi                      = 0.05;
-        heritability            = 0.5;
+        heritability            = 0.1;
 //        varGenotypic            = 1.0;
 //        varResidual             = 1.0;
         varS                    = 1.0;
@@ -125,6 +126,7 @@ public:
         multiLDmat              = false;
         multiThreadEigen        = false;
         writeLdmTxt             = false;
+        excludeMHC              = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";
