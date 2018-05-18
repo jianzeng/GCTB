@@ -2279,6 +2279,28 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 ZPZ[i] = ZPZiTmp;
                 snp->ldSamplVar = (1.0 - ZPZ[i].array().square()).square().sum()/snp->sampleSize;
             }
+        } else {
+            cout << "Resizing LD matrix based on a chisq threshold of " << chisqThreshold << "..." << endl;
+            for (unsigned i=0; i<numIncdSnps; ++i) {
+                SnpInfo *snp = incdSnpInfoVec[i];
+                unsigned windEndi = windSizeOri[i];
+                for (unsigned j=0; j<windSizeOri[i]; ++j) {
+                    if (ZPZ[i][j]*ZPZ[i][j]*snp->sampleSize > chisqThreshold) {
+                        windStart[i] = snp->windStart = windStartOri[i] + j;
+                        break;
+                    }
+                }
+                for (unsigned j=windSizeOri[i]; j>0; --j) {
+                    if (ZPZ[i][j]*ZPZ[i][j]*snp->sampleSize > chisqThreshold) {
+                        windEndi = j;
+                        break;
+                    }
+                }
+                windSize[i] = snp->windSize = windStartOri[i] + windEndi - windStart[i];
+                ZPZiTmp = ZPZ[i].segment(windStart[i] - windStartOri[i], windSize[i]);
+                ZPZ[i] = ZPZiTmp;
+                snp->ldSamplVar = (1.0 - ZPZ[i].array().square()).square().sum()/snp->sampleSize;
+            }
         }
     }
     displayAverageWindowSize(windSize);
