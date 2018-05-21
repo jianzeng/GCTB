@@ -251,6 +251,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             excludeMHC = true;
             ss << "--exclude-mhc " << "\n";
         }
+        else if (!strcmp(argv[i], "--phi")) {
+            phi = atof(argv[++i]);
+            ss << "--phi " << argv[i] << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";
@@ -385,6 +389,8 @@ void Options::readFile(const string &file){  // input options from file
             writeLdmTxt = true;
         } else if (key == "excludeMHC") {
             excludeMHC = true;
+        } else if (key == "phi") {
+            phi = stof(value);
         } else if (key.substr(0,2) == "//" ||
                    key.substr(0,1) == "#") {
             continue;
