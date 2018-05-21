@@ -56,14 +56,14 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSum
 }
 
 Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
-                         const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, 
+                         const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, const float phi,
                          const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S){
     data.initVariances(heritability);
     if (!gwasFile.empty()) {
         if (bayesType == "C")
-            return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi);
+            return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi);
         else if (bayesType == "S")
-            return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, varS, S, algorithm);
+            return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, varS, S, algorithm);
         else if (bayesType == "R") 
             return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi);
         else
@@ -98,11 +98,11 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
     else if (bayesType == "Cap") {
         //data.readBedFile(bedFile + ".bed");
         data.buildSparseMME(bedFile + ".bed", windowWidth);
-        return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi);
+        return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi);
     }
     else if (bayesType == "Sap") {
         data.buildSparseMME(bedFile + ".bed", windowWidth);
-        return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, varS, S, algorithm);
+        return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, varS, S, algorithm);
     }
     else {
         throw(" Error: Wrong bayes type: " + bayesType);

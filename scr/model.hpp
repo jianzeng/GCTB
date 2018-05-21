@@ -731,12 +731,11 @@ public:
     
     class ResidualVar : public BayesC::ResidualVar {
     public:
-        const float scale;
-        
-        ResidualVar(const float vare, const unsigned nobs): BayesC::ResidualVar(vare, nobs), scale(vare){}
+        ResidualVar(const float vare, const unsigned nobs): BayesC::ResidualVar(vare, nobs){}
         
         //void sampleFromFC(VectorXf &rcorr, const SparseMatrix<float> &ZPZinv);
-        void sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float hsq);
+        void sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr);
+        void sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float hsq, const float phi);
         
         void sampleFromFC2(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &ghat);
         
@@ -777,6 +776,7 @@ public:
     VectorXf varei;   // residual variance specific to each snp
     
     bool sparse;
+    float phi;   // the shrinkage parameter for heritability estimate
     
     FixedEffects fixedEffects;
     SnpEffects snpEffects;
@@ -789,7 +789,7 @@ public:
     varEffectScaled sigmaSqG;
     Overdispersion tauSq;
     
-    ApproxBayesC(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const bool message = true)
+    ApproxBayesC(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const float phi, const bool message = true)
     : BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false)
     , data(data)
     , rcorr(data.ZPy)
@@ -801,6 +801,7 @@ public:
     , vare(varResidual, data.numKeptInds)
     , varg(varGenotypic, data.numKeptInds)
     , tauSq(varResidual, data.numKeptInds)
+    , phi(phi)
     {
         sparse = data.sparseLDM;
         paramSetVec = {&snpEffects, &fixedEffects};
@@ -864,6 +865,7 @@ public:
     VectorXf vareiMean;  ///TMP
     
     bool sparse;
+    float phi;   // the shrinkage parameter for heritability estimate
 
     SnpEffects snpEffects;
     ApproxBayesC::FixedEffects fixedEffects;
@@ -874,7 +876,7 @@ public:
     
 //    ApproxBayesC::Overdispersion tauSq;
     
-    ApproxBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const float varS, const vector<float> &svalue,
+    ApproxBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const float phi, const float varS, const vector<float> &svalue,
                  const string &algorithm, const bool message = true)
     : BayesS(data, varGenotypic, varResidual, pival, estimatePi, varS, svalue, algorithm, false)
     , rcorr(data.ZPy)
@@ -884,6 +886,7 @@ public:
     , vare(varResidual, data.numKeptInds)
     , varg(varGenotypic, data.numKeptInds)
 //    , tauSq(varResidual, data.numKeptInds)
+    , phi(phi)
     {
         ghat.setZero(data.Z.rows());
         sparse = data.sparseLDM;
