@@ -1905,7 +1905,8 @@ void Data::readLDmatrixInfoFile(const string &ldmatrixFile){
     getline(in, header);
     Gadget::Tokenizer token;
     token.getTokens(header, " ");
-    if (token.back() == "ldSum") {
+
+    if (token.back() == "LDsum") {
         float ldSum;
         while (in >> chr >> id >> genPos >> physPos >> allele1 >> allele2 >> af >> idx >> windStart >> windEnd >> windSize >> windWidth >> sampleSize >> ldSamplVar >> ldSum) {
             SnpInfo *snp = new SnpInfo(idx, id, allele1, allele2, chr, genPos, physPos);
@@ -2206,19 +2207,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         SnpInfo *snp = incdSnpInfoVec[i];
         snp2pq[i] = 2.0*snp->af*(1.0-snp->af);
     }
-    float rsq = 0.0;
-    
-    if (LDmatType == "sparse") {
-        for (unsigned i=0; i<numIncdSnps; ++i) {
-            SnpInfo *snp = incdSnpInfoVec[i];
-            snp->ldSum = 0.0;
-            for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
-                snp->ldSum += it.value();
-            }
-        }
-    }
-    
-    
+    float rsq = 0.0;    
     if (LDmatType == "sparse" && ZPZsp.size() == 0) {
         cout << "Making a sparse LD matrix by setting the non-significant LD to be zero..." << endl;
         ZPZsp.resize(numIncdSnps);

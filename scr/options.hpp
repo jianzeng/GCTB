@@ -56,6 +56,7 @@ public:
     float chisqThreshold;  // significance threshold for nonzero LD chi-square test
     float piNDC;  // proportion of X-lined SNPs under no dosage compensation model (escape from X-chromosome inactivation)
     float phi;   // a shrinkage parameter for the heritability estimate in sbayes
+    float overdispersion;
     
     bool estimatePi;
     bool estimateScale;
@@ -113,6 +114,7 @@ public:
         chisqThreshold          = 10;
         piNDC                   = 0.15;
         phi                     = 0;
+        overdispersion          = 0;
 
         // Bayes R defaults
         ndists                  = 4;

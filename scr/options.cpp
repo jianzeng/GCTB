@@ -255,6 +255,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             phi = atof(argv[++i]);
             ss << "--phi " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--overdispersion")) {
+            overdispersion = atof(argv[++i]);
+            ss << "--overdispersion " << argv[i] << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";
@@ -391,6 +395,8 @@ void Options::readFile(const string &file){  // input options from file
             excludeMHC = true;
         } else if (key == "phi") {
             phi = stof(value);
+        } else if (key == "overdispersion") {
+            overdispersion = stof(value);
         } else if (key.substr(0,2) == "//" ||
                    key.substr(0,1) == "#") {
             continue;
