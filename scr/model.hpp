@@ -715,11 +715,11 @@ public:
         void sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
-                          const float sigmaSq, const float pi, const float vare, const float varg);
+                          const float sigmaSq, const float pi, const float vare, const float varg, const float overdispersion);
         void sampleFromFC(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
-                          const float sigmaSq, const float pi, const float vare, const float varg);
+                          const float sigmaSq, const float pi, const float vare, const float varg, const float overdispersion);
         void hmcSampler(VectorXf &rcorr, const VectorXf &ZPy, const vector<VectorXf> &ZPZ,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const float sigmaSq, const float pi, const float vare);
@@ -761,22 +761,23 @@ public:
         void computeGhat(const MatrixXf &Z, const VectorXf &snpEffects, VectorXf &ghat);
     };
     
-    class Overdispersion : public BayesC::ResidualVar {
-    public:
-        Overdispersion(const float vare, const unsigned nobs): BayesC::ResidualVar(vare, nobs, "TauSq"){}
-        
-        void sampleFromFC(const VectorXf &y, const VectorXf &ghat);
-    };
+//    class Overdispersion : public BayesC::ResidualVar {
+//    public:
+//        Overdispersion(const float vare, const unsigned nobs): BayesC::ResidualVar(vare, nobs, "TauSq"){}
+//        
+//        void sampleFromFC(const VectorXf &y, const VectorXf &ghat);
+//    };
     
 
 public:
     const Data &data;
+    const float phi;   // the shrinkage parameter for heritability estimate
+    const float overdispersion;
     
     VectorXf rcorr;
     VectorXf varei;   // residual variance specific to each snp
     
     bool sparse;
-    float phi;   // the shrinkage parameter for heritability estimate
     
     FixedEffects fixedEffects;
     SnpEffects snpEffects;
@@ -787,9 +788,10 @@ public:
 //    BayesC::ResidualVar vare;
     Rounding rounding;
     varEffectScaled sigmaSqG;
-    Overdispersion tauSq;
+//    Overdispersion tauSq;
     
-    ApproxBayesC(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const float phi, const bool message = true)
+    ApproxBayesC(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi,
+                 const float phi, const float overdispersion, const bool message = true)
     : BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false)
     , data(data)
     , rcorr(data.ZPy)
@@ -800,8 +802,9 @@ public:
     , pi(pival)
     , vare(varResidual, data.numKeptInds)
     , varg(varGenotypic, data.numKeptInds)
-    , tauSq(varResidual, data.numKeptInds)
+//    , tauSq(varResidual, data.numKeptInds)
     , phi(phi)
+    , overdispersion(overdispersion)
     {
         sparse = data.sparseLDM;
         paramSetVec = {&snpEffects, &fixedEffects};
@@ -835,13 +838,13 @@ public:
                           const float sigmaSq, const float pi, const float vare,
                           const VectorXf &snp2pqPowS, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
                           const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n,
-                          const float varg);
+                          const float varg, const float overdispersion);
         void sampleFromFC(VectorXf &rcorr,const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const float sigmaSq, const float pi, const float vare,
                           const VectorXf &snp2pqPowS, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
                           const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n,
-                          const float varg);
+                          const float varg, const float overdispersion);
 
         void sampleFromFC(const VectorXf &ZPy,const MatrixXf &Z, const VectorXf &ZPZdiag,
                           const float sigmaSq, const float pi, const float vare,
@@ -864,9 +867,11 @@ public:
     
     VectorXf vareiMean;  ///TMP
     
-    bool sparse;
-    float phi;   // the shrinkage parameter for heritability estimate
+    const float phi;   // the shrinkage parameter for heritability estimate
+    const float overdispersion;
 
+    bool sparse;
+    
     SnpEffects snpEffects;
     ApproxBayesC::FixedEffects fixedEffects;
     ApproxBayesC::ResidualVar vare;
@@ -876,7 +881,8 @@ public:
     
 //    ApproxBayesC::Overdispersion tauSq;
     
-    ApproxBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const float phi, const float varS, const vector<float> &svalue,
+    ApproxBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi,
+                 const float phi, const float overdispersion, const float varS, const vector<float> &svalue,
                  const string &algorithm, const bool message = true)
     : BayesS(data, varGenotypic, varResidual, pival, estimatePi, varS, svalue, algorithm, false)
     , rcorr(data.ZPy)
@@ -887,6 +893,7 @@ public:
     , varg(varGenotypic, data.numKeptInds)
 //    , tauSq(varResidual, data.numKeptInds)
     , phi(phi)
+    , overdispersion(overdispersion)
     {
         ghat.setZero(data.Z.rows());
         sparse = data.sparseLDM;
@@ -970,7 +977,7 @@ public:
     
     ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, 
                  const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, false),
+    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, 0, 0, false),
     Pis(pis),
     gamma(gamma, vector<string>(gamma.size())),
     varg(varGenotypic, data.numKeptInds),
