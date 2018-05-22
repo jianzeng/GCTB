@@ -1556,7 +1556,7 @@ void ApproxBayesC::ResidualVar::sampleFromFC(const float ypy, const VectorXf &ef
     //    if (sse > ypy) sse = ypy;
     float df = nobs*hsq*phi;   // shrink the residual variance more toward the prior mean when hsq is higher to compensate the bias
     float dfTilde = df + nobs;
-    float scaleTilde = sse;    // the prior value of the scale parameter is set to be zero
+    float scaleTilde = sse + df*ypy/nobs;    // the prior value of the scale parameter is set to be zero
     value = InvChiSq::sample(dfTilde, scaleTilde);
 }
 
