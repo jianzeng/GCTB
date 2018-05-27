@@ -69,8 +69,8 @@ int main(int argc, const char * argv[]) {
             gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.includeChr, readGenotypes);
             
             Model *model = gctb.buildModel(data, opt.bedFile, "", opt.bayesType, opt.windowWidth,
-                                            opt.heritability, opt.pi, opt.estimatePi, opt.pis, opt.gamma, opt.kappa_str,
-                                            opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S);
+                                           opt.heritability, opt.pi, opt.estimatePi, opt.pis, opt.gamma,
+                                           opt.kappa_str, opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior);
             //gctb.saveMcmcSamples(mcmcSampleVec, opt.title);
@@ -79,7 +79,14 @@ int main(int argc, const char * argv[]) {
         }
         else if (opt.analysisType == "LDmatrix") {
             readGenotypes = false;
-            if (opt.ldmatrixFile.empty()) { // make LD matrix from genotypes
+            if (opt.outLDmatType == "shrunk") { // make LD matrix from genotypes
+                gctb.inputIndInfo(data, opt.bedFile, opt.bedFile + ".fam", opt.keepIndFile, opt.keepIndMax,
+                                  opt.mphen, opt.covariateFile);
+                gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.includeChr, readGenotypes);
+                data.readGeneticMapFile(opt.geneticMapFile);
+                data.makeshrunkLDmatrix(opt.bedFile + ".bed", opt.outLDmatType, opt.snpRange, opt.title);
+            }
+            else if (opt.ldmatrixFile.empty() && opt.outLDmatType != "shrunk") { // make LD matrix from genotypes
                 gctb.inputIndInfo(data, opt.bedFile, opt.bedFile + ".fam", opt.keepIndFile, opt.keepIndMax,
                                   opt.mphen, opt.covariateFile);
                 gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.includeChr, readGenotypes);
@@ -96,7 +103,7 @@ int main(int argc, const char * argv[]) {
             
             Model *model = gctb.buildModel(data, "", opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
                                             opt.heritability, opt.pi, opt.estimatePi, opt.pis, opt.gamma,
-                                            opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S);
+                                             opt.kappa_str, opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior);
             if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.title);

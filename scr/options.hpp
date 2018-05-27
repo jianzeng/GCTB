@@ -48,7 +48,6 @@ public:
     
     float pi;
     float heritability;
-    float kappa_str;
 //    float varGenotypic;
 //    float varResidual;
     float varS; // prior variance of S in BayesS and BayesNS
@@ -56,7 +55,7 @@ public:
     float LDthreshold;  // used to define the two ends of per-SNP LD window in the banded LD matrix
     float chisqThreshold;  // significance threshold for nonzero LD chi-square test
     float piNDC;  // proportion of X-lined SNPs under no dosage compensation model (escape from X-chromosome inactivation)
-    
+    float kappa_str; 
     bool estimatePi;
     bool estimateScale;
     bool writeBinPosterior;
@@ -79,6 +78,7 @@ public:
     string alleleFreqFile;
     string includeSnpFile;
     string excludeSnpFile;
+    string geneticMapFile;
     string keepIndFile;
     string snpResFile;
     string mcmcSampleFile;
@@ -117,10 +117,9 @@ public:
         gamma                   << 0.0, 0.01, 0.1, 1;  
         pis.resize(ndists);                      
         pis                     << 0.95, 0.03, 0.01, 0.01;
-        
         // Kappa defaults
         kappa_str               = 10;
-        
+
         estimatePi              = true;
         estimateScale           = false;
         writeBinPosterior       = true;
@@ -139,6 +138,7 @@ public:
         alleleFreqFile          = "";
         includeSnpFile          = "";
         excludeSnpFile          = "";
+        geneticMapFile          = "";
         keepIndFile             = "";
         snpResFile              = "";
         mcmcSampleFile          = "";

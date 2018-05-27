@@ -44,7 +44,6 @@ public:
     float af;       // allele frequency
     bool included;  // flag for inclusion in panel
     bool isQTL;     // for simulation
-    bool recoded;   // swap A1 and A2: use A2 as the reference allele and A1 as the coded allele
     long sampleSize;
     
     VectorXf genotypes; // temporary storage of genotypes of individuals used for building sparse Z'Z
@@ -56,10 +55,9 @@ public:
     float gwas_se;
     float gwas_n;
     float gwas_af;
-
-    float rsum2pqRsq;    // sum 2pq ld^2 over all SNPs left over by the thresholded LD matrix for summary-bayes method
-    float rsumR;         // TMP
-
+    float gen_map_pos;
+    float gen_map_ppos;
+    
     SnpInfo(const int idx, const string &id, const string &allele1, const string &allele2,
             const int chr, const float gpos, const int ppos)
     : ID(id), index(idx), a1(allele1), a2(allele2), chrom(chr), genPos(gpos), physPos(ppos) {
@@ -70,15 +68,15 @@ public:
         af = -1;
         included = true;
         isQTL = false;
-        recoded = false;
         sampleSize = 0;
         effect = 0;
         gwas_b  = -999;
         gwas_se = -999;
         gwas_n  = -999;
         gwas_af = -999;
-        rsum2pqRsq = 0.0;
-        rsumR = 0.0;
+        gen_map_ppos = 0.0;
+        gen_map_pos = 0.0;
+
     };
     
     void resetWindow(void) {windStart = -1; windSize = 0;};
@@ -95,6 +93,7 @@ public:
     
     ChromInfo(const int id, const unsigned size, const int startSnp, const int endSnp): id(id), size(size), startSnpIdx(startSnp), endSnpIdx(endSnp){}
 };
+
 
 class IndInfo {
 public:
@@ -148,8 +147,6 @@ public:
     VectorXi windStart;      // leading snp position for each window
     VectorXi windSize;       // number of snps in each window
     
-    VectorXf ZPZrss;         // "residual" sum of squares of ZPZ for SNPs beyond the LD window in summary-bayes methods
-    
     float ypy;               // y'y the total sum of squares adjusted for the mean
     float varGenotypic;
     float varResidual;
@@ -159,10 +156,12 @@ public:
     
     vector<SnpInfo*> snpInfoVec;
     vector<IndInfo*> indInfoVec;
+
     
     map<string, SnpInfo*> snpInfoMap;
     map<string, IndInfo*> indInfoMap;
-    
+
+
     vector<SnpInfo*> incdSnpInfoVec;
     vector<IndInfo*> keptIndInfoVec;
     
@@ -191,6 +190,7 @@ public:
     void readGwasSummaryFile(const string &gwasFile);
     void readLDmatrixInfoFile(const string &ldmatrixFile);
     void readLDmatrixBinFile(const string &ldmatrixFile);
+    void readGeneticMapFile(const string &geneticMapFile);
     void keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax);
     void includeSnp(const string &includeSnpFile);
     void excludeSnp(const string &excludeSnpFile);
@@ -203,6 +203,7 @@ public:
     void buildSparseMME(const string &bedFile, const unsigned windowWidth);
 //    void makeLDmatrix(const string &bedFile, const unsigned windowWidth, const string &filename);
     void makeLDmatrix(const string &bedFile, const string &LDmatType, const float chisqThreshold, const float LDthreshold, const unsigned windowWidth, const string &snpRange, const string &filename);
+    void makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, const string &snpRange, const string &filename);
     void resizeWindow(const vector<SnpInfo*> &incdSnpInfoVec, const VectorXi &windStartOri, const VectorXi &windSizeOri,
                       VectorXi &windStartNew, VectorXi &windSizeNew);
     void computeAlleleFreq(const MatrixXf &Z, vector<SnpInfo*> &incdSnpInfoVec, VectorXf &snp2pq);
