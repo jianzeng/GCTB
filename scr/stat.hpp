@@ -25,7 +25,6 @@ namespace Stat {
     typedef boost::uniform_01<> uniform_01;
     typedef boost::normal_distribution<> normal_distribution;
     typedef boost::gamma_distribution<> gamma_distribution;
-    typedef boost:: gamma_p_derivative<>  gamma_p_derivative;
     typedef boost::math::inverse_chi_squared_distribution<> inverse_chi_squared_distribution;
     typedef boost::math::beta_distribution<> beta_distribution;
     

@@ -43,7 +43,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
 
 Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
                          const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, 
-                         const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S){
+                         const float kappa_str, const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S){
     data.initVariances(heritability);
     if (!gwasFile.empty()) {
         if (bayesType == "C")
@@ -53,7 +53,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
         else if (bayesType == "R") 
             return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi);
         else if (bayesType == "Kap")
-            return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi, kappa_str);
+            return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi, kappa_str);
         else
             throw(" Error: Wrong bayes type: " + bayesType + " in the summary-data-based Bayes analysis.");
     }

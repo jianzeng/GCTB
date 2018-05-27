@@ -11,25 +11,18 @@
 using namespace std;
 
 void XCI::sortIndBySex(vector<IndInfo*> &indInfoVec){
-    vector<IndInfo*> male, female, others;
+    vector<IndInfo*> male, female;
     long numInds = indInfoVec.size();
     IndInfo *ind;
     for (unsigned i=0; i<numInds; ++i) {
         ind = indInfoVec[i];
         if (ind->sex == 1) male.push_back(ind);
         else if (ind->sex == 2) female.push_back(ind);
-        else {
-            others.push_back(ind);
-            if (myMPI::rank==0)
-                cout << "Removed individual " << ind->famID << " " << ind->indID << " who has sex code " << ind->sex << endl;
-            ind->phenotype = -9;
-        }
     }
     indInfoVec.resize(0);
-    indInfoVec.reserve(male.size() + female.size() + others.size());
+    indInfoVec.reserve(male.size() + female.size());
     indInfoVec.insert(indInfoVec.end(), male.begin(), male.end());
     indInfoVec.insert(indInfoVec.end(), female.begin(), female.end());
-    indInfoVec.insert(indInfoVec.end(), others.begin(), others.end());
 }
 
 void XCI::restoreFamFileOrder(vector<IndInfo*> &indInfoVec){
@@ -38,7 +31,6 @@ void XCI::restoreFamFileOrder(vector<IndInfo*> &indInfoVec){
     IndInfo *ind;
     for (unsigned i=0; i<numInds; ++i) {
         ind = indInfoVec[i];
-        //cout << "i " << ind->famFileOrder << endl;
         vec[ind->famFileOrder] = ind;
     }
     indInfoVec = vec;
@@ -142,21 +134,13 @@ void XCI::readBedFile(Data &data, const string &bedFile){
         char *bedLineIn = new char[size];
         fread(bedLineIn, 1, size, in);
         
-        int wrong_coding = 0;
-        
         for (i = 0; i < data.numInds; i++) {
             indInfo = data.indInfoVec[i];
             if (!indInfo->kept) continue;
             genoValue = bedToGeno[(bedLineIn[i>>2]>>((i&3)<<1))&3];
             if (indInfo->sex == 1) {
                 //cout << "Male " << genoValue << endl;
-                //if (genoValue == 1) wrong_coding = 1;
-                //else if (genoValue == 2) genoValue = 1;
-                if (genoValue == 2) {
-                    genoValue = 1;
-                    wrong_coding = 1;
-                }
-                
+                if (genoValue == 2) genoValue = 1;
                 if (genoValue == -9) ++nmiss_male;   // missing genotype
                 else sum_male += genoValue;
             } else {
@@ -168,14 +152,6 @@ void XCI::readBedFile(Data &data, const string &bedFile){
         }
         delete[] bedLineIn;
         
-        if (myMPI::rank==0) if (!(snp % 1000)) cout << "snp " << snp << " geno " << data.Z.row(snp) << endl;
-        
-        int sum_wrong_coding;
-        MPI_Allreduce(&wrong_coding, &sum_wrong_coding, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-        
-//        if (myMPI::rank==0)
-//            if (sum_wrong_coding) cout << "Warning: SNP " << snpInfo->ID << " is coded as 0/2 in male X chromosome!" << endl;
-
         MPI_Allreduce(&sum_male, &sum_male_all, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
         MPI_Allreduce(&nmiss_male, &nmiss_male_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
         MPI_Allreduce(&sum_female, &sum_female_all, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);

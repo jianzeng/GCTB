@@ -35,7 +35,7 @@ public:
 
     Model* buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
                       const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, 
-                      const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S);
+                      const float kappa_str, const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S);
     vector<McmcSamples*> runMcmc(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior);
     void saveMcmcSamples(const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
     void outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
