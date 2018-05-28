@@ -1544,7 +1544,7 @@ float ApproxBayesC::SnpEffects::computeU(const VectorXf &effects, const VectorXf
 void ApproxBayesC::ResidualVar::sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr){
     float sse = ypy - effects.dot(ZPy) - effects.dot(rcorr);
     if (sse < 0) sse = 0.0;
-//    if (sse > ypy) sse = ypy;
+    if (sse > ypy) sse = ypy;
     float dfTilde = df + nobs;
     float scaleTilde = sse + df*scale;
     value = InvChiSq::sample(dfTilde, scaleTilde);
@@ -1553,7 +1553,7 @@ void ApproxBayesC::ResidualVar::sampleFromFC(const float ypy, const VectorXf &ef
 void ApproxBayesC::ResidualVar::sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float hsq, const float phi){
     float sse = ypy - effects.dot(ZPy) - effects.dot(rcorr);
     if (sse < 0) sse = 0.0;
-    //    if (sse > ypy) sse = ypy;
+    if (sse > ypy) sse = ypy;
     float df = nobs*hsq*phi;   // shrink the residual variance more toward the prior mean when hsq is higher to compensate the bias
     float dfTilde = df + nobs;
     float scaleTilde = sse + df*ypy/nobs;    // the prior value of the scale parameter is set to be zero
@@ -1608,6 +1608,7 @@ void ApproxBayesC::ResidualVar::randomWalkMHsampler(const float ypy, const Vecto
 
 void ApproxBayesC::GenotypicVar::compute(const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr){
     float modelSS = effects.dot(ZPy) - effects.dot(rcorr);
+    if (modelSS < 0) modelSS = 0;
     value = modelSS/nobs;
 }
 
