@@ -1978,6 +1978,8 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
     
     cout << "Reading " + ldmType + " LD matrix from [" + ldmatrixFile + "]..." << endl;
     
+    float rsq = 0;
+    
     if (sparseLDM) {
         ZPZsp.resize(numIncdSnps);
         ZPZdiag.resize(numIncdSnps);
@@ -1998,10 +2000,16 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
             fread(v, sizeof(v), 1, in);
             
             ZPZsp[inci].resize(windSizeLDM[i]);
+            snpi->ldSamplVar = 0;
+            snpi->ldSum = 0;
+            
             for (unsigned j=0; j<windSizeLDM[i]; ++j) {
                 snpj = snpInfoVec[d[j]];
                 if (snpj->included) {
                     ZPZsp[inci].insertBack(snpj->index) = v[j];
+                    rsq = v[j]*v[j];
+                    snpi->ldSamplVar += (1.0f-rsq)*(1.0f-rsq)/snpi->sampleSize;
+                    snpi->ldSum += v[j];
                     if (snpj == snpi)
                         ZPZdiag[inci] = v[j];
                 }
@@ -2031,10 +2039,16 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
             fread(v, sizeof(v), 1, in);
             
             ZPZ[inci].resize(windSize[inci]);
+            snpi->ldSamplVar = 0;
+            snpi->ldSum = 0;
+            
             for (unsigned j=0, incj=0; j<windSizeLDM[i]; ++j) {
                 snpj = snpInfoVec[windStartLDM[i]+j];
                 if (snpj->included) {
                     ZPZ[inci][incj++] = v[j];
+                    rsq = v[j]*v[j];
+                    snpi->ldSamplVar += (1.0f-rsq)*(1.0f-rsq)/snpi->sampleSize;
+                    snpi->ldSum += v[j];                   
                     if (snpj == snpi)
                         ZPZdiag[inci] = v[j];
                 }
