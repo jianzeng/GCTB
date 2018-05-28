@@ -142,10 +142,10 @@ void XCI::readBedFile(Data &data, const string &bedFile){
         char *bedLineIn = new char[size];
         fread(bedLineIn, 1, size, in);
         
-        int wrong_coding = 0;
-        
-        set<int> maleGeno;
-        set<int> femaleGeno;
+//        int wrong_coding = 0;
+//        
+//        set<int> maleGeno;
+//        set<int> femaleGeno;
         
         for (i = 0; i < data.numInds; i++) {
             indInfo = data.indInfoVec[i];
@@ -155,12 +155,14 @@ void XCI::readBedFile(Data &data, const string &bedFile){
                 //cout << "Male " << genoValue << endl;
                 //if (genoValue == 1) wrong_coding = 1;
                 //else if (genoValue == 2) genoValue = 1;
-//                if (genoValue == 2) {
-//                    genoValue = 1;
+                if (genoValue == 2) {
+                    genoValue = 1;
 //                    wrong_coding = 1;
-//                }
+                } else if (genoValue == 1) {
+                    genoValue = -9;
+                }
                 
-                maleGeno.insert(genoValue);
+//                maleGeno.insert(genoValue);
                 
                 if (genoValue == -9) ++nmiss_male;   // missing genotype
                 else sum_male += genoValue;
@@ -169,7 +171,7 @@ void XCI::readBedFile(Data &data, const string &bedFile){
                 if (genoValue == -9) ++nmiss_female;   // missing genotype
                 else sum_female += genoValue;
                 
-                femaleGeno.insert(genoValue);
+//                femaleGeno.insert(genoValue);
                 
             }
             data.Z(indInfo->index, snp) = genoValue;
@@ -177,20 +179,20 @@ void XCI::readBedFile(Data &data, const string &bedFile){
         delete[] bedLineIn;
         
 //        if (myMPI::rank==0) if (!(snp % 1000)) cout << "snp " << snp << " male " << data.Z.col(snp).transpose().head(10) << " ... female " << data.Z.col(snp).transpose().tail(10) << " ..." << endl;
-        if (myMPI::rank==0) {
-            cout << "snp " << snp << " male ";
-            for (set<int>::iterator it=maleGeno.begin(); it!=maleGeno.end(); ++it) {
-                cout << *it << " ";
-            }
-            cout << " female ";
-            for (set<int>::iterator it=maleGeno.begin(); it!=maleGeno.end(); ++it) {
-                cout << *it << " ";
-            }
-            cout << endl;
-        }
-        
-        int sum_wrong_coding;
-        MPI_Allreduce(&wrong_coding, &sum_wrong_coding, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+//        if (myMPI::rank==0) {
+//            cout << "snp " << snp << " male ";
+//            for (set<int>::iterator it=maleGeno.begin(); it!=maleGeno.end(); ++it) {
+//                cout << *it << " ";
+//            }
+//            cout << " female ";
+//            for (set<int>::iterator it=maleGeno.begin(); it!=maleGeno.end(); ++it) {
+//                cout << *it << " ";
+//            }
+//            cout << endl;
+//        }
+//        
+//        int sum_wrong_coding;
+//        MPI_Allreduce(&wrong_coding, &sum_wrong_coding, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
         
 //        if (myMPI::rank==0)
 //            if (sum_wrong_coding) cout << "Warning: SNP " << snpInfo->ID << " is coded as 0/2 in male X chromosome!" << endl;
