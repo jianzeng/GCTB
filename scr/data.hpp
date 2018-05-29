@@ -74,8 +74,8 @@ public:
         gwas_se = -999;
         gwas_n  = -999;
         gwas_af = -999;
-        gen_map_ppos = 0.0;
-        gen_map_pos = 0.0;
+        gen_map_ppos = -999;
+        gen_map_pos = -999;
 
     };
     
