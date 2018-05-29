@@ -82,8 +82,8 @@ int main(int argc, const char * argv[]) {
             if (opt.outLDmatType == "shrunk") { // make LD matrix from genotypes
                 gctb.inputIndInfo(data, opt.bedFile, opt.bedFile + ".fam", opt.keepIndFile, opt.keepIndMax,
                                   opt.mphen, opt.covariateFile);
-                gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.includeChr, readGenotypes);
-                data.readGeneticMapFile(opt.geneticMapFile);
+                // data.readGeneticMapFile(opt.geneticMapFile);
+                gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.includeChr, readGenotypes, opt.geneticMapFile);
                 data.makeshrunkLDmatrix(opt.bedFile + ".bed", opt.outLDmatType, opt.snpRange, opt.title);
             }
             else if (opt.ldmatrixFile.empty() && opt.outLDmatType != "shrunk") { // make LD matrix from genotypes

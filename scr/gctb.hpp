@@ -30,6 +30,9 @@ public:
                       const unsigned keepIndMax, const unsigned mphen, const string &covariateFile);
     void inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile,
                       const unsigned includeChr, const bool readGenotypes);
+    // Overloaded for genetic map build
+    void inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile,
+                      const unsigned includeChr, const bool readGenotypes, const string &geneticMapFile);
     void inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile,
                       const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool multiLDmatrix);
 

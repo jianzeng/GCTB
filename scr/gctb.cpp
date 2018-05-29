@@ -24,6 +24,17 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &include
     if (readGenotypes) data.readBedFile(bedFile + ".bed");
 }
 
+void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile, const unsigned includeChr, const bool readGenotypes, const string &geneticMapFile){
+    data.readBimFile(bedFile + ".bim");
+    if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
+    if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
+    data.includeChr(includeChr);
+    if (!geneticMapFile.empty()) data.readGeneticMapFile(geneticMapFile);
+    data.includeMatchedSnp();
+    if (readGenotypes) data.readBedFile(bedFile + ".bed");
+}
+
+
 void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool multiLDmat){
     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
@@ -40,6 +51,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
         data.readLDmatrixBinFile(ldmatrixFile + ".bin");
     if (!gwasSummaryFile.empty()) data.buildSparseMME();
 }
+
 
 Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
                          const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, 

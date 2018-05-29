@@ -1387,7 +1387,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
 }
 
 void Data::outputLDmatrix(const string &LDmatType, const string &filename) const {
-    bool outText = false;
+    bool outText = true;
     string outfilename = filename + ".ldm." + LDmatType;
     string outfile1 = outfilename + ".info";
     string outfile2 = outfilename + ".bin";
@@ -1900,15 +1900,16 @@ void Data::readGeneticMapFile(const string &geneticMapFile){
     for (unsigned i=0; i<numSnps; ++i) {
         snp = snpInfoVec[i];
         if (!snp->included) continue;
-        if (snp->gwas_b == -999) {
+        if (snp->gen_map_pos == -999) {
+            cout << "Who went false snp " << i << endl;
             snp->included = false;
         }
     }
-
-    if (myMPI::rank==0) {
-        if (incon) cout << "removed " << incon << " SNPs with inconsistent allele coding in between the reference and GWAS samples." << endl;
-        cout << match << " matched SNPs in the GWAS summary data (in total " << line << " SNPs)." << endl;
-    }
+    cout << match << " matched SNPs in the genetic map file (in total " << line << " SNPs)." << endl;
+    // if (myMPI::rank==0) {
+    //     if (incon) cout << "removed " << incon << " SNPs with inconsistent allele coding in between the reference and GWAS samples." << endl;
+    //     cout << match << " matched SNPs in the GWAS summary data (in total " << line << " SNPs)." << endl;
+    // }
 }
 
 
@@ -1977,7 +1978,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
     
     for (j = 0, incj = 0; j < numSnps; j++) {
         snpj = snpInfoVec[j];
-        cout << "Genetic map position " << snpj->gen_map_pos << endl;
+        // cout << "Genetic map position " << snpj->gen_map_pos << endl;
         if (snpj->index < start || !snpj->included) {
             skipj += size;
             continue;
@@ -2104,16 +2105,125 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
     // find out per-SNP window position
     
     //if (LDmatType == "full") {
-        ZPZ.resize(numSnpInRange);
-        windStart.setZero(numSnpInRange);
-        windSize.setConstant(numSnpInRange, numIncdSnps);
-        for (unsigned i=0; i<numSnpInRange; ++i) {
+
+    // ====================================================
+    // Do the shrinkage
+    // ====================================================
+    // m is the number of individuals in the reference panel for each variant
+    // Need to compute theta, which is related to the mutation rate
+    VectorXf nmsumi;
+    VectorXf thetai;
+    VectorXf mi;
+    VectorXf gmapi;
+    VectorXf sdss;
+    //cout << "Snps size " << incdSnpInfoVec.size() << endl;
+    nmsumi.resize(numSnpInRange);
+    thetai.resize(numSnpInRange);
+    sdss.resize(numSnpInRange);
+    mi.resize(numSnpInRange);
+    gmapi.resize(numSnpInRange);
+    for (unsigned i=0; i<numSnpInRange; ++i) {
             SnpInfo *snp = incdSnpInfoVec[start+i];
-            snp->windStart = 0;
-            snp->windSize  = numIncdSnps;
-            snp->windEnd   = numIncdSnps-1;
-            ZPZ[i] = denseZPZ.row(i);
+            mi[i] = (snp->sampleSize);
+            int  n = 2 * mi[i] - 1;
+            // Approximation to the harmonic series
+            nmsumi[i] = log(n) + 0.5772156649 + 1 / (2 * n) - 1 / (12 * pow(n, 2)) + 1 / (120 * pow(n, 4));
+            //cout << nmsumi[i] << endl;
+            // Calculate theta
+            thetai[i] = (1 / nmsumi[i]) / (2 * (snp->sampleSize) + 1 / nmsumi[i]);
+            //cout <<  thetai[i] << endl;
+            // Pull out the standard deviation for each variant
+            sdss[i] = sqrt(2 * (snp->af) * (1 - (snp->af)));
+            // 
+            gmapi[i] = snp->gen_map_pos;
+    }
+    long int nmsum;
+    float theta;
+     
+    // Create a vector of standard deviations from the allele frequencies
+    // VectorXf sdss;
+    // sdss.resize(numSnpInRange);
+    // for (unsigned i=0; i<numSnpInRange; ++i) {
+    //         SnpInfo *snp = incdSnpInfoVec[start+i];
+    //         sdss[i] = sqrt(2 * (snp->af) * (1 - (snp->af)));
+    //         cout <<  sdss[i] << endl;
+    // } 
+
+    // Rescale Z to the covariance scale
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+        denseZPZ.col(i) = (sdss[i] / 2) *  sdss.array() * denseZPZ.col(i).array();
+    }
+    // Compute the shrinkage value and then shrink the elements
+    float mapdiffi; 
+    float rho;
+    float shrinkage;
+    float Ne = 11490.672741;
+    float cutoff = 1e-5;
+    for (unsigned i=0; i<numSnpInRange; ++i) {
+        for (unsigned j=i; j<numIncdSnps; ++j) {
+            mapdiffi = gmapi[j] - gmapi[i];
+            rho = 4 * Ne * (mapdiffi / 100);
+            shrinkage = exp(-rho / (2 * mi[i])); 
+            // if (j >= 2580)
+            // { 
+            //     cout << i << " " << j << endl;
+            //     cout << gmapi[i] << " " << gmapi[j] << endl;
+            //     cout << shrinkage << endl;
+            //     cout << mi[i] << endl;
+            // }
+            if (shrinkage <= cutoff)
+            {
+                shrinkage = 0.0;
+            }
+            // Multiple each covariance matrix element with the shrinkage value
+            denseZPZ(i, j) = denseZPZ(i, j) * shrinkage;
+            // Complete as SigHAat from Li and Stephens 2003
+            denseZPZ(i, j) =  denseZPZ(i, j) * ((1 - thetai[i]) * (1 - thetai[i]));
+            // If it's the diagonal element add the extra term
+            if (i == j)
+            {
+               denseZPZ(i, j) = denseZPZ(i, j) + 0.5f * thetai[i] * (1 - 0.5f * thetai[i]);
+            }
+            // Make the upper triangle equal to the lower triangle
+            denseZPZ(j, i) =  denseZPZ(i, j);
         }
+    }
+    // Now back to correlation
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+        denseZPZ.col(i) = (2 / sdss[i]) *  (1 / sdss.array()) * denseZPZ.col(i).array();
+    }
+    // cout << " " << endl;
+    // cout << " "  << endl;
+    // for (unsigned i=0; i<10; ++i) {
+    //     for (unsigned j=0; j<10; ++j) {
+    //         if (j == 9)
+    //         {
+    //           cout << denseZPZ(i, j)  << endl;
+    //         } else
+    //         {
+    //           cout << denseZPZ(i, j)  << "\t" ;
+    //         }
+    //     }
+    // }
+    // cout << denseZPZ.col(0) << endl;
+    // // Compute the shrinkage value and then shrink the elements 
+    // for (unsigned i=0; i<numIncdSnps; ++i) {
+    //     denseZPZ.col(i) = (sdss[i] / 2) *  sdss.array() * denseZPZ.col(i).array();
+    // } 
+
+    // cout << "Hello " << endl;
+    ZPZ.resize(numSnpInRange);
+    windStart.setZero(numSnpInRange);
+    windSize.setConstant(numSnpInRange, numIncdSnps);
+    // cout << "Num snp range " << numSnpInRange << endl;
+    for (unsigned i=0; i<numSnpInRange; ++i) {
+        SnpInfo *snp = incdSnpInfoVec[start+i];
+        snp->windStart = 0;
+        snp->windSize  = numIncdSnps;
+        snp->windEnd   = numIncdSnps-1;
+        ZPZ[i] = denseZPZ.row(i);
+    }
+        // cout << ZPZ[0] << endl;
     //}
     // else if (LDmatType == "band") {
     //     ZPZ.resize(numSnpInRange);
