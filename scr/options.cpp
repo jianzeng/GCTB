@@ -259,6 +259,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             overdispersion = atof(argv[++i]);
             ss << "--overdispersion " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--skeleton-snp")) {
+            skeletonSnpFile = argv[++i];
+            ss << "--skeleton-snp " << argv[i] << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";
@@ -389,7 +393,7 @@ void Options::readFile(const string &file){  // input options from file
             outLDmatType = value;
         } else if (key == "piNDC") {
             piNDC = stof(value);
-        } else if (key == "writeLdmTxt") {
+        } else if (key == "writeLDmatTxt") {
             writeLdmTxt = true;
         } else if (key == "excludeMHC") {
             excludeMHC = true;
@@ -397,6 +401,8 @@ void Options::readFile(const string &file){  // input options from file
             phi = stof(value);
         } else if (key == "overdispersion") {
             overdispersion = stof(value);
+        } else if (key == "skeletonSnpFile") {
+            skeletonSnpFile = value;
         } else if (key.substr(0,2) == "//" ||
                    key.substr(0,1) == "#") {
             continue;

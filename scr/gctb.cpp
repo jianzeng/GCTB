@@ -15,16 +15,17 @@ void GCTB::inputIndInfo(Data &data, const string &bedFile, const string &phenoty
     data.readCovariateFile(covariateFile);
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile, const unsigned includeChr, const bool readGenotypes){
+void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile, const unsigned includeChr, const string &skeletonSnpFile, const bool readGenotypes){
     data.readBimFile(bedFile + ".bim");
     if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
-    data.includeChr(includeChr);
+    if (includeChr) data.includeChr(includeChr);
+    if (!skeletonSnpFile.empty()) data.includeSkeletonSnp(skeletonSnpFile);
     data.includeMatchedSnp();
     if (readGenotypes) data.readBedFile(bedFile + ".bed");
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool multiLDmat, const bool excludeMHC){
+void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const string &skeletonSnpFile, const bool multiLDmat, const bool excludeMHC){
     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
@@ -33,6 +34,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
     data.includeChr(includeChr);
     if (excludeMHC) data.excludeMHC();
+    if (!skeletonSnpFile.empty()) data.includeSkeletonSnp(skeletonSnpFile);
     if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile);
     data.includeMatchedSnp();
     if (multiLDmat)

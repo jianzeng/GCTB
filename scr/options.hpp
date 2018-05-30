@@ -87,6 +87,7 @@ public:
     string mcmcSampleFile;
     string gwasSummaryFile;
     string ldmatrixFile;
+    string skeletonSnpFile;
     string snpRange;
     string outLDmatType;
     
@@ -148,6 +149,7 @@ public:
         mcmcSampleFile          = "";
         gwasSummaryFile         = "";
         ldmatrixFile            = "";
+        skeletonSnpFile         = "";
         snpRange                = "";
         outLDmatType            = "sparse";
     }
