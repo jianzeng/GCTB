@@ -45,6 +45,7 @@ public:
     bool included;  // flag for inclusion in panel
     bool isQTL;     // for simulation
     bool recoded;   // swap A1 and A2: use A2 as the reference allele and A1 as the coded allele
+    bool skeleton;  // skeleton snp for sbayes
     long sampleSize;
     
     VectorXf genotypes; // temporary storage of genotypes of individuals used for building sparse Z'Z
@@ -71,6 +72,7 @@ public:
         included = true;
         isQTL = false;
         recoded = false;
+        skeleton = false;
         sampleSize = 0;
         effect = 0;
         gwas_b  = -999;
@@ -184,6 +186,20 @@ public:
     unsigned numIncdSnps;
     unsigned numKeptInds;
     unsigned numChroms;
+    unsigned numSkeletonSnps;
+    
+    Data(){
+        numFixedEffects = 0;
+        numSnps = 0;
+        numInds = 0;
+        numIncdSnps = 0;
+        numKeptInds = 0;
+        numChroms = 0;
+        numSkeletonSnps = 0;
+        
+        reindexed = false;
+        sparseLDM = false;
+    }
     
     void readFamFile(const string &famFile);
     void readBimFile(const string &bimFile);
@@ -198,6 +214,8 @@ public:
     void excludeSnp(const string &excludeSnpFile);
     void includeChr(const unsigned chr);
     void excludeMHC(void);
+    void includeSkeletonSnp(const string &skeletonSnpFile);
+
     void includeMatchedSnp(void);
     vector<SnpInfo*> makeIncdSnpInfoVec(const vector<SnpInfo*> &snpInfoVec);
     vector<IndInfo*> makeKeptIndInfoVec(const vector<IndInfo*> &indInfoVec);
@@ -205,7 +223,8 @@ public:
     void getNonoverlapWindowInfo(const unsigned windowWidth);
     void buildSparseMME(const string &bedFile, const unsigned windowWidth);
 //    void makeLDmatrix(const string &bedFile, const unsigned windowWidth, const string &filename);
-    void makeLDmatrix(const string &bedFile, const string &LDmatType, const float chisqThreshold, const float LDthreshold, const unsigned windowWidth, const string &snpRange, const string &filename, const bool writeLdmTxt);
+    void makeLDmatrix(const string &bedFile, const string &LDmatType, const float chisqThreshold, const float LDthreshold, const unsigned windowWidth,
+                      const string &snpRange, const string &filename, const bool writeLdmTxt);
     void resizeWindow(const vector<SnpInfo*> &incdSnpInfoVec, const VectorXi &windStartOri, const VectorXi &windSizeOri,
                       VectorXi &windStartNew, VectorXi &windSizeNew);
     void computeAlleleFreq(const MatrixXf &Z, vector<SnpInfo*> &incdSnpInfoVec, VectorXf &snp2pq);
