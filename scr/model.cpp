@@ -1232,7 +1232,7 @@ void ApproxBayesC::FixedEffects::sampleFromFC(const MatrixXf &XPX, const VectorX
 void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseVector<float> > &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                                             const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                                             const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
-                                            const float sigmaSq, const float pi, const float vare, const float varg, const float overdispersion){
+                                            const float sigmaSq, const float pi, const float vare, const float varg, const float ps, const float overdispersion){
     
     static unsigned iter = 0;
     long numChr = chromInfoVec.size();
@@ -1290,7 +1290,7 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
 //                varei[i] /= n[i];
 //            }
             
-            varei = LDsamplVar[i]*varg + vare + overdispersion;
+            varei = LDsamplVar[i]*varg + vare + ps + overdispersion;
             
             oldSample = valuesPtr[i];
             rhs = rcorr[i] + ZPZdiag[i]*oldSample;
@@ -1344,7 +1344,7 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
 void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                                             const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                                             const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
-                                            const float sigmaSq, const float pi, const float vare, const float varg, const float overdispersion){
+                                            const float sigmaSq, const float pi, const float vare, const float varg, const float ps, const float overdispersion){
     
     static unsigned iter = 0;
     long numChr = chromInfoVec.size();
@@ -1396,7 +1396,7 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<VectorX
             // varei[i] = tss[i] / n[i];
             //            varei = se[i]*se[i]*ZPZdiag[i];
             
-            varei = LDsamplVar[i]*varg + vare + overdispersion;
+            varei = LDsamplVar[i]*varg + vare + ps + overdispersion;
 
             oldSample = valuesPtr[i];
             rhs = rcorr[i] + ZPZdiag[i]*oldSample;
@@ -1662,6 +1662,15 @@ void ApproxBayesC::Rounding::computeGhat(const MatrixXf &Z, const VectorXf &snpE
     value = sqrt(Gadget::calcVariance(ghatOld-ghat));
 }
 
+void ApproxBayesC::PopulationStratification::ldScoreReg(const VectorXf &chisq, const VectorXf &LDscore, const VectorXf &LDsamplVar, const float varg, const float vare){
+    
+    VectorXf y = chisq - LDsamplVar*varg;
+    y.array() -= vare;
+    
+    float slope = Gadget::calcRegression(y, LDscore);
+    value = y.mean() - LDscore.mean()*slope;
+}
+
 void ApproxBayesC::sampleUnknowns(){
     fixedEffects.sampleFromFC(data.XPX, data.XPXdiag, data.ZPX, data.XPy, snpEffects.values, vare.value, rcorr);
     unsigned cnt=0;
@@ -1670,10 +1679,10 @@ void ApproxBayesC::sampleUnknowns(){
         //snpEffects.hmcSampler(rcorr, data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, sigmaSq.value, pi.value, vare.value);
         if (sparse)
             snpEffects.sampleFromFC(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, data.tss, varei,
-                                    data.n, data.snp2pq, data.LDsamplVar, sigmaSq.value, pi.value, vare.value, varg.value, overdispersion);
+                                    data.n, data.snp2pq, data.LDsamplVar, sigmaSq.value, pi.value, vare.value, varg.value, ps.value, overdispersion);
         else
             snpEffects.sampleFromFC(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, data.tss, varei,
-                                    data.n, data.snp2pq, data.LDsamplVar, sigmaSq.value, pi.value, vare.value, varg.value, overdispersion);
+                                    data.n, data.snp2pq, data.LDsamplVar, sigmaSq.value, pi.value, vare.value, varg.value, ps.value, overdispersion);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
@@ -1690,6 +1699,7 @@ void ApproxBayesC::sampleUnknowns(){
         rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
+    ps.ldScoreReg(data.chisq, data.LDscore, data.LDsamplVar, varg.value, vare.value);
 }
 
 
@@ -1699,7 +1709,7 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
                                             const float sigmaSq, const float pi, const float vare,
                                             const VectorXf &snp2pqPowS, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
                                             const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n,
-                                            const float varg, const float overdispersion){
+                                            const float varg, const float ps, const float overdispersion){
     static unsigned iter = 0;
     long numChr = chromInfoVec.size();
     
@@ -1750,7 +1760,7 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
         for (unsigned i=chrStart; i<=chrEnd; ++i) {
             oldSample = valuesPtr[i];
             
-            varei = LDsamplVar[i]*varg + vare + overdispersion;
+            varei = LDsamplVar[i]*varg + vare + ps + overdispersion;
             
             //float varei = se[i]*se[i]*ZPZdiag[i];
             
@@ -1835,7 +1845,7 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<VectorX
                                             const float sigmaSq, const float pi, const float vare,
                                             const VectorXf &snp2pqPowS, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
                                             const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n,
-                                            const float varg, const float overdispersion){
+                                            const float varg, const float ps, const float overdispersion){
     static unsigned iter = 0;
     long numChr = chromInfoVec.size();
     
@@ -1887,7 +1897,7 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<VectorX
         for (unsigned i=chrStart; i<=chrEnd; ++i) {
             oldSample = valuesPtr[i];
             
-            varei = LDsamplVar[i]*varg + vare + overdispersion;
+            varei = LDsamplVar[i]*varg + vare + ps + overdispersion;
 
             //float varei = se[i]*se[i]*ZPZdiag[i];
             
@@ -2125,10 +2135,10 @@ void ApproxBayesS::sampleUnknowns(){
         
         if (sparse)
             snpEffects.sampleFromFC(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, sigmaSq.value, pi.value, vare.value,
-                                    snp2pqPowS, data.snp2pq, data.LDsamplVar, data.se, data.tss, varei, data.n, varg.value, overdispersion);
+                                    snp2pqPowS, data.snp2pq, data.LDsamplVar, data.se, data.tss, varei, data.n, varg.value, ps.value, overdispersion);
         else
             snpEffects.sampleFromFC(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, sigmaSq.value, pi.value, vare.value,
-                                    snp2pqPowS, data.snp2pq, data.LDsamplVar, data.se, data.tss, varei, data.n, varg.value, overdispersion);
+                                    snp2pqPowS, data.snp2pq, data.LDsamplVar, data.se, data.tss, varei, data.n, varg.value, ps.value, overdispersion);
         
 //        snpEffects.sampleFromFC(data.ZPy, data.Z, data.ZPZdiag, sigmaSq.value, pi.value, tauSq.value, snp2pqPowS, data.snp2pq, ghat);
         
@@ -2181,6 +2191,8 @@ void ApproxBayesS::sampleUnknowns(){
     
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pqOneMinusS);
+    
+    ps.ldScoreReg(data.chisq, data.LDscore, data.LDsamplVar, varg.value, vare.value);
     
 //    if (!(iter % 100)) vareiMean += varei;  ///TMP
     

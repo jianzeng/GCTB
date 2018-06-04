@@ -715,11 +715,11 @@ public:
         void sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
-                          const float sigmaSq, const float pi, const float vare, const float varg, const float overdispersion);
+                          const float sigmaSq, const float pi, const float vare, const float varg, const float ps, const float overdispersion);
         void sampleFromFC(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
-                          const float sigmaSq, const float pi, const float vare, const float varg, const float overdispersion);
+                          const float sigmaSq, const float pi, const float vare, const float varg, const float ps, const float overdispersion);
         void hmcSampler(VectorXf &rcorr, const VectorXf &ZPy, const vector<VectorXf> &ZPZ,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const float sigmaSq, const float pi, const float vare);
@@ -768,6 +768,13 @@ public:
 //        void sampleFromFC(const VectorXf &y, const VectorXf &ghat);
 //    };
     
+    class PopulationStratification : public Parameter {
+    public:
+        void ldScoreReg(const VectorXf &chisq, const VectorXf &LDscore, const VectorXf &LDsamplVar, const float varg, const float vare);
+        
+        PopulationStratification(): Parameter("PS"){}
+    };
+    
 
 public:
     const Data &data;
@@ -789,6 +796,7 @@ public:
     Rounding rounding;
     varEffectScaled sigmaSqG;
 //    Overdispersion tauSq;
+    PopulationStratification ps;
     
     ApproxBayesC(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi,
                  const float phi, const float overdispersion, const bool message = true)
@@ -808,8 +816,8 @@ public:
     {
         sparse = data.sparseLDM;
         paramSetVec = {&snpEffects, &fixedEffects};
-        paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq};
-        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &sigmaSqG, &rounding};
+        paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &ps};
+        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &sigmaSqG, &ps, &rounding};
         if (message && myMPI::rank==0) {
             cout << "\nApproximate BayesC model fitted." << endl;
         }
@@ -838,13 +846,13 @@ public:
                           const float sigmaSq, const float pi, const float vare,
                           const VectorXf &snp2pqPowS, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
                           const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n,
-                          const float varg, const float overdispersion);
+                          const float varg, const float ps, const float overdispersion);
         void sampleFromFC(VectorXf &rcorr,const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const float sigmaSq, const float pi, const float vare,
                           const VectorXf &snp2pqPowS, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
                           const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n,
-                          const float varg, const float overdispersion);
+                          const float varg, const float ps, const float overdispersion);
 
         void sampleFromFC(const VectorXf &ZPy,const MatrixXf &Z, const VectorXf &ZPZdiag,
                           const float sigmaSq, const float pi, const float vare,
@@ -878,6 +886,7 @@ public:
     ApproxBayesC::GenotypicVar varg;
     ApproxBayesC::Rounding rounding;
     varEffectScaled sigmaSqG;
+    ApproxBayesC::PopulationStratification ps;
     
 //    ApproxBayesC::Overdispersion tauSq;
     
@@ -898,8 +907,8 @@ public:
         ghat.setZero(data.Z.rows());
         sparse = data.sparseLDM;
         paramSetVec = {&snpEffects, &fixedEffects};
-        paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
-        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &sigmaSqG, &S.ar, &S.tuner, &rounding};
+        paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &ps};
+        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &sigmaSqG, &ps, &S.ar, &S.tuner, &rounding};
         if (message && myMPI::rank==0) {
             string alg = algorithm;
             if (alg!="RMH") alg = "HMC (default)";

@@ -42,6 +42,7 @@ public:
     int windSize;   // for window surrounding the SNP
     int windEnd;
     float af;       // allele frequency
+    float twopq;
     bool included;  // flag for inclusion in panel
     bool isQTL;     // for simulation
     bool recoded;   // swap A1 and A2: use A2 as the reference allele and A1 as the coded allele
@@ -60,6 +61,7 @@ public:
 
     float ldSamplVar;    // sum of sampling variance of LD with other SNPs for summary-bayes method
     float ldSum;         // sum of LD with other SNPs
+    float ldsc;          // LD score: sum of r^2
 
     SnpInfo(const int idx, const string &id, const string &allele1, const string &allele2,
             const int chr, const float gpos, const int ppos)
@@ -69,6 +71,7 @@ public:
         windSize  = 0;
         windEnd   = -1;
         af = -1;
+        twopq = -1;
         included = true;
         isQTL = false;
         recoded = false;
@@ -81,6 +84,7 @@ public:
         gwas_af = -999;
         ldSamplVar = 0.0;
         ldSum = 0.0;
+        ldsc = 0.0;
     };
     
     void resetWindow(void) {windStart = -1; windSize = 0;};
@@ -148,11 +152,13 @@ public:
     VectorXf n;              // sample size for each SNP in GWAS
     VectorXf Dratio;         // GWAS ZPZdiag over reference ZPZdiag for each SNP
     VectorXf DratioSqrt;     // square root of GWAS ZPZdiag over reference ZPZdiag for each SNP
+    VectorXf chisq;          // GWAS chi square statistics = D*b^2
     
     VectorXi windStart;      // leading snp position for each window
     VectorXi windSize;       // number of snps in each window
     
     VectorXf LDsamplVar;     // sum of sampling variance of LD for each SNP with all other SNPs; this is for summary-bayes methods
+    VectorXf LDscore;        // sum of r^2 over SNPs in significant LD
     
     float ypy;               // y'y the total sum of squares adjusted for the mean
     float varGenotypic;
