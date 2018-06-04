@@ -35,7 +35,9 @@ public:
                       const unsigned includeChr, const bool readGenotypes, const string &geneticMapFile);
     void inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile,
                       const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool multiLDmatrix);
-
+    // Overloaded for genetic map build and frequency file read
+    void inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile,
+                      const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool multiLDmatrix, const string &geneticMapFile, const string &freqFile);
     Model* buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
                       const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, 
                       const float kappa_str, const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S);

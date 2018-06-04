@@ -56,6 +56,8 @@ public:
     float chisqThreshold;  // significance threshold for nonzero LD chi-square test
     float piNDC;  // proportion of X-lined SNPs under no dosage compensation model (escape from X-chromosome inactivation)
     float kappa_str; 
+    float effpopNE; 
+    float cutOff; 
     bool estimatePi;
     bool estimateScale;
     bool writeBinPosterior;
@@ -79,6 +81,7 @@ public:
     string includeSnpFile;
     string excludeSnpFile;
     string geneticMapFile;
+    string freqFile;
     string keepIndFile;
     string snpResFile;
     string mcmcSampleFile;
@@ -110,6 +113,9 @@ public:
         LDthreshold             = 0.0;
         chisqThreshold          = 10;
         piNDC                   = 0.15;
+        // Shrunk matrix defaults
+        effpopNE                = 11490.672741; 
+        cutOff                  = 1e-5;  
 
         // Bayes R defaults
         ndists                  = 4;
@@ -143,6 +149,7 @@ public:
         snpResFile              = "";
         mcmcSampleFile          = "";
         gwasSummaryFile         = "";
+        freqFile                = "";
         ldmatrixFile            = "";
         snpRange                = "";
         outLDmatType            = "sparse";

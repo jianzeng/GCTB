@@ -69,9 +69,13 @@ void Options::inputOptions(const int argc, const char* argv[]){
             phenotypeFile = argv[++i];
             ss << "--pheno " << argv[i] << "\n";
         }
-        else if (!strcmp(argv[i], "--genmap")) {
+        else if (!strcmp(argv[i], "--genmap")) { // Genetic map file option
             geneticMapFile = argv[++i];
             ss << "--genmap " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--freqfile")) {
+            freqFile = argv[++i];
+            ss << "--freqfile " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--covar")) {
             covariateFile = argv[++i];
@@ -243,6 +247,14 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--snp")) {
             snpRange = argv[++i];
             ss << "--snp " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--ne")) {
+            effpopNE = atof(argv[++i]);
+            ss << "--snp " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--shrunk-cutoff")) {
+            cutOff = atof(argv[++i]);
+            ss << "--shrunk-cutoff " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--multi-thread-eigen")) {
             multiThreadEigen = true;
