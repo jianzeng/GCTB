@@ -53,6 +53,31 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
 }
 
 
+// ---------------------------------------------------------------------------------------
+// SNP info read for shrunk matrix. Requires the genetic map and the allele frequency file
+// ---------------------------------------------------------------------------------------
+
+void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool multiLDmat, const string &geneticMapFile, const string &freqFile){
+    if (multiLDmat)
+        data.readMultiLDmatInfoFile(ldmatrixFile);
+    else
+        data.readLDmatrixInfoFile(ldmatrixFile + ".info");
+    if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
+    if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
+    data.includeChr(includeChr);
+    if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile);
+    if (!geneticMapFile.empty()) data.readGeneticMapFile(geneticMapFile);
+    if (!freqFile.empty()) data.readfreqFile(freqFile);
+    data.includeMatchedSnp();
+    if (multiLDmat)
+        data.readMultiLDmatBinFile(ldmatrixFile);
+    else
+        data.readLDmatrixBinFile(ldmatrixFile + ".bin");
+    if (!gwasSummaryFile.empty()) data.buildSparseMME();
+}
+
+
+
 Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
                          const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, 
                          const float kappa_str, const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S){
