@@ -770,11 +770,23 @@ public:
     
     class PopulationStratification : public Parameter {
     public:
-        void ldScoreReg(const VectorXf &chisq, const VectorXf &LDscore, const VectorXf &LDsamplVar, const float varg, const float vare);
-        
         PopulationStratification(): Parameter("PS"){}
     };
     
+    class PerSnpGV : public Parameter {
+    public:
+        PerSnpGV(): Parameter("PerSnpGV"){}
+    };
+    
+    class Fst : public Parameter {
+    public:
+        Fst(): Parameter("Fst"){}
+    };
+
+    class EnvVar : public Parameter {
+    public:
+        EnvVar(): Parameter("EnvVar"){}
+    };
 
 public:
     const Data &data;
@@ -797,6 +809,9 @@ public:
     varEffectScaled sigmaSqG;
 //    Overdispersion tauSq;
     PopulationStratification ps;
+    PerSnpGV vargj;
+    Fst fst;
+    EnvVar varenv;
     
     ApproxBayesC(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi,
                  const float phi, const float overdispersion, const bool message = true)
@@ -816,14 +831,19 @@ public:
     {
         sparse = data.sparseLDM;
         paramSetVec = {&snpEffects, &fixedEffects};
-        paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &ps};
-        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &sigmaSqG, &ps, &rounding};
+        paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &vargj};
+        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &sigmaSqG, &rounding};
         if (message && myMPI::rank==0) {
             cout << "\nApproximate BayesC model fitted." << endl;
         }
     }
     
     void sampleUnknowns(void);
+    static void ldScoreReg(const VectorXf &chisq, const VectorXf &LDscore, const VectorXf &LDsamplVar,
+                           const float varg, const float vare, float &ps, float &vargj);
+    static void ldScoreReg(const VectorXf &chisq, const VectorXf &LDscore, const VectorXf &LDsamplVar,
+                           const VectorXf &n, const VectorXi &windSize, const float numIncdSnps,
+                           const float varg, const float vare, float &ps, float &vargj, float &fst, float &varenv);
 };
 
 
@@ -887,6 +907,11 @@ public:
     ApproxBayesC::Rounding rounding;
     varEffectScaled sigmaSqG;
     ApproxBayesC::PopulationStratification ps;
+    ApproxBayesC::PerSnpGV vargj;
+    ApproxBayesC::Fst fst;
+    ApproxBayesC::EnvVar varenv;
+    
+//    VectorXf LDscore;
     
 //    ApproxBayesC::Overdispersion tauSq;
     
