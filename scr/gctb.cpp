@@ -68,6 +68,8 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
             return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion, varS, S, algorithm);
         else if (bayesType == "R") 
             return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi);
+        else if (bayesType == "Kap")
+            return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi, kappa_str);
         else
             throw(" Error: Wrong bayes type: " + bayesType + " in the summary-data-based Bayes analysis.");
     }

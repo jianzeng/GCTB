@@ -82,6 +82,8 @@ public:
     string alleleFreqFile;
     string includeSnpFile;
     string excludeSnpFile;
+    string geneticMapFile;
+    string freqFile;
     string keepIndFile;
     string snpResFile;
     string mcmcSampleFile;
@@ -123,6 +125,8 @@ public:
         gamma                   << 0.0, 0.01, 0.1, 1;  
         pis.resize(ndists);                      
         pis                     << 0.95, 0.03, 0.01, 0.01;
+        // Kappa defaults
+        kappa_str               = 10;
 
         estimatePi              = true;
         estimateScale           = false;
@@ -144,10 +148,12 @@ public:
         alleleFreqFile          = "";
         includeSnpFile          = "";
         excludeSnpFile          = "";
+        geneticMapFile          = "";
         keepIndFile             = "";
         snpResFile              = "";
         mcmcSampleFile          = "";
         gwasSummaryFile         = "";
+        freqFile                = "";
         ldmatrixFile            = "";
         skeletonSnpFile         = "";
         snpRange                = "";

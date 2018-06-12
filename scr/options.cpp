@@ -43,6 +43,11 @@ void Options::inputOptions(const int argc, const char* argv[]){
             outLDmatType = "band";
             ss << "--make-band-ldm " << "\n";
         }
+        else if (!strcmp(argv[i], "--make-shrunk-ldm")) {
+            analysisType = "LDmatrix";
+            outLDmatType = "shrunk";
+            ss << "--make-shrunk-ldm " << "\n";
+        }
         else if (!strcmp(argv[i], "--make-sparse-ldm")) {
             analysisType = "LDmatrix";
             outLDmatType = "sparse";
@@ -63,6 +68,14 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--pheno")) {
             phenotypeFile = argv[++i];
             ss << "--pheno " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--genmap")) { // Genetic map file option
+            geneticMapFile = argv[++i];
+            ss << "--genmap " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--freqfile")) {
+            freqFile = argv[++i];
+            ss << "--freqfile " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--covar")) {
             covariateFile = argv[++i];
@@ -116,9 +129,9 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--pi")) {
             Gadget::Tokenizer strvec;
             strvec.getTokens(argv[++i], " ,");
-            if (strvec.size() != 1 && bayesType != "R") 
+            if (strvec.size() != 1 && (bayesType != "R" && bayesType != "Kap")) 
             {
-                throw("Error: When NOT using Bayes R option you can only specify one mixture proportion parameter.");
+                throw("Error: When NOT using Bayes R or Kap option you can only specify one mixture proportion parameter.");
             } 
             if (strvec.size() == 1)
             {
@@ -188,6 +201,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             varS = atof(argv[++i]);
             ss << "--varS " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--kappa-str")) {
+            kappa_str = atof(argv[++i]);
+            ss << "--kappa-str " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--S")) {
             Gadget::Tokenizer strvec;
             strvec.getTokens(argv[++i], " ,");
@@ -230,6 +247,14 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--snp")) {
             snpRange = argv[++i];
             ss << "--snp " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--ne")) {
+            effpopNE = atof(argv[++i]);
+            ss << "--snp " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--shrunk-cutoff")) {
+            cutOff = atof(argv[++i]);
+            ss << "--shrunk-cutoff " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--multi-thread-eigen")) {
             multiThreadEigen = true;
