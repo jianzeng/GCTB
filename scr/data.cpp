@@ -2344,7 +2344,8 @@ void Data::buildSparseMME(){
     
 //        ofstream out("ldsc.txt");
 //        for (unsigned i=0; i<numIncdSnps; ++i) {
-//            out << chisq[i] << "\t" << LDscore[i] << endl;
+//            snp = incdSnpInfoVec[i];
+//            out << chisq[i] << "\t" << LDscore[i] << "\t" << LDsamplVar[i] << "\t" << n[i] << "\t" << n[i]*(numIncdSnps+snp->windSize)/float(numIncdSnps) << endl;
 //        }
 //        out.close();
 
