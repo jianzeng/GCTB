@@ -1624,7 +1624,7 @@ void Data::outputLDmatrix(const string &LDmatType, const string &filename, const
         outfile3 = outfilename + ".txt";
         out3.open(outfile3.c_str());
     }
-    out1 << boost::format("%6s %15s %10s %15s %6s %6s %12s %10s %10s %10s %10s %15s %10s %12s %12s %8s\n")
+    out1 << boost::format("%6s %15s %10s %15s %6s %6s %12s %10s %10s %10s %10s %15s %10s %12s %12s\n")
     % "Chrom"
     % "ID"
     % "GenPos"
@@ -1639,14 +1639,13 @@ void Data::outputLDmatrix(const string &LDmatType, const string &filename, const
     % "WindWidth"
     % "N"
     % "SamplVar"
-    % "LDsum"
-    % "Skeleton";
+    % "LDsum";
     SnpInfo *snp, *windStart, *windEnd;
     for (unsigned i=0; i<numIncdSnps; ++i) {
         snp = incdSnpInfoVec[i];
         windStart = incdSnpInfoVec[snp->windStart];
         windEnd = incdSnpInfoVec[snp->windEnd];
-        out1 << boost::format("%6s %15s %10s %15s %6s %6s %12f %10s %10s %10s %10s %15s %10s %12.6f %12.6f %8s\n")
+        out1 << boost::format("%6s %15s %10s %15s %6s %6s %12f %10s %10s %10s %10s %15s %10s %12.6f %12.6f\n")
         % snp->chrom
         % snp->ID
         % snp->genPos
@@ -1661,8 +1660,7 @@ void Data::outputLDmatrix(const string &LDmatType, const string &filename, const
         % (windStart->chrom == windEnd->chrom ? windEnd->physPos - windStart->physPos : windStart->chrom-windEnd->chrom)
         % snp->sampleSize
         % snp->ldSamplVar
-        % snp->ldSum
-        % snp->skeleton;
+        % snp->ldSum;
         if (LDmatType == "sparse") {
             fwrite(ZPZsp[i].innerIndexPtr(), sizeof(unsigned), ZPZsp[i].nonZeros(), out2);
             fwrite(ZPZsp[i].valuePtr(), sizeof(float), ZPZsp[i].nonZeros(), out2);

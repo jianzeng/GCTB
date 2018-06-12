@@ -1662,6 +1662,15 @@ void ApproxBayesC::Rounding::computeGhat(const MatrixXf &Z, const VectorXf &snpE
     value = sqrt(Gadget::calcVariance(ghatOld-ghat));
 }
 
+void ApproxBayesC::PopulationStratification::compute(const VectorXf &rcorr, const VectorXf &ZPZdiag, const VectorXf &LDsamplVar, const float varg, const float vare){
+    value = (rcorr.array().square()/ZPZdiag.array() - LDsamplVar.array()*varg - vare).mean();
+    
+//    ofstream out("rcorr.txt");
+//    out << rcorr.array().square()/ZPZdiag.array() << endl;
+//    out.close();
+
+}
+
 void ApproxBayesC::ldScoreReg(const VectorXf &chisq, const VectorXf &LDscore, const VectorXf &LDsamplVar,
                               const float varg, const float vare, float &ps, float &vargj){
     
@@ -1713,30 +1722,6 @@ void ApproxBayesC::ldScoreReg(const VectorXf &chisq, const VectorXf &LDscore, co
     
 }
 
-void ApproxBayesC::ldScoreReg(const VectorXf &chisq, const VectorXf &LDscore, const VectorXf &LDsamplVar,
-                              const VectorXf &n, const VectorXi &windSize, const float numIncdSnps,
-                              const float varg, const float vare, float &ps, float &vargj, float &fst, float &varenv){
-    long nrow = chisq.size();
-    
-    VectorXf y = chisq - LDsamplVar*varg - VectorXf::Ones(nrow)*vare;
-    VectorXf weight = 2.0*(LDscore*vargj + LDsamplVar*varg + VectorXf::Ones(nrow)*vare).array().square();
-    VectorXf weightInv = weight.cwiseInverse();
-
-    MatrixXf X(nrow, 4);
-    X.col(0) = VectorXf::Zero(nrow);
-    X.col(1) = LDscore;
-    X.col(2) = n.cwiseProduct(windSize.cast<float>()/float(numIncdSnps) + VectorXf::Ones(nrow))*varg;
-    X.col(3) = n;
-    
-    VectorXf b = (X.transpose()*weightInv.asDiagonal()*X).inverse()*X.transpose()*weightInv.asDiagonal()*y;
-
-    vargj = b[1];
-    fst = sqrt(b[2]);
-    varenv = b[3]/fst;
-    
-    ps = (X.col(2)*b[2] + X.col(3)*b[3]).mean();
-}
-
 
 void ApproxBayesC::sampleUnknowns(){
     fixedEffects.sampleFromFC(data.XPX, data.XPXdiag, data.ZPX, data.XPy, snpEffects.values, vare.value, rcorr);
@@ -1766,9 +1751,8 @@ void ApproxBayesC::sampleUnknowns(){
         rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
+    if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value);
 //    ldScoreReg(data.chisq, data.LDscore, data.LDsamplVar, varg.value, vare.value, ps.value, vargj.value);
-//    ldScoreReg(data.chisq, data.LDscore, data.LDsamplVar, data.n, data.windSize, data.numIncdSnps,
-//               varg.value, vare.value, ps.value, vargj.value, fst.value, varenv.value);
 }
 
 
@@ -2259,9 +2243,8 @@ void ApproxBayesS::sampleUnknowns(){
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pqOneMinusS);
     
-    ApproxBayesC::ldScoreReg(data.chisq, data.LDscore, data.LDsamplVar, varg.value, vare.value, ps.value, vargj.value);
-//    ApproxBayesC::ldScoreReg(data.chisq, data.LDscore, data.LDsamplVar, data.n, data.windSize, data.numIncdSnps,
-//                             varg.value, vare.value, ps.value, vargj.value, fst.value, varenv.value);
+    if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value);
+//    ApproxBayesC::ldScoreReg(data.chisq, data.LDscore, data.LDsamplVar, varg.value, vare.value, ps.value, vargj.value);
     
 //    if (!(iter % 100)) vareiMean += varei;  ///TMP
     

@@ -771,23 +771,10 @@ public:
     class PopulationStratification : public Parameter {
     public:
         PopulationStratification(): Parameter("PS"){}
+        
+        void compute(const VectorXf &rcorr, const VectorXf &ZPZdiag, const VectorXf &LDsamplVar, const float varg, const float vare);
     };
     
-    class PerSnpGV : public Parameter {
-    public:
-        PerSnpGV(): Parameter("PerSnpGV"){}
-    };
-    
-    class Fst : public Parameter {
-    public:
-        Fst(): Parameter("Fst"){}
-    };
-
-    class EnvVar : public Parameter {
-    public:
-        EnvVar(): Parameter("EnvVar"){}
-    };
-
 public:
     const Data &data;
     const float phi;   // the shrinkage parameter for heritability estimate
@@ -797,6 +784,7 @@ public:
     VectorXf varei;   // residual variance specific to each snp
     
     bool sparse;
+    bool modelPS;
     
     FixedEffects fixedEffects;
     SnpEffects snpEffects;
@@ -809,9 +797,6 @@ public:
     varEffectScaled sigmaSqG;
 //    Overdispersion tauSq;
     PopulationStratification ps;
-    PerSnpGV vargj;
-    Fst fst;
-    EnvVar varenv;
     
     ApproxBayesC(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi,
                  const float phi, const float overdispersion, const bool message = true)
@@ -830,9 +815,14 @@ public:
     , overdispersion(overdispersion)
     {
         sparse = data.sparseLDM;
+        modelPS = false;
         paramSetVec = {&snpEffects, &fixedEffects};
-        paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &vargj};
+        paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &sigmaSqG};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &sigmaSqG, &rounding};
+        if (modelPS) {
+            paramVec.push_back(&ps);
+            paramToPrint.push_back(&ps);
+        }
         if (message && myMPI::rank==0) {
             cout << "\nApproximate BayesC model fitted." << endl;
         }
@@ -841,9 +831,6 @@ public:
     void sampleUnknowns(void);
     static void ldScoreReg(const VectorXf &chisq, const VectorXf &LDscore, const VectorXf &LDsamplVar,
                            const float varg, const float vare, float &ps, float &vargj);
-    static void ldScoreReg(const VectorXf &chisq, const VectorXf &LDscore, const VectorXf &LDsamplVar,
-                           const VectorXf &n, const VectorXi &windSize, const float numIncdSnps,
-                           const float varg, const float vare, float &ps, float &vargj, float &fst, float &varenv);
 };
 
 
@@ -899,6 +886,7 @@ public:
     const float overdispersion;
 
     bool sparse;
+    bool modelPS;
     
     SnpEffects snpEffects;
     ApproxBayesC::FixedEffects fixedEffects;
@@ -907,11 +895,6 @@ public:
     ApproxBayesC::Rounding rounding;
     varEffectScaled sigmaSqG;
     ApproxBayesC::PopulationStratification ps;
-    ApproxBayesC::PerSnpGV vargj;
-    ApproxBayesC::Fst fst;
-    ApproxBayesC::EnvVar varenv;
-    
-//    VectorXf LDscore;
     
 //    ApproxBayesC::Overdispersion tauSq;
     
@@ -931,9 +914,14 @@ public:
     {
         ghat.setZero(data.Z.rows());
         sparse = data.sparseLDM;
+        modelPS = false;
         paramSetVec = {&snpEffects, &fixedEffects};
-        paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &ps};
-        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &sigmaSqG, &ps, &S.ar, &S.tuner, &rounding};
+        paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &sigmaSqG};
+        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &sigmaSqG, &S.ar, &S.tuner, &rounding};
+        if (modelPS) {
+            paramVec.push_back(&ps);
+            paramToPrint.push_back(&ps);
+        }
         if (message && myMPI::rank==0) {
             string alg = algorithm;
             if (alg!="RMH") alg = "HMC (default)";
