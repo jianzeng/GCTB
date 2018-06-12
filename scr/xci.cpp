@@ -11,25 +11,18 @@
 using namespace std;
 
 void XCI::sortIndBySex(vector<IndInfo*> &indInfoVec){
-    vector<IndInfo*> male, female, others;
+    vector<IndInfo*> male, female;
     long numInds = indInfoVec.size();
     IndInfo *ind;
     for (unsigned i=0; i<numInds; ++i) {
         ind = indInfoVec[i];
         if (ind->sex == 1) male.push_back(ind);
         else if (ind->sex == 2) female.push_back(ind);
-        else {
-            others.push_back(ind);
-            if (myMPI::rank==0)
-                cout << "Removed individual " << ind->famID << " " << ind->indID << " who has sex code " << ind->sex << endl;
-            ind->phenotype = -9;
-        }
     }
     indInfoVec.resize(0);
-    indInfoVec.reserve(male.size() + female.size() + others.size());
+    indInfoVec.reserve(male.size() + female.size());
     indInfoVec.insert(indInfoVec.end(), male.begin(), male.end());
     indInfoVec.insert(indInfoVec.end(), female.begin(), female.end());
-    indInfoVec.insert(indInfoVec.end(), others.begin(), others.end());
 }
 
 void XCI::restoreFamFileOrder(vector<IndInfo*> &indInfoVec){
@@ -38,7 +31,6 @@ void XCI::restoreFamFileOrder(vector<IndInfo*> &indInfoVec){
     IndInfo *ind;
     for (unsigned i=0; i<numInds; ++i) {
         ind = indInfoVec[i];
-        //cout << "i " << ind->famFileOrder << endl;
         vec[ind->famFileOrder] = ind;
     }
     indInfoVec = vec;

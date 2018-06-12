@@ -1023,6 +1023,150 @@ public:
     void sampleUnknowns(void);
 };
 
+// -----------------------------------------------------------------------------------------------
+// Approximate Bayes Kappa
+// -----------------------------------------------------------------------------------------------
+
+class ApproxBayesKappa : public ApproxBayesC {
+    
+public:
+    class AcceptanceRate : public Parameter {
+    public:
+        unsigned cnt;
+        unsigned accepted;
+        unsigned consecRej;
+        
+        AcceptanceRate(): Parameter("AR"){
+            cnt = 0;
+            accepted = 0;
+            value = 0.0;
+            consecRej = 0;
+        };
+        
+        void count(const bool state, const float lower, const float upper);
+    };
+    
+    class Kappa : public Parameter, public Stat::Normal {
+        // S parameter for genotypes or equivalently for the variance of snp effects
+        
+        // random-walk MH and HMC algorithms implemented
+        
+    public:
+        const float k0;  // prior value of gamma distribution
+        const float theta0;   // prior  value of gamma distribution
+        // const unsigned numSnps;
+        
+        float varProp;     // variance of proposal normal for random walk MH
+        
+        
+        AcceptanceRate ar;
+        Parameter tuner;
+        
+        Kappa(const float start, const string &lab = "Kappa"): Parameter(lab), k0(2.651), theta0(0.86858896), tuner("varProp"){
+            value = start;  // starting value
+            varProp = 0.1;
+        }
+
+        
+        void randomWalkMHsampler(const float sigmaSq, const VectorXf &snpEffects, const VectorXf &snpindist);
+    };
+
+    
+    class SnpEffects : public ApproxBayesC::SnpEffects {
+    public:
+        float sum2pq;
+        
+        SnpEffects(const vector<string> &header): ApproxBayesC::SnpEffects(header){
+            sum2pq = 0.0;
+            
+        }
+        
+        void sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float>> &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
+                          const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
+                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq,
+                          const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, VectorXf &snpStore, const float kappa, VectorXf &snpindist);
+        void sampleFromFC(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
+                          const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
+                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq,
+                          const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, VectorXf &snpStore, const float kappa, VectorXf &snpindist);
+    };
+    
+
+    class ProbMixComps : public vector<Parameter*>, public Stat::Dirichlet {
+
+        // prior probability of a snp being in any of the distributions effect has a dirichlet prior
+    public:
+        VectorXf alphaVec;  // hyperparameter
+        VectorXf values;
+        const unsigned ndist;
+
+        ProbMixComps(const VectorXf &pis): ndist(pis.size()){  
+            for (unsigned i = 0; i<ndist; ++i) {
+                 //Parameter * pi = new Parameter("Pi");
+                 this->push_back(new Parameter("Pi" + to_string(static_cast<long long>(i + 1))));
+            }
+            alphaVec.setOnes(pis.size());
+            values = pis;
+        }
+        
+        void sampleFromFC(const VectorXf snpStore, const VectorXf &pis);
+    };
+
+    class Gammas : public ParamSet {
+        // Set of scaling factors for each of the distributions
+    public:
+        Gammas(const VectorXf &gamma, const vector<string> &header, const string &lab = "gamma"): ParamSet(lab, header){
+            values = gamma;
+        }
+    };
+
+    class SnpIndist : public ParamSet {
+        // Set of scaling factors for each of the distributions
+        public:
+          SnpIndist(const vector<string> &header, const string &lab = "snpindist"): ParamSet(lab, header){
+       }
+    };
+
+public:
+    
+    VectorXf snpStore;   
+    SnpIndist snpindist;
+    SnpEffects snpEffects;
+    ProbMixComps Pis; 
+    Gammas gamma;
+    ApproxBayesC::GenotypicVar varg;
+    Kappa kappa;
+    
+    ApproxBayesKappa(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, 
+                     const float kappa_str, const bool message = true):
+    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, false),
+    Pis(pis),
+    gamma(gamma, vector<string>(gamma.size())),
+    kappa(kappa_str),
+    varg(varGenotypic, data.numKeptInds),
+    snpindist(data.snpEffectNames), 
+    snpEffects(data.snpEffectNames)
+    {
+        sparse = data.sparseLDM;
+        // varg.value = varGenotypic; //// NOTE: write it into constructor!!!
+        paramSetVec = {&snpEffects, &fixedEffects};
+        for (unsigned i=0; i<Pis.size(); ++i) { 
+           Pis[i]->value=Pis.values[i];  
+        }
+        paramVec     = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq, &kappa};
+        paramVec.insert(paramVec.begin(), Pis.begin(), Pis.end());
+        paramToPrint = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq, &kappa, &rounding};
+        paramToPrint.insert(paramToPrint.begin(), Pis.begin(), Pis.end());
+        if (message && myMPI::rank==0) {
+            cout << "\nApproximate Bayes Kappa model fitted." << endl;
+        }
+    }
+    
+    void sampleUnknowns(void);
+};
+
+
+
 #endif /* model_hpp */
 
 

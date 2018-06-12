@@ -102,6 +102,7 @@ public:
     ChromInfo(const int id, const unsigned size, const int startSnp, const int endSnp): id(id), size(size), startSnpIdx(startSnp), endSnpIdx(endSnp){}
 };
 
+
 class IndInfo {
 public:
     const string famID;
@@ -169,10 +170,12 @@ public:
     
     vector<SnpInfo*> snpInfoVec;
     vector<IndInfo*> indInfoVec;
+
     
     map<string, SnpInfo*> snpInfoMap;
     map<string, IndInfo*> indInfoMap;
-    
+
+
     vector<SnpInfo*> incdSnpInfoVec;
     vector<IndInfo*> keptIndInfoVec;
     
@@ -215,6 +218,8 @@ public:
     void readGwasSummaryFile(const string &gwasFile);
     void readLDmatrixInfoFile(const string &ldmatrixFile);
     void readLDmatrixBinFile(const string &ldmatrixFile);
+    void readGeneticMapFile(const string &freqFile);
+    void readfreqFile(const string &geneticMapFile);
     void keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax);
     void includeSnp(const string &includeSnpFile);
     void excludeSnp(const string &excludeSnpFile);
