@@ -33,7 +33,7 @@ public:
     const string a1; // the referece allele
     const string a2; // the coded allele
     const int chrom;
-    const float genPos;
+    float genPos;
     const int physPos;
     
     int index;
@@ -236,6 +236,7 @@ public:
 //    void makeLDmatrix(const string &bedFile, const unsigned windowWidth, const string &filename);
     void makeLDmatrix(const string &bedFile, const string &LDmatType, const float chisqThreshold, const float LDthreshold, const unsigned windowWidth,
                       const string &snpRange, const string &filename, const bool writeLdmTxt);
+    void makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, const string &snpRange, const string &filename, const bool writeLdmTxt, const float effpopNE, const float cutOff);
     void resizeWindow(const vector<SnpInfo*> &incdSnpInfoVec, const VectorXi &windStartOri, const VectorXi &windSizeOri,
                       VectorXi &windStartNew, VectorXi &windSizeNew);
     void computeAlleleFreq(const MatrixXf &Z, vector<SnpInfo*> &incdSnpInfoVec, VectorXf &snp2pq);
@@ -250,7 +251,7 @@ public:
     void readMultiLDmatInfoFile(const string &mldmatFile);
     void readMultiLDmatBinFile(const string &mldmatFile);
     void outputSnpEffectSamples(const SparseMatrix<float> &snpEffects, const unsigned burnin, const unsigned outputFreq, const string &snpResFile, const string &filename) const;
-    void resizeLDmatrix(const string &LDmatType, const float chisqThreshold, const unsigned windowWidth, const float LDthreshold);
+    void resizeLDmatrix(const string &LDmatType, const float chisqThreshold, const unsigned windowWidth, const float LDthreshold, const float effpopNE, const float cutOff);
     void outputLDmatrix(const string &LDmatType, const string &filename, const bool writeLdmTxt) const;
     void displayAverageWindowSize(const VectorXi &windSize);
     
