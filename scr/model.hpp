@@ -1139,7 +1139,7 @@ public:
     
     ApproxBayesKappa(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, 
                      const float kappa_str, const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, false),
+    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, 0, 0, false),
     Pis(pis),
     gamma(gamma, vector<string>(gamma.size())),
     kappa(kappa_str),

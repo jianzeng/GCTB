@@ -15,17 +15,18 @@ void GCTB::inputIndInfo(Data &data, const string &bedFile, const string &phenoty
     data.readCovariateFile(covariateFile);
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile, const unsigned includeChr, const string &skeletonSnpFile, const bool readGenotypes){
+void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile, const unsigned includeChr, const string &skeletonSnpFile, const string &geneticMapFile, const bool readGenotypes){
     data.readBimFile(bedFile + ".bim");
     if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
     if (includeChr) data.includeChr(includeChr);
     if (!skeletonSnpFile.empty()) data.includeSkeletonSnp(skeletonSnpFile);
+    if (!geneticMapFile.empty()) data.readGeneticMapFile(geneticMapFile);
     data.includeMatchedSnp();
     if (readGenotypes) data.readBedFile(bedFile + ".bed");
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const string &skeletonSnpFile, const bool multiLDmat, const bool excludeMHC){
+void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const string &skeletonSnpFile, const string &geneticMapFile, const bool multiLDmat, const bool excludeMHC){
     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
@@ -35,6 +36,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     data.includeChr(includeChr);
     if (excludeMHC) data.excludeMHC();
     if (!skeletonSnpFile.empty()) data.includeSkeletonSnp(skeletonSnpFile);
+    if (!geneticMapFile.empty()) data.readGeneticMapFile(geneticMapFile);
     if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile);
     data.includeMatchedSnp();
     if (multiLDmat)
@@ -58,7 +60,7 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSum
 }
 
 Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
-                         const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, const float phi,
+                         const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, const float phi, const float kappa,
                          const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S, const float overdispersion){
     data.initVariances(heritability);
     if (!gwasFile.empty()) {
@@ -69,7 +71,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
         else if (bayesType == "R") 
             return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi);
         else if (bayesType == "Kap")
-            return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi, kappa_str);
+            return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi, kappa);
         else
             throw(" Error: Wrong bayes type: " + bayesType + " in the summary-data-based Bayes analysis.");
     }

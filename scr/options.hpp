@@ -57,6 +57,9 @@ public:
     float piNDC;  // proportion of X-lined SNPs under no dosage compensation model (escape from X-chromosome inactivation)
     float phi;   // a shrinkage parameter for the heritability estimate in sbayes
     float overdispersion;
+    float kappa;     // for Luke's kappa model
+    float effpopNE;  // for shrunk LDM
+    float cutOff;    // for shrunk LDM
     
     bool estimatePi;
     bool estimateScale;
@@ -83,7 +86,6 @@ public:
     string includeSnpFile;
     string excludeSnpFile;
     string geneticMapFile;
-    string freqFile;
     string keepIndFile;
     string snpResFile;
     string mcmcSampleFile;
@@ -118,6 +120,9 @@ public:
         piNDC                   = 0.15;
         phi                     = 0;
         overdispersion          = 0;
+        // Shrunk matrix defaults
+        effpopNE                = 11490.672741;
+        cutOff                  = 1e-5;
 
         // Bayes R defaults
         ndists                  = 4;
@@ -126,7 +131,7 @@ public:
         pis.resize(ndists);                      
         pis                     << 0.95, 0.03, 0.01, 0.01;
         // Kappa defaults
-        kappa_str               = 10;
+        kappa                   = 10;
 
         estimatePi              = true;
         estimateScale           = false;
@@ -153,7 +158,6 @@ public:
         snpResFile              = "";
         mcmcSampleFile          = "";
         gwasSummaryFile         = "";
-        freqFile                = "";
         ldmatrixFile            = "";
         skeletonSnpFile         = "";
         snpRange                = "";

@@ -1236,11 +1236,6 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
     
     static unsigned iter = 0;
     long numChr = chromInfoVec.size();
-    
-    VectorXf ssq, s2pq, nnz;
-    ssq.setZero(numChr);
-    s2pq.setZero(numChr);
-    nnz.setZero(numChr);
 
     float ssq[numChr], s2pq[numChr], nnz[numChr];
     memset(ssq,0,sizeof(float)*numChr);
@@ -1331,10 +1326,15 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
     }
     
     //cout << ssq << " " << nnz << endl;
-    
-    sumSq = ssq.sum();
-    sum2pq = s2pq.sum();
-    numNonZeros = nnz.sum();
+
+    sumSq = 0.0;
+    sum2pq = 0.0;
+    numNonZeros = 0;
+    for (unsigned i=0; i<numChr; ++i) {
+        sumSq += ssq[i];
+        sum2pq += s2pq[i];
+        numNonZeros += nnz[i];
+    }
     ++iter;
 
     values = VectorXf::Map(valuesPtr, size);

@@ -69,13 +69,9 @@ void Options::inputOptions(const int argc, const char* argv[]){
             phenotypeFile = argv[++i];
             ss << "--pheno " << argv[i] << "\n";
         }
-        else if (!strcmp(argv[i], "--genmap")) { // Genetic map file option
+        else if (!strcmp(argv[i], "--gen-map")) { // Genetic map file option
             geneticMapFile = argv[++i];
-            ss << "--genmap " << argv[i] << "\n";
-        }
-        else if (!strcmp(argv[i], "--freqfile")) {
-            freqFile = argv[++i];
-            ss << "--freqfile " << argv[i] << "\n";
+            ss << "--gen-map " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--covar")) {
             covariateFile = argv[++i];
@@ -201,9 +197,9 @@ void Options::inputOptions(const int argc, const char* argv[]){
             varS = atof(argv[++i]);
             ss << "--varS " << argv[i] << "\n";
         }
-        else if (!strcmp(argv[i], "--kappa-str")) {
-            kappa_str = atof(argv[++i]);
-            ss << "--kappa-str " << argv[i] << "\n";
+        else if (!strcmp(argv[i], "--kappa")) {
+            kappa = atof(argv[++i]);
+            ss << "--kappa " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--S")) {
             Gadget::Tokenizer strvec;

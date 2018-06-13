@@ -1714,6 +1714,7 @@ void Data::readLDmatrixInfoFile(const string &ldmatrixFile){
     cout << "Reading SNP info from [" + ldmatrixFile + "]." << endl;
     //snpInfoVec.clear();
     //snpInfoMap.clear();
+    string header;
     string id, allele1, allele2;
     unsigned chr, physPos;
     float genPos, af, ldSamplVar, ldSum;
@@ -2283,7 +2284,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
             sdss[i] = sqrt(2 * (snp->af) * (1 - (snp->af)));
             // cout << "snp " << i << " af " << snp->af << endl;
             // 
-            gmapi[i] = snp->gen_map_pos;
+            gmapi[i] = snp->genPos;
         }
         long int nmsum;
         float theta;
@@ -2358,8 +2359,8 @@ void Data::readGeneticMapFile(const string &geneticMapFile){
         if (it == snpInfoMap.end()) continue;
         snp = it->second;
         if (!snp->included) continue;
-        snp->gen_map_ppos = atof(gmPPos.c_str());
-        snp->gen_map_pos = atof(gmGenPos.c_str());
+//        snp->gen_map_ppos = atof(gmPPos.c_str());
+        snp->genPos = atof(gmGenPos.c_str());
         ++match;
     }
     in.close();
@@ -2367,7 +2368,7 @@ void Data::readGeneticMapFile(const string &geneticMapFile){
     for (unsigned i=0; i<numSnps; ++i) {
         snp = snpInfoVec[i];
         if (!snp->included) continue;
-        if (snp->gen_map_pos == -999) {
+        if (snp->genPos == -999) {
             //cout << "Who went false snp " << i << endl;
             snp->included = false;
         }
@@ -2412,7 +2413,7 @@ void Data::readfreqFile(const string &freqFile){
 // Function to build the shrunk matrix 
 // =============================================================================================
 
-void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, const string &snpRange, const string &filename, const float effpopNE, const float cutOff){
+void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, const string &snpRange, const string &filename, const bool writeLdmTxt, const float effpopNE, const float cutOff){
     
     Gadget::Tokenizer token;
     token.getTokens(snpRange, "-");
@@ -2624,7 +2625,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
             // Pull out the standard deviation for each variant
             sdss[i] = sqrt(2 * (snp->af) * (1 - (snp->af)));
             // 
-            gmapi[i] = snp->gen_map_pos;
+            gmapi[i] = snp->genPos;
     }
     long int nmsum;
     float theta;
@@ -2780,7 +2781,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
     numIncdSnps = numSnpInRange;
     string outfilename = filename;
     if (!snpRange.empty()) outfilename += ".snp" + snpRange;
-    outputLDmatrix(LDmatType, outfilename);
+    outputLDmatrix(LDmatType, outfilename, writeLdmTxt);
 }
 
 // =============================================================================================
