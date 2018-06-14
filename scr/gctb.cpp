@@ -164,6 +164,14 @@ void GCTB::estimateHsq(const Data &data, const McmcSamples &snpEffects, const Mc
     hsq.writeMcmcSamples(filename);
 }
 
+void GCTB::estimateHsq(const Data &data, const McmcSamples &snpEffects, const string &filename){
+    Heritability hsq;
+    float phenVar = Gadget::calcVariance(data.y);
+    hsq.getEstimate(data, snpEffects, phenVar);
+    hsq.writeRes(filename);
+    hsq.writeMcmcSamples(filename);
+}
+
 void GCTB::inputSnpResults(Data &data, const string &snpResFile){
     
 }
