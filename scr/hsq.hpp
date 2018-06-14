@@ -23,6 +23,7 @@ public:
     
     VectorXf hsqMcmc;
     
+    void getEstimate(const Data &data, const McmcSamples &snpEffects, const float phenVar);
     void getEstimate(const Data &data, const McmcSamples &snpEffects, const McmcSamples &resVar);
     void writeRes(const string &filename);
     void writeMcmcSamples(const string &filename);

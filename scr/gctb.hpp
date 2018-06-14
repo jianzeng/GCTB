@@ -45,6 +45,7 @@ public:
 
     McmcSamples* inputMcmcSamples(const string &mcmcSampleFile, const string &label, const string &fileformat);
     void estimateHsq(const Data &data, const McmcSamples &snpEffects, const McmcSamples &resVar, const string &filename);
+    void estimateHsq(const Data &data, const McmcSamples &snpEffects, const string &filename);
 
     void inputSnpResults(Data &data, const string &snpResFile);
     void predict(const Data &data, const string &filename);

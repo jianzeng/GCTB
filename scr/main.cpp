@@ -115,8 +115,9 @@ int main(int argc, const char * argv[]) {
             gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.includeChr, opt.skeletonSnpFile, opt.geneticMapFile, readGenotypes);
             
             McmcSamples *snpEffects = gctb.inputMcmcSamples(opt.mcmcSampleFile, "SnpEffects", "bin");
-            McmcSamples *resVar     = gctb.inputMcmcSamples(opt.mcmcSampleFile, "ResVar", "txt");
-            gctb.estimateHsq(data, *snpEffects, *resVar, opt.title);
+//            McmcSamples *resVar     = gctb.inputMcmcSamples(opt.mcmcSampleFile, "ResVar", "txt");
+//            gctb.estimateHsq(data, *snpEffects, *resVar, opt.title);
+            gctb.estimateHsq(data, *snpEffects, opt.title);
         }
         else if (opt.analysisType == "Predict") {
             readGenotypes = true;
