@@ -157,13 +157,6 @@ McmcSamples* GCTB::inputMcmcSamples(const string &mcmcSampleFile, const string &
     return mcmcSamples;
 }
 
-void GCTB::estimateHsq(const Data &data, const McmcSamples &snpEffects, const McmcSamples &resVar, const string &filename){
-    Heritability hsq;
-    hsq.getEstimate(data, snpEffects, resVar);
-    hsq.writeRes(filename);
-    hsq.writeMcmcSamples(filename);
-}
-
 void GCTB::estimateHsq(const Data &data, const McmcSamples &snpEffects, const string &filename){
     Heritability hsq;
     float phenVar = Gadget::calcVariance(data.y);

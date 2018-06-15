@@ -2078,6 +2078,7 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
 
 void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, const unsigned windowWidth, const float LDthreshold, const float effpopNE, const float cutOff) {
     if (LDmatType == "full") return;
+    if (LDmatType == "shrunk") return;  // TMP; to be removed
     snp2pq.resize(numIncdSnps);
     for (unsigned i=0; i<numIncdSnps; ++i) {
         SnpInfo *snp = incdSnpInfoVec[i];
@@ -2636,15 +2637,15 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
     // --------------------------------------------------------
     float mapdiffi; 
     float rho;
-    float shrinkage;
+    VectorXf shrinkage(numIncdSnps);
     float Ne = effpopNE;
     cout << "\nUsing European effective population size Ne=" << Ne << " please alter with --ne if inappropriate.";
     float cutoff = cutOff;
     for (unsigned i=0; i<numSnpInRange; ++i) {
         for (unsigned j=0; j<numIncdSnps; ++j) {
-            mapdiffi = gmapi[j] - gmapi[i];
+            mapdiffi = abs(gmapi[j] - gmapi[i]);
             rho = 4.0 * Ne * (mapdiffi / 100.0);
-            shrinkage = exp(-rho / (2.0 * mi[i]));
+            shrinkage[i] = exp(-rho / (2.0 * mi[i]));
             // if (j >= 2580)
             // { 
             //     cout << i << " " << j << endl;
@@ -2652,11 +2653,11 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
             //     cout << shrinkage << endl;
             //     cout << mi[i] << endl;
             // }
-            if (shrinkage <= cutoff) {
-                shrinkage = 0.0;
+            if (shrinkage[i] <= cutoff) {
+                shrinkage[i] = 0.0;
             }
             // Multiple each covariance matrix element with the shrinkage value
-            denseZPZ(i, j) *= shrinkage;
+            denseZPZ(i, j) *= shrinkage[i];
             // Complete as SigHAat from Li and Stephens 2003
             denseZPZ(i, j) *= (1.0 - thetai[i]) * (1.0 - thetai[i]);
             // If it's the diagonal element add the extra term
@@ -2685,7 +2686,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
         snp->windSize  = numIncdSnps;
         snp->windEnd   = numIncdSnps-1;
         ZPZ[i] = denseZPZ.row(i);
-        snp->ldSamplVar = (1.0 - denseZPZ.row(i).array().square()).square().sum()/snp->sampleSize;
+        snp->ldSamplVar = ((1.0 - denseZPZ.row(i).array().square()).square() * shrinkage.array().square()).sum()/snp->sampleSize;
         snp->ldSum = denseZPZ.row(i).sum();
     }
         // cout << ZPZ[0] << endl;
@@ -2838,9 +2839,9 @@ void Data::buildSparseMME(){
         LDscore.resize(numIncdSnps);
         for (unsigned i=0; i<numIncdSnps; ++i) {
             snp = incdSnpInfoVec[i];
-//            LDsamplVar[i]  = (snp->gwas_n + snp->sampleSize)/float(numIncdSnps)*snp->ldSamplVar;
-//            LDsamplVar[i] += (numIncdSnps - snp->windSize)/float(numIncdSnps);
-            LDsamplVar[i] = 1;
+            LDsamplVar[i]  = (snp->gwas_n + snp->sampleSize)/float(numIncdSnps)*snp->ldSamplVar;
+            LDsamplVar[i] += (numIncdSnps - snp->windSize)/float(numIncdSnps);
+//            LDsamplVar[i] = 1;
             LDscore[i] = snp->ldsc*snp->gwas_n;
         }
 
