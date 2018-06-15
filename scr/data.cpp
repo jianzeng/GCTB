@@ -1871,7 +1871,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
             SnpInfo *snp = incdSnpInfoVec[i];
             mi[i] = (snp->sampleSize);
             int  n = 2 * mi[i] - 1;
-            cout << "snp " << i << " sample size " << snp->sampleSize << endl;
+            // cout << "snp " << i << " sample size " << snp->sampleSize << endl;
             // Approximation to the harmonic series
             nmsumi[i] = log(n) + 0.5772156649 + 1 / (2 * n) - 1 / (12 * pow(n, 2)) + 1 / (120 * pow(n, 4));
             //cout << nmsumi[i] << endl;
@@ -1904,8 +1904,8 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         for (unsigned i=0; i<numIncdSnps; ++i) {
             for (unsigned j=i; j<numIncdSnps; ++j) {
                 mapdiffi = gmapi[j] - gmapi[i];
-                rho = 4 * Ne * (mapdiffi / 100);
-                shrinkage = exp(-rho / (2 * mi[i])); 
+                rho = 4.0 * Ne * (mapdiffi / 100.0);
+                shrinkage = exp(-rho / (2.0 * mi[i])); 
                 if (shrinkage <= cutoff)
                 {
                     shrinkage = 0.0;
@@ -1913,11 +1913,11 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 // Multiple each covariance matrix element with the shrinkage value
                 ZPZ[i][j] = ZPZ[i][j] * shrinkage;
                 // Complete as SigHAat from Li and Stephens 2003
-                ZPZ[i][j] =  ZPZ[i][j] * ((1 - thetai[i]) * (1 - thetai[i]));
+                ZPZ[i][j] =  ZPZ[i][j] * ((1.0 - thetai[i]) * (1.0 - thetai[i]));
                 // If it's the diagonal element add the extra term
                 if (i == j)
                 {
-                    ZPZ[i][j] = ZPZ[i][j] + 0.5f * thetai[i] * (1 - 0.5f * thetai[i]);
+                    ZPZ[i][j] = ZPZ[i][j] + 0.5f * thetai[i] * (1.0 - 0.5f * thetai[i]);
                 }  
                 // Make the upper triangle equal to the lower triangle
                 ZPZ[j][i] =  ZPZ[i][j];
@@ -1925,7 +1925,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         }
         // // Now back to correlation
         for (unsigned i=0; i<numIncdSnps; ++i) {
-            ZPZ[i]  = (2 / sdss[i]) *  (1 / sdss.array()) * ZPZ[i].array();
+            ZPZ[i]  = (2.0 / sdss[i]) *  (1.0 / sdss.array()) * ZPZ[i].array();
         }
         // cout << "First column of ZPZ " << ZPZ[0] << endl;
     }
@@ -1957,7 +1957,7 @@ void Data::readGeneticMapFile(const string &geneticMapFile){
         if (it == snpInfoMap.end()) continue;
         snp = it->second;
         if (!snp->included) continue;
-        snp->gen_map_ppos = atof(gmPPos.c_str());
+        //snp->gen_map_ppos = atof(gmPPos.c_str());
         snp->gen_map_pos = atof(gmGenPos.c_str());
         ++match;
     }
@@ -1966,7 +1966,7 @@ void Data::readGeneticMapFile(const string &geneticMapFile){
     for (unsigned i=0; i<numSnps; ++i) {
         snp = snpInfoVec[i];
         if (!snp->included) continue;
-        if (snp->gen_map_pos == -999) {
+        if (snp->gen_map_pos == -999 || snp->gen_map_pos == 0) {
             //cout << "Who went false snp " << i << endl;
             snp->included = false;
         }
@@ -2013,6 +2013,7 @@ void Data::readfreqFile(const string &freqFile){
 
 void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, const string &snpRange, const string &filename, const float effpopNE, const float cutOff){
     
+
     Gadget::Tokenizer token;
     token.getTokens(snpRange, "-");
     
@@ -2024,6 +2025,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
         end = atoi(token[1].c_str());
         if (end > numIncdSnps) end = numIncdSnps;
     }
+
     
     unsigned numSnpInRange = end - start;
     
@@ -2128,8 +2130,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
     ZPZdiag = ZP.rowwise().squaredNorm(); 
     
     // then read in the bed file again to compute Z'Z
-    
-
+  
     MatrixXf denseZPZ;
     denseZPZ.setZero(numSnpInRange, numIncdSnps);
     VectorXf Zk(numKeptInds);
@@ -2194,6 +2195,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
     }
 
     fclose(in2);
+    
     // ----------------------------------------------------
     // NEW - Calculate the mutation rate components 
     // ----------------------------------------------------
@@ -2205,24 +2207,32 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
     VectorXf gmapi;
     VectorXf sdss;
     //cout << "Snps size " << incdSnpInfoVec.size() << endl;
-    nmsumi.resize(numSnpInRange);
-    thetai.resize(numSnpInRange);
-    sdss.resize(numSnpInRange);
-    mi.resize(numSnpInRange);
-    gmapi.resize(numSnpInRange);
-    for (unsigned i=0; i<numSnpInRange; ++i) {
-            SnpInfo *snp = incdSnpInfoVec[start+i];
+    nmsumi.resize(numIncdSnps);
+    thetai.resize(numIncdSnps);
+    sdss.resize(numIncdSnps);
+    mi.resize(numIncdSnps);
+    gmapi.resize(numIncdSnps);
+    // cout << " numIncdSnps " << numIncdSnps << endl;
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+            // cout << "numIncdSnps " << numIncdSnps << endl;
+            // cout << "i " << i << endl;
+            // cout << "Size " << incdSnpInfoVec.size() << endl;
+            // cout << "start " << start << endl;
+            // cout << "start+i " << start+i << endl;
+            SnpInfo *snp = incdSnpInfoVec[i];
+            // cout << "snp "   << snp << endl;
             mi[i] = (snp->sampleSize);
-            int  n = 2 * mi[i] - 1;
+            int  n = 2.0 * mi[i] - 1.0;
+            // cout << "mi "   << mi[i] << endl;
             // Approximation to the harmonic series
-            nmsumi[i] = log(n) + 0.5772156649 + 1 / (2 * n) - 1 / (12 * pow(n, 2)) + 1 / (120 * pow(n, 4));
-            //cout << nmsumi[i] << endl;
+            nmsumi[i] = log(n) + 0.5772156649 + 1.0 / (2.0 * n) - 1.0 / (12.0 * pow(n, 2)) + 1.0 / (120.0 * pow(n, 4));
+            // cout << nmsumi[i] << endl;
             // Calculate theta
-            thetai[i] = (1 / nmsumi[i]) / (2 * (snp->sampleSize) + 1 / nmsumi[i]);
-            //cout <<  thetai[i] << endl;
+            thetai[i] = (1.0 / nmsumi[i]) / (2.0 * (snp->sampleSize) + 1.0 / nmsumi[i]);
+            // cout <<  thetai[i] << endl;
             // Pull out the standard deviation for each variant
-            sdss[i] = sqrt(2 * (snp->af) * (1 - (snp->af)));
-            // 
+            sdss[i] = sqrt(2.0 * (snp->af) * (1.0 - (snp->af)));
+            // Pull out the genetic map position
             gmapi[i] = snp->gen_map_pos;
     }
     long int nmsum;
@@ -2231,7 +2241,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
 
     // Rescale Z to the covariance scale
     for (unsigned i=0; i<numIncdSnps; ++i) {
-        denseZPZ.col(i) = (sdss[i] / 2) *  sdss.array() * denseZPZ.col(i).array();
+        denseZPZ.col(i) = (sdss[i] / 2.0) *  sdss.array() * denseZPZ.col(i).array();
     }
     // --------------------------------------------------------
     // Compute the shrinkage value and then shrink the elements
@@ -2240,40 +2250,42 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
     float rho;
     float shrinkage;
     float Ne = effpopNE;
-    cout << "Using European effective population size Ne=" << Ne << " please alter with --ne if inappropriate.";
+    cout << "\nUsing European effective population size Ne=" << Ne << " please alter with --ne if inappropriate.";
     float cutoff = cutOff;
     for (unsigned i=0; i<numSnpInRange; ++i) {
-        for (unsigned j=i; j<numIncdSnps; ++j) {
-            mapdiffi = gmapi[j] - gmapi[i];
-            rho = 4 * Ne * (mapdiffi / 100);
-            shrinkage = exp(-rho / (2 * mi[i])); 
-            // if (j >= 2580)
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            mapdiffi = abs(gmapi[j] - gmapi[start+i]);
+            rho = 4.0 * Ne * (mapdiffi / 100.0);
+            shrinkage = exp(-rho / (2.0 * mi[start+i])); 
+            // if (i <=10 && j <= 10)
             // { 
-            //     cout << i << " " << j << endl;
-            //     cout << gmapi[i] << " " << gmapi[j] << endl;
-            //     cout << shrinkage << endl;
-            //     cout << mi[i] << endl;
+            //     cout << "Snp " << i << " " << j << " Mapdiff " << mapdiffi << " shrinkage " << shrinkage << endl;
+            //     cout << "Start position " << start  << " start plus i " << start + i << " gmap start plus i " << gmapi[start +i] << endl;
+            //     // cout << gmapi[i] << " " << gmapi[j] << endl;
+            //     // cout << mapdiffi << endl;
+            //     // cout << shrinkage << endl;
+            //     // cout << mi[i] << endl;
             // }
             if (shrinkage <= cutoff)
             {
                 shrinkage = 0.0;
             }
             // Multiple each covariance matrix element with the shrinkage value
-            denseZPZ(i, j) = denseZPZ(i, j) * shrinkage;
+            denseZPZ(i, j) *= shrinkage;
             // Complete as SigHAat from Li and Stephens 2003
-            denseZPZ(i, j) =  denseZPZ(i, j) * ((1 - thetai[i]) * (1 - thetai[i]));
+            denseZPZ(i, j) *= ((1.0 - thetai[start+i]) * (1.0 - thetai[j]));
             // If it's the diagonal element add the extra term
-            if (i == j)
+            if ((start + i) == j)
             {
-               denseZPZ(i, j) = denseZPZ(i, j) + 0.5f * thetai[i] * (1 - 0.5f * thetai[i]);
+               denseZPZ(i, j) = denseZPZ(i, j) + 0.5f * thetai[start+i] * (1.0 - 0.5f * thetai[start+i]);
             }
             // Make the upper triangle equal to the lower triangle
-            denseZPZ(j, i) =  denseZPZ(i, j);
+            //denseZPZ(j, i) =  denseZPZ(i, j);
         }
     }
     // Now back to correlation
     for (unsigned i=0; i<numIncdSnps; ++i) {
-        denseZPZ.col(i) = (2 / sdss[i]) *  (1 / sdss.array()) * denseZPZ.col(i).array();
+        denseZPZ.col(i) = (2.0 / sdss[i]) *  (1.0 / sdss.array()) * denseZPZ.col(i).array();
     }
     // --------------------------------
     // Copy to vector of vectors format
