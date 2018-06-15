@@ -16,17 +16,17 @@
 
 class Heritability {
 public:
-    float varGenotypic;
-    float varResidual;
-    float hsq;
+    McmcSamples varGenotypic;
+    McmcSamples varResidual;
+    McmcSamples hsq;
+    
     unsigned popSize;
     
-    VectorXf hsqMcmc;
-    
     void getEstimate(const Data &data, const McmcSamples &snpEffects, const float phenVar);
-    void getEstimate(const Data &data, const McmcSamples &snpEffects, const McmcSamples &resVar);
     void writeRes(const string &filename);
     void writeMcmcSamples(const string &filename);
+    
+    Heritability(): varGenotypic("GenVar"), varResidual("ResVar"), hsq("hsq"){}
 };
 
 #endif /* hsq_hpp */
