@@ -39,10 +39,17 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (!geneticMapFile.empty()) data.readGeneticMapFile(geneticMapFile);
     if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile);
     data.includeMatchedSnp();
-    if (multiLDmat)
-        data.readMultiLDmatBinFile(ldmatrixFile);
-    else
-        data.readLDmatrixBinFile(ldmatrixFile + ".bin");
+    if (geneticMapFile.empty()) {
+        if (multiLDmat)
+            data.readMultiLDmatBinFile(ldmatrixFile);
+        else
+            data.readLDmatrixBinFile(ldmatrixFile + ".bin");
+    } else {
+        if (multiLDmat)
+            data.readMultiLDmatBinFileAndShrink(ldmatrixFile);
+        else
+            data.readLDmatrixBinFileAndShrink(ldmatrixFile + ".bin");
+    }
     if (!gwasSummaryFile.empty()) data.buildSparseMME();
 }
 
