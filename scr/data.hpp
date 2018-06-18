@@ -256,7 +256,8 @@ public:
     void displayAverageWindowSize(const VectorXi &windSize);
     
     void inputSnpResults(const string &snpResFile);
-
+    void readLDmatrixBinFileAndShrink(const string &ldmatrixFile);
+    void readMultiLDmatBinFileAndShrink(const string &mldmatFile);
 };
 
 #endif /* data_hpp */

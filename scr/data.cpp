@@ -1908,6 +1908,171 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
     cout << "Read LD matrix for " << numIncdSnps << " SNPs (time used: " << timer.format(timer.getElapse()) << ")." << endl;
 }
 
+void Data::readLDmatrixBinFileAndShrink(const string &ldmatrixFile){
+    
+    Gadget::Timer timer;
+    timer.setTime();
+    
+    Gadget::Tokenizer token;
+    token.getTokens(ldmatrixFile, ".");
+    string ldmType = token[token.size()-2];
+    sparseLDM = ldmType == "sparse" ? true : false;
+    
+    VectorXi windStartLDM(numSnps);
+    VectorXi windSizeLDM(numSnps);
+    
+    windStart.resize(numIncdSnps);
+    windSize.resize(numIncdSnps);
+    
+    SnpInfo *snpi, *snpj;
+    
+    for (unsigned i=0; i<numSnps; ++i) {
+        SnpInfo *snpi = snpInfoVec[i];
+        windStartLDM[i] = snpi->windStart;
+        windSizeLDM[i]  = snpi->windSize;
+    }
+    
+    FILE *in = fopen(ldmatrixFile.c_str(), "rb");
+    if (!in) {
+        throw("Error: cannot open LD matrix file " + ldmatrixFile);
+    }
+    
+    if (!sparseLDM) resizeWindow(incdSnpInfoVec, windStartLDM, windSizeLDM, windStart, windSize);
+    
+    if (numIncdSnps == 0) throw ("Error: No SNP is retained for analysis.");
+    
+    cout << "Reading and shrinking " + ldmType + " LD matrix from [" + ldmatrixFile + "]..." << endl;
+    
+    float rsq = 0.0;
+    
+    float nref = incdSnpInfoVec[0]->sampleSize;
+    float n = 2.0*nref-1.0;
+    // Approximation to the harmonic series
+    float nsum = log(n) + 0.5772156649 + 1.0 / (2.0 * n) - 1.0 / (12.0 * pow(n, 2.0)) + 1.0 / (120.0 * pow(n, 4.0));
+    float theta = (1.0 / nsum) / (2.0 * (nref) + 1.0 / nsum);
+    float off  = (1.0 - theta)*(1.0 - theta);
+    float diag = 0.5*theta*(1.0 - 0.5*theta);
+    
+    float shrunkLD;
+    float rho;
+    float Ne = 11490.672741;
+    float shrinkage;
+    float sdprod;
+    
+    if (sparseLDM) {
+        ZPZsp.resize(numIncdSnps);
+        ZPZdiag.resize(numIncdSnps);
+        
+        for (unsigned i=0, inci=0; i<numSnps; i++) {
+            snpi = snpInfoVec[i];
+            
+            unsigned d[windSizeLDM[i]];
+            float v[windSizeLDM[i]];
+            
+            if (!snpi->included) {
+                fseek(in, sizeof(d), SEEK_CUR);
+                fseek(in, sizeof(v), SEEK_CUR);
+                continue;
+            }
+            
+            fread(d, sizeof(d), 1, in);
+            fread(v, sizeof(v), 1, in);
+            
+            ZPZsp[inci].resize(windSizeLDM[i]);
+            snpi->ldSamplVar = 0.0;
+            snpi->ldSum = 0.0;
+            snpi->ldsc = 0.0;
+            
+            for (unsigned j=0; j<windSizeLDM[i]; ++j) {
+                snpj = snpInfoVec[d[j]];
+                if (snpj->included) {
+                    
+                    sdprod = sqrt(snpi->twopq*snpj->twopq);
+                    shrunkLD = v[j]*sdprod;
+                    rho = 4.0 * Ne * abs(snpi->genPos - snpj->genPos)/100.0;
+                    shrinkage = exp(-rho / (2.0*nref)) * off;
+                    if (shrinkage <= 1e-5) shrinkage = 0.0;
+                    shrunkLD *= shrinkage;
+                    shrunkLD /= sdprod;
+                    if (snpj == snpi) {
+                        shrunkLD += diag/sdprod;
+                        ZPZdiag[inci] = shrunkLD;
+                    }
+                    
+                    ZPZsp[inci].insertBack(snpj->index) = shrunkLD;
+                    rsq = shrunkLD * shrunkLD;
+                    snpi->ldSamplVar += shrinkage*shrinkage*(1.0f-rsq)*(1.0f-rsq)/snpi->sampleSize;
+                    snpi->ldSum += shrunkLD;
+                    snpi->ldsc += rsq;
+                }
+            }
+            SparseVector<float>::InnerIterator it(ZPZsp[inci]);
+            windStart[inci] = snpi->windStart = it.index();
+            windSize[inci] = snpi->windSize = ZPZsp[inci].nonZeros();
+            for (; it; ++it) snpi->windEnd = it.index();
+            
+            if (++inci == numIncdSnps) break;
+        }
+    }
+    else {
+        ZPZ.resize(numIncdSnps);
+        ZPZdiag.resize(numIncdSnps);
+        
+        for (unsigned i=0, inci=0; i<numSnps; i++) {
+            snpi = snpInfoVec[i];
+            
+            float v[windSizeLDM[i]];
+            
+            if (!snpi->included) {
+                fseek(in, sizeof(v), SEEK_CUR);
+                continue;
+            }
+            
+            fread(v, sizeof(v), 1, in);
+            
+            ZPZ[inci].resize(windSize[inci]);
+            snpi->ldSamplVar = 0.0;
+            snpi->ldSum = 0.0;
+            snpi->ldsc = 0.0;
+            
+            for (unsigned j=0, incj=0; j<windSizeLDM[i]; ++j) {
+                snpj = snpInfoVec[windStartLDM[i]+j];
+                if (snpj->included) {
+                    
+                    sdprod = sqrt(snpi->twopq*snpj->twopq);
+                    shrunkLD = v[j]*sdprod;
+                    rho = 4.0 * Ne * abs(snpi->genPos - snpj->genPos)/100.0;
+                    shrinkage = exp(-rho / (2.0*nref)) * off;
+                    if (shrinkage <= 1e-5) shrinkage = 0.0;
+                    shrunkLD *= shrinkage;
+                    shrunkLD /= sdprod;
+                    if (snpj == snpi) {
+                        shrunkLD += diag/sdprod;
+                        ZPZdiag[inci] = shrunkLD;
+                    }
+                    
+                    ZPZ[inci][incj++] = shrunkLD;
+                    rsq = shrunkLD * shrunkLD;
+                    snpi->ldSamplVar += shrinkage*shrinkage*(1.0f-rsq)*(1.0f-rsq)/snpi->sampleSize;
+                    snpi->ldSum += shrunkLD;
+                    snpi->ldsc += rsq;
+                }
+            }
+            
+            if (++inci == numIncdSnps) break;
+        }
+    }
+    
+    fclose(in);
+    
+    timer.getTime();
+    
+    //    cout << "Window width " << windowWidth << " Mb." << endl;
+    displayAverageWindowSize(windSize);
+    cout << "LD matrix diagnal mean " << ZPZdiag.mean() << " sd " << sqrt(Gadget::calcVariance(ZPZdiag)) << "." << endl;
+    cout << "Read LD matrix for " << numIncdSnps << " SNPs (time used: " << timer.format(timer.getElapse()) << ")." << endl;
+}
+
 void Data::readMultiLDmatInfoFile(const string &mldmatFile){
     ifstream in(mldmatFile.c_str());
     if (!in) throw ("Error: can not open the file [" + mldmatFile + "] to read.");
@@ -2059,6 +2224,195 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
                     }
                 }
                  //cout << "Here 2 " << endl;
+                ++incj;
+            }
+        }
+        
+        fclose(in2);
+        cout << "Read " + ldmType + " LD matrix for " << numSnpMldVec[i]-starti << " SNPs from [" << filenameVec[i] << "]." << endl;
+        
+        starti = numSnpMldVec[i];
+    }
+    
+    timer.getTime();
+    
+    displayAverageWindowSize(windSize);
+    cout << "LD matrix diagnal mean " << ZPZdiag.mean() << " sd " << sqrt(Gadget::calcVariance(ZPZdiag)) << "." << endl;
+    cout << "Read LD matrix for " << numIncdSnps << " SNPs (time used: " << timer.format(timer.getElapse()) << ")." << endl;
+}
+
+void Data::readMultiLDmatBinFileAndShrink(const string &mldmatFile){
+    //cout << "Hi I'm in here " << endl;
+    vector<string> filenameVec;
+    ifstream in1(mldmatFile.c_str());
+    if (!in1) throw ("Error: can not open the file [" + mldmatFile + "] to read.");
+    
+    Gadget::Timer timer;
+    timer.setTime();
+    
+    string inputStr;
+    string ldmType;
+    sparseLDM = true;
+    while (getline(in1, inputStr)) {
+        filenameVec.push_back(inputStr + ".bin");
+        Gadget::Tokenizer token;
+        token.getTokens(inputStr, ".");
+        ldmType = token[token.size()-1];
+        sparseLDM = ldmType == "sparse" ? true : false;
+    }
+    
+    cout << "Reading and shrinking " + ldmType + " LD matrices from [" + mldmatFile + "]..." << endl;
+    
+    VectorXi windStartLDM(numSnps);
+    VectorXi windSizeLDM(numSnps);
+    //cout << "I made it here " << endl;
+    for (unsigned j=0, i=0, cnt=0; j<numSnps; ++j) {
+        SnpInfo *snp = snpInfoVec[j];
+        if (j==numSnpMldVec[i]) {
+            if (reindexed)
+                cnt = numSnpMldVec[i++];
+            else
+                cnt = 0;
+        }
+        snp->windStart += cnt;
+        snp->windEnd   += cnt;
+        windSizeLDM[j]  = snp->windSize;
+        windStartLDM[j] = snp->windStart;
+    }
+    
+    if (sparseLDM) {
+        windStart.setZero(numIncdSnps);
+        windSize.setZero(numIncdSnps);
+        ZPZsp.resize(numIncdSnps);
+    }
+    else {
+        resizeWindow(incdSnpInfoVec, windStartLDM, windSizeLDM, windStart, windSize);
+        ZPZ.resize(numIncdSnps);
+    }
+    ZPZdiag.resize(numIncdSnps);
+    
+    unsigned starti = 0;
+    unsigned incj = 0;
+    //cout << "I made it here " << endl;
+    long numFiles = filenameVec.size();
+    for (unsigned i=0; i<numFiles; ++i) {
+        FILE *in2 = fopen(filenameVec[i].c_str(), "rb");
+        if (!in2) {
+            throw("Error: cannot open LD matrix file " + filenameVec[i]);
+        }
+        
+        SnpInfo *snpj = NULL;
+        SnpInfo *snpk = NULL;
+        
+        float rsq = 0.0;
+        
+        float nref = incdSnpInfoVec[0]->sampleSize;
+        float n = 2.0*nref-1.0;
+        // Approximation to the harmonic series
+        float nsum = log(n) + 0.5772156649 + 1.0 / (2.0 * n) - 1.0 / (12.0 * pow(n, 2.0)) + 1.0 / (120.0 * pow(n, 4.0));
+        float theta = (1.0 / nsum) / (2.0 * (nref) + 1.0 / nsum);
+        float off  = (1.0 - theta)*(1.0 - theta);
+        float diag = 0.5*theta*(1.0 - 0.5*theta);
+        
+        float shrunkLD;
+        float rho;
+        float Ne = 11490.672741;
+        float shrinkage;
+        float sdprod;
+
+        if (sparseLDM) {
+            for (unsigned j=starti; j<numSnpMldVec[i]; j++) {
+                snpj = snpInfoVec[j];
+                
+                unsigned d[windSizeLDM[j]];
+                float v[windSizeLDM[j]];
+                
+                if (!snpj->included) {
+                    fseek(in2, sizeof(d), SEEK_CUR);
+                    fseek(in2, sizeof(v), SEEK_CUR);
+                    continue;
+                }
+                
+                fread(d, sizeof(d), 1, in2);
+                fread(v, sizeof(v), 1, in2);
+                
+                ZPZsp[incj].resize(windSizeLDM[j]);
+                snpj->ldSamplVar = 0.0;
+                snpj->ldSum = 0.0;
+                snpj->ldsc = 0.0;
+                
+                for (unsigned k=0; k<windSizeLDM[j]; ++k) {
+                    snpk = snpInfoVec[windStartLDM[j]+d[k]-d[0]];
+                    if (snpk->included) {
+                        
+                        sdprod = sqrt(snpj->twopq*snpk->twopq);
+                        shrunkLD = v[k]*sdprod;
+                        rho = 4.0 * Ne * abs(snpj->genPos - snpk->genPos)/100.0;
+                        shrinkage = exp(-rho / (2.0*nref)) * off;
+                        if (shrinkage <= 1e-5) shrinkage = 0.0;
+                        shrunkLD *= shrinkage;
+                        shrunkLD /= sdprod;
+                        if (snpk == snpj) {
+                            shrunkLD += diag/sdprod;
+                            ZPZdiag[incj] = shrunkLD;
+                        }
+                        
+                        ZPZsp[incj].insertBack(snpk->index) = shrunkLD;
+                        rsq = shrunkLD * shrunkLD;
+                        snpj->ldSamplVar += shrinkage*shrinkage*(1.0f-rsq)*(1.0f-rsq)/snpj->sampleSize;
+                        snpj->ldSum += shrunkLD;
+                        snpj->ldsc += rsq;
+                    }
+                }
+                SparseVector<float>::InnerIterator it(ZPZsp[incj]);
+                windStart[incj] = snpj->windStart = it.index();
+                windSize[incj] = snpj->windSize = ZPZsp[incj].nonZeros();
+                ++incj;
+            }
+        }
+        else {
+            //cout << "I's reading the snps " << endl;
+            for (unsigned j=starti; j<numSnpMldVec[i]; j++) {
+                snpj = snpInfoVec[j];
+                float v[windSizeLDM[j]];
+                //cout << "I'm at SNP " << j << " windStartLDM[j] " << windStartLDM[j] << " numSnpMldVec[i] " << numSnpMldVec[i] << " windSizeLDM[j] " << windSizeLDM[j] << endl;
+                if (!snpj->included) {
+                    fseek(in2, sizeof(v), SEEK_CUR);
+                    continue;
+                }
+                
+                fread(v, sizeof(v), 1, in2);
+                //cout << "Here 1 " << endl;
+                ZPZ[incj].resize(windSize[incj]);
+                snpj->ldSamplVar = 0.0;
+                snpj->ldSum = 0.0;
+                snpj->ldsc = 0.0;
+                
+                for (unsigned k=0, inck=0; k<windSizeLDM[j]; ++k) {
+                    //cout << "I'm at k " << k << endl;
+                    snpk = snpInfoVec[windStartLDM[j]+k];
+                    if (snpk->included) {
+                        
+                        sdprod = sqrt(snpj->twopq*snpk->twopq);
+                        shrunkLD = v[k]*sdprod;
+                        rho = 4.0 * Ne * abs(snpj->genPos - snpk->genPos)/100.0;
+                        shrinkage = exp(-rho / (2.0*nref)) * off;
+                        if (shrinkage <= 1e-5) shrinkage = 0.0;
+                        shrunkLD *= shrinkage;
+                        shrunkLD /= sdprod;
+                        if (snpk == snpj) {
+                            shrunkLD += diag/sdprod;
+                            ZPZdiag[incj] = shrunkLD;
+                        }
+                        
+                        ZPZ[incj][inck++] = shrunkLD;
+                        rsq = shrunkLD * shrunkLD;
+                        snpj->ldSamplVar += shrinkage*shrinkage*(1.0f-rsq)*(1.0f-rsq)/snpj->sampleSize;
+                        snpj->ldSum += shrunkLD;
+                        snpj->ldsc += rsq;
+                    }
+                }
+                //cout << "Here 2 " << endl;
                 ++incj;
             }
         }
@@ -2637,15 +2991,15 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
     // --------------------------------------------------------
     float mapdiffi; 
     float rho;
-    VectorXf shrinkage(numIncdSnps);
+    float shrinkage;
     float Ne = effpopNE;
     cout << "\nUsing European effective population size Ne=" << Ne << " please alter with --ne if inappropriate.";
     float cutoff = cutOff;
     for (unsigned i=0; i<numSnpInRange; ++i) {
         for (unsigned j=0; j<numIncdSnps; ++j) {
-            mapdiffi = abs(gmapi[j] - gmapi[i]);
+            mapdiffi = abs(gmapi[j] - gmapi[start+i]);
             rho = 4.0 * Ne * (mapdiffi / 100.0);
-            shrinkage[i] = exp(-rho / (2.0 * mi[i]));
+            shrinkage = exp(-rho / (2.0 * mi[start+i]));
             // if (j >= 2580)
             // { 
             //     cout << i << " " << j << endl;
@@ -2653,17 +3007,17 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
             //     cout << shrinkage << endl;
             //     cout << mi[i] << endl;
             // }
-            if (shrinkage[i] <= cutoff) {
-                shrinkage[i] = 0.0;
+            if (shrinkage <= cutoff) {
+                shrinkage = 0.0;
             }
             // Multiple each covariance matrix element with the shrinkage value
-            denseZPZ(i, j) *= shrinkage[i];
+            denseZPZ(i, j) *= shrinkage;
             // Complete as SigHAat from Li and Stephens 2003
-            denseZPZ(i, j) *= (1.0 - thetai[i]) * (1.0 - thetai[i]);
+            denseZPZ(i, j) *= (1.0 - thetai[start+i]) * (1.0 - thetai[j]);
             // If it's the diagonal element add the extra term
-            if (i == j)
+            if (start+i == j)
             {
-               denseZPZ(i, j) = denseZPZ(i, j) + 0.5f * thetai[i] * (1 - 0.5f * thetai[i]);
+               denseZPZ(i, j) = denseZPZ(i, j) + 0.5f * thetai[start+i] * (1 - 0.5f * thetai[start+i]);
             }
             // Make the upper triangle equal to the lower triangle
             //denseZPZ(j, i) =  denseZPZ(i, j);
@@ -2686,7 +3040,6 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
         snp->windSize  = numIncdSnps;
         snp->windEnd   = numIncdSnps-1;
         ZPZ[i] = denseZPZ.row(i);
-        snp->ldSamplVar = ((1.0 - denseZPZ.row(i).array().square()).square() * shrinkage.array().square()).sum()/snp->sampleSize;
         snp->ldSum = denseZPZ.row(i).sum();
     }
         // cout << ZPZ[0] << endl;
