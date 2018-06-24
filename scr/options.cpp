@@ -284,6 +284,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             skeletonSnpFile = argv[++i];
             ss << "--skeleton-snp " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--direct-prune")) {
+            directPrune = true;
+            ss << "--direct-prune " << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";
@@ -424,6 +428,8 @@ void Options::readFile(const string &file){  // input options from file
             overdispersion = stof(value);
         } else if (key == "skeletonSnpFile") {
             skeletonSnpFile = value;
+        } else if (key == "directPrune") {
+            directPrune = true;
         } else if (key.substr(0,2) == "//" ||
                    key.substr(0,1) == "#") {
             continue;

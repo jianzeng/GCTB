@@ -62,6 +62,8 @@ public:
     float ldSamplVar;    // sum of sampling variance of LD with other SNPs for summary-bayes method
     float ldSum;         // sum of LD with other SNPs
     float ldsc;          // LD score: sum of r^2
+    
+    int numNonZeroLD;   // may be different from windSize in shrunk ldm
 
     SnpInfo(const int idx, const string &id, const string &allele1, const string &allele2,
             const int chr, const float gpos, const int ppos)
@@ -85,6 +87,7 @@ public:
         ldSamplVar = 0.0;
         ldSum = 0.0;
         ldsc = 0.0;
+        numNonZeroLD = 0;
     };
     
     void resetWindow(void) {windStart = -1; windSize = 0;};
@@ -258,6 +261,7 @@ public:
     void inputSnpResults(const string &snpResFile);
     void readLDmatrixBinFileAndShrink(const string &ldmatrixFile);
     void readMultiLDmatBinFileAndShrink(const string &mldmatFile);
+    void directPruneLDmatrix(const string &ldmatrixFile, const string &outLDmatType, const float chisqThreshold, const string &title, const bool writeLdmTxt);
 };
 
 #endif /* data_hpp */
