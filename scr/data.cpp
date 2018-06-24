@@ -1066,31 +1066,41 @@ void Data::readGwasSummaryFile(const string &gwasFile){
     map<string, SnpInfo*>::iterator it;
     string id, allele1, allele2, freq, b, se, pval, n;
     unsigned line=0, match=0;
-    unsigned incon=0;
+    unsigned numInconAllele=0, numInconAf=0, numFixed=0;
+    bool inconAllele, inconAf, fixed;
     while (in >> id >> allele1 >> allele2 >> freq >> b >> se >> pval >> n) {
         ++line;
         it = snpInfoMap.find(id);
         if (it == snpInfoMap.end()) continue;
         snp = it->second;
         if (!snp->included) continue;
+        inconAllele = inconAf = fixed = false;
         if (allele1 == snp->a1 && allele2 == snp->a2) {
             snp->gwas_b  = atof(b.c_str());
             snp->gwas_af = atof(freq.c_str());
             snp->gwas_se = atof(se.c_str());
             snp->gwas_n  = atof(n.c_str());
-            ++match;
         } else if (allele1 == snp->a2 && allele2 == snp->a1) {
             snp->gwas_b  = -atof(b.c_str());
             snp->gwas_af = 1.0-atof(freq.c_str());
             snp->gwas_se = atof(se.c_str());
             snp->gwas_n  = atof(n.c_str());
-            ++match;
         } else {
             cout << "WARNING: SNP " + id + " has inconsistent allele coding in between the reference and GWAS samples." << endl;
-            snp->included = false;
-            ++incon;
+            inconAllele = true;
+            ++numInconAllele;
         }
-        if (snp->gwas_af==0 || snp->gwas_af==1) throw ("Error: SNP " + id + " is a fixed SNP!");
+        if (!inconAllele) {
+            if (abs(snp->af - snp->gwas_af) > 0.1) {
+                inconAf = true;
+                ++numInconAf;
+            } else if (snp->gwas_af==0 || snp->gwas_af==1) {
+                fixed = true;
+                ++numFixed;
+            }
+        }
+        if (inconAllele || inconAf || fixed) snp->included = false;
+        else ++match;
     }
     in.close();
     
@@ -1103,7 +1113,9 @@ void Data::readGwasSummaryFile(const string &gwasFile){
     }
 
     if (myMPI::rank==0) {
-        if (incon) cout << "removed " << incon << " SNPs with inconsistent allele coding in between the reference and GWAS samples." << endl;
+        if (numInconAllele) cout << "removed " << numInconAllele << " SNPs with inconsistent allele coding in between the reference and GWAS samples." << endl;
+        if (numInconAf) cout << "removed " << numInconAf << " SNPs with differences in allele frequency between the reference and GWAS samples > 0.1." << endl;
+        if (numFixed) cout << "removed " << numFixed << " fixed SNPs in the GWAS samples." << endl;
         cout << match << " matched SNPs in the GWAS summary data (in total " << line << " SNPs)." << endl;
     }
 
@@ -1856,6 +1868,7 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
             windStart[inci] = snpi->windStart = it.index();
             windSize[inci] = snpi->windSize = ZPZsp[inci].nonZeros();
             for (; it; ++it) snpi->windEnd = it.index();
+            snpi->numNonZeroLD = snpi->windSize;
             
             if (++inci == numIncdSnps) break;
         }
@@ -1880,6 +1893,7 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
             snpi->ldSamplVar = 0.0;
             snpi->ldSum = 0.0;
             snpi->ldsc = 0.0;
+            snpi->numNonZeroLD = snpi->windSize;
             
             for (unsigned j=0, incj=0; j<windSizeLDM[i]; ++j) {
                 snpj = snpInfoVec[windStartLDM[i]+j];
@@ -2010,6 +2024,7 @@ void Data::readLDmatrixBinFileAndShrink(const string &ldmatrixFile){
             windStart[inci] = snpi->windStart = it.index();
             windSize[inci] = snpi->windSize = ZPZsp[inci].nonZeros();
             for (; it; ++it) snpi->windEnd = it.index();
+            snpi->numNonZeroLD = snpi->windSize;
             
             if (++inci == numIncdSnps) break;
         }
@@ -2034,6 +2049,7 @@ void Data::readLDmatrixBinFileAndShrink(const string &ldmatrixFile){
             snpi->ldSamplVar = 0.0;
             snpi->ldSum = 0.0;
             snpi->ldsc = 0.0;
+            snpi->numNonZeroLD = 0;
             
             for (unsigned j=0, incj=0; j<windSizeLDM[i]; ++j) {
                 snpj = snpInfoVec[windStartLDM[i]+j];
@@ -2044,6 +2060,7 @@ void Data::readLDmatrixBinFileAndShrink(const string &ldmatrixFile){
                     rho = 4.0 * Ne * abs(snpi->genPos - snpj->genPos)/100.0;
                     shrinkage = exp(-rho / (2.0*nref)) * off;
                     if (shrinkage <= 1e-5) shrinkage = 0.0;
+                    else snpi->numNonZeroLD++;
                     shrunkLD *= shrinkage;
                     shrunkLD /= sdprod;
                     if (snpj == snpi) {
@@ -2189,6 +2206,7 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
                 SparseVector<float>::InnerIterator it(ZPZsp[incj]);
                 windStart[incj] = snpj->windStart = it.index();
                 windSize[incj] = snpj->windSize = ZPZsp[incj].nonZeros();
+                snpj->numNonZeroLD = snpj->windSize;
                 ++incj;
             }
         }
@@ -2209,6 +2227,7 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
                 snpj->ldSamplVar = 0.0;
                 snpj->ldSum = 0.0;
                 snpj->ldsc = 0.0;
+                snpj->numNonZeroLD = snpj->windSize;
 
                 for (unsigned k=0, inck=0; k<windSizeLDM[j]; ++k) {
                     //cout << "I'm at k " << k << endl; 
@@ -2367,6 +2386,7 @@ void Data::readMultiLDmatBinFileAndShrink(const string &mldmatFile){
                 SparseVector<float>::InnerIterator it(ZPZsp[incj]);
                 windStart[incj] = snpj->windStart = it.index();
                 windSize[incj] = snpj->windSize = ZPZsp[incj].nonZeros();
+                snpj->numNonZeroLD = snpj->windSize;
                 ++incj;
             }
         }
@@ -2387,6 +2407,7 @@ void Data::readMultiLDmatBinFileAndShrink(const string &mldmatFile){
                 snpj->ldSamplVar = 0.0;
                 snpj->ldSum = 0.0;
                 snpj->ldsc = 0.0;
+                snpj->numNonZeroLD = 0;
                 
                 for (unsigned k=0, inck=0; k<windSizeLDM[j]; ++k) {
                     //cout << "I'm at k " << k << endl;
@@ -2398,6 +2419,7 @@ void Data::readMultiLDmatBinFileAndShrink(const string &mldmatFile){
                         rho = 4.0 * Ne * abs(snpj->genPos - snpk->genPos)/100.0;
                         shrinkage = exp(-rho / (2.0*nref)) * off;
                         if (shrinkage <= 1e-5) shrinkage = 0.0;
+                        else snpj->numNonZeroLD++;
                         shrunkLD *= shrinkage;
                         shrunkLD /= sdprod;
                         if (snpk == snpj) {
@@ -3192,8 +3214,8 @@ void Data::buildSparseMME(){
         LDscore.resize(numIncdSnps);
         for (unsigned i=0; i<numIncdSnps; ++i) {
             snp = incdSnpInfoVec[i];
-            LDsamplVar[i]  = (snp->gwas_n + snp->sampleSize)/float(numIncdSnps)*snp->ldSamplVar;
-            LDsamplVar[i] += (numIncdSnps - snp->windSize)/float(numIncdSnps);
+            LDsamplVar[i]  = (snp->gwas_n + snp->numNonZeroLD)/float(numIncdSnps)*snp->ldSamplVar;
+            LDsamplVar[i] += (numIncdSnps - snp->numNonZeroLD)/float(numIncdSnps);
 //            LDsamplVar[i] = 1;
             LDscore[i] = snp->ldsc*snp->gwas_n;
         }
@@ -3327,4 +3349,108 @@ void Data::outputSnpEffectSamples(const SparseMatrix<float> &snpEffects, const u
     out.close();
 }
 
+void Data::directPruneLDmatrix(const string &ldmatrixFile, const string &outLDmatType, const float chisqThreshold, const string &title, const bool writeLdmTxt){
+    readLDmatrixInfoFile(ldmatrixFile + ".info");
+    Gadget::Tokenizer token;
+    token.getTokens(ldmatrixFile, ".");
+    string ldmType = token[token.size()-1];
+    if (ldmType != "full") {
+        throw("Error: --direct-prune only prunes a full LD matrix to a sparse matrix!");
+    }
+    cout << "Direct pruning " + ldmType + " LD matrix from [" + ldmatrixFile + "]..." << endl;
+
+    FILE *in = fopen((ldmatrixFile+".bin").c_str(), "rb");
+    if (!in) {
+        throw("Error: cannot open LD matrix file " + ldmatrixFile);
+    }
+    SnpInfo *snp;
+    VectorXf vec;
+    float rsq = 0.0;
+
+    string outfilename = title + ".ldm." + outLDmatType;
+    string outfile1 = outfilename + ".info";
+    string outfile2 = outfilename + ".bin";
+    ofstream out1(outfile1.c_str());
+    FILE *out2 = fopen(outfile2.c_str(), "wb");
+    ofstream out3;
+    string outfile3;
+    if (writeLdmTxt) {
+        outfile3 = outfilename + ".txt";
+        out3.open(outfile3.c_str());
+    }
+    out1 << boost::format("%6s %15s %10s %15s %6s %6s %12s %10s %10s %10s %10s %15s %10s %12s %12s\n")
+    % "Chrom"
+    % "ID"
+    % "GenPos"
+    % "PhysPos"
+    % "A1"
+    % "A2"
+    % "A2Freq"
+    % "Index"
+    % "WindStart"
+    % "WindEnd"
+    % "WindSize"
+    % "WindWidth"
+    % "N"
+    % "SamplVar"
+    % "LDsum";
+
+    SnpInfo *windStart, *windEnd;
+    for (unsigned i=0; i<numSnps; ++i) {
+        snp = snpInfoVec[i];
+        snp->ldSamplVar = 0.0;
+        snp->ldSum = 0.0;
+        
+        vec.resize(snp->windSize);
+        fread(vec.data(), sizeof(float), snp->windSize, in);
+        
+//        if (!(i%100)) cout << " SNP " << i << "\r";
+        
+        for (unsigned j=0; j<snp->windSize; ++j) {
+            rsq = vec[j]*vec[j];
+            if (rsq*snp->sampleSize < chisqThreshold) {
+                vec[j] = 0;
+            } else {
+                snp->ldSamplVar += (1.0-rsq)*(1.0-rsq)/snp->sampleSize;
+                snp->ldSum += vec[j];
+            }
+        }
+        
+        SparseVector<float> spvec = vec.sparseView();
+        SparseVector<float>::InnerIterator it(spvec);
+        snp->windStart = it.index();
+        snp->windSize = spvec.nonZeros();
+        for (; it; ++it) snp->windEnd = it.index();
+        
+        out1 << boost::format("%6s %15s %10s %15s %6s %6s %12f %10s %10s %10s %10s %15s %10s %12.6f %12.6f\n")
+        % snp->chrom
+        % snp->ID
+        % snp->genPos
+        % snp->physPos
+        % snp->a1
+        % snp->a2
+        % snp->af
+        % snp->index
+        % snp->windStart
+        % snp->windEnd
+        % snp->windSize
+        % -9
+        % snp->sampleSize
+        % snp->ldSamplVar
+        % snp->ldSum;
+        fwrite(spvec.innerIndexPtr(), sizeof(unsigned), snp->windSize, out2);
+        fwrite(spvec.valuePtr(), sizeof(float), snp->windSize, out2);
+        if (writeLdmTxt) out3 << vec.transpose() << endl;
+    }
+    out1.close();
+    fclose(out2);
+    
+    cout << "Written the SNP info into file [" << outfile1 << "]." << endl;
+    cout << "Written the LD matrix into file [" << outfile2 << "]." << endl;
+    
+    if (writeLdmTxt) {
+        out3.close();
+        cout << "Written the LD matrix into text file [" << outfile3 << "]." << endl;
+    }
+}
 
