@@ -49,6 +49,7 @@ public:
     vector<ParamSet*> paramSetVec;
     vector<Parameter*> paramVec;
     vector<Parameter*> paramToPrint;
+    vector<ParamSet*> paramSetToPrint;
     
     virtual void sampleUnknowns(void) = 0;
 };
@@ -217,7 +218,7 @@ public:
     class NumNonZeroSnp : public Parameter {
         // number of non-zero SNP effects
     public:
-        NumNonZeroSnp(const string &lab = "NNZsnp"): Parameter(lab){};
+        NumNonZeroSnp(const string &lab = "NnzSnp"): Parameter(lab){};
         void getValue(const unsigned nnz){ value = nnz; };
     };
 
@@ -799,7 +800,7 @@ public:
     PopulationStratification ps;
     
     ApproxBayesC(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi,
-                 const float phi, const float overdispersion, const bool message = true)
+                 const float phi, const float overdispersion, const bool estimatePS, const bool message = true)
     : BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false)
     , data(data)
     , rcorr(data.ZPy)
@@ -815,7 +816,7 @@ public:
     , overdispersion(overdispersion)
     {
         sparse = data.sparseLDM;
-        modelPS = false;
+        modelPS = estimatePS;
         paramSetVec = {&snpEffects, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &sigmaSqG};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &sigmaSqG, &rounding};
@@ -899,7 +900,8 @@ public:
 //    ApproxBayesC::Overdispersion tauSq;
     
     ApproxBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi,
-                 const float phi, const float overdispersion, const float varS, const vector<float> &svalue,
+                 const float phi, const float overdispersion, const bool estimatePS,
+                 const float varS, const vector<float> &svalue,
                  const string &algorithm, const bool message = true)
     : BayesS(data, varGenotypic, varResidual, pival, estimatePi, varS, svalue, algorithm, false)
     , rcorr(data.ZPy)
@@ -999,7 +1001,7 @@ public:
     
     ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, 
                  const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, 0, 0, false),
+    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, 0, 0, false, false),
     Pis(pis),
     gamma(gamma, vector<string>(gamma.size())),
     varg(varGenotypic, data.numKeptInds),

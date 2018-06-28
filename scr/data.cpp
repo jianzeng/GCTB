@@ -18,6 +18,34 @@ bool SnpInfo::isProximal(const SnpInfo &snp2, const unsigned physWindow) const {
     return chrom == snp2.chrom && abs(physPos - snp2.physPos) < physWindow;
 }
 
+void AnnoInfo::getSnpInfo() {
+    vector<SnpInfo*> incdSnpVec;
+    unsigned numIncdSnps = 0;
+    SnpInfo *snp;
+    for (unsigned i=0; i<size; ++i) {
+        snp = memberSnpVec[i];
+        if (snp->included) {
+            incdSnpVec.push_back(snp);
+            ++numIncdSnps;
+        }
+    }
+    memberSnpVec = incdSnpVec;
+    size = numIncdSnps;
+    snp2pq.resize(size);
+    for (unsigned i=0; i<size; ++i) {
+        snp2pq[i] = memberSnpVec[i]->twopq;
+    }
+}
+
+void AnnoInfo::print() {
+    if (myMPI::rank) return;
+    cout << boost::format("%6s %12s %10s %8.3f\n")
+    % (idx+1)
+    % label
+    % size
+    % fraction;
+}
+
 void Data::readFamFile(const string &famFile){
     // ignore phenotype column
     ifstream in(famFile.c_str());
@@ -648,6 +676,19 @@ void Data::includeMatchedSnp(){
     }
 
     if (myMPI::rank==0) cout << numIncdSnps << " SNPs on " << numChroms << " chromosomes are included." << endl;
+    
+    if (numAnnos) {
+        if (myMPI::rank==0) cout << "\nAnnotation info:" << endl;
+        numSnpAnnoVec.resize(numAnnos);
+        for (unsigned i=0; i<numAnnos; ++i) {
+            AnnoInfo *anno = annoInfoVec[i];
+            numSnpAnnoVec[i] = anno->size;
+            anno->getSnpInfo();
+            anno->fraction = float(anno->size)/float(numIncdSnps);
+            anno->print();
+        }
+        if (myMPI::rank==0) cout << endl;
+    }
 }
 
 vector<SnpInfo*> Data::makeIncdSnpInfoVec(const vector<SnpInfo*> &snpInfoVec){
@@ -3454,3 +3495,99 @@ void Data::directPruneLDmatrix(const string &ldmatrixFile, const string &outLDma
     }
 }
 
+void Data::readAnnotationFile(const string &annoFile) {
+    ifstream in(annoFile.c_str());
+    if (!in) throw ("Error: can not open the annotation file [" + annoFile + "] to read.");
+    if (myMPI::rank==0)
+        cout << "Reading SNP annotation from [" + annoFile + "]." << endl;
+    
+    map<string, SnpInfo*>::iterator it, end=snpInfoMap.end();
+    SnpInfo *snp = NULL;
+    Gadget::Tokenizer header;
+    Gadget::Tokenizer colData;
+    string inputStr;
+    string sep(" \t");
+    
+    getline(in,inputStr);
+    header.getTokens(inputStr, sep);
+    long size=header.size();
+    long line=0;
+
+    // transpose the data matrix if columns are SNPs rather than annotation categories
+    if (header.size() > 20) {
+        vector<vector<string> > datmat;
+        datmat.push_back(header);
+        while (getline(in,inputStr)) {
+            colData.getTokens(inputStr, sep);
+            if (colData.size() != size) {
+                throw("Error: the annotation file does not have consistent number of columns!");
+            }
+            datmat.push_back(colData);
+            datmat[++line].resize(size);
+            for (unsigned j=0; j<size; ++j) {
+                datmat[line][j] = colData[j];
+            }
+        }
+        line = datmat.size();
+        string outfile = Gadget::getFileName(annoFile) + ".transpose" + Gadget::getFileSuffix(annoFile);
+        ofstream out(outfile.c_str());
+        if (myMPI::rank==0)
+            cout << "Writing the tranposed SNP annotation to [" + outfile + "]." << endl;
+        for (unsigned j=0; j<size; ++j) {
+            for (unsigned i=0; i<line; ++i) {
+                if (i==0) out << boost::format("%16s ") %datmat[i][j];
+                else out << boost::format("%8s ") %datmat[i][j];
+            }
+            out << "\n";
+        }
+        readAnnotationFile(outfile);
+        return;
+    }
+    ///////////////////////////
+    
+    annoInfoVec.clear();
+    annoNames.clear();
+    for (unsigned i=1; i<size; ++i) {
+        AnnoInfo *anno = new AnnoInfo(i-1, header[i]);
+        annoInfoVec.push_back(anno);
+        annoNames.push_back(header[i]);
+    }
+    numAnnos = annoInfoVec.size();
+
+    string id;
+    while (getline(in,inputStr)) {
+        colData.getTokens(inputStr, sep);
+        id = colData[0];
+        it = snpInfoMap.find(id);
+        if (it != end) {
+            snp = it->second;
+            for (unsigned j=1; j<size; ++j) {
+                if (atoi(colData[j].c_str())) {
+                    snp->annoPtr.push_back(annoInfoVec[j-1]);
+                }
+            }
+            ++line;
+        }
+    }
+    in.close();
+    
+    unsigned numMultiAnno = 0;
+    
+    for (unsigned i=0; i<numSnps; ++i) {
+        snp = snpInfoVec[i];
+        if (!snp->included) continue;
+        if (!snp->annoPtr.size() || snp->annoPtr.size()>1) {
+            snp->included = false;
+        } else {
+            for (unsigned j=0; j<snp->annoPtr.size(); ++j) {
+                AnnoInfo *anno = snp->annoPtr[j];
+                anno->memberSnpVec.push_back(snp);
+                anno->size++;
+            }
+            if (snp->annoPtr.size() > 1) ++numMultiAnno;
+        }
+    }
+    
+    if (myMPI::rank==0)
+        cout << line << " matched SNPs in the annotation file (" << numAnnos << " annotations and " << numMultiAnno << " SNPs have more than one annotation)." << endl;
+}

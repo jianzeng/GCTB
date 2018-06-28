@@ -73,6 +73,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             geneticMapFile = argv[++i];
             ss << "--gen-map " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--annot")) {
+            annotationFile = argv[++i];
+            ss << "--annot " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--covar")) {
             covariateFile = argv[++i];
             ss << "--covar " << argv[i] << "\n";
@@ -288,6 +292,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             directPrune = true;
             ss << "--direct-prune " << "\n";
         }
+        else if (!strcmp(argv[i], "--estimate-ps")) {
+            estimatePS = true;
+            ss << "--estimate-ps " << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";
@@ -338,6 +346,10 @@ void Options::readFile(const string &file){  // input options from file
             mphen = stoi(value);
         } else if (key == "bedFile") {
             bedFile = value;
+        } else if (key == "geneticMapFile") {
+            geneticMapFile = value;
+        } else if (key == "annotationFile") {
+            annotationFile = value;
         } else if (key == "covariateFile") {
             covariateFile = value;
         } else if (key == "analysisType") {

@@ -259,7 +259,7 @@ void MCMC::printStatus(const vector<Parameter*> &paramToPrint, const unsigned th
     cout << boost::format("%=10s ") % thisIter;
     for (unsigned i=0; i<paramToPrint.size(); ++i) {
         Parameter *par = paramToPrint[i];
-        if (par->label=="NNZsnp" || par->label=="NNZwind")
+        if (par->label=="NnzSnp" || par->label=="NnzWind")
             cout << boost::format("%=12.0f ") % par->value;
         else
             cout << boost::format("%=12.4f ") % paramToPrint[i]->value;
@@ -303,6 +303,43 @@ void MCMC::printSummary(const vector<Parameter*> &paramToPrint, const vector<Mcm
     out.close();
 }
 
+void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vector<McmcSamples*> &mcmcSampleVec, const string &filename){
+    ofstream out;
+    out.open(filename.c_str());
+    if (!out) {
+        throw("Error: cannot open file " + filename);
+    }
+//    cout << "\nPosterior statistics from MCMC samples:\n\n";
+//    cout << boost::format("%13s %-15s %-15s\n") %"" % "Mean" % "SD ";
+//    out << "Posterior statistics from MCMC samples:\n\n";
+//    out << boost::format("%13s %-15s %-15s\n") %"" % "Mean" % "SD ";
+    for (unsigned i=0; i<paramSetToPrint.size(); ++i) {
+        ParamSet *parset = paramSetToPrint[i];
+        for (unsigned j=0; j<mcmcSampleVec.size(); ++j) {
+            McmcSamples *mcmcSamples = mcmcSampleVec[j];
+            if (mcmcSamples->label == parset->label) {
+                for (unsigned col=0; col<parset->size; ++col) {
+//                    cout << boost::format("%20s %10s %2s %-15.6f %-15.6f\n")
+//                    % parset->label
+//                    % parset->header[col]
+//                    % ""
+//                    % mcmcSamples->posteriorMean[col]
+//                    % sqrt(mcmcSamples->posteriorSqrMean[col]-mcmcSamples->posteriorMean[col]*mcmcSamples->posteriorMean[col]);
+                    out << boost::format("%20s %10s %2s %-15.6f %-15.6f\n")
+                    % parset->label
+                    % parset->header[col]
+                    % ""
+                    % mcmcSamples->posteriorMean[col]
+                    % sqrt(mcmcSamples->posteriorSqrMean[col]-mcmcSamples->posteriorMean[col]*mcmcSamples->posteriorMean[col]);
+                }
+                break;
+            }
+        }
+    }
+    out.close();
+}
+
+
 vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin,
                                const unsigned outputFreq, const string &title, const bool writeBinPosterior){
     if (myMPI::rank==0) cout << "MCMC launched ...\n" << endl;
@@ -335,6 +372,7 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const u
     if (myMPI::rank==0) {
         cout << "\nMCMC cycles completed." << endl;
         printSummary(model.paramToPrint, mcmcSampleVec, title + ".parRes");
+        printSetSummary(model.paramSetToPrint, mcmcSampleVec, title + ".parSetRes");
     }
 
     ///TMP

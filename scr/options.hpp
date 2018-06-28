@@ -70,6 +70,7 @@ public:
     bool writeLdmTxt;      // write ldm to txt file
     bool excludeMHC;  // exclude SNPs in the MHC region
     bool directPrune; // direct prune ldm
+    bool estimatePS;  // estimate population stratification in sbayes
 
     // Bayes R defauls
     VectorXf gamma;  // Default scaling parameters for Bayes R
@@ -93,6 +94,7 @@ public:
     string gwasSummaryFile;
     string ldmatrixFile;
     string skeletonSnpFile;
+    string annotationFile;
     string snpRange;
     string outLDmatType;
     
@@ -143,6 +145,7 @@ public:
         writeLdmTxt             = false;
         excludeMHC              = false;
         directPrune             = false;
+        estimatePS              = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";
@@ -162,6 +165,7 @@ public:
         gwasSummaryFile         = "";
         ldmatrixFile            = "";
         skeletonSnpFile         = "";
+        annotationFile          = "";
         snpRange                = "";
         outLDmatType            = "sparse";
     }
