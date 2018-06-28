@@ -916,7 +916,7 @@ public:
     {
         ghat.setZero(data.Z.rows());
         sparse = data.sparseLDM;
-        modelPS = false;
+        modelPS = estimatePS;
         paramSetVec = {&snpEffects, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &sigmaSqG};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &sigmaSqG, &S.ar, &S.tuner, &rounding};
