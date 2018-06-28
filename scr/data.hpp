@@ -27,6 +27,8 @@
 using namespace std;
 using namespace Eigen;
 
+class AnnoInfo;
+
 class SnpInfo {
 public:
     const string ID;
@@ -50,6 +52,8 @@ public:
     long sampleSize;
     
     VectorXf genotypes; // temporary storage of genotypes of individuals used for building sparse Z'Z
+    
+    vector<AnnoInfo*> annoPtr;
     
     float effect;   // estimated effect
     
@@ -103,6 +107,24 @@ public:
     const int endSnpIdx;
     
     ChromInfo(const int id, const unsigned size, const int startSnp, const int endSnp): id(id), size(size), startSnpIdx(startSnp), endSnpIdx(endSnp){}
+};
+
+class AnnoInfo {  // annotation info for SNPs
+public:
+    const int idx;
+    const string label;
+    unsigned size;
+    float fraction;   // fraction of all SNPs in this annotation
+    
+    vector<SnpInfo*> memberSnpVec;
+    VectorXf snp2pq;
+    
+    AnnoInfo(const int idx, const string &lab): idx(idx), label(lab){
+        size = 0;
+    }
+    
+    void getSnpInfo(void);
+    void print(void);
 };
 
 
@@ -174,6 +196,8 @@ public:
     vector<SnpInfo*> snpInfoVec;
     vector<IndInfo*> indInfoVec;
 
+    vector<AnnoInfo*> annoInfoVec;
+    vector<string> annoNames;
     
     map<string, SnpInfo*> snpInfoMap;
     map<string, IndInfo*> indInfoMap;
@@ -191,6 +215,7 @@ public:
     vector<bool> fullSnpFlag;
     
     vector<unsigned> numSnpMldVec;
+    vector<unsigned> numSnpAnnoVec;
     
     unsigned numFixedEffects;
     unsigned numSnps;
@@ -199,6 +224,7 @@ public:
     unsigned numKeptInds;
     unsigned numChroms;
     unsigned numSkeletonSnps;
+    unsigned numAnnos;
     
     Data(){
         numFixedEffects = 0;
@@ -208,6 +234,7 @@ public:
         numKeptInds = 0;
         numChroms = 0;
         numSkeletonSnps = 0;
+        numAnnos = 0;
         
         reindexed = false;
         sparseLDM = false;
@@ -262,6 +289,8 @@ public:
     void readLDmatrixBinFileAndShrink(const string &ldmatrixFile);
     void readMultiLDmatBinFileAndShrink(const string &mldmatFile);
     void directPruneLDmatrix(const string &ldmatrixFile, const string &outLDmatType, const float chisqThreshold, const string &title, const bool writeLdmTxt);
+    
+    void readAnnotationFile(const string &annotationFile);
 };
 
 #endif /* data_hpp */

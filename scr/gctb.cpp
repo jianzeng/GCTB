@@ -26,7 +26,7 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &include
     if (readGenotypes) data.readBedFile(bedFile + ".bed");
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const string &skeletonSnpFile, const string &geneticMapFile, const bool multiLDmat, const bool excludeMHC){
+void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile, const bool multiLDmat, const bool excludeMHC){
     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
@@ -37,6 +37,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (excludeMHC) data.excludeMHC();
     if (!skeletonSnpFile.empty()) data.includeSkeletonSnp(skeletonSnpFile);
     if (!geneticMapFile.empty()) data.readGeneticMapFile(geneticMapFile);
+    if (!annotationFile.empty()) data.readAnnotationFile(annotationFile);
     if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile);
     data.includeMatchedSnp();
     if (geneticMapFile.empty()) {
@@ -67,20 +68,27 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSum
 }
 
 Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
-                         const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, const float phi, const float kappa,
-                         const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S, const float overdispersion){
+                         const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS){
     data.initVariances(heritability);
     if (!gwasFile.empty()) {
-        if (bayesType == "C")
-            return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion);
-        else if (bayesType == "S")
-            return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion, varS, S, algorithm);
-        else if (bayesType == "R") 
-            return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi);
-        else if (bayesType == "Kap")
-            return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi, kappa);
-        else
-            throw(" Error: Wrong bayes type: " + bayesType + " in the summary-data-based Bayes analysis.");
+        if (data.numAnnos) {
+            if (bayesType == "S")
+                return new StratApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion, estimatePS, varS, S, algorithm);
+            else
+                throw(" Error: Wrong bayes type: " + bayesType + " in the annotation-stratified summary-data-based Bayesian analysis.");
+        }
+        else {
+            if (bayesType == "C")
+                return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion, estimatePS);
+            else if (bayesType == "S")
+                return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion, estimatePS, varS, S, algorithm);
+            else if (bayesType == "R")
+                return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi);
+            else if (bayesType == "Kap")
+                return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi, kappa);
+            else
+                throw(" Error: Wrong bayes type: " + bayesType + " in the summary-data-based Bayesian analysis.");
+        }
     }
     if (bayesType == "B") {
         data.readBedFile(bedFile + ".bed");
@@ -111,11 +119,11 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
     else if (bayesType == "Cap") {
         //data.readBedFile(bedFile + ".bed");
         data.buildSparseMME(bedFile + ".bed", windowWidth);
-        return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion);
+        return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion, estimatePS);
     }
     else if (bayesType == "Sap") {
         data.buildSparseMME(bedFile + ".bed", windowWidth);
-        return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion, varS, S, algorithm);
+        return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion, estimatePS, varS, S, algorithm);
     }
     else {
         throw(" Error: Wrong bayes type: " + bayesType);

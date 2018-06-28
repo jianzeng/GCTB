@@ -19,6 +19,7 @@
 #include "hsq.hpp"
 #include "predict.hpp"
 #include "mympi.hpp"
+#include "stratify.hpp"
 
 class GCTB {
 public:
@@ -31,14 +32,16 @@ public:
     void inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile,
                       const unsigned includeChr, const string &skeletonSnpFile, const string &geneticMapFile, const bool readGenotypes);
     void inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile,
-                      const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const string &skeletonSnpFile, const string &geneticMapFile,
+                      const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr,
+                      const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile,
                       const bool multiLDmatrix, const bool excludeMHC);
     
     void inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile);
 
     Model* buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
-                      const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, const float phi, const float kappa,
-                      const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S, const float overdispersion);
+                      const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma,
+                      const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow,
+                      const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS);
     vector<McmcSamples*> runMcmc(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior);
     void saveMcmcSamples(const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
     void outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &filename);

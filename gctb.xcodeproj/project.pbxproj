@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		508B5D9720E1001000C913C0 /* stratify.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 508B5D9520E1001000C913C0 /* stratify.cpp */; };
 		50E376C81FC58EEC0038770F /* gctb.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 50E376AE1FC58EEC0038770F /* gctb.cpp */; };
 		50E376C91FC58EEC0038770F /* data.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 50E376B01FC58EEC0038770F /* data.cpp */; };
 		50E376CA1FC58EEC0038770F /* gadgets.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 50E376B21FC58EEC0038770F /* gadgets.cpp */; };
@@ -37,6 +38,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		508B5D9520E1001000C913C0 /* stratify.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = stratify.cpp; path = scr/stratify.cpp; sourceTree = SOURCE_ROOT; };
+		508B5D9620E1001000C913C0 /* stratify.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = stratify.hpp; path = scr/stratify.hpp; sourceTree = SOURCE_ROOT; };
 		50E3767F1FC585380038770F /* gctb */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = gctb; sourceTree = BUILT_PRODUCTS_DIR; };
 		50E376AE1FC58EEC0038770F /* gctb.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = gctb.cpp; path = scr/gctb.cpp; sourceTree = SOURCE_ROOT; };
 		50E376AF1FC58EEC0038770F /* gctb.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = gctb.hpp; path = scr/gctb.hpp; sourceTree = SOURCE_ROOT; };
@@ -126,6 +129,8 @@
 				50E376C51FC58EEC0038770F /* vgmaf.hpp */,
 				50E376C61FC58EEC0038770F /* xci.cpp */,
 				50E376C71FC58EEC0038770F /* xci.hpp */,
+				508B5D9520E1001000C913C0 /* stratify.cpp */,
+				508B5D9620E1001000C913C0 /* stratify.hpp */,
 			);
 			name = scr;
 			path = gctb;
@@ -200,6 +205,7 @@
 				50E376CC1FC58EEC0038770F /* main.cpp in Sources */,
 				50E376D51FC58EEC0038770F /* xci.cpp in Sources */,
 				50E376C91FC58EEC0038770F /* data.cpp in Sources */,
+				508B5D9720E1001000C913C0 /* stratify.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
