@@ -1388,7 +1388,12 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
 
 void Data::outputLDmatrix(const string &LDmatType, const string &filename) const {
     bool outText = true;
-    string outfilename = filename + ".ldm." + LDmatType;
+    string outfilename;
+    if (LDmatType == "sparseshrunk") {
+        outfilename = filename + ".ldm." + "sparse";
+    } else {
+        outfilename = filename + ".ldm." + LDmatType;
+    }
     string outfile1 = outfilename + ".info";
     string outfile2 = outfilename + ".bin";
     ofstream out1(outfile1.c_str());
