@@ -1418,7 +1418,8 @@ void Data::outputLDmatrix(const string &LDmatType, const string &filename) const
         %snp->windSize
         %(incdSnpInfoVec[snp->windEnd]->physPos - incdSnpInfoVec[snp->windStart]->physPos)
         %snp->sampleSize;
-        if (LDmatType == "sparse") {
+        // cout << " i " << i << endl;
+        if (LDmatType == "sparse" || LDmatType == "sparseshrunk") {
             fwrite(ZPZsp[i].innerIndexPtr(), sizeof(unsigned), ZPZsp[i].nonZeros(), out2);
             fwrite(ZPZsp[i].valuePtr(), sizeof(float), ZPZsp[i].nonZeros(), out2);
             if (outText) out3 << ZPZsp[i].transpose() << endl;
@@ -1522,6 +1523,9 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
     token.getTokens(ldmatrixFile, ".");
     string ldmType = token[token.size()-2];
     sparseLDM = ldmType == "sparse" ? true : false;
+
+    // New part for shrunk part ldm 
+    shrunkLDM = ldmType == "shrunk" ? true : false;
     
     VectorXi windStartLDM(numSnps);
     VectorXi windSizeLDM(numSnps);
@@ -1849,8 +1853,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
     if (LDmatType == "shrunk") {
         VectorXi windStartOri = windStart;
         VectorXi windSizeOri = windSize;
-        VectorXf ZPZiTmp;
-        cout << "Resizing LD matrix using shrunk matrix properties " << LDthreshold << "..." << endl;
+        cout << "Resizing LD matrix using shrunk matrix properties ..." << endl;
         // ----------------------------------------------------
         // NEW - Calculate the mutation rate components 
         // ----------------------------------------------------
@@ -1870,27 +1873,128 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         for (unsigned i=0; i<numIncdSnps; ++i) {
             SnpInfo *snp = incdSnpInfoVec[i];
             mi[i] = (snp->sampleSize);
-            int  n = 2 * mi[i] - 1;
+            int  n = 2.0 * mi[i] - 1.0;
             // cout << "snp " << i << " sample size " << snp->sampleSize << endl;
             // Approximation to the harmonic series
-            nmsumi[i] = log(n) + 0.5772156649 + 1 / (2 * n) - 1 / (12 * pow(n, 2)) + 1 / (120 * pow(n, 4));
+            nmsumi[i] = log(n) + 0.5772156649 + 1.0/ (2.0 * n) - 1.0 / (12.0 * pow(n, 2)) + 1.0 / (120.0 * pow(n, 4));
             //cout << nmsumi[i] << endl;
             // Calculate theta
-            thetai[i] = (1 / nmsumi[i]) / (2 * (snp->sampleSize) + 1 / nmsumi[i]);
+            thetai[i] = (1.0 / nmsumi[i]) / (2.0 * (snp->sampleSize) + 1.0 / nmsumi[i]);
             //cout <<  thetai[i] << endl;
             // Pull out the standard deviation for each variant
-            sdss[i] = sqrt(2 * (snp->af) * (1 - (snp->af)));
+            sdss[i] = sqrt(2.0 * (snp->af) * (1.0 - (snp->af)));
             // cout << "snp " << i << " af " << snp->af << endl;
             // 
             gmapi[i] = snp->gen_map_pos;
         }
         long int nmsum;
         float theta;
-        // cout << "sdss " << sdss << endl;
-        // cout << "First column of ZPZ " << ZPZ[0] << endl;
+        // cout << "I made it here  for shrunk sparse " << endl;
+        
         // Rescale Z to the covariance scale
+        VectorXf sdssSub;
         for (unsigned i=0; i<numIncdSnps; ++i) {
-            ZPZ[i] = (sdss[i] / 2) *  sdss.array() * ZPZ[i].array();
+            sdssSub = sdss.segment(windStart[i], windSizeOri[i]);
+            ZPZ[i] = (sdss[i] / 2.0) *  sdssSub.array() * ZPZ[i].array();
+        }
+        // cout << "I made it here  for shrunk sparse " << endl;
+        // --------------------------------------------------------
+        // Compute the shrinkage value and then shrink the elements
+        // --------------------------------------------------------
+        // cout << "Made it here 2 " << endl;
+        float mapdiffi; 
+        float rho;
+        float shrinkage;
+        float Ne = effpopNE;
+        cout << "Using European effective population size Ne=" << Ne << " please alter with --ne if inappropriate. ";
+        float cutoff = cutOff;
+        for (unsigned i=0; i<numIncdSnps; ++i) {
+            // cout << i << endl;
+            SnpInfo *snp = incdSnpInfoVec[i];
+            unsigned windEndi = windSizeOri[i];
+            // Cout window size before
+            // -----------------------
+            // cout << "windEndi " << windEndi << endl;
+            windSize[i] = snp->windSize = windStartOri[i] + windEndi - windStart[i];
+            // cout << "windSize[i] " << windSize[i] << endl;
+            // cout << "windStartOri[i] " << windStartOri[i] << endl;
+            // cout << "windStart[i] " << windStart[i] << " wind end " << windStart[i] + windSize[i] << endl;
+            // -----------------------
+            for (unsigned j=0; j<windSize[i]; ++j) {
+                // cout << " j " << j << " (windStart[i] + j) " << (windStart[i] + j) << endl;
+                mapdiffi = abs(gmapi[(windStart[i] + j)] - gmapi[i]);
+                rho = 4.0 * Ne * (mapdiffi / 100.0);
+                shrinkage = exp(-rho / (mi[i] + mi[(windStart[i] + j)])); 
+                // cout << "Shrinkage " << shrinkage << endl;
+                if (shrinkage <= cutoff)
+                {
+                    shrinkage = 0.0;
+                }
+                // // Multiple each covariance matrix element with the shrinkage value
+                ZPZ[i][j] = ZPZ[i][j] * shrinkage;
+                // // Complete as SigHAat from Li and Stephens 2003
+                ZPZ[i][j] =  ZPZ[i][j] * ((1.0 - thetai[i]) * (1.0 - thetai[(windStart[i] + j)]));
+                // If it's the diagonal element add the extra term
+                if (i == (windStart[i] + j))
+                {
+                    ZPZ[i][j] = ZPZ[i][j] + 0.5f * thetai[i] * (1.0 - 0.5f * thetai[i]);
+                }  
+            }
+        }
+        // Now back to correlation
+        for (unsigned i=0; i<numIncdSnps; ++i) {
+            sdssSub = sdss.segment(windStart[i], windSizeOri[i]);
+            ZPZ[i]  = (2.0 / sdss[i]) *  (1.0 / sdssSub.array()) * ZPZ[i].array();
+        }
+    }
+    if (LDmatType == "sparseshrunk") {
+        cout << "Resizing sparse LD matrix using shrunk matrix properties ..." << endl;
+        // ----------------------------------------------------
+        // NEW - Calculate the mutation rate components 
+        // ----------------------------------------------------
+        // m is the number of individuals in the reference panel for each variant
+        // Need to compute theta, which is related to the mutation rate
+        VectorXf nmsumi;
+        VectorXf thetai;
+        VectorXf mi;
+        VectorXf gmapi;
+        VectorXf sdss;
+        //cout << "Snps size " << incdSnpInfoVec.size() << endl;
+        nmsumi.resize(numIncdSnps);
+        thetai.resize(numIncdSnps);
+        sdss.resize(numIncdSnps);
+        mi.resize(numIncdSnps);
+        gmapi.resize(numIncdSnps);
+        for (unsigned i=0; i<numIncdSnps; ++i) {
+            SnpInfo *snp = incdSnpInfoVec[i];
+            mi[i] = (snp->sampleSize);
+            int  n = 2.0 * mi[i] - 1.0;
+            // cout << "snp " << i << " sample size " << snp->sampleSize << endl;
+            // Approximation to the harmonic series
+            nmsumi[i] = log(n) + 0.5772156649 + 1.0 / (2.0 * n) - 1.0 / (12.0 * pow(n, 2)) + 1.0 / (120.0 * pow(n, 4));
+            //cout << nmsumi[i] << endl;
+            // Calculate theta
+            thetai[i] = (1.0 / nmsumi[i]) / (2.0 * (snp->sampleSize) + 1 / nmsumi[i]);
+            //cout <<  thetai[i] << endl;
+            // Pull out the standard deviation for each variant
+            sdss[i] = sqrt(2.0 * (snp->af) * (1.0 - (snp->af)));
+            //
+            gmapi[i] = snp->gen_map_pos;
+        }
+        long int nmsum;
+        float theta;
+        // Rescale Z to the covariance scale
+        float rsq = 0.0; 
+        for (unsigned i=0; i<numIncdSnps; ++i) {
+            // cout << "Before " << ZPZsp[i] << endl;
+            for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
+                // snpj = incdSnpInfoVec[it.index()];
+                rsq = (sdss[i] / 2.0) *  sdss[it.index()] * it.value();
+                // cout << "sdss[i] " << sdss[i] << " sdss[it.index()] " << sdss[it.index()] << " it.value() " << it.value() << " it.index() " << it.index() << endl;
+                // cout << "rsq " << rsq << endl;
+                it.valueRef() = rsq;
+            }
+            // cout << "After " << ZPZsp[i] << endl;
         }
         // --------------------------------------------------------
         // Compute the shrinkage value and then shrink the elements
@@ -1899,35 +2003,46 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         float rho;
         float shrinkage;
         float Ne = effpopNE;
-        cout << "Using European effective population size Ne=" << Ne << " please alter with --ne if inappropriate.";
+        cout << "Using European effective population size Ne=" << Ne << " please alter with --ne if inappropriate. ";
         float cutoff = cutOff;
         for (unsigned i=0; i<numIncdSnps; ++i) {
-            for (unsigned j=i; j<numIncdSnps; ++j) {
-                mapdiffi = gmapi[j] - gmapi[i];
+            // -----------------------------
+            // Shrinkage using sparse matrix
+            // -----------------------------
+            float ZPZij = 0.0;
+            for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
+                // cout << " j " << j << " (windStart[i] + j) " << (windStart[i] + j) << endl;
+                mapdiffi = abs(gmapi[it.index()] - gmapi[i]);
                 rho = 4.0 * Ne * (mapdiffi / 100.0);
-                shrinkage = exp(-rho / (2.0 * mi[i])); 
+                shrinkage = exp(-rho / (mi[i] + mi[it.index()])); 
+                // cout << "Shrinkage " << shrinkage << endl;
                 if (shrinkage <= cutoff)
                 {
                     shrinkage = 0.0;
                 }
                 // Multiple each covariance matrix element with the shrinkage value
-                ZPZ[i][j] = ZPZ[i][j] * shrinkage;
+                ZPZij = it.value() * shrinkage;
                 // Complete as SigHAat from Li and Stephens 2003
-                ZPZ[i][j] =  ZPZ[i][j] * ((1.0 - thetai[i]) * (1.0 - thetai[i]));
+                ZPZij =  ZPZij * ((1.0 - thetai[i]) * (1.0 - thetai[it.index()]));
                 // If it's the diagonal element add the extra term
-                if (i == j)
+                if (i == (it.index()))
                 {
-                    ZPZ[i][j] = ZPZ[i][j] + 0.5f * thetai[i] * (1.0 - 0.5f * thetai[i]);
-                }  
-                // Make the upper triangle equal to the lower triangle
-                ZPZ[j][i] =  ZPZ[i][j];
+                    ZPZij = ZPZij + 0.5f * thetai[i] * (1.0 - 0.5f * thetai[i]);
+                } 
+                it.valueRef()= ZPZij; 
             }
+            // cout << "After " << ZPZsp[i] << endl;
         }
         // // Now back to correlation
         for (unsigned i=0; i<numIncdSnps; ++i) {
-            ZPZ[i]  = (2.0 / sdss[i]) *  (1.0 / sdss.array()) * ZPZ[i].array();
+            for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
+                // snpj = incdSnpInfoVec[it.index()];
+                rsq = (2.0 / sdss[i]) *  (1.0 / sdss[it.index()]) * it.value();
+                // cout << "sdss[i] " << sdss[i] << " sdss[it.index()] " << sdss[it.index()] << " it.value() " << it.value() << " it.index() " << it.index() << endl;
+                // cout << "rsq " << rsq << endl;
+                it.valueRef() = rsq;
+            }
         }
-        // cout << "First column of ZPZ " << ZPZ[0] << endl;
     }
     displayAverageWindowSize(windSize);
 }
@@ -2256,7 +2371,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
         for (unsigned j=0; j<numIncdSnps; ++j) {
             mapdiffi = abs(gmapi[j] - gmapi[start+i]);
             rho = 4.0 * Ne * (mapdiffi / 100.0);
-            shrinkage = exp(-rho / (2.0 * mi[start+i])); 
+            shrinkage = exp(-rho / (mi[start+i] + mi[j])); 
             // if (i <=10 && j <= 10)
             // { 
             //     cout << "Snp " << i << " " << j << " Mapdiff " << mapdiffi << " shrinkage " << shrinkage << endl;
@@ -2274,6 +2389,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
             denseZPZ(i, j) *= shrinkage;
             // Complete as SigHAat from Li and Stephens 2003
             denseZPZ(i, j) *= ((1.0 - thetai[start+i]) * (1.0 - thetai[j]));
+            // cout << "SNP i j" << i << " " << j << " shrinkage " << shrinkage << " mapdiffi " << mapdiffi << endl;
             // If it's the diagonal element add the extra term
             if ((start + i) == j)
             {
