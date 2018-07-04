@@ -153,6 +153,7 @@ public:
     
     bool reindexed;
     bool sparseLDM;
+    bool shrunkLDM;
     
     vector<SnpInfo*> snpInfoVec;
     vector<IndInfo*> indInfoVec;
