@@ -2013,6 +2013,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
     // Scale the variances in each of the normal distributions by the genetic variance
     // and initialise the class membership probabilities
     // --------------------------------------------------------------------------------
+    ndist = pis.size();
     gp = gamma * sigmaSq;
     // --------------------------------------------------------------------------------
     // Cycle over all variants in the window and sample the genetics effects
