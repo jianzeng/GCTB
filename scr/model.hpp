@@ -153,7 +153,7 @@ public:
         const float alpha;  // hyperparameter
         const float beta;   // hyperparameter
         
-        Pi(const float pi, const string &lab = "Pi"): Parameter(lab), alpha(1), beta(1){  // informative prior
+        Pi(const float pi, const string &lab = "Pi"): Parameter(lab), alpha(1), beta(19){  // informative prior
             value = pi;
         }
         

@@ -53,7 +53,7 @@ class StratApproxBayesS : public ApproxBayesS {  // annotation stratified analys
         const float beta;
         
         PiStratified(const vector<string> &header, const float pi, const string &lab = "Pi_Stratified"):
-        ParamSet(lab, header), alpha(1), beta(1) {
+        ParamSet(lab, header), alpha(1), beta(19) {
             values.setConstant(size, pi);
         }
         
@@ -62,9 +62,17 @@ class StratApproxBayesS : public ApproxBayesS {  // annotation stratified analys
     
     class PiEnrichment : public ParamSet {
     public:
-        PiEnrichment(const vector<string> &header, const string &lab = "Pi_Enrichment"): ParamSet(lab, header){}
+        VectorXf expectation;
         
-        void compute(const VectorXf &piStrat, const float pi);
+        PiEnrichment(const vector<string> &header, const vector<AnnoInfo*> &annoVec, const string &lab = "Pi_Enrichment"): ParamSet(lab, header) {
+            expectation.resize(size);
+            for (unsigned i=0; i<size; ++i) {
+                AnnoInfo *anno = annoVec[i];
+                expectation[i] = anno->fraction;
+            }
+        }
+        
+        void compute(const VectorXf &nnzStrat, const float nnzTotal);
     };
     
     class NnzStratified : public ParamSet {  // number of non-zero SNP effects
@@ -88,13 +96,9 @@ class StratApproxBayesS : public ApproxBayesS {  // annotation stratified analys
     
     class HeritabilityEnrichment : public ParamSet {
     public:
-        const unsigned numSnps;
-        const vector<unsigned> numSnpAnno;
+        HeritabilityEnrichment(const vector<string> &header, const string &lab = "hsq_Enrichment"): ParamSet(lab, header) {}
         
-        HeritabilityEnrichment(const vector<string> &header, const vector<unsigned> &numSnpAnno, const unsigned numSnps, const string &lab = "hsq_Enrichment"):
-        ParamSet(lab, header), numSnps(numSnps), numSnpAnno(numSnpAnno) {}
-        
-        void compute(const VectorXf &hsqStrat, const float hsqTotal);
+        void compute(const VectorXf &hsqStrat, const VectorXf &nnzStrat, const float hsqTotal, const float nnzTotal);
     };
     
     class SpStratified : public ParamSet {
@@ -175,17 +179,17 @@ public:
     sigmaSqStrat(data.annoNames, data.annoInfoVec, varGenotypic, pival),
     sigmaSqEnrich(data.annoNames),
     piStrat(data.annoNames, pival),
-    piEnrich(data.annoNames),
+    piEnrich(data.annoNames, data.annoInfoVec),
     nnzStrat(data.annoNames),
     hsqStrat(data.annoNames, data.numKeptInds),
-    hsqEnrich(data.annoNames, data.numSnpAnnoVec, data.numIncdSnps),
+    hsqEnrich(data.annoNames),
     Sstrat(data.annoNames, data.snp2pq, data.numAnnos, varS),
     Senrich(data.annoNames),
     scaleStrat(data.annoNames)
     {
-        paramSetVec = {&snpEffects, &piStrat, &piEnrich, &nnzStrat, &sigmaSqStrat, &sigmaSqEnrich, &hsqStrat, &hsqEnrich, &Sstrat, &Senrich, &scaleStrat};
+        paramSetVec = {&snpEffects, &piStrat, &piEnrich, &nnzStrat, &sigmaSqStrat, &sigmaSqEnrich, &hsqStrat, &hsqEnrich, &Sstrat, &Senrich};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
-        paramSetToPrint = {&piStrat, &piEnrich, &nnzStrat, &sigmaSqStrat, &sigmaSqEnrich, &hsqStrat, &hsqEnrich, &Sstrat, &Senrich, &scaleStrat};
+        paramSetToPrint = {&piStrat, &piEnrich, &nnzStrat, &sigmaSqStrat, &sigmaSqEnrich, &hsqStrat, &hsqEnrich, &Sstrat, &Senrich};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &rounding};
         if (modelPS) {
             paramVec.push_back(&ps);

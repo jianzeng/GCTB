@@ -325,13 +325,27 @@ void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vecto
 //                    % ""
 //                    % mcmcSamples->posteriorMean[col]
 //                    % sqrt(mcmcSamples->posteriorSqrMean[col]-mcmcSamples->posteriorMean[col]*mcmcSamples->posteriorMean[col]);
-                    out << boost::format("%20s %10s %2s %-15.6f %-15.6f\n")
+                    out << boost::format("%20s %10s %2s %-15.6f %-15.6f ")
                     % parset->label
                     % parset->header[col]
                     % ""
                     % mcmcSamples->posteriorMean[col]
                     % sqrt(mcmcSamples->posteriorSqrMean[col]-mcmcSamples->posteriorMean[col]*mcmcSamples->posteriorMean[col]);
-                }
+                    Gadget::Tokenizer token;
+                    token.getTokens(parset->label, "_");
+                    float postprob = 0;
+                    if (token.back() == "Enrichment") {
+                        for (unsigned row=0; row<mcmcSamples->nrow; ++row) {
+                            if (mcmcSamples->datMat(row, col) > 1) ++postprob;
+                        }
+                    } else {
+                        for (unsigned row=0; row<mcmcSamples->nrow; ++row) {
+                            if (mcmcSamples->datMat(row, col) > 0) ++postprob;
+                        }
+                    }
+                    postprob /= float(mcmcSamples->nrow);
+                    out << boost::format("%-15.6f\n") % postprob;
+               }
                 break;
             }
         }
