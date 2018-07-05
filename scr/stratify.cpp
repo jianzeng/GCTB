@@ -18,7 +18,7 @@ void StratApproxBayesS::VarEffectStratified::sampleFromFC(const VectorXf &snpEff
 
 void StratApproxBayesS::VarEffectEnrichment::compute(const VectorXf &sigmaSqStrat, const float sigmaSq) {
     for (unsigned i=0; i<size; ++i) {
-        values[i] = sigmaSqStrat[i] > sigmaSq ? 1 : 0;
+        values[i] = sigmaSqStrat[i]/sigmaSq;
     }
 }
 
@@ -30,9 +30,10 @@ void StratApproxBayesS::PiStratified::sampleFromFC(const vector<unsigned> &numSn
     }
 }
 
-void StratApproxBayesS::PiEnrichment::compute(const VectorXf &piStrat, const float pi) {
+void StratApproxBayesS::PiEnrichment::compute(const VectorXf &nnzStrat, const float nnzTotal) {
     for (unsigned i=0; i<size; ++i) {
-        values[i] = piStrat[i] > pi ? 1 : 0;
+        float obs = nnzStrat[i]/nnzTotal;
+        values[i] = obs/expectation[i];
     }
 }
 
@@ -78,10 +79,11 @@ void StratApproxBayesS::HeritabilityStratified::compute(const VectorXf &snpEffec
     }
 }
 
-void StratApproxBayesS::HeritabilityEnrichment::compute(const VectorXf &hsqStrat, const float hsqTotal) {
-    float averageHsq = hsqTotal/float(numSnps);
+void StratApproxBayesS::HeritabilityEnrichment::compute(const VectorXf &hsqStrat, const VectorXf &nnzStrat, const float hsqTotal, const float nnzTotal) {
+    float expectation = hsqTotal/float(nnzTotal);
     for (unsigned i=0; i<size; ++i) {
-        values[i] = hsqStrat[i]/float(numSnpAnno[i]) > averageHsq ? 1 : 0;
+        float obs = nnzStrat[i] ? hsqStrat[i]/float(nnzStrat[i]) : 0;
+        values[i] = obs/expectation;
     }
 }
 
@@ -178,7 +180,7 @@ float StratApproxBayesS::SpStratified::computeU(const float S, const VectorXf &s
 
 void StratApproxBayesS::SpEnrichment::compute(const VectorXf &Sstrat, const float S) {
     for (unsigned i=0; i<size; ++i) {
-        values[i] = Sstrat[i] < S ? 1 : 0;   // lower than S since mostly S is negative
+        values[i] = Sstrat[i]/S;
     }
 }
 
@@ -251,28 +253,28 @@ void StratApproxBayesS::sampleUnknowns() {
                                 varg.value, vare.value, ps.value, overdispersion);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros.sum() == 0);
-    
-    if (estimatePi) {
-        pi.sampleFromFC(data.numIncdSnps, snpEffects.numNonZeros.sum());
-        piStrat.sampleFromFC(data.numSnpAnnoVec, snpEffects.numNonZeros);
-        piEnrich.compute(piStrat.values, pi.value);
-    }
-    
+
     nnzSnp.getValue(snpEffects.numNonZeros.sum());
     nnzStrat.getValues(snpEffects.numNonZeros);
+
+    if (estimatePi) {
+        pi.sampleFromFC(data.numIncdSnps, nnzSnp.value);
+        piStrat.sampleFromFC(data.numSnpAnnoVec, nnzStrat.values);
+        piEnrich.compute(nnzStrat.values, nnzSnp.value);
+    }
     
-    sigmaSq.sampleFromFC(snpEffects.wtdSumSq.sum(), snpEffects.numNonZeros.sum());
-    sigmaSqStrat.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
+    sigmaSq.sampleFromFC(snpEffects.wtdSumSq.sum(), nnzSnp.value);
+    sigmaSqStrat.sampleFromFC(snpEffects.wtdSumSq, nnzStrat.values);
     sigmaSqEnrich.compute(sigmaSqStrat.values, sigmaSq.value);
     
     vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr);
     varg.compute(snpEffects.values, data.ZPy, rcorr);
     hsq.compute(varg.value, vare.value);
     hsqStrat.compute(snpEffects.values, annowiseZPZsp, annowiseZPZdiag, data.annoInfoVec, varg.value, vare.value);
-    hsqEnrich.compute(hsqStrat.values, hsq.value);
+    hsqEnrich.compute(hsqStrat.values, nnzStrat.values, hsq.value, nnzSnp.value);
     
-    S.sampleFromFC(snpEffects.wtdSumSq.sum(), snpEffects.numNonZeros.sum(), sigmaSq.value, snpEffects.values, data.snp2pq, snp2pqPowS, logSnp2pq, varg.value, sigmaSq.scale, snpEffects.sum2pqOneMinusS);
-    Sstrat.sampleFromFC(snpEffects.values, snpEffects.numNonZeros, data.snp2pq, sigmaSqStrat.values, hsqStrat.values,
+    S.sampleFromFC(snpEffects.wtdSumSq.sum(), nnzSnp.value, sigmaSq.value, snpEffects.values, data.snp2pq, snp2pqPowS, logSnp2pq, varg.value, sigmaSq.scale, snpEffects.sum2pqOneMinusS);
+    Sstrat.sampleFromFC(snpEffects.values, nnzStrat.values, data.snp2pq, sigmaSqStrat.values, hsqStrat.values,
                         varg.value, vare.value, data.annoInfoVec, sigmaSqStrat.scales);
     Senrich.compute(Sstrat.values, S.value);
     
