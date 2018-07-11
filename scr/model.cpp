@@ -1661,13 +1661,31 @@ void ApproxBayesC::Rounding::computeGhat(const MatrixXf &Z, const VectorXf &snpE
     value = sqrt(Gadget::calcVariance(ghatOld-ghat));
 }
 
-void ApproxBayesC::PopulationStratification::compute(const VectorXf &rcorr, const VectorXf &ZPZdiag, const VectorXf &LDsamplVar, const float varg, const float vare){
-    value = (rcorr.array().square()/ZPZdiag.array() - LDsamplVar.array()*varg - vare).mean();
+void ApproxBayesC::PopulationStratification::compute(const VectorXf &rcorr, const VectorXf &ZPZdiag, const VectorXf &LDsamplVar, const float varg, const float vare, const VectorXf &chisq){
+//    value = (rcorr.array().square()/ZPZdiag.array() - LDsamplVar.array()*varg - vare).mean();
     
-//    ofstream out("rcorr.txt");
-//    out << rcorr.array().square()/ZPZdiag.array() << endl;
-//    out.close();
-
+    VectorXf tmp = rcorr.array().square()/ZPZdiag.array() - LDsamplVar.array()*varg;
+    value = 0.0;
+    long size = rcorr.size();
+    long cnt = 0;
+    for (unsigned i=0; i<size; ++i) {
+        if (chisq[i] < 30) {
+            value += tmp[i];
+            ++cnt;
+        }
+    }
+    value /= float(cnt);
+    value -= vare;
+    
+//    VectorXf tmp = rcorr.array().square()/ZPZdiag.array();
+//    std::sort(tmp.data(), tmp.data() + tmp.size());
+//    float lambda = tmp[tmp.size()/2]/0.4549364;
+//    value = lambda - LDsamplVar.mean()*varg - vare;
+    
+    //    ofstream out("rcorr.txt");
+    //    out << rcorr.array().square()/ZPZdiag.array() - LDsamplVar.array()*varg - vare << endl;
+    //    out.close();
+    
 }
 
 void ApproxBayesC::ldScoreReg(const VectorXf &chisq, const VectorXf &LDscore, const VectorXf &LDsamplVar,
@@ -1750,7 +1768,7 @@ void ApproxBayesC::sampleUnknowns(){
         rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
-    if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value);
+    if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, data.chisq);
 //    ldScoreReg(data.chisq, data.LDscore, data.LDsamplVar, varg.value, vare.value, ps.value, vargj.value);
 }
 
@@ -1771,15 +1789,15 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
     //ssq.setZero(numChr);
     //nnz.setZero(numChr);
     
-//    for (unsigned chr=0; chr<numChr; ++chr) {
-//        ChromInfo *chromInfo = chromInfoVec[chr];
-//        unsigned chrStart = chromInfo->startSnpIdx;
-//        unsigned chrEnd   = chromInfo->endSnpIdx;
-//        if (iter==0) {
-//            cout << "chr " << chr+1 << " start " << chrStart << " end " << chrEnd << endl;
-//        }
-//    }
-//    if (iter==0) cout << endl;
+    for (unsigned chr=0; chr<numChr; ++chr) {
+        ChromInfo *chromInfo = chromInfoVec[chr];
+        unsigned chrStart = chromInfo->startSnpIdx;
+        unsigned chrEnd   = chromInfo->endSnpIdx;
+        if (iter==0) {
+            cout << "chr " << chr+1 << " start " << chrStart << " end " << chrEnd << endl;
+        }
+    }
+    if (iter==0) cout << endl;
     
     float *valuesPtr = values.data(); // for openmp, otherwise when one thread writes to the vector, the vector locking precents the writing from other threads
 
@@ -1809,6 +1827,12 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
         //float snp2pqOneMinusS;
         float varei;
         
+//        float vare = tss.segment(chrStart, chrSize).mean() - values.segment(chrStart, chrSize).dot(ZPy.segment(chrStart, chrSize)) - values.segment(chrStart, chrSize).dot(rcorr.segment(chrStart, chrSize));
+//        vare /= n.segment(chrStart, chrSize).mean();
+
+        float vare = tss.mean() - values.dot(ZPy) - values.dot(rcorr);
+        vare /= n.mean();
+
         for (unsigned i=chrStart; i<=chrEnd; ++i) {
             oldSample = valuesPtr[i];
             
@@ -2242,7 +2266,7 @@ void ApproxBayesS::sampleUnknowns(){
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pqOneMinusS);
     
-    if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value);
+    if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, data.chisq);
 //    ApproxBayesC::ldScoreReg(data.chisq, data.LDscore, data.LDsamplVar, varg.value, vare.value, ps.value, vargj.value);
     
 //    if (!(iter % 100)) vareiMean += varei;  ///TMP

@@ -79,7 +79,13 @@ void StratApproxBayesS::HeritabilityStratified::compute(const VectorXf &snpEffec
     }
 }
 
-void StratApproxBayesS::HeritabilityEnrichment::compute(const VectorXf &hsqStrat, const VectorXf &nnzStrat, const float hsqTotal, const float nnzTotal) {
+void StratApproxBayesS::TotalHeritabilityEnrichment::compute(const VectorXf &hsqStrat, const VectorXf &expFrac, const float hsqTotal) {
+    for (unsigned i=0; i<size; ++i) {
+        values[i] = hsqStrat[i]/hsqTotal/expFrac[i];
+    }
+}
+
+void StratApproxBayesS::PerSnpHeritabilityEnrichment::compute(const VectorXf &hsqStrat, const VectorXf &nnzStrat, const float hsqTotal, const float nnzTotal) {
     float expectation = hsqTotal/float(nnzTotal);
     for (unsigned i=0; i<size; ++i) {
         float obs = nnzStrat[i] ? hsqStrat[i]/float(nnzStrat[i]) : 0;
@@ -271,14 +277,15 @@ void StratApproxBayesS::sampleUnknowns() {
     varg.compute(snpEffects.values, data.ZPy, rcorr);
     hsq.compute(varg.value, vare.value);
     hsqStrat.compute(snpEffects.values, annowiseZPZsp, annowiseZPZdiag, data.annoInfoVec, varg.value, vare.value);
-    hsqEnrich.compute(hsqStrat.values, nnzStrat.values, hsq.value, nnzSnp.value);
+    totalHsqEnrich.compute(hsqStrat.values, piEnrich.expectation, hsq.value);
+    perSnpHsqEnrich.compute(hsqStrat.values, nnzStrat.values, hsq.value, nnzSnp.value);
     
     S.sampleFromFC(snpEffects.wtdSumSq.sum(), nnzSnp.value, sigmaSq.value, snpEffects.values, data.snp2pq, snp2pqPowS, logSnp2pq, varg.value, sigmaSq.scale, snpEffects.sum2pqOneMinusS);
     Sstrat.sampleFromFC(snpEffects.values, nnzStrat.values, data.snp2pq, sigmaSqStrat.values, hsqStrat.values,
                         varg.value, vare.value, data.annoInfoVec, sigmaSqStrat.scales);
     Senrich.compute(Sstrat.values, S.value);
     
-    if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value);
+    if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, data.chisq);
     
     rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     

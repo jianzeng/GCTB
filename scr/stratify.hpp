@@ -94,9 +94,16 @@ class StratApproxBayesS : public ApproxBayesS {  // annotation stratified analys
         void compute(const VectorXf &snpEffects, const vector<SparseMatrix<float> > &annowiseZPZsp, const vector<VectorXf> &annowiseZPZdiag, const vector<AnnoInfo*> &annoInfoVec, const float genVar, const float resVar);
     };
     
-    class HeritabilityEnrichment : public ParamSet {
+    class TotalHeritabilityEnrichment : public ParamSet {
     public:
-        HeritabilityEnrichment(const vector<string> &header, const string &lab = "hsq_Enrichment"): ParamSet(lab, header) {}
+        TotalHeritabilityEnrichment(const vector<string> &header, const string &lab = "TotalHsq_enrichment"): ParamSet(lab, header) {}
+        
+        void compute(const VectorXf &hsqStrat, const VectorXf &expFrac, const float hsqTotal);
+    };
+    
+    class PerSnpHeritabilityEnrichment : public ParamSet {
+    public:
+        PerSnpHeritabilityEnrichment(const vector<string> &header, const string &lab = "PerSnpHsq_Enrichment"): ParamSet(lab, header) {}
         
         void compute(const VectorXf &hsqStrat, const VectorXf &nnzStrat, const float hsqTotal, const float nnzTotal);
     };
@@ -164,7 +171,8 @@ public:
     PiEnrichment piEnrich;
     NnzStratified nnzStrat;
     HeritabilityStratified hsqStrat;
-    HeritabilityEnrichment hsqEnrich;
+    TotalHeritabilityEnrichment totalHsqEnrich;
+    PerSnpHeritabilityEnrichment perSnpHsqEnrich;
     SpStratified Sstrat;
     SpEnrichment Senrich;
     
@@ -182,14 +190,15 @@ public:
     piEnrich(data.annoNames, data.annoInfoVec),
     nnzStrat(data.annoNames),
     hsqStrat(data.annoNames, data.numKeptInds),
-    hsqEnrich(data.annoNames),
+    totalHsqEnrich(data.annoNames),
+    perSnpHsqEnrich(data.annoNames),
     Sstrat(data.annoNames, data.snp2pq, data.numAnnos, varS),
     Senrich(data.annoNames),
     scaleStrat(data.annoNames)
     {
-        paramSetVec = {&snpEffects, &piStrat, &piEnrich, &nnzStrat, &sigmaSqStrat, &sigmaSqEnrich, &hsqStrat, &hsqEnrich, &Sstrat, &Senrich};
+        paramSetVec = {&snpEffects, &piStrat, &piEnrich, &nnzStrat, &sigmaSqStrat, &sigmaSqEnrich, &hsqStrat, &totalHsqEnrich, &perSnpHsqEnrich, &Sstrat, &Senrich};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
-        paramSetToPrint = {&piStrat, &piEnrich, &nnzStrat, &sigmaSqStrat, &sigmaSqEnrich, &hsqStrat, &hsqEnrich, &Sstrat, &Senrich};
+        paramSetToPrint = {&piStrat, &piEnrich, &nnzStrat, &sigmaSqStrat, &sigmaSqEnrich, &hsqStrat, &totalHsqEnrich, &perSnpHsqEnrich, &Sstrat, &Senrich};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &rounding};
         if (modelPS) {
             paramVec.push_back(&ps);
