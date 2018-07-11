@@ -773,7 +773,7 @@ public:
     public:
         PopulationStratification(): Parameter("PS"){}
         
-        void compute(const VectorXf &rcorr, const VectorXf &ZPZdiag, const VectorXf &LDsamplVar, const float varg, const float vare);
+        void compute(const VectorXf &rcorr, const VectorXf &ZPZdiag, const VectorXf &LDsamplVar, const float varg, const float vare, const VectorXf &chisq);
     };
     
 public:
