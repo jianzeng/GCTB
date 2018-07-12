@@ -273,8 +273,8 @@ void StratApproxBayesS::sampleUnknowns() {
     sigmaSqStrat.sampleFromFC(snpEffects.wtdSumSq, nnzStrat.values);
     sigmaSqEnrich.compute(sigmaSqStrat.values, sigmaSq.value);
     
-    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr);
     varg.compute(snpEffects.values, data.ZPy, rcorr);
+    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, varg.value, nnzSnp.value);
     hsq.compute(varg.value, vare.value);
     hsqStrat.compute(snpEffects.values, annowiseZPZsp, annowiseZPZdiag, data.annoInfoVec, varg.value, vare.value);
     totalHsqEnrich.compute(hsqStrat.values, piEnrich.expectation, hsq.value);

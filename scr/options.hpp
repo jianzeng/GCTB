@@ -60,6 +60,7 @@ public:
     float kappa;     // for Luke's kappa model
     float effpopNE;  // for shrunk LDM
     float cutOff;    // for shrunk LDM
+    float icrsq;  // average inter-chromosome r^2 across SNPs
     
     bool estimatePi;
     bool estimateScale;
@@ -126,6 +127,7 @@ public:
         // Shrunk matrix defaults
         effpopNE                = 11490.672741;
         cutOff                  = 1e-5;
+        icrsq                   = 0;
 
         // Bayes R defaults
         ndists                  = 4;
