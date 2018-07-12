@@ -1820,6 +1820,8 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
     }
     if (LDmatType == "band") {
         VectorXi windStartOri = windStart;
+        VectorXi windEndi;
+        windEndi.resize(numIncdSnps);
         VectorXi windSizeOri = windSize;
         VectorXf ZPZiTmp;
         if (windowWidth) {
@@ -1835,21 +1837,71 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         } else if (LDthreshold) {
             cout << "Resizing LD matrix based on a LD threshold of " << LDthreshold << "..." << endl;
             for (unsigned i=0; i<numIncdSnps; ++i) {
+                windEndi[i] = windSizeOri[i];
+                // Gather up the window ends
+                for (unsigned j=windSizeOri[i]; j>i; --j) {
+                    if (abs(ZPZ[i][j-1]) > LDthreshold) {
+                        windEndi[i] = j;
+                        break;
+                    }
+                }
+                // Fill the lower triangle with the necessary zeroes
+                //if (windEndi != numIncdSnps) {
+                for (unsigned j=windEndi[i]; j<numIncdSnps; ++j) {
+                      ZPZ[j][i] = 0.0;
+                }
+                //}
+            }
+            // Cycle again over the vectors and get the window start
+            for (unsigned i=0; i<numIncdSnps; ++i) {
                 SnpInfo *snp = incdSnpInfoVec[i];
-                unsigned windEndi = windSizeOri[i];
-                for (unsigned j=0; j<windSizeOri[i]; ++j) {
-                    if (abs(ZPZ[i][j]) > LDthreshold) {
+                // unsigned windEndi = windSizeOri[i];
+                // Run over the lower triangle and make equal
+                for (unsigned j=0; j<(i-1); ++j) {
+                    if (abs(ZPZ[i][j]) > 0.0) {
                         windStart[i] = snp->windStart = windStartOri[i] + j;
                         break;
                     }
                 }
-                for (unsigned j=windSizeOri[i]; j>0; --j) {
-                    if (abs(ZPZ[i][j-1]) > LDthreshold) {
-                        windEndi = j;
+                // Resize the vectors of vectors accordingly
+                // cout << "Wind start, Wind end " << windStart[i] << ", "<< windEndi[i] << endl;
+                windSize[i] = snp->windSize = windStartOri[i] + windEndi[i] - windStart[i];
+                ZPZiTmp = ZPZ[i].segment(windStart[i] - windStartOri[i], windSize[i]);
+                ZPZ[i] = ZPZiTmp;
+            }
+        } else {
+            cout << "Resizing LD matrix based on a chisquare threshold of " << chisqThreshold << "..." << endl;
+            for (unsigned i=0; i<numIncdSnps; ++i) {
+                windEndi[i] = windSizeOri[i];
+                 SnpInfo *snp = incdSnpInfoVec[i];
+                // Gather up the window ends
+                for (unsigned j=windSizeOri[i]; j>i; --j) {
+                    if (ZPZ[i][j]*ZPZ[i][j]*snp->sampleSize > chisqThreshold) {
+                        windEndi[i] = j;
                         break;
                     }
                 }
-                windSize[i] = snp->windSize = windStartOri[i] + windEndi - windStart[i];
+                // Fill the lower triangle with the necessary zeroes
+                //if (windEndi != numIncdSnps) {
+                for (unsigned j=windEndi[i]; j<numIncdSnps; ++j) {
+                      ZPZ[j][i] = 0.0;
+                }
+                //}
+            }
+            // Cycle again over the vectors and get the window start
+            for (unsigned i=0; i<numIncdSnps; ++i) {
+                SnpInfo *snp = incdSnpInfoVec[i];
+                // unsigned windEndi = windSizeOri[i];
+                // Run over the lower triangle and make equal
+                for (unsigned j=0; j<(i-1); ++j) {
+                    if (abs(ZPZ[i][j]) > 0.0) {
+                        windStart[i] = snp->windStart = windStartOri[i] + j;
+                        break;
+                    }
+                }
+                // Resize the vectors of vectors accordingly
+                // cout << "Wind start, Wind end " << windStart[i] << ", "<< windEndi[i] << endl;
+                windSize[i] = snp->windSize = windStartOri[i] + windEndi[i] - windStart[i];
                 ZPZiTmp = ZPZ[i].segment(windStart[i] - windStartOri[i], windSize[i]);
                 ZPZ[i] = ZPZiTmp;
             }
