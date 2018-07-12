@@ -732,11 +732,13 @@ public:
     
     class ResidualVar : public BayesC::ResidualVar {
     public:
-        ResidualVar(const float vare, const unsigned nobs): BayesC::ResidualVar(vare, nobs){}
+        const float icrsq;
+        
+        ResidualVar(const float vare, const unsigned nobs, const float icrsq): BayesC::ResidualVar(vare, nobs), icrsq(icrsq) {}
         
         //void sampleFromFC(VectorXf &rcorr, const SparseMatrix<float> &ZPZinv);
-        void sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr);
-        void sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float hsq, const float phi);
+        void sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float varg, const float nnz);
+        void sampleFromFCshrink(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float hsq, const float phi);
         
         void sampleFromFC2(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &ghat);
         
@@ -769,9 +771,12 @@ public:
 //        void sampleFromFC(const VectorXf &y, const VectorXf &ghat);
 //    };
     
-    class PopulationStratification : public Parameter {
+    class PopulationStratification : public Parameter, public Stat::InvChiSq {
     public:
-        PopulationStratification(): Parameter("PS"){}
+        const float df;
+        const float scale;
+        
+        PopulationStratification(): Parameter("PS"), df(4), scale(0.01){}
         
         void compute(const VectorXf &rcorr, const VectorXf &ZPZdiag, const VectorXf &LDsamplVar, const float varg, const float vare, const VectorXf &chisq);
     };
@@ -800,7 +805,7 @@ public:
     PopulationStratification ps;
     
     ApproxBayesC(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi,
-                 const float phi, const float overdispersion, const bool estimatePS, const bool message = true)
+                 const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const bool message = true)
     : BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false)
     , data(data)
     , rcorr(data.ZPy)
@@ -809,7 +814,7 @@ public:
     , snpEffects(data.snpEffectNames)
     , sigmaSq(varGenotypic, data.snp2pq, pival)
     , pi(pival)
-    , vare(varResidual, data.numKeptInds)
+    , vare(varResidual, data.numKeptInds, icrsq)
     , varg(varGenotypic, data.numKeptInds)
 //    , tauSq(varResidual, data.numKeptInds)
     , phi(phi)
@@ -888,7 +893,7 @@ public:
 
     bool sparse;
     bool modelPS;
-    
+
     SnpEffects snpEffects;
     ApproxBayesC::FixedEffects fixedEffects;
     ApproxBayesC::ResidualVar vare;
@@ -900,7 +905,7 @@ public:
 //    ApproxBayesC::Overdispersion tauSq;
     
     ApproxBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi,
-                 const float phi, const float overdispersion, const bool estimatePS,
+                 const float phi, const float overdispersion, const bool estimatePS, const float icrsq,
                  const float varS, const vector<float> &svalue,
                  const string &algorithm, const bool message = true)
     : BayesS(data, varGenotypic, varResidual, pival, estimatePi, varS, svalue, algorithm, false)
@@ -908,7 +913,7 @@ public:
     , varei(data.tss.array()/data.n.array())
     , snpEffects(data.snpEffectNames, data.snp2pq, pival)
     , fixedEffects(data.fixedEffectNames)
-    , vare(varResidual, data.numKeptInds)
+    , vare(varResidual, data.numKeptInds, icrsq)
     , varg(varGenotypic, data.numKeptInds)
 //    , tauSq(varResidual, data.numKeptInds)
     , phi(phi)
@@ -999,9 +1004,9 @@ public:
     Gammas gamma;
     ApproxBayesC::GenotypicVar varg;
     
-    ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, 
+    ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, const float icrsq,
                  const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, 0, 0, false, false),
+    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, 0, 0, false, icrsq, false),
     Pis(pis),
     gamma(gamma, vector<string>(gamma.size())),
     varg(varGenotypic, data.numKeptInds),
@@ -1139,9 +1144,9 @@ public:
     ApproxBayesC::GenotypicVar varg;
     Kappa kappa;
     
-    ApproxBayesKappa(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, 
+    ApproxBayesKappa(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, const float icrsq,
                      const float kappa_str, const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, 0, 0, false),
+    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, 0, 0, icrsq, false),
     Pis(pis),
     gamma(gamma, vector<string>(gamma.size())),
     kappa(kappa_str),

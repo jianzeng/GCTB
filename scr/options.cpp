@@ -296,6 +296,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             estimatePS = true;
             ss << "--estimate-ps " << "\n";
         }
+        else if (!strcmp(argv[i], "--inter-chr-rsq")) {
+            icrsq = atof(argv[++i]);
+            ss << "--inter-chr-rsq " << argv[i] << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";

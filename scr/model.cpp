@@ -1540,8 +1540,8 @@ float ApproxBayesC::SnpEffects::computeU(const VectorXf &effects, const VectorXf
 //    value = InvChiSq::sample(dfTilde, scaleTilde);
 //}
 
-void ApproxBayesC::ResidualVar::sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr){
-    float sse = ypy - effects.dot(ZPy) - effects.dot(rcorr);
+void ApproxBayesC::ResidualVar::sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float varg, const float nnz){
+    float sse = ypy - effects.dot(ZPy) - effects.dot(rcorr) + nobs*varg*nnz*icrsq;
     if (sse < 0) sse = 0.0;
     if (sse > ypy) sse = ypy;
     float dfTilde = df + nobs;
@@ -1549,7 +1549,7 @@ void ApproxBayesC::ResidualVar::sampleFromFC(const float ypy, const VectorXf &ef
     value = InvChiSq::sample(dfTilde, scaleTilde);
 }
 
-void ApproxBayesC::ResidualVar::sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float hsq, const float phi){
+void ApproxBayesC::ResidualVar::sampleFromFCshrink(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float hsq, const float phi){
     float sse = ypy - effects.dot(ZPy) - effects.dot(rcorr);
     if (sse < 0) sse = 0.0;
     if (sse > ypy) sse = ypy;
@@ -1664,18 +1664,22 @@ void ApproxBayesC::Rounding::computeGhat(const MatrixXf &Z, const VectorXf &snpE
 void ApproxBayesC::PopulationStratification::compute(const VectorXf &rcorr, const VectorXf &ZPZdiag, const VectorXf &LDsamplVar, const float varg, const float vare, const VectorXf &chisq){
 //    value = (rcorr.array().square()/ZPZdiag.array() - LDsamplVar.array()*varg - vare).mean();
     
-    VectorXf tmp = rcorr.array().square()/ZPZdiag.array() - LDsamplVar.array()*varg;
-    value = 0.0;
+    VectorXf tmp = rcorr.array().square()/ZPZdiag.array() - LDsamplVar.array()*varg - vare;
+    float ssq = 0.0;
     long size = rcorr.size();
     long cnt = 0;
     for (unsigned i=0; i<size; ++i) {
-        if (chisq[i] < 30) {
-            value += tmp[i];
+        if (chisq[i] < 20 && !(i%20)) {
+            ssq += tmp[i];
             ++cnt;
         }
     }
-    value /= float(cnt);
-    value -= vare;
+//    ssq /= float(cnt);
+    if (ssq < 0) ssq = 0.0;
+    float dfTilde = df + cnt;
+    float scaleTilde = ssq + df*scale;
+    value = InvChiSq::sample(dfTilde, scaleTilde);
+
     
 //    VectorXf tmp = rcorr.array().square()/ZPZdiag.array();
 //    std::sort(tmp.data(), tmp.data() + tmp.size());
@@ -1756,18 +1760,15 @@ void ApproxBayesC::sampleUnknowns(){
     } while (snpEffects.numNonZeros == 0);
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     if (estimatePi) pi.sampleFromFC(data.numIncdSnps, snpEffects.numNonZeros);
-    if (phi)
-        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, hsq.value, phi);
-    else
-        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr);
+    nnzSnp.getValue(snpEffects.numNonZeros);
+    sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
     varg.compute(snpEffects.values, data.ZPy, rcorr);
+    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, varg.value, nnzSnp.value);
     hsq.compute(varg.value, vare.value);
     if (sparse)
         rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     else
         rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
-    nnzSnp.getValue(snpEffects.numNonZeros);
-    sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
     if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, data.chisq);
 //    ldScoreReg(data.chisq, data.LDscore, data.LDsamplVar, varg.value, vare.value, ps.value, vargj.value);
 }
@@ -2226,11 +2227,14 @@ void ApproxBayesS::sampleUnknowns(){
     sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
     //sigmaSq.value = varg.value/((snp2pqPowS.array()*data.snp2pq.array()).sum()*pi.value);
     //cout << sigmaSq.value << endl;
+
+    nnzSnp.getValue(snpEffects.numNonZeros);
+    sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pqOneMinusS);
     
-    if (phi)
-        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, hsq.value, phi);
-    else
-        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr);
+    varg.compute(snpEffects.values, data.ZPy, rcorr);
+    //varg.value = data.ypy/varg.nobs - vare.value;
+    
+    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, varg.value, nnzSnp.value);
     //vare.sampleFromFC2(data.ypy, snpEffects.values, data.ZPy, ghat);
     //vare.randomWalkMHsampler(data.ypy, snpEffects.values, data.ZPy, rcorr, data.ZPZrss, sigmaSq.value, pi.value);
     //varei.setConstant(data.numIncdSnps, vare.value);
@@ -2246,9 +2250,6 @@ void ApproxBayesS::sampleUnknowns(){
 //    LDscore.array() /= data.D.array();
     
     
-    varg.compute(snpEffects.values, data.ZPy, rcorr);
-    //varg.value = data.ypy/varg.nobs - vare.value;
-    
     hsq.compute(varg.value, vare.value);
     
     S.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros, sigmaSq.value, snpEffects.values, data.snp2pq, snp2pqPowS, logSnp2pq, genVarPrior, sigmaSq.scale, snpEffects.sum2pqOneMinusS);
@@ -2262,9 +2263,6 @@ void ApproxBayesS::sampleUnknowns(){
         rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     
 //    rounding.computeGhat(data.Z, snpEffects.values, ghat);
-    
-    nnzSnp.getValue(snpEffects.numNonZeros);
-    sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pqOneMinusS);
     
     if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, data.chisq);
 //    ApproxBayesC::ldScoreReg(data.chisq, data.LDscore, data.LDsamplVar, varg.value, vare.value, ps.value, vargj.value);
@@ -2304,16 +2302,16 @@ void ApproxBayesR::sampleUnknowns(){
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
-    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr);
-    varg.compute(snpEffects.values, data.ZPy, rcorr);
-    hsq.compute(varg.value, vare.value);
     Pis.sampleFromFC(snpStore, Pis.values);
+    nnzSnp.getValue(snpEffects.numNonZeros);
+    sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
+    varg.compute(snpEffects.values, data.ZPy, rcorr);
+    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, varg.value, nnzSnp.value);
+    hsq.compute(varg.value, vare.value);
     if (sparse)
         rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     else
         rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
-    nnzSnp.getValue(snpEffects.numNonZeros);
-    sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
 }
 
 // ==============================================================
@@ -2664,17 +2662,17 @@ void ApproxBayesKappa::sampleUnknowns(){
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
-    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr);
     kappa.randomWalkMHsampler(sigmaSq.value, snpEffects.values, snpindist.values);
-    varg.compute(snpEffects.values, data.ZPy, rcorr);
-    hsq.compute(varg.value, vare.value);
     Pis.sampleFromFC(snpStore, Pis.values);
+    nnzSnp.getValue(snpEffects.numNonZeros);
+    sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
+    varg.compute(snpEffects.values, data.ZPy, rcorr);
+    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, varg.value, nnzSnp.value);
+    hsq.compute(varg.value, vare.value);
     if (sparse)
         rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     else
         rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
-    nnzSnp.getValue(snpEffects.numNonZeros);
-    sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
 }
 
 // ==============================================================

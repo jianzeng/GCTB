@@ -70,7 +70,7 @@ int main(int argc, const char * argv[]) {
             
             Model *model = gctb.buildModel(data, opt.bedFile, "", opt.bayesType, opt.windowWidth,
                                             opt.heritability, opt.pi, opt.estimatePi, opt.pis, opt.gamma, opt.phi, opt.kappa,
-                                            opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS);
+                                            opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior);
             //gctb.saveMcmcSamples(mcmcSampleVec, opt.title);
@@ -108,7 +108,7 @@ int main(int argc, const char * argv[]) {
             
             Model *model = gctb.buildModel(data, "", opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
                                             opt.heritability, opt.pi, opt.estimatePi, opt.pis, opt.gamma, opt.phi, opt.kappa,
-                                            opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS);
+                                            opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior);
             if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.title);
