@@ -79,9 +79,9 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
         }
         else {
             if (bayesType == "C")
-                return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, icrsq, overdispersion, estimatePS);
+                return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion, estimatePS, icrsq);
             else if (bayesType == "S")
-                return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, icrsq, overdispersion, estimatePS, varS, S, algorithm);
+                return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion, estimatePS, icrsq, varS, S, algorithm);
             else if (bayesType == "R")
                 return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi, icrsq);
             else if (bayesType == "Kap")

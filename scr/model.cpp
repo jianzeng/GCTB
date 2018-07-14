@@ -1831,8 +1831,8 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
 //        float vare = tss.segment(chrStart, chrSize).mean() - values.segment(chrStart, chrSize).dot(ZPy.segment(chrStart, chrSize)) - values.segment(chrStart, chrSize).dot(rcorr.segment(chrStart, chrSize));
 //        vare /= n.segment(chrStart, chrSize).mean();
 
-        float vare = tss.mean() - values.dot(ZPy) - values.dot(rcorr);
-        vare /= n.mean();
+//        float vare = tss.mean() - values.dot(ZPy) - values.dot(rcorr);
+//        vare /= n.mean();
 
         for (unsigned i=chrStart; i<=chrEnd; ++i) {
             oldSample = valuesPtr[i];
