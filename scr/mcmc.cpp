@@ -259,7 +259,7 @@ void MCMC::printStatus(const vector<Parameter*> &paramToPrint, const unsigned th
     cout << boost::format("%=10s ") % thisIter;
     for (unsigned i=0; i<paramToPrint.size(); ++i) {
         Parameter *par = paramToPrint[i];
-        if (par->label=="NnzSnp" || par->label=="NnzWind")
+        if (par->label[0] == 'N')
             cout << boost::format("%=12.0f ") % par->value;
         else
             cout << boost::format("%=12.4f ") % paramToPrint[i]->value;

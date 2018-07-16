@@ -226,6 +226,8 @@ public:
     unsigned numSkeletonSnps;
     unsigned numAnnos;
     
+    string label;
+    
     Data(){
         numFixedEffects = 0;
         numSnps = 0;
