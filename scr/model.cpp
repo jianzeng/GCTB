@@ -2443,6 +2443,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
     // Scale the variances in each of the normal distributions by the genetic variance
     // and initialise the class membership probabilities
     // --------------------------------------------------------------------------------
+    ndist = pis.size();
     gp = gamma * sigmaSq;
     // --------------------------------------------------------------------------------
     // Cycle over all variants in the window and sample the genetics effects
@@ -2807,10 +2808,13 @@ void ApproxBayesKappa::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sp
     }
     if (iter==0) cout << endl;
 
-    // R specific parameters
+    // ----------------
+    // Bayes Kappa specific
+    // ----------------
     int ndist, indistflag;
     double rhs, v1,  b_ls, ssculm, r;
-    VectorXf gp, ll, pll, var_b_ls;
+    VectorXf gp, ll, gamgam, pll, var_b_ls;
+    gamgam.setZero(pis.size());
     snpStore.setZero(pis.size());
     //snpindist.setZero(tss.size());
     // --------------------------------------------------------------------------------
@@ -2818,7 +2822,11 @@ void ApproxBayesKappa::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sp
     // and initialise the class membership probabilities
     // --------------------------------------------------------------------------------
     ndist = pis.size();
-    gp = gamma * sigmaSq;
+    for (int dstInd=0; dstInd<(ndist-1); ++dstInd)
+    {
+      gamgam[dstInd] = exp(-kappa * dstInd);
+    }
+    gp = gamgam * sigmaSq;
     // --------------------------------------------------------------------------------
     // Cycle over all variants in the window and sample the genetics effects
     // --------------------------------------------------------------------------------
@@ -2890,7 +2898,7 @@ void ApproxBayesKappa::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sp
             // --------------------------------------------------------------
             // Sample the effect given the group and adjust the rhs
             // --------------------------------------------------------------
-            if (indistflag != 1)
+            if (indistflag != ndist)
             {
                 v1 = ZPZdiag[i] + varei[i] / gp((indistflag - 1));
                 values[i] = normal.sample(rhs / v1, varei[i] / v1);
@@ -2898,7 +2906,7 @@ void ApproxBayesKappa::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sp
                 for (SparseVector<float>::InnerIterator it(ZPZ[i]); it; ++it) {
                     rcorr[it.index()] += it.value() * sampleDiff;
                 }
-                ssq[chr] += (values[i] * values[i]) / gamma[indistflag - 1];
+                ssq[chr] += (values[i] * values[i]) / gamgam[indistflag - 1];
                 s2pq[chr] += snp2pq[i];
                 ++nnz[chr];
             } else {
