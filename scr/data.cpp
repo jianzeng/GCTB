@@ -1841,6 +1841,9 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
     token.getTokens(ldmatrixFile, ".");
     string ldmType = token[token.size()-2];
     sparseLDM = ldmType == "sparse" ? true : false;
+
+    // New part for shrunk part ldm 
+    shrunkLDM = ldmType == "shrunk" ? true : false;
     
     VectorXi windStartLDM(numSnps);
     VectorXi windSizeLDM(numSnps);
@@ -2604,6 +2607,8 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
     }
     if (LDmatType == "band") {
         VectorXi windStartOri = windStart;
+        VectorXi windEndi;
+        windEndi.resize(numIncdSnps);
         VectorXi windSizeOri = windSize;
         VectorXf ZPZiTmp;
         if (windowWidth) {
@@ -2621,21 +2626,71 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         } else if (LDthreshold) {
             cout << "Resizing LD matrix based on a LD threshold of " << LDthreshold << "..." << endl;
             for (unsigned i=0; i<numIncdSnps; ++i) {
+                windEndi[i] = windSizeOri[i];
+                // Gather up the window ends
+                for (unsigned j=windSizeOri[i]; j>i; --j) {
+                    if (abs(ZPZ[i][j-1]) > LDthreshold) {
+                        windEndi[i] = j;
+                        break;
+                    }
+                }
+                // Fill the lower triangle with the necessary zeroes
+                //if (windEndi != numIncdSnps) {
+                for (unsigned j=windEndi[i]; j<numIncdSnps; ++j) {
+                      ZPZ[j][i] = 0.0;
+                }
+                //}
+            }
+            // Cycle again over the vectors and get the window start
+            for (unsigned i=0; i<numIncdSnps; ++i) {
                 SnpInfo *snp = incdSnpInfoVec[i];
-                unsigned windEndi = windSizeOri[i];
-                for (unsigned j=0; j<windSizeOri[i]; ++j) {
-                    if (abs(ZPZ[i][j]) > LDthreshold) {
+                // unsigned windEndi = windSizeOri[i];
+                // Run over the lower triangle and make equal
+                for (unsigned j=0; j<(i-1); ++j) {
+                    if (abs(ZPZ[i][j]) > 0.0) {
                         windStart[i] = snp->windStart = windStartOri[i] + j;
                         break;
                     }
                 }
-                for (unsigned j=windSizeOri[i]; j>0; --j) {
-                    if (abs(ZPZ[i][j-1]) > LDthreshold) {
-                        windEndi = j;
+                // Resize the vectors of vectors accordingly
+                // cout << "Wind start, Wind end " << windStart[i] << ", "<< windEndi[i] << endl;
+                windSize[i] = snp->windSize = windStartOri[i] + windEndi[i] - windStart[i];
+                ZPZiTmp = ZPZ[i].segment(windStart[i] - windStartOri[i], windSize[i]);
+                ZPZ[i] = ZPZiTmp;
+            }
+        } else {
+            cout << "Resizing LD matrix based on a chisquare threshold of " << chisqThreshold << "..." << endl;
+            for (unsigned i=0; i<numIncdSnps; ++i) {
+                windEndi[i] = windSizeOri[i];
+                 SnpInfo *snp = incdSnpInfoVec[i];
+                // Gather up the window ends
+                for (unsigned j=windSizeOri[i]; j>i; --j) {
+                    if (ZPZ[i][j]*ZPZ[i][j]*snp->sampleSize > chisqThreshold) {
+                        windEndi[i] = j;
                         break;
                     }
                 }
-                windSize[i] = snp->windSize = windStartOri[i] + windEndi - windStart[i];
+                // Fill the lower triangle with the necessary zeroes
+                //if (windEndi != numIncdSnps) {
+                for (unsigned j=windEndi[i]; j<numIncdSnps; ++j) {
+                      ZPZ[j][i] = 0.0;
+                }
+                //}
+            }
+            // Cycle again over the vectors and get the window start
+            for (unsigned i=0; i<numIncdSnps; ++i) {
+                SnpInfo *snp = incdSnpInfoVec[i];
+                // unsigned windEndi = windSizeOri[i];
+                // Run over the lower triangle and make equal
+                for (unsigned j=0; j<(i-1); ++j) {
+                    if (abs(ZPZ[i][j]) > 0.0) {
+                        windStart[i] = snp->windStart = windStartOri[i] + j;
+                        break;
+                    }
+                }
+                // Resize the vectors of vectors accordingly
+                // cout << "Wind start, Wind end " << windStart[i] << ", "<< windEndi[i] << endl;
+                windSize[i] = snp->windSize = windStartOri[i] + windEndi[i] - windStart[i];
                 ZPZiTmp = ZPZ[i].segment(windStart[i] - windStartOri[i], windSize[i]);
                 ZPZ[i] = ZPZiTmp;
                 snp->ldSamplVar = (1.0 - ZPZ[i].array().square()).square().sum()/snp->sampleSize;
@@ -2669,8 +2724,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
     if (LDmatType == "shrunk") {
         VectorXi windStartOri = windStart;
         VectorXi windSizeOri = windSize;
-        VectorXf ZPZiTmp;
-        cout << "Resizing LD matrix using shrunk matrix properties " << LDthreshold << "..." << endl;
+        cout << "Resizing LD matrix using shrunk matrix properties ..." << endl;
         // ----------------------------------------------------
         // NEW - Calculate the mutation rate components 
         // ----------------------------------------------------
@@ -2693,33 +2747,37 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
             int  n = 2 * mi[i] - 1;
 //            cout << "snp " << i << " sample size " << snp->sampleSize << endl;
             // Approximation to the harmonic series
-            nmsumi[i] = log(n) + 0.5772156649 + 1 / (2 * n) - 1 / (12 * pow(n, 2)) + 1 / (120 * pow(n, 4));
+            nmsumi[i] = log(n) + 0.5772156649 + 1.0/ (2.0 * n) - 1.0 / (12.0 * pow(n, 2)) + 1.0 / (120.0 * pow(n, 4));
             //cout << nmsumi[i] << endl;
             // Calculate theta
-            thetai[i] = (1 / nmsumi[i]) / (2 * (snp->sampleSize) + 1 / nmsumi[i]);
+            thetai[i] = (1.0 / nmsumi[i]) / (2.0 * (snp->sampleSize) + 1.0 / nmsumi[i]);
             //cout <<  thetai[i] << endl;
             // Pull out the standard deviation for each variant
-            sdss[i] = sqrt(2 * (snp->af) * (1 - (snp->af)));
+            sdss[i] = sqrt(2.0 * (snp->af) * (1.0 - (snp->af)));
             // cout << "snp " << i << " af " << snp->af << endl;
             // 
             gmapi[i] = snp->genPos;
         }
         long int nmsum;
         float theta;
-        // cout << "sdss " << sdss << endl;
-        // cout << "First column of ZPZ " << ZPZ[0] << endl;
+        // cout << "I made it here  for shrunk sparse " << endl;
+        
         // Rescale Z to the covariance scale
+        VectorXf sdssSub;
         for (unsigned i=0; i<numIncdSnps; ++i) {
-            ZPZ[i] = (sdss[i] / 2) *  sdss.array() * ZPZ[i].array();
+            sdssSub = sdss.segment(windStart[i], windSizeOri[i]);
+            ZPZ[i] = (sdss[i] / 2.0) *  sdssSub.array() * ZPZ[i].array();
         }
+        // cout << "I made it here  for shrunk sparse " << endl;
         // --------------------------------------------------------
         // Compute the shrinkage value and then shrink the elements
         // --------------------------------------------------------
+        // cout << "Made it here 2 " << endl;
         float mapdiffi; 
         float rho;
         float shrinkage;
         float Ne = effpopNE;
-        cout << "Using European effective population size Ne=" << Ne << " please alter with --ne if inappropriate.";
+        cout << "Using European effective population size Ne=" << Ne << " please alter with --ne if inappropriate. ";
         float cutoff = cutOff;
         for (unsigned i=0; i<numIncdSnps; ++i) {
             if (!(i%1000)) cout << i << " SNPs processed\r";
@@ -2732,24 +2790,119 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 {
                     shrinkage = 0.0;
                 }
-                // Multiple each covariance matrix element with the shrinkage value
+                // // Multiple each covariance matrix element with the shrinkage value
                 ZPZ[i][j] = ZPZ[i][j] * shrinkage;
-                // Complete as SigHAat from Li and Stephens 2003
-                ZPZ[i][j] =  ZPZ[i][j] * ((1 - thetai[i]) * (1 - thetai[i]));
+                // // Complete as SigHAat from Li and Stephens 2003
+                ZPZ[i][j] =  ZPZ[i][j] * ((1.0 - thetai[i]) * (1.0 - thetai[(windStart[i] + j)]));
                 // If it's the diagonal element add the extra term
-                if (i == j)
+                if (i == (windStart[i] + j))
                 {
-                    ZPZ[i][j] = ZPZ[i][j] + 0.5f * thetai[i] * (1 - 0.5f * thetai[i]);
+                    ZPZ[i][j] = ZPZ[i][j] + 0.5f * thetai[i] * (1.0 - 0.5f * thetai[i]);
                 }  
-                // Make the upper triangle equal to the lower triangle
-                ZPZ[j][i] =  ZPZ[i][j];
             }
+        }
+        // Now back to correlation
+        for (unsigned i=0; i<numIncdSnps; ++i) {
+            sdssSub = sdss.segment(windStart[i], windSizeOri[i]);
+            ZPZ[i]  = (2.0 / sdss[i]) *  (1.0 / sdssSub.array()) * ZPZ[i].array();
+        }
+    }
+    if (LDmatType == "sparseshrunk") {
+        cout << "Resizing sparse LD matrix using shrunk matrix properties ..." << endl;
+        // ----------------------------------------------------
+        // NEW - Calculate the mutation rate components 
+        // ----------------------------------------------------
+        // m is the number of individuals in the reference panel for each variant
+        // Need to compute theta, which is related to the mutation rate
+        VectorXf nmsumi;
+        VectorXf thetai;
+        VectorXf mi;
+        VectorXf gmapi;
+        VectorXf sdss;
+        //cout << "Snps size " << incdSnpInfoVec.size() << endl;
+        nmsumi.resize(numIncdSnps);
+        thetai.resize(numIncdSnps);
+        sdss.resize(numIncdSnps);
+        mi.resize(numIncdSnps);
+        gmapi.resize(numIncdSnps);
+        for (unsigned i=0; i<numIncdSnps; ++i) {
+            SnpInfo *snp = incdSnpInfoVec[i];
+            mi[i] = (snp->sampleSize);
+            int  n = 2.0 * mi[i] - 1.0;
+            // cout << "snp " << i << " sample size " << snp->sampleSize << endl;
+            // Approximation to the harmonic series
+            nmsumi[i] = log(n) + 0.5772156649 + 1.0 / (2.0 * n) - 1.0 / (12.0 * pow(n, 2)) + 1.0 / (120.0 * pow(n, 4));
+            //cout << nmsumi[i] << endl;
+            // Calculate theta
+            thetai[i] = (1.0 / nmsumi[i]) / (2.0 * (snp->sampleSize) + 1 / nmsumi[i]);
+            //cout <<  thetai[i] << endl;
+            // Pull out the standard deviation for each variant
+            sdss[i] = sqrt(2.0 * (snp->af) * (1.0 - (snp->af)));
+            //
+            gmapi[i] = snp->gen_map_pos;
+        }
+        long int nmsum;
+        float theta;
+        // Rescale Z to the covariance scale
+        float rsq = 0.0; 
+        for (unsigned i=0; i<numIncdSnps; ++i) {
+            // cout << "Before " << ZPZsp[i] << endl;
+            for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
+                // snpj = incdSnpInfoVec[it.index()];
+                rsq = (sdss[i] / 2.0) *  sdss[it.index()] * it.value();
+                // cout << "sdss[i] " << sdss[i] << " sdss[it.index()] " << sdss[it.index()] << " it.value() " << it.value() << " it.index() " << it.index() << endl;
+                // cout << "rsq " << rsq << endl;
+                it.valueRef() = rsq;
+            }
+            // cout << "After " << ZPZsp[i] << endl;
+        }
+        // --------------------------------------------------------
+        // Compute the shrinkage value and then shrink the elements
+        // --------------------------------------------------------
+        float mapdiffi; 
+        float rho;
+        float shrinkage;
+        float Ne = effpopNE;
+        cout << "Using European effective population size Ne=" << Ne << " please alter with --ne if inappropriate. ";
+        float cutoff = cutOff;
+        for (unsigned i=0; i<numIncdSnps; ++i) {
+            // -----------------------------
+            // Shrinkage using sparse matrix
+            // -----------------------------
+            float ZPZij = 0.0;
+            for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
+                // cout << " j " << j << " (windStart[i] + j) " << (windStart[i] + j) << endl;
+                mapdiffi = abs(gmapi[it.index()] - gmapi[i]);
+                rho = 4.0 * Ne * (mapdiffi / 100.0);
+                shrinkage = exp(-rho / (mi[i] + mi[it.index()])); 
+                // cout << "Shrinkage " << shrinkage << endl;
+                if (shrinkage <= cutoff)
+                {
+                    shrinkage = 0.0;
+                }
+                // Multiple each covariance matrix element with the shrinkage value
+                ZPZij = it.value() * shrinkage;
+                // Complete as SigHAat from Li and Stephens 2003
+                ZPZij =  ZPZij * ((1.0 - thetai[i]) * (1.0 - thetai[it.index()]));
+                // If it's the diagonal element add the extra term
+                if (i == (it.index()))
+                {
+                    ZPZij = ZPZij + 0.5f * thetai[i] * (1.0 - 0.5f * thetai[i]);
+                } 
+                it.valueRef()= ZPZij; 
+            }
+            // cout << "After " << ZPZsp[i] << endl;
         }
         // // Now back to correlation
         for (unsigned i=0; i<numIncdSnps; ++i) {
-            ZPZ[i]  = (2 / sdss[i]) *  (1 / sdss.array()) * ZPZ[i].array();
+            for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
+                // snpj = incdSnpInfoVec[it.index()];
+                rsq = (2.0 / sdss[i]) *  (1.0 / sdss[it.index()]) * it.value();
+                // cout << "sdss[i] " << sdss[i] << " sdss[it.index()] " << sdss[it.index()] << " it.value() " << it.value() << " it.index() " << it.index() << endl;
+                // cout << "rsq " << rsq << endl;
+                it.valueRef() = rsq;
+            }
         }
-        // cout << "First column of ZPZ " << ZPZ[0] << endl;
     }
     displayAverageWindowSize(windSize);
 }
@@ -2835,6 +2988,7 @@ void Data::readfreqFile(const string &freqFile){
 
 void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, const string &snpRange, const string &filename, const bool writeLdmTxt, const float effpopNE, const float cutOff){
     
+
     Gadget::Tokenizer token;
     token.getTokens(snpRange, "-");
     
@@ -2846,6 +3000,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
         end = atoi(token[1].c_str());
         if (end > numIncdSnps) end = numIncdSnps;
     }
+
     
     unsigned numSnpInRange = end - start;
     
@@ -2950,8 +3105,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
     ZPZdiag = ZP.rowwise().squaredNorm(); 
     
     // then read in the bed file again to compute Z'Z
-    
-
+  
     MatrixXf denseZPZ;
     denseZPZ.setZero(numSnpInRange, numIncdSnps);
     VectorXf Zk(numKeptInds);
@@ -3016,6 +3170,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
     }
 
     fclose(in2);
+    
     // ----------------------------------------------------
     // NEW - Calculate the mutation rate components 
     // ----------------------------------------------------
@@ -3065,10 +3220,12 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
             shrinkage = exp(-rho / (2.0 * mi[start+i]));
             // if (j >= 2580)
             // { 
-            //     cout << i << " " << j << endl;
-            //     cout << gmapi[i] << " " << gmapi[j] << endl;
-            //     cout << shrinkage << endl;
-            //     cout << mi[i] << endl;
+            //     cout << "Snp " << i << " " << j << " Mapdiff " << mapdiffi << " shrinkage " << shrinkage << endl;
+            //     cout << "Start position " << start  << " start plus i " << start + i << " gmap start plus i " << gmapi[start +i] << endl;
+            //     // cout << gmapi[i] << " " << gmapi[j] << endl;
+            //     // cout << mapdiffi << endl;
+            //     // cout << shrinkage << endl;
+            //     // cout << mi[i] << endl;
             // }
             if (shrinkage <= cutoff) {
                 shrinkage = 0.0;

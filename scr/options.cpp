@@ -53,6 +53,11 @@ void Options::inputOptions(const int argc, const char* argv[]){
             outLDmatType = "sparse";
             ss << "--make-sparse-ldm " << "\n";
         }
+        else if (!strcmp(argv[i], "--make-sparse-shrunk-ldm")) {
+            analysisType = "LDmatrix";
+            outLDmatType = "sparseshrunk";
+            ss << "--make-sparse-shrunk-ldm " << "\n";
+        }
         else if (!strcmp(argv[i], "--alg")) {
             algorithm = argv[++i];
             ss << "--alg " << argv[i] << "\n";
