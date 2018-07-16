@@ -709,8 +709,12 @@ public:
     public:
         float sum2pq;
         
+        VectorXf nnzPerChr;
+        VectorXi leaveout;
+        
         SnpEffects(const vector<string> &header): BayesC::SnpEffects(header, "Gibbs"){
             sum2pq = 0.0;
+            leaveout.setZero(size);
         }
         
         void sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
@@ -738,6 +742,7 @@ public:
         
         //void sampleFromFC(VectorXf &rcorr, const SparseMatrix<float> &ZPZinv);
         void sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float varg, const float nnz);
+        void sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float icgc);
         void sampleFromFCshrink(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float hsq, const float phi);
         
         void sampleFromFC2(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &ghat);
@@ -781,6 +786,27 @@ public:
         void compute(const VectorXf &rcorr, const VectorXf &ZPZdiag, const VectorXf &LDsamplVar, const float varg, const float vare, const VectorXf &chisq);
     };
     
+    class NumResidualOutlier : public Parameter {
+    public:
+        ofstream out;
+        unsigned iter;
+        
+        NumResidualOutlier(): Parameter("Nro"){
+            iter = 0;
+        }
+        
+        void compute(const VectorXf &rcorr, const VectorXf &ZPZdiag, const VectorXf &LDsamplVar, const float varg, const vector<string> &snpName, VectorXi &leaveout);
+    };
+    
+    class InterChrGenetCov : public Parameter {
+    public:
+        const float spouseCorrelation;
+        
+        InterChrGenetCov(const float corr): Parameter("ICGC"), spouseCorrelation(corr) {}
+        
+        void compute(const float varg, const float vare, const VectorXf &nnzPerChr);
+    };
+    
 public:
     const Data &data;
     const float phi;   // the shrinkage parameter for heritability estimate
@@ -791,6 +817,7 @@ public:
     
     bool sparse;
     bool modelPS;
+    bool diagnose;
     
     FixedEffects fixedEffects;
     SnpEffects snpEffects;
@@ -803,9 +830,12 @@ public:
     varEffectScaled sigmaSqG;
 //    Overdispersion tauSq;
     PopulationStratification ps;
+    NumResidualOutlier nro;
+    InterChrGenetCov icgc;
     
     ApproxBayesC(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi,
-                 const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const bool message = true)
+                 const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation,
+                 const bool message = true)
     : BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false)
     , data(data)
     , rcorr(data.ZPy)
@@ -819,15 +849,26 @@ public:
 //    , tauSq(varResidual, data.numKeptInds)
     , phi(phi)
     , overdispersion(overdispersion)
+    , icgc(spouseCorrelation)
     {
         sparse = data.sparseLDM;
         modelPS = estimatePS;
+        diagnose = false;
         paramSetVec = {&snpEffects, &fixedEffects};
-        paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &sigmaSqG};
-        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &sigmaSqG, &rounding};
+        paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq};
+        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &rounding};
         if (modelPS) {
             paramVec.push_back(&ps);
             paramToPrint.push_back(&ps);
+        }
+        if (diagnose) {
+            nro.out.open((data.label+".diag").c_str());
+            paramVec.push_back(&nro);
+            paramToPrint.push_back(&nro);
+        }
+        if (spouseCorrelation) {
+            paramVec.push_back(&icgc);
+            paramToPrint.push_back(&icgc);
         }
         if (message && myMPI::rank==0) {
             cout << "\nApproximate BayesC model fitted." << endl;
@@ -836,7 +877,7 @@ public:
     
     void sampleUnknowns(void);
     static void ldScoreReg(const VectorXf &chisq, const VectorXf &LDscore, const VectorXf &LDsamplVar,
-                           const float varg, const float vare, float &ps, float &vargj);
+                           const float varg, const float vare, float &ps);
 };
 
 
@@ -893,6 +934,7 @@ public:
 
     bool sparse;
     bool modelPS;
+    bool diagnose;
 
     SnpEffects snpEffects;
     ApproxBayesC::FixedEffects fixedEffects;
@@ -901,11 +943,13 @@ public:
     ApproxBayesC::Rounding rounding;
     varEffectScaled sigmaSqG;
     ApproxBayesC::PopulationStratification ps;
+    ApproxBayesC::NumResidualOutlier nro;
+    ApproxBayesC::InterChrGenetCov icgc;
     
 //    ApproxBayesC::Overdispersion tauSq;
     
     ApproxBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi,
-                 const float phi, const float overdispersion, const bool estimatePS, const float icrsq,
+                 const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation,
                  const float varS, const vector<float> &svalue,
                  const string &algorithm, const bool message = true)
     : BayesS(data, varGenotypic, varResidual, pival, estimatePi, varS, svalue, algorithm, false)
@@ -918,22 +962,39 @@ public:
 //    , tauSq(varResidual, data.numKeptInds)
     , phi(phi)
     , overdispersion(overdispersion)
+    , icgc(spouseCorrelation)
     {
         ghat.setZero(data.Z.rows());
         sparse = data.sparseLDM;
         modelPS = estimatePS;
+        diagnose = false;
         paramSetVec = {&snpEffects, &fixedEffects};
-        paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &sigmaSqG};
-        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &sigmaSqG, &S.ar, &S.tuner, &rounding};
+        paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
+        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &S.ar, &S.tuner, &rounding};
         if (modelPS) {
             paramVec.push_back(&ps);
             paramToPrint.push_back(&ps);
+        }
+        if (diagnose) {
+            nro.out.open((data.label+".diag").c_str());
+            paramVec.push_back(&nro);
+            paramToPrint.push_back(&nro);
+        }
+        if (spouseCorrelation) {
+            paramVec.push_back(&icgc);
+            paramToPrint.push_back(&icgc);
         }
         if (message && myMPI::rank==0) {
             string alg = algorithm;
             if (alg!="RMH") alg = "HMC (default)";
             cout << "\nApproximate BayesS model fitted. Algorithm: " << alg << "." << endl;
         }
+
+//        MatrixXf X(data.numIncdSnps, 2);
+//        X.col(0) = VectorXf::Ones(data.numIncdSnps);
+//        X.col(1) = data.LDscore;
+//        VectorXf b = X.householderQr().solve(data.chisq);
+//        ps.value = b[0] - 1.0;
 
     }
     
@@ -1144,9 +1205,9 @@ public:
     ApproxBayesC::GenotypicVar varg;
     Kappa kappa;
     
-    ApproxBayesKappa(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, const float icrsq,
+    ApproxBayesKappa(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, const float icrsq, const float spouseCorrelation,
                      const float kappa_str, const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, 0, 0, icrsq, false),
+    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, 0, 0, icrsq, spouseCorrelation, false),
     Pis(pis),
     gamma(gamma, vector<string>(gamma.size())),
     kappa(kappa_str),

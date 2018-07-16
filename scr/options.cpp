@@ -300,6 +300,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             icrsq = atof(argv[++i]);
             ss << "--inter-chr-rsq " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--spouse-corr")) {
+            spouseCorrelation = atof(argv[++i]);
+            ss << "--spouse-corr " << argv[i] << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";
