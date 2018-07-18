@@ -795,7 +795,7 @@ public:
             iter = 0;
         }
         
-        void compute(const VectorXf &rcorr, const VectorXf &ZPZdiag, const VectorXf &LDsamplVar, const float varg, const vector<string> &snpName, VectorXi &leaveout);
+        void compute(const VectorXf &rcorr, const VectorXf &ZPZdiag, const VectorXf &LDsamplVar, const float varg, const float vare, const vector<string> &snpName, VectorXi &leaveout, const vector<SparseVector<float> > &ZPZ);
     };
     
     class InterChrGenetCov : public Parameter {
@@ -835,7 +835,7 @@ public:
     
     ApproxBayesC(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi,
                  const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation,
-                 const bool message = true)
+                 const bool diagnosticMode, const bool message = true)
     : BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false)
     , data(data)
     , rcorr(data.ZPy)
@@ -853,7 +853,7 @@ public:
     {
         sparse = data.sparseLDM;
         modelPS = estimatePS;
-        diagnose = false;
+        diagnose = diagnosticMode;
         paramSetVec = {&snpEffects, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &rounding};
@@ -862,7 +862,7 @@ public:
             paramToPrint.push_back(&ps);
         }
         if (diagnose) {
-            nro.out.open((data.label+".diag").c_str());
+            nro.out.open((data.label+".diagnostics").c_str());
             paramVec.push_back(&nro);
             paramToPrint.push_back(&nro);
         }
@@ -951,7 +951,7 @@ public:
     ApproxBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi,
                  const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation,
                  const float varS, const vector<float> &svalue,
-                 const string &algorithm, const bool message = true)
+                 const string &algorithm, const bool diagnosticMode, const bool message = true)
     : BayesS(data, varGenotypic, varResidual, pival, estimatePi, varS, svalue, algorithm, false)
     , rcorr(data.ZPy)
     , varei(data.tss.array()/data.n.array())
@@ -967,16 +967,16 @@ public:
         ghat.setZero(data.Z.rows());
         sparse = data.sparseLDM;
         modelPS = estimatePS;
-        diagnose = false;
+        diagnose = diagnosticMode;
         paramSetVec = {&snpEffects, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
-        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &S.ar, &S.tuner, &rounding};
+        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &rounding};
         if (modelPS) {
             paramVec.push_back(&ps);
             paramToPrint.push_back(&ps);
         }
         if (diagnose) {
-            nro.out.open((data.label+".diag").c_str());
+            nro.out.open((data.label+".diagnostics").c_str());
             paramVec.push_back(&nro);
             paramToPrint.push_back(&nro);
         }
@@ -1067,7 +1067,7 @@ public:
     
     ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, const float icrsq,
                  const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, 0, 0, false, icrsq, false),
+    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, 0, 0, false, icrsq, false, false),
     Pis(pis),
     gamma(gamma, vector<string>(gamma.size())),
     varg(varGenotypic, data.numKeptInds),
@@ -1207,7 +1207,7 @@ public:
     
     ApproxBayesKappa(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, const float icrsq, const float spouseCorrelation,
                      const float kappa_str, const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, 0, 0, icrsq, spouseCorrelation, false),
+    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, 0, 0, icrsq, spouseCorrelation, false, false),
     Pis(pis),
     gamma(gamma, vector<string>(gamma.size())),
     kappa(kappa_str),

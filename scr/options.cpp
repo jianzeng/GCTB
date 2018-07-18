@@ -309,6 +309,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             spouseCorrelation = atof(argv[++i]);
             ss << "--spouse-corr " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--diagnostic-mode")) {
+            diagnosticMode = true;
+            ss << "--diagnostic-mode " << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";

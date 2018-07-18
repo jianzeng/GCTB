@@ -73,6 +73,7 @@ public:
     bool excludeMHC;  // exclude SNPs in the MHC region
     bool directPrune; // direct prune ldm
     bool estimatePS;  // estimate population stratification in sbayes
+    bool diagnosticMode; // for sbayes
 
     // Bayes R defauls
     VectorXf gamma;  // Default scaling parameters for Bayes R
@@ -101,8 +102,8 @@ public:
     string outLDmatType;
     
     Options(){
-        chainLength             = 21000;
-        burnin                  = 1000;
+        chainLength             = 50000;
+        burnin                  = 20000;
         outputFreq              = 100;
         seed                    = 0;
         numThread               = 1;
@@ -150,6 +151,7 @@ public:
         excludeMHC              = false;
         directPrune             = false;
         estimatePS              = false;
+        diagnosticMode          = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";

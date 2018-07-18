@@ -11,8 +11,8 @@
 void GCTB::inputIndInfo(Data &data, const string &bedFile, const string &phenotypeFile, const string &keepIndFile, const unsigned keepIndMax, const unsigned mphen, const string &covariateFile){
     data.readFamFile(bedFile + ".fam");
     data.readPhenotypeFile(phenotypeFile, mphen);
-    data.keepMatchedInd(keepIndFile, keepIndMax);
     data.readCovariateFile(covariateFile);
+    data.keepMatchedInd(keepIndFile, keepIndMax);
 }
 
 void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile, const unsigned includeChr, const string &skeletonSnpFile, const string &geneticMapFile, const bool readGenotypes){
@@ -71,7 +71,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
                         const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma,
                         const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow,
                         const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS,
-                        const float icrsq, const float spouseCorrelation){
+                        const float icrsq, const float spouseCorrelation, const bool diagnosticMode){
     data.initVariances(heritability);
     if (!gwasFile.empty()) {
         if (data.numAnnos) {
@@ -82,9 +82,9 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
         }
         else {
             if (bayesType == "C")
-                return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation);
+                return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, diagnosticMode);
             else if (bayesType == "S")
-                return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, S, algorithm);
+                return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, S, algorithm, diagnosticMode);
             else if (bayesType == "R")
                 return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi, icrsq, spouseCorrelation);
             else if (bayesType == "Kap")
@@ -122,11 +122,11 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
     else if (bayesType == "Cap") {
         //data.readBedFile(bedFile + ".bed");
         data.buildSparseMME(bedFile + ".bed", windowWidth);
-        return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation);
+        return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, diagnosticMode);
     }
     else if (bayesType == "Sap") {
         data.buildSparseMME(bedFile + ".bed", windowWidth);
-        return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, S, algorithm);
+        return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, S, algorithm, diagnosticMode);
     }
     else {
         throw(" Error: Wrong bayes type: " + bayesType);

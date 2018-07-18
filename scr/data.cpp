@@ -310,18 +310,73 @@ void Data::readPhenotypeFile(const string &phenFile, const unsigned mphen) {
         cout << "Non-missing phenotypes of trait " << mphen << " of " << line << " individuals are included from [" + phenFile + "]." << endl;
 }
 
+void Data::readCovariateFile(const string &covarFile){
+    if (covarFile.empty()) return;
+    ifstream in(covarFile.c_str());
+    if (!in) throw ("Error: can not open the file [" + covarFile + "] to read.");
+    map<string, IndInfo*>::iterator it, end=indInfoMap.end();
+    IndInfo *ind = NULL;
+    Gadget::Tokenizer colData;
+    string inputStr;
+    string sep(" \t");
+    string id;
+    unsigned line=0;
+    unsigned numCovariates=0;
+    while (getline(in,inputStr)) {
+        colData.getTokens(inputStr, sep);
+        if (line==0) {
+            numCovariates = (unsigned)colData.size() - 2;
+            numFixedEffects = numCovariates + 1;
+            fixedEffectNames.resize(numFixedEffects);
+            fixedEffectNames[0] = "Intercept";
+            for (unsigned i=0; i<numCovariates; ++i)
+                fixedEffectNames[i+1] = colData[i+2];
+        }
+        id = colData[0] + ":" + colData[1];
+        it = indInfoMap.find(id);
+        if (it != end) {
+            ind = it->second;
+            ind->covariates.resize(numCovariates + 1);  // plus intercept
+            ind->covariates[0] = 1;
+            for (unsigned i=2; i<colData.size(); ++i) {
+                ind->covariates[i-1] = atof(colData[i].c_str());
+            }
+            ++line;
+        }
+    }
+    in.close();
+    
+    if (myMPI::rank==0)
+        cout << "Read " << numCovariates << " covariates from [" + covarFile + "]." << endl;
+}
+
 void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){  // keepIndFile is optional
     map<string, IndInfo*>::iterator it, end=indInfoMap.end();
     IndInfo *ind = NULL;
     vector<string> keep;
     keep.reserve(numInds);
     unsigned cnt=0;
-    for (unsigned i=0; i<numInds; ++i) {
-        ind = indInfoVec[i];
-        ind->kept = false;
-        if (ind->phenotype!=-9) {
-            if (keepIndMax > cnt++)
-                keep.push_back(ind->catID);
+    
+    if (numFixedEffects) {
+        for (unsigned i=0; i<numInds; ++i) {
+            ind = indInfoVec[i];
+            ind->kept = false;
+            if (ind->phenotype!=-9 && ind->covariates.size()) {
+                if (keepIndMax > cnt++)
+                    keep.push_back(ind->catID);
+            }
+        }
+    } else {
+        numFixedEffects = 1;
+        fixedEffectNames = {"Intercept"};
+        for (unsigned i=0; i<numInds; ++i) {
+            ind = indInfoVec[i];
+            ind->kept = false;
+            if (ind->phenotype!=-9) {
+                ind->covariates << 1;
+                if (keepIndMax > cnt++)
+                    keep.push_back(ind->catID);
+            }
         }
     }
     
@@ -376,8 +431,15 @@ void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){
             y[i] = keptIndInfoVec[i]->phenotype;
         }
         float my_ypy = (y.array()-y.mean()).square().sum();
-        
         MPI_Allreduce(&my_ypy, &ypy, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+        
+        X.resize(numKeptInds, numFixedEffects);
+        for (unsigned i=0; i<numKeptInds; ++i) {
+            X.row(i) = keptIndInfoVec[i]->covariates;
+        }
+        VectorXf my_XPXdiag = X.colwise().squaredNorm();
+        XPXdiag.setZero(numFixedEffects);
+        MPI_Allreduce(&my_XPXdiag[0], &XPXdiag[0], numFixedEffects, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
         
         MPI_Allreduce(&numKeptInds, &numKeptInds_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
         
@@ -387,7 +449,6 @@ void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){
         
         MPI_Barrier(MPI_COMM_WORLD);
         printf("%d individuals assigned to processor %s at rank %d.\n", numKeptInds, myMPI::processorName, myMPI::rank);
-        //cout << numKeptInds << " individuals assigned to processor " << myMPI::processorName << " at rank " << myMPI::rank << "." << endl;
     }
     else {
         for (unsigned i=0; i<keep.size(); ++i) {
@@ -416,6 +477,12 @@ void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){
         }
         ypy = (y.array()-y.mean()).square().sum();
         
+        X.resize(numKeptInds, numFixedEffects);
+        for (unsigned i=0; i<numKeptInds; ++i) {
+            X.row(i) = keptIndInfoVec[i]->covariates;
+        }
+        XPXdiag = X.colwise().squaredNorm();
+
         if (myMPI::rank==0) {
             cout << numKeptInds << " matched individuals are kept." << endl;
         }
@@ -434,82 +501,6 @@ void Data::initVariances(const float heritability){
     varGenotypic = varPhenotypic * heritability;
     varResidual  = varPhenotypic - varGenotypic;
     //cout <<varPhenotypic<<" " <<varGenotypic << " " <<varResidual << endl;
-}
-
-void Data::readCovariateFile(const string &covarFile){
-    if (!covarFile.empty()) {
-        ifstream in(covarFile.c_str());
-        if (!in) throw ("Error: can not open the file [" + covarFile + "] to read.");
-        map<string, IndInfo*>::iterator it, end=indInfoMap.end();
-        IndInfo *ind = NULL;
-        Gadget::Tokenizer colData;
-        string inputStr;
-        string sep(" \t");
-        string id;
-        unsigned line=0;
-        unsigned numCovariates=0;
-        while (getline(in,inputStr)) {
-            colData.getTokens(inputStr, sep);
-            if (line==0) {
-                numCovariates = (unsigned)colData.size() - 2;
-                numFixedEffects = numCovariates + 1;
-                fixedEffectNames.resize(numFixedEffects);
-                fixedEffectNames[0] = "Intercept";
-                for (unsigned i=0; i<numCovariates; ++i)
-                    fixedEffectNames[i+1] = colData[i+2];
-            }
-            id = colData[0] + ":" + colData[1];
-            it = indInfoMap.find(id);
-            if (it != end) {
-                ind = it->second;
-                ind->covariates.resize(numCovariates + 1);  // plus intercept
-                ind->covariates[0] = 1;
-                for (unsigned i=2; i<colData.size(); ++i) {
-                    ind->covariates[i-1] = atof(colData[i].c_str());
-                }
-                ++line;
-            }
-        }
-        in.close();
-        
-        if (myMPI::rank==0)
-            cout << "Read " << numCovariates << " covariates from [" + covarFile + "]." << endl;
-        
-        X.resize(numKeptInds, numFixedEffects);
-        for (unsigned i=0; i<numKeptInds; ++i) {
-            X.row(i) = keptIndInfoVec[i]->covariates;
-        }
-        VectorXf my_XPXdiag = X.colwise().squaredNorm();
-        XPXdiag.setZero(numFixedEffects);
-        MPI_Allreduce(&my_XPXdiag[0], &XPXdiag[0], numFixedEffects, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    }
-    else {
-        // only intercept for now
-        numFixedEffects = 1;
-        fixedEffectNames = {"Intercept"};
-        X.setOnes(numKeptInds,1);
-        XPX.resize(1,1);
-        XPXdiag.resize(1);
-        XPy.resize(1);
-        
-        if (myMPI::partition == "byrow") {
-            unsigned numKeptInds_all;
-            MPI_Allreduce(&numKeptInds, &numKeptInds_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
-            
-            XPX << numKeptInds_all;
-            XPXdiag << numKeptInds_all;
-            
-            float sum = y.sum();
-            unsigned sum_all;
-            MPI_Allreduce(&sum, &sum_all, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-            XPy << sum_all;
-        }
-        else {
-            XPX << numKeptInds;
-            XPXdiag << numKeptInds;
-            XPy << y.sum();
-        }
-    }
 }
 
 void Data::includeSnp(const string &includeSnpFile){
@@ -1132,7 +1123,7 @@ void Data::readGwasSummaryFile(const string &gwasFile){
             ++numInconAllele;
         }
         if (!inconAllele) {
-            if (abs(snp->af - snp->gwas_af) > 0.1) {
+            if (abs(snp->af - snp->gwas_af) > 0.05) {
                 inconAf = true;
                 ++numInconAf;
             } else if (snp->gwas_af==0 || snp->gwas_af==1) {
@@ -1155,7 +1146,7 @@ void Data::readGwasSummaryFile(const string &gwasFile){
 
     if (myMPI::rank==0) {
         if (numInconAllele) cout << "removed " << numInconAllele << " SNPs with inconsistent allele coding in between the reference and GWAS samples." << endl;
-        if (numInconAf) cout << "removed " << numInconAf << " SNPs with differences in allele frequency between the reference and GWAS samples > 0.1." << endl;
+        if (numInconAf) cout << "removed " << numInconAf << " SNPs with differences in allele frequency between the reference and GWAS samples > 0.05." << endl;
         if (numFixed) cout << "removed " << numFixed << " fixed SNPs in the GWAS samples." << endl;
         cout << match << " matched SNPs in the GWAS summary data (in total " << line << " SNPs)." << endl;
     }
@@ -2696,29 +2687,29 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 snp->ldSamplVar = (1.0 - ZPZ[i].array().square()).square().sum()/snp->sampleSize;
                 snp->ldSum = ZPZ[i].sum();
             }
-        } else {
-            cout << "Resizing LD matrix based on a chisq threshold of " << chisqThreshold << "..." << endl;
-            for (unsigned i=0; i<numIncdSnps; ++i) {
-                SnpInfo *snp = incdSnpInfoVec[i];
-                unsigned windEndi = windSizeOri[i];
-                for (unsigned j=0; j<windSizeOri[i]; ++j) {
-                    if (ZPZ[i][j]*ZPZ[i][j]*snp->sampleSize > chisqThreshold) {
-                        windStart[i] = snp->windStart = windStartOri[i] + j;
-                        break;
-                    }
-                }
-                for (unsigned j=windSizeOri[i]; j>0; --j) {
-                    if (ZPZ[i][j]*ZPZ[i][j]*snp->sampleSize > chisqThreshold) {
-                        windEndi = j;
-                        break;
-                    }
-                }
-                windSize[i] = snp->windSize = windStartOri[i] + windEndi - windStart[i];
-                ZPZiTmp = ZPZ[i].segment(windStart[i] - windStartOri[i], windSize[i]);
-                ZPZ[i] = ZPZiTmp;
-                snp->ldSamplVar = (1.0 - ZPZ[i].array().square()).square().sum()/snp->sampleSize;
-                snp->ldSum = ZPZ[i].sum();
-            }
+//        } else {
+//            cout << "Resizing LD matrix based on a chisq threshold of " << chisqThreshold << "..." << endl;
+//            for (unsigned i=0; i<numIncdSnps; ++i) {
+//                SnpInfo *snp = incdSnpInfoVec[i];
+//                unsigned windEndi = windSizeOri[i];
+//                for (unsigned j=0; j<windSizeOri[i]; ++j) {
+//                    if (ZPZ[i][j]*ZPZ[i][j]*snp->sampleSize > chisqThreshold) {
+//                        windStart[i] = snp->windStart = windStartOri[i] + j;
+//                        break;
+//                    }
+//                }
+//                for (unsigned j=windSizeOri[i]; j>0; --j) {
+//                    if (ZPZ[i][j]*ZPZ[i][j]*snp->sampleSize > chisqThreshold) {
+//                        windEndi = j;
+//                        break;
+//                    }
+//                }
+//                windSize[i] = snp->windSize = windStartOri[i] + windEndi - windStart[i];
+//                ZPZiTmp = ZPZ[i].segment(windStart[i] - windStartOri[i], windSize[i]);
+//                ZPZ[i] = ZPZiTmp;
+//                snp->ldSamplVar = (1.0 - ZPZ[i].array().square()).square().sum()/snp->sampleSize;
+//                snp->ldSum = ZPZ[i].sum();
+//            }
         }
     }
     if (LDmatType == "shrunk") {
@@ -2839,7 +2830,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
             // Pull out the standard deviation for each variant
             sdss[i] = sqrt(2.0 * (snp->af) * (1.0 - (snp->af)));
             //
-            gmapi[i] = snp->gen_map_pos;
+            gmapi[i] = snp->genPos;
         }
         long int nmsum;
         float theta;
