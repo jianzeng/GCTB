@@ -88,6 +88,8 @@ class StratApproxBayesS : public ApproxBayesS {  // annotation stratified analys
         HeritabilityStratified(const vector<string> &header, const unsigned n, const string &lab = "hsq_Stratified"):
         ParamSet(lab, header), sampleSize(n) {}
         
+        void compute(const VectorXf &sigmaSq, const VectorXf &sum2pqSplusOne, const float genVar, const float resVar);
+        
         void compute(const float genVar, const float resVar, const VectorXf &snpEffects,
                      const vector<SparseVector<float> > &ZPZsp, const vector<AnnoInfo*> &annoInfoVec);
         
@@ -127,9 +129,9 @@ class StratApproxBayesS : public ApproxBayesS {  // annotation stratified analys
         
         void sampleFromFC(const VectorXf &snpEffects, const VectorXf &numNonZeros, const VectorXf &snp2pq,
                           const VectorXf &sigmaSq, const VectorXf &hsq, const float genVar, const float resVar,
-                          const vector<AnnoInfo*> &annoInfoVec, VectorXf &scales);
+                          const vector<AnnoInfo*> &annoInfoVec, VectorXf &scales, VectorXf &sum2pqSplusOneVec);
         void hmcSampler(const unsigned annoIdx, const VectorXf &snpEffects, const VectorXf &snp2pq, const VectorXf &snp2pqLog,
-                        const float sigmaSq, const float varg, float &scale, float &value);
+                        const float sigmaSq, const float varg, float &scale, float &sum2pqSplusOne, float &value);
         float gradientU(const float S, const VectorXf &snpEffects, const float snp2pqLogSum, const VectorXf &snp2pq,
                         const VectorXf &Snp2pqLog, const float sigmaSq);
         float computeU(const float S, const VectorXf &snpEffects, const float snp2pqLogSum, const VectorXf &snp2pq, const float sigmaSq);
@@ -146,11 +148,17 @@ class StratApproxBayesS : public ApproxBayesS {  // annotation stratified analys
     public:
         VectorXf wtdSumSq;
         VectorXf numNonZeros;
+        VectorXf sum2pqSplusOneVec;
         
-        SnpEffects(const vector<string> &header, const VectorXf &snp2pq, const float pi, const unsigned numAnnos):
+        SnpEffects(const vector<string> &header, const VectorXf &snp2pq, const float pi, const vector<AnnoInfo*> &annoVec):
         ApproxBayesS::SnpEffects(header, snp2pq, pi) {
+            long numAnnos = annoVec.size();
             wtdSumSq.setZero(numAnnos);
             numNonZeros.setZero(numAnnos);
+            sum2pqSplusOneVec.setZero(numAnnos);
+            for (unsigned i=0; i<numAnnos; ++i) {
+                sum2pqSplusOneVec[i] = annoVec[i]->snp2pq.sum()*pi;
+            }
         }
         
         void sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag,
@@ -177,13 +185,13 @@ public:
     SpEnrichment Senrich;
     
     ScaleVarStratified scaleStrat;
-
+    
     StratApproxBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi,
                       const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation,
                       const float varS, const vector<float> &svalue,
                       const string &algorithm, const bool message = true):
     ApproxBayesS(data, varGenotypic, varResidual, pival, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, svalue, algorithm, false),
-    snpEffects(data.snpEffectNames, data.snp2pq, pival, data.numAnnos),
+    snpEffects(data.snpEffectNames, data.snp2pq, pival, data.annoInfoVec),
     sigmaSqStrat(data.annoNames, data.annoInfoVec, varGenotypic, pival),
     sigmaSqEnrich(data.annoNames),
     piStrat(data.annoNames, pival),
@@ -204,12 +212,16 @@ public:
             paramVec.push_back(&ps);
             paramToPrint.push_back(&ps);
         }
+        if (spouseCorrelation) {
+            paramVec.push_back(&icgc);
+            paramToPrint.push_back(&icgc);
+        }
         if (message && myMPI::rank==0) {
 //            string alg = algorithm;
 //            if (alg!="RMH") alg = "HMC (default)";
             cout << "\nAnnotation-stratified summary-data-based BayesS model fitted." << endl;
         }
-        makeAnnowiseSparseLDM(data.ZPZsp, data.annoInfoVec, data.incdSnpInfoVec);
+//        makeAnnowiseSparseLDM(data.ZPZsp, data.annoInfoVec, data.incdSnpInfoVec);
     }
     
     void sampleUnknowns(void);

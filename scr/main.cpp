@@ -93,7 +93,7 @@ int main(int argc, const char * argv[]) {
                     data.directPruneLDmatrix(opt.ldmatrixFile, opt.outLDmatType, opt.chisqThreshold, opt.title, opt.writeLdmTxt);
                 }
                 else {
-                    gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, "", opt.ldmatrixFile, opt.includeChr, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.multiLDmat, opt.excludeMHC);
+                    gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, "", opt.ldmatrixFile, opt.includeChr, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff);
                     data.resizeLDmatrix(opt.outLDmatType, opt.chisqThreshold, opt.windowWidth, opt.LDthreshold, opt.effpopNE, opt.cutOff);
                     data.outputLDmatrix(opt.outLDmatType, opt.title, opt.writeLdmTxt);
                 }
@@ -101,9 +101,9 @@ int main(int argc, const char * argv[]) {
         }
         else if (opt.analysisType == "SBayes") {
             if (!opt.ldmatrixFile.empty()) {
-                gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.multiLDmat, opt.excludeMHC);
+                gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff);
             } else {
-                gctb.inputSnpInfo(data, opt.bedFile, opt.gwasSummaryFile);
+                gctb.inputSnpInfo(data, opt.bedFile, opt.gwasSummaryFile, opt.afDiff);
             }
             
             data.label = opt.title;

@@ -549,13 +549,13 @@ public:
         // note that the scale factor of sigmaSq will be simultaneously updated
         void sampleFromFC(const float snpEffWtdSumSq, const unsigned numNonZeros, const float sigmaSq, const VectorXf &snpEffects,
                           const VectorXf &snp2pq, ArrayXf &snp2pqPowS, const ArrayXf &logSnp2pq,
-                          const float vg, float &scale, float &sum2pqOneMinusS);
+                          const float vg, float &scale, float &sum2pqSplusOne);
         void randomWalkMHsampler(const float snpEffWtdSumSq, const unsigned numNonZeros, const float sigmaSq, const VectorXf &snpEffects,
                                  const VectorXf &snp2pq, ArrayXf &snp2pqPowS, const ArrayXf &logSnp2pq,
-                                 const float vg, float &scale, float &sum2pqOneMinusS);
+                                 const float vg, float &scale, float &sum2pqSplusOne);
         void hmcSampler(const unsigned numNonZeros, const float sigmaSq, const VectorXf &snpEffects,
                         const VectorXf &snp2pq, ArrayXf &snp2pqPowS, const ArrayXf &logSnp2pq,
-                        const float vg, float &scale, float &sum2pqOneMinusS);
+                        const float vg, float &scale, float &sum2pqSplusOne);
         float gradientU(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float sigmaSq, const float vg);
         float computeU(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float sigmaSq, const float vg, float &scale, float &U_chisq);
     };
@@ -563,12 +563,11 @@ public:
     class SnpEffects : public BayesC::SnpEffects {
     public:
         float wtdSumSq;  // weighted sum of squares by 2pq^S
-        float sum2pqOneMinusS;  // sum of delta_j* (2p_j q_j)^{1-S}
+        float sum2pqSplusOne;  // sum of delta_j* (2p_j q_j)^{1+S}
         
         SnpEffects(const vector<string> &header, const VectorXf &snp2pq, const float pi): BayesC::SnpEffects(header, "Gibbs") {
             wtdSumSq = 0.0;
-            //sum2pqOneMinusS = 0.0;
-            sum2pqOneMinusS = snp2pq.sum()*pi;  // starting value of S is 0
+            sum2pqSplusOne = snp2pq.sum()*pi;  // starting value of S is 0
         }
         
         void sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
@@ -626,7 +625,7 @@ public:
     class SnpEffects : public BayesN::SnpEffects {
     public:
         float wtdSumSq;  // weighted sum of squares by 2pq^S
-        float sum2pqOneMinusS;  // sum of delta_j* (2p_j q_j)^{1-S}
+        float sum2pqSplusOne;  // sum of delta_j* (2p_j q_j)^{1+S}
         
         ArrayXf varPseudoPrior;
         
@@ -634,8 +633,8 @@ public:
                    const unsigned snpFittedPerWindow, const VectorXf &snp2pq, const float pi):
         BayesN::SnpEffects(header, windStart, windSize, snpFittedPerWindow){
             wtdSumSq = 0.0;
-            sum2pqOneMinusS = 0.0;
-            //sum2pqOneMinusS = snp2pq.sum()*(1.0f-pi)*(1.0f-snpFittedPerWindow/float(windSize));  // starting value of S is 0
+            sum2pqSplusOne = 0.0;
+            //sum2pqSplusOne = snp2pq.sum()*(1.0f-pi)*(1.0f-snpFittedPerWindow/float(windSize));  // starting value of S is 0
             varPseudoPrior.setZero(size);
         }
         
@@ -888,11 +887,11 @@ public:
     class SnpEffects : public ApproxBayesC::SnpEffects {
     public:
         float wtdSumSq;  // weighted sum of squares by 2pq^S
-        float sum2pqOneMinusS;  // sum of delta_j* (2p_j q_j)^{1-S}
+        float sum2pqSplusOne;  // sum of delta_j* (2p_j q_j)^{1+S}
         
         SnpEffects(const vector<string> &header, const VectorXf &snp2pq, const float pi): ApproxBayesC::SnpEffects(header) {
             wtdSumSq = 0.0;
-            sum2pqOneMinusS = snp2pq.sum()*pi;  // starting value of S is 0
+            sum2pqSplusOne = snp2pq.sum()*pi;  // starting value of S is 0
         }
         
         void sampleFromFC(VectorXf &rcorr,const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
