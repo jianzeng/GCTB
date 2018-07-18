@@ -42,7 +42,7 @@ public:
                       const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma,
                       const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow,
                       const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS,
-                      const float icrsq, const float spouseCorrelation);
+                      const float icrsq, const float spouseCorrelation, const bool diagnosticMode);
     vector<McmcSamples*> runMcmc(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior);
     void saveMcmcSamples(const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
     void outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &filename);

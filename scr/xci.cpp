@@ -40,6 +40,7 @@ void XCI::inputIndInfo(Data &data, const string &bedFile, const string &phenotyp
                        const unsigned keepIndMax, const unsigned mphen, const string &covariateFile){
     data.readFamFile(bedFile + ".fam");
     data.readPhenotypeFile(phenotypeFile, mphen);
+    data.readCovariateFile(covariateFile);
     sortIndBySex(data.indInfoVec);
     data.keepMatchedInd(keepIndFile, keepIndMax);
     
@@ -59,7 +60,6 @@ void XCI::inputIndInfo(Data &data, const string &bedFile, const string &phenotyp
    if (myMPI::rank==0)
         cout << "Matched " << numKeptMales_all << " males and " << numKeptFemales_all << " females." << endl;
     
-    data.readCovariateFile(covariateFile);
     restoreFamFileOrder(data.indInfoVec);
 }
 
