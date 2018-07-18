@@ -313,6 +313,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             diagnosticMode = true;
             ss << "--diagnostic-mode " << "\n";
         }
+        else if (!strcmp(argv[i], "--filter-af-diff")) {
+            afDiff = atof(argv[++i]);
+            ss << "--filter-af-diff " << argv[i] << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";

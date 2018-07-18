@@ -26,7 +26,7 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &include
     if (readGenotypes) data.readBedFile(bedFile + ".bed");
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile, const bool multiLDmat, const bool excludeMHC){
+void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile, const bool multiLDmat, const bool excludeMHC, const float afDiff){
     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
@@ -38,7 +38,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (!skeletonSnpFile.empty()) data.includeSkeletonSnp(skeletonSnpFile);
     if (!geneticMapFile.empty()) data.readGeneticMapFile(geneticMapFile);
     if (!annotationFile.empty()) data.readAnnotationFile(annotationFile);
-    if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile);
+    if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile, afDiff);
     data.includeMatchedSnp();
     if (geneticMapFile.empty()) {
         if (multiLDmat)
@@ -54,14 +54,14 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (!gwasSummaryFile.empty()) data.buildSparseMME();
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile){
+void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile, const float afDiff){
     data.readFamFile(bedFile + ".fam");
     data.readBimFile(bedFile + ".bim");
 
     data.keptIndInfoVec = data.makeKeptIndInfoVec(data.indInfoVec);
     data.numKeptInds =  (unsigned) data.keptIndInfoVec.size();
     
-    data.readGwasSummaryFile(gwasSummaryFile);
+    data.readGwasSummaryFile(gwasSummaryFile, afDiff);
     data.includeMatchedSnp();
     data.readBedFile(bedFile + ".bed");
     data.buildSparseMME();

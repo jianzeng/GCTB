@@ -248,7 +248,7 @@ public:
     void readBedFile(const string &bedFile);
     void readPhenotypeFile(const string &phenFile, const unsigned mphen);
     void readCovariateFile(const string &covarFile);
-    void readGwasSummaryFile(const string &gwasFile);
+    void readGwasSummaryFile(const string &gwasFile, const float afDiff);
     void readLDmatrixInfoFile(const string &ldmatrixFile);
     void readLDmatrixBinFile(const string &ldmatrixFile);
     void readGeneticMapFile(const string &freqFile);

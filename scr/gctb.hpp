@@ -34,9 +34,9 @@ public:
     void inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile,
                       const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr,
                       const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile,
-                      const bool multiLDmatrix, const bool excludeMHC);
+                      const bool multiLDmatrix, const bool excludeMHC, const float afDiff);
     
-    void inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile);
+    void inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile, const float afDiff);
 
     Model* buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
                       const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma,

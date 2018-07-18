@@ -1088,7 +1088,7 @@ void Data::outputWindowResults(const VectorXf &posteriorMean, const string &file
     out.close();
 }
 
-void Data::readGwasSummaryFile(const string &gwasFile){
+void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff){
     ifstream in(gwasFile.c_str());
     if (!in) throw ("Error: can not open the GWAS summary data file [" + gwasFile + "] to read.");
     if (myMPI::rank==0)
@@ -1123,7 +1123,7 @@ void Data::readGwasSummaryFile(const string &gwasFile){
             ++numInconAllele;
         }
         if (!inconAllele) {
-            if (abs(snp->af - snp->gwas_af) > 0.05) {
+            if (abs(snp->af - snp->gwas_af) > afDiff) {
                 inconAf = true;
                 ++numInconAf;
             } else if (snp->gwas_af==0 || snp->gwas_af==1) {
@@ -1146,7 +1146,7 @@ void Data::readGwasSummaryFile(const string &gwasFile){
 
     if (myMPI::rank==0) {
         if (numInconAllele) cout << "removed " << numInconAllele << " SNPs with inconsistent allele coding in between the reference and GWAS samples." << endl;
-        if (numInconAf) cout << "removed " << numInconAf << " SNPs with differences in allele frequency between the reference and GWAS samples > 0.05." << endl;
+        if (numInconAf) cout << "removed " << numInconAf << " SNPs with differences in allele frequency between the reference and GWAS samples > " << afDiff << "." << endl;
         if (numFixed) cout << "removed " << numFixed << " fixed SNPs in the GWAS samples." << endl;
         cout << match << " matched SNPs in the GWAS summary data (in total " << line << " SNPs)." << endl;
     }

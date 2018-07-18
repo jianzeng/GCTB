@@ -62,6 +62,7 @@ public:
     float cutOff;    // for shrunk LDM
     float icrsq;  // average inter-chromosome r^2 across SNPs
     float spouseCorrelation;
+    float afDiff; // filtering SNPs by the allele frequency difference in LD and GWAS samples
     
     bool estimatePi;
     bool estimateScale;
@@ -131,6 +132,7 @@ public:
         cutOff                  = 1e-5;
         icrsq                   = 0;
         spouseCorrelation       = 0;
+        afDiff                  = 0.05;
 
         // Bayes R defaults
         ndists                  = 4;

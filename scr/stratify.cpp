@@ -37,6 +37,10 @@ void StratApproxBayesS::PiEnrichment::compute(const VectorXf &nnzStrat, const fl
     }
 }
 
+void StratApproxBayesS::HeritabilityStratified::compute(const VectorXf &sigmaSq, const VectorXf &sum2pqSplusOne, const float genVar, const float resVar) {
+    values = sigmaSq.cwiseProduct(sum2pqSplusOne)/(genVar + resVar);
+}
+
 void StratApproxBayesS::HeritabilityStratified::compute(const float genVar, const float resVar, const VectorXf &snpEffects,
                                                         const vector<SparseVector<float> > &ZPZsp, const vector<AnnoInfo *> &annoInfoVec) {
     for (unsigned i=0; i<size; ++i) {
@@ -93,7 +97,7 @@ void StratApproxBayesS::PerSnpHeritabilityEnrichment::compute(const VectorXf &hs
     }
 }
 
-void StratApproxBayesS::SpStratified::sampleFromFC(const VectorXf &snpEffects, const VectorXf &numNonZeros, const VectorXf &snp2pq, const VectorXf &sigmaSq, const VectorXf &hsq, const float genVar, const float resVar, const vector<AnnoInfo*> &annoInfoVec, VectorXf &scales) {
+void StratApproxBayesS::SpStratified::sampleFromFC(const VectorXf &snpEffects, const VectorXf &numNonZeros, const VectorXf &snp2pq, const VectorXf &sigmaSq, const VectorXf &hsq, const float genVar, const float resVar, const vector<AnnoInfo*> &annoInfoVec, VectorXf &scales, VectorXf &sum2pqSplusOneVec) {
     
     VectorXf varg = hsq.array()*(genVar + resVar);
     
@@ -119,12 +123,12 @@ void StratApproxBayesS::SpStratified::sampleFromFC(const VectorXf &snpEffects, c
             }
         }
         
-        hmcSampler(i, snpEffectsAnnoi, snp2pqAnnoi, snp2pqLogAnnoi, sigmaSq[i], varg[i], scales[i], values[i]);
+        hmcSampler(i, snpEffectsAnnoi, snp2pqAnnoi, snp2pqLogAnnoi, sigmaSq[i], varg[i], scales[i], sum2pqSplusOneVec[i], values[i]);
         
     }
 }
 
-void StratApproxBayesS::SpStratified::hmcSampler(const unsigned annoIdx, const VectorXf &snpEffects, const VectorXf &snp2pq, const VectorXf &snp2pqLog, const float sigmaSq, const float varg, float &scale, float &value) {
+void StratApproxBayesS::SpStratified::hmcSampler(const unsigned annoIdx, const VectorXf &snpEffects, const VectorXf &snp2pq, const VectorXf &snp2pqLog, const float sigmaSq, const float varg, float &scale, float &sum2pqSplusOne, float &value) {
     float snp2pqLogSum = snp2pqLog.sum();
     
     float curr = value;
@@ -155,7 +159,8 @@ void StratApproxBayesS::SpStratified::hmcSampler(const unsigned annoIdx, const V
     
     if (Stat::ranf() < exp(curr_H-cand_H)) {  // accept
         value = cand;
-        scale = 0.5*varg/snp2pq.array().pow(value+1.0).sum();
+        sum2pqSplusOne = snp2pq.array().pow(value+1.0).sum();
+        scale = 0.5*varg/sum2pqSplusOne;
         if (scale != scale) {
             cout << snp2pq << endl;
             cout << "pow sum: " << snp2pq.array().pow(value+1.0).sum() << endl;
@@ -273,16 +278,23 @@ void StratApproxBayesS::sampleUnknowns() {
     sigmaSqStrat.sampleFromFC(snpEffects.wtdSumSq, nnzStrat.values);
     sigmaSqEnrich.compute(sigmaSqStrat.values, sigmaSq.value);
     
-    varg.compute(snpEffects.values, data.ZPy, rcorr);
-    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, varg.value, nnzSnp.value);
+    sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pqSplusOne);
+    varg.value = sigmaSqG.value;
+//    varg.compute(snpEffects.values, data.ZPy, rcorr);
+    icgc.compute(varg.value, vare.value, snpEffects.nnzPerChr);
+    if (icgc.value)
+        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, icgc.value);
+    else
+        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, varg.value, nnzSnp.value);
     hsq.compute(varg.value, vare.value);
-    hsqStrat.compute(snpEffects.values, annowiseZPZsp, annowiseZPZdiag, data.annoInfoVec, varg.value, vare.value);
+    hsqStrat.compute(sigmaSqStrat.values, snpEffects.sum2pqSplusOneVec, varg.value, vare.value);
+//    hsqStrat.compute(snpEffects.values, annowiseZPZsp, annowiseZPZdiag, data.annoInfoVec, varg.value, vare.value);
     totalHsqEnrich.compute(hsqStrat.values, piEnrich.expectation, hsq.value);
     perSnpHsqEnrich.compute(hsqStrat.values, nnzStrat.values, hsq.value, nnzSnp.value);
     
-    S.sampleFromFC(snpEffects.wtdSumSq.sum(), nnzSnp.value, sigmaSq.value, snpEffects.values, data.snp2pq, snp2pqPowS, logSnp2pq, varg.value, sigmaSq.scale, snpEffects.sum2pqOneMinusS);
+    S.sampleFromFC(snpEffects.wtdSumSq.sum(), nnzSnp.value, sigmaSq.value, snpEffects.values, data.snp2pq, snp2pqPowS, logSnp2pq, varg.value, sigmaSq.scale, snpEffects.sum2pqSplusOne);
     Sstrat.sampleFromFC(snpEffects.values, nnzStrat.values, data.snp2pq, sigmaSqStrat.values, hsqStrat.values,
-                        varg.value, vare.value, data.annoInfoVec, sigmaSqStrat.scales);
+                        varg.value, vare.value, data.annoInfoVec, sigmaSqStrat.scales, snpEffects.sum2pqSplusOneVec);
     Senrich.compute(Sstrat.values, S.value);
     
     if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, data.chisq);
