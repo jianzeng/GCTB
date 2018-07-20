@@ -1747,23 +1747,10 @@ void ApproxBayesC::ldScoreReg(const VectorXf &chisq, const VectorXf &LDscore, co
     
 }
 
-void ApproxBayesC::InterChrGenetCov::compute(const float varg, const float vare, const VectorXf &nnzPerChr) {
+void ApproxBayesC::InterChrGenetCov::compute(const float varg, const float hsq) {
     if (!spouseCorrelation) return;
-    float R = spouseCorrelation*varg / (varg + vare - spouseCorrelation*varg);
-    value = varg * R * 0.95;
-    
-    return;
-    
-    float C = 0;
-    float nnzTotal = nnzPerChr.sum();
-    long numChr = nnzPerChr.size();
-    for (unsigned i=0; i<numChr; ++i) {
-        for (unsigned j=i+1; j<numChr; ++j) {
-            C += 2.0*nnzPerChr[i]*nnzPerChr[j];
-        }
-    }
-    C /= nnzTotal*nnzTotal;
-    value = varg * R * C;
+    float R = spouseCorrelation*hsq / (1 - spouseCorrelation*hsq);
+    value = varg * R; //* 0.95;    
 }
 
 
@@ -1788,7 +1775,7 @@ void ApproxBayesC::sampleUnknowns(){
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
     varg.value = sigmaSqG.value;
 //    varg.compute(snpEffects.values, data.ZPy, rcorr);
-    icgc.compute(varg.value, vare.value, snpEffects.nnzPerChr);
+    icgc.compute(hsq.value, varg.value);
     if (icgc.value)
         vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, icgc.value);
     else
@@ -2216,7 +2203,7 @@ void ApproxBayesS::sampleUnknowns(){
     //varg.compute(snpEffects.values, data.ZPy, rcorr);
     //varg.value = data.ypy/varg.nobs - vare.value;
     
-    icgc.compute(varg.value, vare.value, snpEffects.nnzPerChr);
+    icgc.compute(hsq.value, varg.value);
     if (icgc.value)
         vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, icgc.value);
     else

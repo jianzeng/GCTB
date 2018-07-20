@@ -803,7 +803,7 @@ public:
         
         InterChrGenetCov(const float corr): Parameter("ICGC"), spouseCorrelation(corr) {}
         
-        void compute(const float varg, const float vare, const VectorXf &nnzPerChr);
+        void compute(const float varg, const float hsq);
     };
     
 public:
