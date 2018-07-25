@@ -91,6 +91,7 @@ public:
     string alleleFreqFile;
     string includeSnpFile;
     string excludeSnpFile;
+    string excludeRegionFile;
     string geneticMapFile;
     string keepIndFile;
     string snpResFile;
@@ -166,6 +167,7 @@ public:
         alleleFreqFile          = "";
         includeSnpFile          = "";
         excludeSnpFile          = "";
+        excludeRegionFile       = "";
         geneticMapFile          = "";
         keepIndFile             = "";
         snpResFile              = "";
