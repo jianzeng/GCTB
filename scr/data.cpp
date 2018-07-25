@@ -580,6 +580,40 @@ void Data::excludeMHC(){
     }
 }
 
+void Data::excludeRegion(const string &excludeRegionFile){
+    ifstream in(excludeRegionFile.c_str());
+    if (!in) throw ("Error: can not open the file [" + excludeRegionFile + "] to read.");
+
+    map<int, vector<pair<long, long> > > regions;
+    int chr;
+    long regStart, regEnd;
+    while (in >> chr >> regStart >> regEnd) {
+        regions[chr].push_back(pair<long, long>(regStart, regEnd));
+    }
+    
+    unsigned cnt = 0;
+    map<int, vector<pair<long, long> > >::iterator it, end = regions.end();
+    for (unsigned i=0; i<numSnps; ++i) {
+        SnpInfo *snp = snpInfoVec[i];
+        it = regions.find(snp->chrom);
+        if (it != end) {
+            long size = it->second.size();
+            for (unsigned j=0; j<size; ++j) {
+                regStart = it->second[j].first;
+                regEnd   = it->second[j].second;
+                if (snp->physPos > regStart && snp->physPos < regEnd) {
+                    snp->included = false;
+                    ++cnt;
+                }
+            }
+        }
+    }
+    if (myMPI::rank==0) {
+        cout << cnt << " SNPs are excluded due to --exclude-region." << endl;
+    }
+
+}
+
 void Data::reindexSnp(vector<SnpInfo*> snpInfoVec){
     SnpInfo *snp;
     for (unsigned i=0, idx=0; i<snpInfoVec.size(); ++i) {
@@ -3376,6 +3410,7 @@ void Data::buildSparseMME(){
         se[i]= snp->gwas_se;
         tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
     }
+    b.array() -= b.mean();
     
     if (ZPZ.size() || ZPZsp.size()) {
         if (sparseLDM == true) {
@@ -3466,6 +3501,27 @@ void Data::buildSparseMME(){
     XPX.resize(0,0);
     ZPX.resize(0,0);
     XPy.resize(0);
+//    numFixedEffects = 1;
+//    fixedEffectNames.resize(1);
+//    fixedEffectNames[0] = "Intercept";
+//    XPX.resize(1,1);
+//    XPX << numIncdSnps;
+//    XPXdiag.resize(1);
+//    XPXdiag << numIncdSnps;
+//    ZPX.resize(numIncdSnps,1);
+//    if (ZPZ.size()) {
+//        for (unsigned i=0; i<numIncdSnps; ++i) {
+//            ZPX(i,0) = ZPZ[i].sum();
+//        }
+//    } if (ZPZsp.size()) {
+//        for (unsigned i=0; i<numIncdSnps; ++i) {
+//            ZPX(i,0) = ZPZsp[i].sum();
+//        }
+//    } else {
+//        throw("Error: either dense or sparse ldm does not exist!");
+//    }
+//    XPy.resize(numIncdSnps,1);
+//    XPy << b.sum();
     
     // data summary
     cout << "\nData summary:" << endl;

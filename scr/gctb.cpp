@@ -15,18 +15,19 @@ void GCTB::inputIndInfo(Data &data, const string &bedFile, const string &phenoty
     data.keepMatchedInd(keepIndFile, keepIndMax);
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile, const unsigned includeChr, const string &skeletonSnpFile, const string &geneticMapFile, const bool readGenotypes){
+void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const unsigned includeChr, const string &skeletonSnpFile, const string &geneticMapFile, const bool readGenotypes){
     data.readBimFile(bedFile + ".bim");
     if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
     if (includeChr) data.includeChr(includeChr);
+    if (!excludeRegionFile.empty()) data.excludeRegion(excludeRegionFile);
     if (!skeletonSnpFile.empty()) data.includeSkeletonSnp(skeletonSnpFile);
     if (!geneticMapFile.empty()) data.readGeneticMapFile(geneticMapFile);
     data.includeMatchedSnp();
     if (readGenotypes) data.readBedFile(bedFile + ".bed");
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile, const bool multiLDmat, const bool excludeMHC, const float afDiff){
+void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile, const bool multiLDmat, const bool excludeMHC, const float afDiff){
     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
@@ -34,6 +35,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
     data.includeChr(includeChr);
+    if (!excludeRegionFile.empty()) data.excludeRegion(excludeRegionFile);
     if (excludeMHC) data.excludeMHC();
     if (!skeletonSnpFile.empty()) data.includeSkeletonSnp(skeletonSnpFile);
     if (!geneticMapFile.empty()) data.readGeneticMapFile(geneticMapFile);

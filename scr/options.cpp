@@ -106,6 +106,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             excludeSnpFile = argv[++i];
             ss << "--exclude " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--exclude-region")) {
+            excludeRegionFile = argv[++i];
+            ss << "--exclude-region " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--mcmc-samples")) {
             mcmcSampleFile = argv[++i];
             ss << "--mcmc-samples " << argv[i] << "\n";

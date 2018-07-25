@@ -281,7 +281,7 @@ void StratApproxBayesS::sampleUnknowns() {
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pqSplusOne);
     varg.value = sigmaSqG.value;
 //    varg.compute(snpEffects.values, data.ZPy, rcorr);
-    icgc.compute(varg.value, vare.value, snpEffects.nnzPerChr);
+    icgc.compute(varg.value, hsq.value);
     if (icgc.value)
         vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, icgc.value);
     else

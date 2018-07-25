@@ -29,9 +29,9 @@ public:
     
     void inputIndInfo(Data &data, const string &bedFile, const string &phenotypeFile, const string &keepIndFile,
                       const unsigned keepIndMax, const unsigned mphen, const string &covariateFile);
-    void inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile,
+    void inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile,
                       const unsigned includeChr, const string &skeletonSnpFile, const string &geneticMapFile, const bool readGenotypes);
-    void inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile,
+    void inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile,
                       const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr,
                       const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile,
                       const bool multiLDmatrix, const bool excludeMHC, const float afDiff);

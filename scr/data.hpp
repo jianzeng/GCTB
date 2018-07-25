@@ -258,6 +258,7 @@ public:
     void excludeSnp(const string &excludeSnpFile);
     void includeChr(const unsigned chr);
     void excludeMHC(void);
+    void excludeRegion(const string &excludeRegionFile);
     void includeSkeletonSnp(const string &skeletonSnpFile);
 
     void includeMatchedSnp(void);
