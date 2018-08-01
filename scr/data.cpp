@@ -1041,12 +1041,10 @@ void Data::readGwasSummaryFile(const string &gwasFile){
             snp->gwas_se = atof(se.c_str());
             snp->gwas_n  = atof(n.c_str());
             ++match;
-        } else if (allele1 == snp->a2 && allele2 == snp->a1) {
-            snp->gwas_b  = -atof(b.c_str());
-            snp->gwas_af = 1.0-atof(freq.c_str());
-            snp->gwas_se = atof(se.c_str());
-            snp->gwas_n  = atof(n.c_str());
-            ++match;
+        } else if ((allele1 == "A" && allele2 == "T") || (allele1 == "T" && allele2 == "A") || (allele1 == "G" && allele2 == "C") || (allele1 == "C" && allele2 == "G") ) {
+            cout << "WARNING: SNP " + id + " is being removed due to strand abiguity." << endl;
+            snp->included = false;
+            ++incon;
         } else {
             cout << "WARNING: SNP " + id + " has inconsistent allele coding in between the reference and GWAS samples." << endl;
             snp->included = false;
@@ -1055,7 +1053,7 @@ void Data::readGwasSummaryFile(const string &gwasFile){
         if (snp->gwas_af==0 || snp->gwas_af==1) throw ("Error: SNP " + id + " is a fixed SNP!");
     }
     in.close();
-    
+
     for (unsigned i=0; i<numSnps; ++i) {
         snp = snpInfoVec[i];
         if (!snp->included) continue;
@@ -1065,7 +1063,7 @@ void Data::readGwasSummaryFile(const string &gwasFile){
     }
 
     if (myMPI::rank==0) {
-        if (incon) cout << "removed " << incon << " SNPs with inconsistent allele coding in between the reference and GWAS samples." << endl;
+        if (incon) cout << "removed " << incon << " SNPs with inconsistent allele coding in between the reference and GWAS samples or strand ambiguity." << endl;
         cout << match << " matched SNPs in the GWAS summary data (in total " << line << " SNPs)." << endl;
     }
 
