@@ -47,6 +47,8 @@ public:
     unsigned ndists; // Number of distributions for base Bayes R
     
     float pi;
+    float piAlpha;
+    float piBeta;
     float heritability;
 //    float varGenotypic;
 //    float varResidual;
@@ -63,6 +65,8 @@ public:
     float icrsq;  // average inter-chromosome r^2 across SNPs
     float spouseCorrelation;
     float afDiff; // filtering SNPs by the allele frequency difference in LD and GWAS samples
+    float mafmin;  // lower bound of maf
+    float mafmax;  // upper bound of maf
     
     bool estimatePi;
     bool estimateScale;
@@ -75,6 +79,8 @@ public:
     bool directPrune; // direct prune ldm
     bool estimatePS;  // estimate population stratification in sbayes
     bool diagnosticMode; // for sbayes
+    bool jackknife;   // jackknife estimate for LD sampling variance
+    bool excludeAmbiguousSNP;  // exlcude ambiguous SNPs with A/T or G/C alleles
 
     // Bayes R defauls
     VectorXf gamma;  // Default scaling parameters for Bayes R
@@ -117,6 +123,8 @@ public:
                 
         windowWidth             = 0*Megabase;
         pi                      = 0.05;
+        piAlpha                 = 1;
+        piBeta                  = 19;
         heritability            = 0.1;
 //        varGenotypic            = 1.0;
 //        varResidual             = 1.0;
@@ -134,6 +142,8 @@ public:
         icrsq                   = 0;
         spouseCorrelation       = 0;
         afDiff                  = 0.05;
+        mafmin                  = 0;
+        mafmax                  = 0;
 
         // Bayes R defaults
         ndists                  = 4;
@@ -155,6 +165,8 @@ public:
         directPrune             = false;
         estimatePS              = false;
         diagnosticMode          = false;
+        jackknife               = false;
+        excludeAmbiguousSNP     = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";

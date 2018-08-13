@@ -158,6 +158,14 @@ void Options::inputOptions(const int argc, const char* argv[]){
             }
             ss << "--pi " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--pi-alpha")) {
+            piAlpha = atof(argv[++i]);
+            ss << "--pi-alpha " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--pi-beta")) {
+            piBeta = atof(argv[++i]);
+            ss << "--pi-beta " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--hsq")) {
             heritability = atof(argv[++i]);
             ss << "--hsq " << argv[i] << "\n";
@@ -320,6 +328,22 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--filter-af-diff")) {
             afDiff = atof(argv[++i]);
             ss << "--filter-af-diff " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--jackknife")) {
+            jackknife = true;
+            ss << "--jackknife " << "\n";
+        }
+        else if (!strcmp(argv[i], "--ambiguous-snp")) {
+            excludeAmbiguousSNP = true;
+            ss << "--ambiguous-snp " << "\n";
+        }
+        else if (!strcmp(argv[i], "--maf")) {
+            mafmin = atof(argv[++i]);
+            ss << "--maf " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--max-maf")) {
+            mafmax = atof(argv[++i]);
+            ss << "--max-maf " << argv[i] << "\n";
         }
         else {
             stringstream errmsg;

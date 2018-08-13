@@ -248,7 +248,7 @@ public:
     void readBedFile(const string &bedFile);
     void readPhenotypeFile(const string &phenFile, const unsigned mphen);
     void readCovariateFile(const string &covarFile);
-    void readGwasSummaryFile(const string &gwasFile, const float afDiff);
+    void readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax);
     void readLDmatrixInfoFile(const string &ldmatrixFile);
     void readLDmatrixBinFile(const string &ldmatrixFile);
     void readGeneticMapFile(const string &freqFile);
@@ -258,6 +258,8 @@ public:
     void excludeSnp(const string &excludeSnpFile);
     void includeChr(const unsigned chr);
     void excludeMHC(void);
+    void excludeAmbiguousSNP(void);
+    void excludeSNPwithMaf(const float mafmin, const float mafmax);
     void excludeRegion(const string &excludeRegionFile);
     void includeSkeletonSnp(const string &skeletonSnpFile);
 
@@ -293,6 +295,8 @@ public:
     void readLDmatrixBinFileAndShrink(const string &ldmatrixFile);
     void readMultiLDmatBinFileAndShrink(const string &mldmatFile);
     void directPruneLDmatrix(const string &ldmatrixFile, const string &outLDmatType, const float chisqThreshold, const string &title, const bool writeLdmTxt);
+    void jackknifeLDmatrix(const string &ldmatrixFile, const string &outLDmatType, const string &title, const bool writeLdmTxt);
+    void addLDmatrixInfo(const string &ldmatrixFile);
     
     void readAnnotationFile(const string &annotationFile);
 };
