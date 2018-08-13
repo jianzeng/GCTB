@@ -232,13 +232,13 @@ void XCI::readBedFile(Data &data, const string &bedFile){
 }
 
 
-Model* XCI::buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const bool estimatePi, const float piNDC){
+Model* XCI::buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const float piNDC){
     data.initVariances(heritability);
     if (bayesType == "B") {
-        return new BayesBXCI(data, data.varGenotypic, data.varResidual, pi, estimatePi, piNDC, numKeptMales, numKeptFemales);
+        return new BayesBXCI(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, piNDC, numKeptMales, numKeptFemales);
     }
     if (bayesType == "C") {
-        return new BayesCXCI(data, data.varGenotypic, data.varResidual, pi, estimatePi, piNDC, numKeptMales, numKeptFemales);
+        return new BayesCXCI(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, piNDC, numKeptMales, numKeptFemales);
     }
     else {
         throw(" Error: Wrong bayes type: " + bayesType);

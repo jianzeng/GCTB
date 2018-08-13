@@ -30,7 +30,7 @@ public:
                       const unsigned includeChr, const bool readGenotypes);
     void readBedFile(Data &data, const string &bedFile);
 
-    Model* buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const bool estimatePi, const float piNDC);
+    Model* buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const float piNDC);
     void simu(Data &data, const unsigned numQTL, const float heritability, const float probNDC, const bool removeQTL, const string &title);
     void outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &title);
 };
@@ -117,8 +117,8 @@ public:
     VectorXf ZPZdiagMale;
     VectorXf ZPZdiagFemale;
     
-    BayesCXCI(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const float piNDCval, const unsigned nmale, const unsigned nfemale, const bool message = true):
-    BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false),
+    BayesCXCI(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi, const float piNDCval, const unsigned nmale, const unsigned nfemale, const bool message = true):
+    BayesC(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, "Gibbs", false),
     ycorrm(data.y.head(nmale)),
     ycorrf(data.y.tail(nfemale)),
     piNDC(piNDCval),
@@ -171,8 +171,8 @@ public:
     SnpEffects snpEffects;
     BayesB::VarEffects sigmaSq;
 
-    BayesBXCI(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const float piNDCval, const unsigned nmale, const unsigned nfemale, const bool message = true):
-    BayesCXCI(data, varGenotypic, varResidual, pival, estimatePi, piNDCval, nmale, nfemale, false),
+    BayesBXCI(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi, const float piNDCval, const unsigned nmale, const unsigned nfemale, const bool message = true):
+    BayesCXCI(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, piNDCval, nmale, nfemale, false),
     snpEffects(data.snpEffectNames),
     sigmaSq(varGenotypic, data.snp2pq, pival)
     {

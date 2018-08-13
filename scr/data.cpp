@@ -373,6 +373,7 @@ void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){
             ind = indInfoVec[i];
             ind->kept = false;
             if (ind->phenotype!=-9) {
+                ind->covariates.resize(1);
                 ind->covariates << 1;
                 if (keepIndMax > cnt++)
                     keep.push_back(ind->catID);
@@ -577,6 +578,43 @@ void Data::excludeMHC(){
     }
     if (myMPI::rank==0) {
         cout << cnt << " SNPs in the MHC region (Chr6:28-34Mb) are excluded." << endl;
+    }
+}
+
+void Data::excludeAmbiguousSNP(){
+    long cnt = 0;
+    for (unsigned i=0; i<numSnps; ++i) {
+        SnpInfo *snp = snpInfoVec[i];
+        if ((snp->a1 == "T" && snp->a2 == "A") ||
+            (snp->a1 == "A" && snp->a2 == "T") ||
+            (snp->a1 == "G" && snp->a2 == "C") ||
+            (snp->a1 == "C" && snp->a2 == "G")) {
+            snp->included = false;
+            ++cnt;
+        }
+    }
+    if (myMPI::rank==0) {
+        cout << cnt << " SNPs with ambiguous nucleotides, i.e. A/T or G/C, are excluded." << endl;
+    }
+}
+
+void Data::excludeSNPwithMaf(const float mafmin, const float mafmax){
+    unsigned cntmin=0, cntmax=0;
+    for (unsigned i=0; i<numSnps; ++i) {
+        SnpInfo *snp = snpInfoVec[i];
+        float maf = snp->af < 0.5 ? snp->af : 1.0 - snp->af;
+        if (mafmin && maf < mafmin) {
+            snp->included = false;
+            ++cntmin;
+        }
+        if (mafmax && maf > mafmax) {
+            snp->included = false;
+            ++cntmax;
+        }
+    }
+    if (myMPI::rank==0) {
+        if (mafmin) cout << cntmin << " SNPs with MAF below " << mafmin << " are excluded." << endl;
+        if (mafmax) cout << cntmax << " SNPs with MAF above " << mafmax << " are excluded." << endl;
     }
 }
 
@@ -1122,25 +1160,29 @@ void Data::outputWindowResults(const VectorXf &posteriorMean, const string &file
     out.close();
 }
 
-void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff){
+void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax){
     ifstream in(gwasFile.c_str());
     if (!in) throw ("Error: can not open the GWAS summary data file [" + gwasFile + "] to read.");
     if (myMPI::rank==0)
         cout << "Reading GWAS summary data from [" + gwasFile + "]." << endl;
     
+    string header;
+    getline(in, header);
+
     SnpInfo *snp;
     map<string, SnpInfo*>::iterator it;
     string id, allele1, allele2, freq, b, se, pval, n;
     unsigned line=0, match=0;
-    unsigned numInconAllele=0, numInconAf=0, numFixed=0;
-    bool inconAllele, inconAf, fixed;
+    unsigned numInconAllele=0, numInconAf=0, numFixed=0, numMafMin=0, numMafMax=0;
+    unsigned numFlip=0;
+    bool inconAllele, inconAf, fixed, ismafmin, ismafmax;
     while (in >> id >> allele1 >> allele2 >> freq >> b >> se >> pval >> n) {
         ++line;
         it = snpInfoMap.find(id);
         if (it == snpInfoMap.end()) continue;
         snp = it->second;
         if (!snp->included) continue;
-        inconAllele = inconAf = fixed = false;
+        inconAllele = inconAf = fixed = ismafmin = ismafmax = false;
         if (allele1 == snp->a1 && allele2 == snp->a2) {
             snp->gwas_b  = atof(b.c_str());
             snp->gwas_af = atof(freq.c_str());
@@ -1151,6 +1193,7 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff){
             snp->gwas_af = 1.0-atof(freq.c_str());
             snp->gwas_se = atof(se.c_str());
             snp->gwas_n  = atof(n.c_str());
+            ++numFlip;
         } else {
             cout << "WARNING: SNP " + id + " has inconsistent allele coding in between the reference and GWAS samples." << endl;
             inconAllele = true;
@@ -1163,9 +1206,20 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff){
             } else if (snp->gwas_af==0 || snp->gwas_af==1) {
                 fixed = true;
                 ++numFixed;
+            } else if (mafmin || mafmax) {
+                float maf_ref = snp->af < 0.5 ? snp->af : 1.0 - snp->af;
+                float maf_gwas = snp->gwas_af < 0.5 ? snp->gwas_af : 1.0 - snp->gwas_af;
+                if (mafmin && (maf_ref < mafmin || maf_gwas < mafmin)) {
+                    ismafmin = true;
+                    ++numMafMin;
+                }
+                if (mafmax && (maf_ref > mafmax || maf_gwas > mafmax)) {
+                    ismafmax = true;
+                    ++numMafMax;
+                }
             }
         }
-        if (inconAllele || inconAf || fixed) snp->included = false;
+        if (inconAllele || inconAf || fixed || ismafmin || ismafmax) snp->included = false;
         else ++match;
     }
     in.close();
@@ -1179,9 +1233,12 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff){
     }
 
     if (myMPI::rank==0) {
+        if (numFlip) cout << "flipped " << numFlip << " SNPs according to the minor allele in the reference and GWAS samples." << endl;
         if (numInconAllele) cout << "removed " << numInconAllele << " SNPs with inconsistent allele coding in between the reference and GWAS samples." << endl;
         if (numInconAf) cout << "removed " << numInconAf << " SNPs with differences in allele frequency between the reference and GWAS samples > " << afDiff << "." << endl;
         if (numFixed) cout << "removed " << numFixed << " fixed SNPs in the GWAS samples." << endl;
+        if (mafmin) cout << "removed " << numMafMin << " SNPs with MAF below " << mafmin << " in either reference and GWAS samples." << endl;
+        if (mafmax) cout << "removed " << numMafMax << " SNPs with MAF above " << mafmax << " in either reference and GWAS samples." << endl;
         cout << match << " matched SNPs in the GWAS summary data (in total " << line << " SNPs)." << endl;
     }
 
@@ -1326,7 +1383,12 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
     denseZPZ.setZero(numSnpInRange, numIncdSnps);
     VectorXf Zk(numKeptInds);
     D.setZero(numIncdSnps);
-
+    
+//    float numJackknife = numKeptInds-1;
+//    MatrixXf ZPZkCwise;
+//    MatrixXf samplVarEmp;
+//    samplVarEmp.setZero(numSnpInRange, numIncdSnps);
+    
     FILE *in2 = fopen(bedFile.c_str(), "rb");
     fseek(in2, 3, SEEK_SET);
     unsigned long long skipk = 0;
@@ -1464,6 +1526,14 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
             
             denseZPZ.col(inck) = ZP * Zk;
             
+//            // Jackknife estimate of correlation and sampling variance
+//            ZPZkCwise = ZP.array().rowwise() * Zk.transpose().array();
+//            denseZPZ.col(inck) = ZPZkCwise.rowwise().sum();
+//            ZPZkCwise = - (ZPZkCwise.colwise() - denseZPZ.col(inck));
+//            ZPZkCwise *= numKeptInds/numJackknife;
+//            samplVarEmp.col(inck) = (ZPZkCwise.colwise() - ZPZkCwise.rowwise().mean()).rowwise().squaredNorm() * numJackknife/numKeptInds;
+//            // Jackknife end
+            
             if(!(inck%1000) && myMPI::rank==0) cout << " read snp " << inck << "\r" << flush;
             
             ++inck;
@@ -1472,7 +1542,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
 
     fclose(in2);
     
-//    cout << denseZPZ << endl;
+//    cout << denseZPZ.block(0, 0, 10, 10) << endl;
     
 
     // find out per-SNP window position
@@ -1489,6 +1559,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
             ZPZ[i] = denseZPZ.row(i);
             snp->ldSamplVar = (1.0 - denseZPZ.row(i).array().square()).square().sum()/snp->sampleSize;
             snp->ldSum = denseZPZ.row(i).sum();
+//            snp->ldSum = samplVarEmp.row(i).sum();
        }
     }
     else if (LDmatType == "band") {
@@ -2522,7 +2593,16 @@ void Data::readMultiLDmatBinFileAndShrink(const string &mldmatFile){
 }
 
 void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, const unsigned windowWidth, const float LDthreshold, const float effpopNE, const float cutOff) {
-    if (LDmatType == "full") return;
+    if (LDmatType == "full") {
+//        for (unsigned i=0; i<numIncdSnps; ++i) {
+//            SnpInfo *snp = incdSnpInfoVec[i];
+//            VectorXf rsq = ZPZ[i].cwiseProduct(ZPZ[i]);
+//            VectorXf rsq_adj = rsq - (VectorXf::Ones(snp->windSize) - rsq)/float(snp->sampleSize-2);
+//            snp->ldSamplVar = (VectorXf::Ones(snp->windSize) - rsq_adj).squaredNorm()/snp->sampleSize;
+//            snp->ldSum = ZPZ[i].sum();
+//        }
+        return;
+    }
     if (LDmatType == "shrunk") return;  // TMP; to be removed
     snp2pq.resize(numIncdSnps);
     for (unsigned i=0; i<numIncdSnps; ++i) {
@@ -3496,32 +3576,32 @@ void Data::buildSparseMME(){
     //    cout << ZPZ << endl;
     
     // no fixed effects
-    numFixedEffects = 0;
-    fixedEffectNames.resize(0);
-    XPX.resize(0,0);
-    ZPX.resize(0,0);
-    XPy.resize(0);
-//    numFixedEffects = 1;
-//    fixedEffectNames.resize(1);
-//    fixedEffectNames[0] = "Intercept";
-//    XPX.resize(1,1);
-//    XPX << numIncdSnps;
-//    XPXdiag.resize(1);
-//    XPXdiag << numIncdSnps;
-//    ZPX.resize(numIncdSnps,1);
-//    if (ZPZ.size()) {
-//        for (unsigned i=0; i<numIncdSnps; ++i) {
-//            ZPX(i,0) = ZPZ[i].sum();
-//        }
-//    } if (ZPZsp.size()) {
-//        for (unsigned i=0; i<numIncdSnps; ++i) {
-//            ZPX(i,0) = ZPZsp[i].sum();
-//        }
-//    } else {
-//        throw("Error: either dense or sparse ldm does not exist!");
-//    }
-//    XPy.resize(numIncdSnps,1);
-//    XPy << b.sum();
+//    numFixedEffects = 0;
+//    fixedEffectNames.resize(0);
+//    XPX.resize(0,0);
+//    ZPX.resize(0,0);
+//    XPy.resize(0);
+    numFixedEffects = 1;
+    fixedEffectNames.resize(1);
+    fixedEffectNames[0] = "Intercept";
+    ZPX.resize(numIncdSnps,1);
+    if (ZPZ.size()) {
+        for (unsigned i=0; i<numIncdSnps; ++i) {
+            ZPX(i,0) = ZPZ[i].sum();
+        }
+    } if (ZPZsp.size()) {
+        for (unsigned i=0; i<numIncdSnps; ++i) {
+            ZPX(i,0) = ZPZsp[i].sum();
+        }
+    } else {
+        throw("Error: either dense or sparse ldm does not exist!");
+    }
+    XPX.resize(1,1);
+    XPX << ZPX.col(0).sum();
+    XPXdiag.resize(1);
+    XPXdiag << XPX(0,0);
+    XPy.resize(1,1);
+    XPy << ZPy.sum();
     
     // data summary
     cout << "\nData summary:" << endl;
@@ -3698,6 +3778,184 @@ void Data::directPruneLDmatrix(const string &ldmatrixFile, const string &outLDma
         cout << "Written the LD matrix into text file [" << outfile3 << "]." << endl;
     }
 }
+
+void Data::addLDmatrixInfo(const string &ldmatrixFile) {
+    ifstream in(ldmatrixFile.c_str());
+    if (!in) throw ("Error: can not open the file [" + ldmatrixFile + "] to read.");
+    cout << "Reading SNP info from [" + ldmatrixFile + "]." << endl;
+    string header;
+    string id, allele1, allele2;
+    unsigned chr, physPos;
+    float genPos, af, ldSamplVar, ldSum;
+    unsigned idx, windStart, windEnd, windSize, windWidth;
+    long sampleSize;
+    bool skeleton;
+    getline(in, header);
+    Gadget::Tokenizer token;
+    token.getTokens(header, " ");
+    map<string, SnpInfo*>::iterator it, end = snpInfoMap.end();
+    unsigned count = 0;
+    if (token.back() == "Skeleton") {
+        while (in >> chr >> id >> genPos >> physPos >> allele1 >> allele2 >> af >> idx >> windStart >> windEnd >> windSize >> windWidth >> sampleSize >> ldSamplVar >> ldSum >> skeleton) {
+            it = snpInfoMap.find(id);
+            if (it == end) throw ("Error: SNP " + id + " not found in .bim file.");
+            SnpInfo *snp = it->second;
+            if (snp->index != idx) throw ("Error: The index of SNP " + id + " is different from that in .bim file.");
+            snp->windStart = windStart;
+            snp->windEnd = windEnd;
+            snp->windSize = windSize;
+            snp->sampleSize = sampleSize;
+            snp->ldSamplVar = ldSamplVar;
+            snp->ldSum = ldSum;
+            snp->skeleton = skeleton;
+            ++count;
+        }
+    }
+    else if (token.back() == "LDsum") {
+        while (in >> chr >> id >> genPos >> physPos >> allele1 >> allele2 >> af >> idx >> windStart >> windEnd >> windSize >> windWidth >> sampleSize >> ldSamplVar >> ldSum) {
+            it = snpInfoMap.find(id);
+            if (it == end) throw ("Error: SNP " + id + " not found in .bim file.");
+            SnpInfo *snp = it->second;
+            if (snp->index != idx) throw ("Error: The index of SNP " + id + " is different from that in .bim file.");
+            snp->windStart = windStart;
+            snp->windEnd = windEnd;
+            snp->windSize = windSize;
+            snp->sampleSize = sampleSize;
+            snp->ldSamplVar = ldSamplVar;
+            snp->ldSum = ldSum;
+            ++count;
+        }
+    }
+    else {
+        while (in >> chr >> id >> genPos >> physPos >> allele1 >> allele2 >> af >> idx >> windStart >> windEnd >> windSize >> windWidth >> sampleSize >> ldSamplVar) {
+            it = snpInfoMap.find(id);
+            if (it == end) throw ("Error: SNP " + id + " not found in .bim file.");
+            SnpInfo *snp = it->second;
+            if (snp->index != idx) throw ("Error: The index of SNP " + id + " is different from that in .bim file.");
+            snp->windStart = windStart;
+            snp->windEnd = windEnd;
+            snp->windSize = windSize;
+            snp->sampleSize = sampleSize;
+            snp->ldSamplVar = ldSamplVar;
+            ++count;
+        }
+    }
+    in.close();
+    cout << count << " SNPs to be included from [" + ldmatrixFile + "]." << endl;
+
+}
+
+void Data::jackknifeLDmatrix(const string &ldmatrixFile, const string &outLDmatType, const string &title, const bool writeLdmTxt) {
+    // Jackknife estimate of correlation and sampling variance
+    Gadget::Tokenizer token;
+    token.getTokens(ldmatrixFile, ".");
+    if (token[token.size()-1] != "sparse") {
+        throw("Error: --jackknife method only works for sparse LD matrix at the moment!");
+    }
+
+    addLDmatrixInfo(ldmatrixFile + ".info");
+
+    FILE *in = fopen((ldmatrixFile + ".bin").c_str(), "rb");
+    if (!in) {
+        throw("Error: cannot open LD matrix file " + ldmatrixFile + ".bin");
+    }
+
+    if (numIncdSnps == 0) throw ("Error: No SNP is retained for analysis.");
+    
+    cout << "Reading and jackknifing sparse LD matrix from [" + ldmatrixFile + ".bin]..." << endl;
+    
+    SnpInfo *snpi, *snpj;
+    SnpInfo *windStart, *windEnd;
+    SparseVector<float> ZPZspvec;
+    VectorXf ZiCwiseZj(numKeptInds);
+    VectorXf ones;
+    ones.setOnes(numKeptInds);
+    float numJackknife = numKeptInds-1;
+    float samplVarEmp;
+    
+    string outfilename = title + ".ldm." + outLDmatType;
+    string outfile = outfilename + ".info";
+    ofstream out(outfile.c_str());
+    out << boost::format("%6s %15s %10s %15s %6s %6s %12s %10s %10s %10s %10s %15s %10s %12s %12s\n")
+    % "Chrom"
+    % "ID"
+    % "GenPos"
+    % "PhysPos"
+    % "A1"
+    % "A2"
+    % "A2Freq"
+    % "Index"
+    % "WindStart"
+    % "WindEnd"
+    % "WindSize"
+    % "WindWidth"
+    % "N"
+    % "SamplVar"
+    % "LDsum";
+    
+    
+    // standardize genotype matrix
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+        Z.col(i) /= sqrt(numKeptInds*snp2pq[i]);
+    }
+
+    
+    for (unsigned i=0, inci=0; i<numSnps; i++) {
+        snpi = snpInfoVec[i];
+        
+        unsigned d[snpi->windSize];
+        float v[snpi->windSize];
+        
+        if (!snpi->included) {
+            fseek(in, sizeof(d), SEEK_CUR);
+            fseek(in, sizeof(v), SEEK_CUR);
+            continue;
+        }
+        
+        fread(d, sizeof(d), 1, in);
+        fread(v, sizeof(v), 1, in);
+        
+        ZPZspvec.resize(snpi->windSize);
+//        snpi->ldSamplVar = 0.0;
+        snpi->ldSum = 0.0;
+        
+        for (unsigned j=0; j<snpi->windSize; ++j) {
+            snpj = snpInfoVec[d[j]];
+            if (snpj->included) {
+                ZiCwiseZj  = v[j]*ones - Z.col(snpi->index).cwiseProduct(Z.col(snpj->index));
+                ZiCwiseZj *= numKeptInds/numJackknife;
+                samplVarEmp = (ZiCwiseZj.array() - ZiCwiseZj.mean()).square().sum() * numJackknife/numKeptInds;
+                snpi->ldSum += samplVarEmp;
+            }
+        }
+
+        windStart = incdSnpInfoVec[snpi->windStart];
+        windEnd = incdSnpInfoVec[snpi->windEnd];
+        out << boost::format("%6s %15s %10s %15s %6s %6s %12f %10s %10s %10s %10s %15s %10s %12.6f %12.6f\n")
+        % snpi->chrom
+        % snpi->ID
+        % snpi->genPos
+        % snpi->physPos
+        % snpi->a1
+        % snpi->a2
+        % snpi->af
+        % snpi->index
+        % snpi->windStart
+        % snpi->windEnd
+        % snpi->windSize
+        % (windStart->chrom == windEnd->chrom ? windEnd->physPos - windStart->physPos : windStart->chrom-windEnd->chrom)
+        % snpi->sampleSize
+        % snpi->ldSamplVar
+        % snpi->ldSum;
+
+        if (++inci == numIncdSnps) break;
+    }
+
+    out.close();
+    cout << "Written the SNP info into file [" << outfile << "]." << endl;
+
+}
+
 
 void Data::readAnnotationFile(const string &annoFile) {
     ifstream in(annoFile.c_str());

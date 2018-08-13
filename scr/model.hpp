@@ -153,7 +153,7 @@ public:
         const float alpha;  // hyperparameter
         const float beta;   // hyperparameter
         
-        Pi(const float pi, const string &lab = "Pi"): Parameter(lab), alpha(1), beta(19){  // informative prior
+        Pi(const float pi, const float alpha, const float beta, const string &lab = "Pi"): Parameter(lab), alpha(alpha), beta(beta){  // informative prior
             value = pi;
         }
         
@@ -250,7 +250,7 @@ public:
     Rounding rounding;
     NumNonZeroSnp nnzSnp;
     
-    BayesC(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi,
+    BayesC(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi,
            const string &algorithm = "Gibbs", const bool message = true):
     data(data),
     ycorr(data.y),
@@ -258,7 +258,7 @@ public:
     snpEffects(data.snpEffectNames, algorithm),
     sigmaSq(varGenotypic, data.snp2pq, pival),
     scale(sigmaSq.scale),
-    pi(pival),
+    pi(pival, piAlpha, piBeta),
     vare(varResidual, data.numKeptInds),
     varg(varGenotypic),
     estimatePi(estimatePi)
@@ -309,9 +309,9 @@ public:
     SnpEffects snpEffects;
     VarEffects sigmaSq;
 
-    BayesB(const Data &data, const float varGenotypic, const float varResidual, const float pival,
+    BayesB(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta,
            const bool estimatePi, const bool message = true):
-    BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false),
+    BayesC(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, "Gibbs", false),
     snpEffects(data.snpEffectNames),
     sigmaSq(varGenotypic, data.snp2pq, pival)
     {
@@ -395,9 +395,9 @@ public:
     NumNonZeroWind nnzWind;
     WindowDelta windDelta;
     
-    BayesN(const Data &data, const float varGenotypic, const float varResidual, const float pival,
+    BayesN(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta,
            const bool estimatePi, const unsigned snpFittedPerWindow, const bool message = true):
-    BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false),
+    BayesC(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, "Gibbs", false),
     snpEffects(data.snpEffectNames, data.windStart, data.windSize, snpFittedPerWindow),
     sigmaSq(varGenotypic, data.snp2pq, pival, snpEffects.localPi, snpFittedPerWindow),
     windDelta(vector<string>(snpEffects.numWindows))
@@ -470,9 +470,9 @@ public:
     ProbMixComps Pis; 
     Gammas gamma;
 
-    BayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, 
+    BayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const float piAlpha, const float piBeta, const VectorXf gamma, const bool estimatePi,
            const string &algorithm, const bool message = true):
-    BayesC(data, varGenotypic, varResidual, pis[0], estimatePi, "Gibbs", false),
+    BayesC(data, varGenotypic, varResidual, pis[0], piAlpha, piBeta, estimatePi, "Gibbs", false),
     Pis(pis),
     gamma(gamma, vector<string>(gamma.size())),
     snpEffects(data.snpEffectNames, algorithm)
@@ -586,9 +586,9 @@ public:
     Sp S;
     SnpEffects snpEffects;
     
-    BayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const float varS, const vector<float> &svalue,
+    BayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi, const float varS, const vector<float> &svalue,
            const string &algorithm, const bool message = true):
-    BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false),
+    BayesC(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, "Gibbs", false),
     logSnp2pq(data.snp2pq.array().log()),
     S(data.numIncdSnps, varS, svalue[0], algorithm),
     snpEffects(data.snpEffectNames, data.snp2pq, pival),
@@ -666,10 +666,10 @@ public:
     BayesN::NumNonZeroWind nnzWind;
     BayesN::WindowDelta windDelta;
     
-    BayesNS(const Data &data, const float varGenotypic, const float varResidual, const float pival,
+    BayesNS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta,
             const bool estimatePi, const float varS, const vector<float> &svalue, const unsigned snpFittedPerWindow,
             const string &algorithm, const bool message = true):
-    BayesS(data, varGenotypic, varResidual, pival, estimatePi, varS, svalue, algorithm, false),
+    BayesS(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, varS, svalue, algorithm, false),
     snpEffects(data.snpEffectNames, data.windStart, data.windSize, snpFittedPerWindow, data.snp2pq, pival),
     //S(data.numIncdSnps, "HMC"),
     sigmaSq(varGenotypic, data.snp2pq, pival, snpEffects.localPi, snpFittedPerWindow),
@@ -780,7 +780,7 @@ public:
         const float df;
         const float scale;
         
-        PopulationStratification(): Parameter("PS"), df(4), scale(0.01){}
+        PopulationStratification(): Parameter("PS"), df(4), scale(0.5){}
         
         void compute(const VectorXf &rcorr, const VectorXf &ZPZdiag, const VectorXf &LDsamplVar, const float varg, const float vare, const VectorXf &chisq);
     };
@@ -794,7 +794,7 @@ public:
             iter = 0;
         }
         
-        void compute(const VectorXf &rcorr, const VectorXf &ZPZdiag, const VectorXf &LDsamplVar, const float varg, const float vare, const vector<string> &snpName, VectorXi &leaveout, const vector<SparseVector<float> > &ZPZ);
+        void compute(const VectorXf &rcorr, const VectorXf &ZPZdiag, const VectorXf &LDsamplVar, const float varg, const float vare, const vector<string> &snpName, VectorXi &leaveout, const vector<SparseVector<float> > &ZPZ, const VectorXf &ZPy);
     };
     
     class InterChrGenetCov : public Parameter {
@@ -832,17 +832,17 @@ public:
     NumResidualOutlier nro;
     InterChrGenetCov icgc;
     
-    ApproxBayesC(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi,
+    ApproxBayesC(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi,
                  const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation,
                  const bool diagnosticMode, const bool message = true)
-    : BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false)
+    : BayesC(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, "Gibbs", false)
     , data(data)
     , rcorr(data.ZPy)
     , varei(data.tss.array()/data.n.array())
     , fixedEffects(data.fixedEffectNames)
     , snpEffects(data.snpEffectNames)
     , sigmaSq(varGenotypic, data.snp2pq, pival)
-    , pi(pival)
+    , pi(pival, piAlpha, piBeta)
     , vare(varResidual, data.numKeptInds, icrsq)
     , varg(varGenotypic, data.numKeptInds)
 //    , tauSq(varResidual, data.numKeptInds)
@@ -921,6 +921,33 @@ public:
                        const float sigmaSq, const float vare, const VectorXf &snp2pqPowS);
     };
     
+    class MeanEffects : public Parameter, public Stat::Normal {
+    public:
+        VectorXf snp2pqPowSmu;
+        
+        MeanEffects(const unsigned numSnps, const string &lab = "Mu"): Parameter(lab){
+            snp2pqPowSmu.setOnes(numSnps);
+        }
+        
+        void sampleFromFC(const vector<SparseVector<float> > &ZPZ, const VectorXf &snpEffects, const VectorXf &snp2pq, const float vare, VectorXf &rcorr);
+        
+        void sampleFromFC(const VectorXf &snpEffects, const VectorXf &snp2pq);
+    };
+    
+    class Smu : public Parameter, public Stat::Normal {
+    public:
+        float varProp;
+
+        AcceptanceRate ar;
+        Parameter tuner;
+
+        Smu(const string &lab = "Smu"): Parameter(lab), tuner("varProp"){
+            varProp = 0.01;
+        }
+    
+        void sampleFromFC(const vector<SparseVector<float> > &ZPZ, const VectorXf &snpEffects, const VectorXf &snp2pq, const float vare, VectorXf &snp2pqPowSmu, VectorXf &rcorr);
+    };
+    
 
 public:
     VectorXf rcorr;
@@ -934,6 +961,7 @@ public:
     bool sparse;
     bool modelPS;
     bool diagnose;
+    bool estimateEffectMean;
 
     SnpEffects snpEffects;
     ApproxBayesC::FixedEffects fixedEffects;
@@ -947,11 +975,14 @@ public:
     
 //    ApproxBayesC::Overdispersion tauSq;
     
-    ApproxBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi,
+    MeanEffects mu;
+    Smu Su;
+    
+    ApproxBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi,
                  const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation,
                  const float varS, const vector<float> &svalue,
                  const string &algorithm, const bool diagnosticMode, const bool message = true)
-    : BayesS(data, varGenotypic, varResidual, pival, estimatePi, varS, svalue, algorithm, false)
+    : BayesS(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, varS, svalue, algorithm, false)
     , rcorr(data.ZPy)
     , varei(data.tss.array()/data.n.array())
     , snpEffects(data.snpEffectNames, data.snp2pq, pival)
@@ -962,14 +993,24 @@ public:
     , phi(phi)
     , overdispersion(overdispersion)
     , icgc(spouseCorrelation)
+    , mu(data.numIncdSnps)
     {
         ghat.setZero(data.Z.rows());
         sparse = data.sparseLDM;
         modelPS = estimatePS;
         diagnose = diagnosticMode;
+        
+        estimateEffectMean = false;
+        
         paramSetVec = {&snpEffects, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &rounding};
+        if (estimateEffectMean) {
+            paramVec.push_back(&mu);
+            paramVec.push_back(&Su);
+            paramToPrint.push_back(&mu);
+            paramToPrint.push_back(&Su);
+        }
         if (modelPS) {
             paramVec.push_back(&ps);
             paramToPrint.push_back(&ps);
@@ -1064,9 +1105,9 @@ public:
     Gammas gamma;
     ApproxBayesC::GenotypicVar varg;
     
-    ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, const float icrsq,
+    ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const float piAlpha, const float piBeta, const VectorXf gamma, const bool estimatePi, const float icrsq,
                  const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, 0, 0, false, icrsq, false, false),
+    ApproxBayesC(data, varGenotypic, varResidual, pis[0], piAlpha, piBeta, estimatePi, 0, 0, false, icrsq, false, false),
     Pis(pis),
     gamma(gamma, vector<string>(gamma.size())),
     varg(varGenotypic, data.numKeptInds),
@@ -1204,9 +1245,9 @@ public:
     ApproxBayesC::GenotypicVar varg;
     Kappa kappa;
     
-    ApproxBayesKappa(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf gamma, const bool estimatePi, const float icrsq, const float spouseCorrelation,
+    ApproxBayesKappa(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const float piAlpha, const float piBeta, const VectorXf gamma, const bool estimatePi, const float icrsq, const float spouseCorrelation,
                      const float kappa_str, const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, pis[0], estimatePi, 0, 0, icrsq, spouseCorrelation, false, false),
+    ApproxBayesC(data, varGenotypic, varResidual, pis[0], piAlpha, piBeta, estimatePi, 0, 0, icrsq, spouseCorrelation, false, false),
     Pis(pis),
     gamma(gamma, vector<string>(gamma.size())),
     kappa(kappa_str),
