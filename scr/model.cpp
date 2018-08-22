@@ -803,6 +803,7 @@ float BayesS::Sp::computeU(const float S, const ArrayXf &snpEffects, const float
     float constantA = snp2pqLogSum;
     float constantB = (snpEffects.square()/snp2pqPowS).sum();
     float constantC = (snp2pq*snp2pqPowS).sum();
+    cout << "Hello I'm in computeU" << endl;
     scale = 0.5*vg/constantC;
     float ret = 0.5*S*constantA + 0.5/sigmaSq*constantB + 0.5*S*S/var;
     U_chisq = 2.0*logf(constantC) + scale/sigmaSq;
@@ -899,7 +900,7 @@ void BayesS::sampleUnknowns(){
     
     if (++iter < 2000) {
         genVarPrior += (varg.value - genVarPrior)/iter;
-        scalePrior += (sigmaSq.scale - scalePrior)/iter;
+        scalePrior  += (sigmaSq.scale - scalePrior)/iter;
     }
 }
 
@@ -1250,7 +1251,7 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
         
         for (unsigned i=chrStart; i<=chrEnd; ++i) {
             //cout << i << " " << chrStart << " " << chrEnd << " " << ssq << " " << nnz << endl;
-            if (!(iter % 1)) {
+            if (!(iter % 100)) {
                 //float varei = (sse[i] - values.segment(windStart[i], windSize[i]).dot(ZPy.segment(windStart[i], windSize[i]) + rcorr.segment(windStart[i], windSize[i])))/n[i];
                 windEnd = windStart[i] + windSize[i];
                 varei[i] = tss[i];
@@ -1533,6 +1534,7 @@ void ApproxBayesC::Rounding::computeRcorr(const VectorXf &ZPy, const vector<Vect
 
 
 void ApproxBayesC::sampleUnknowns(){
+    static unsigned iter = 0;
     fixedEffects.sampleFromFC(data.XPX, data.XPXdiag, data.ZPX, data.XPy, snpEffects.values, vare.value, rcorr);
     unsigned cnt=0;
     do {
@@ -1549,12 +1551,29 @@ void ApproxBayesC::sampleUnknowns(){
     vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr);
     varg.compute(snpEffects.values, data.ZPy, rcorr);
     hsq.compute(varg.value, vare.value);
+
+    if (iter >= 2000) sigmaSq.scale = scalePrior;
+    scale.getValue(sigmaSq.scale);
+    // cout << "iter " << iter << " scalePrior " << scalePrior << "sigmaSq.scale " << sigmaSq.scale << endl;
+
+
     if (sparse)
         rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     else
         rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
+    if (++iter < 2000) {
+        if (noscale)
+        {
+            scalePrior  = 0.5f * varg.value / (data.snp2pq.array().sum()*(pi.value));
+        } else
+        {
+            scalePrior  = 0.5f * varg.value / (data.snp2pq.size()*(pi.value));
+        }
+        genVarPrior += (varg.value - genVarPrior)/iter;
+        scalePrior  += (sigmaSq.scale - scalePrior)/iter;
+    }
 }
 
 
@@ -1930,6 +1949,7 @@ void ApproxBayesS::sampleUnknowns(){
 
     if (iter >= 2000) sigmaSq.scale = scalePrior;
     scale.getValue(sigmaSq.scale);
+    // cout << "sigmaSq.scale " << sigmaSq.scale << endl;
 
     if (sparse)
         rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
@@ -1943,7 +1963,7 @@ void ApproxBayesS::sampleUnknowns(){
     
     if (++iter < 2000) {
         genVarPrior += (varg.value - genVarPrior)/iter;
-        scalePrior += (sigmaSq.scale - scalePrior)/iter;
+        scalePrior  += (sigmaSq.scale - scalePrior)/iter;
     }
     
     //sigmaSq.value = varg.value/((snp2pqPowS.array()*data.snp2pq.array()).sum()*pi.value);
@@ -1964,6 +1984,7 @@ void ApproxBayesR::ProbMixComps::sampleFromFC(const VectorXf snpStore, const Vec
 
 
 void ApproxBayesR::sampleUnknowns(){
+    static unsigned iter = 0;
     fixedEffects.sampleFromFC(data.XPX, data.XPXdiag, data.ZPX, data.XPy, snpEffects.values, vare.value, rcorr);
     unsigned cnt=0;
     do {
@@ -1978,12 +1999,30 @@ void ApproxBayesR::sampleUnknowns(){
     varg.compute(snpEffects.values, data.ZPy, rcorr);
     hsq.compute(varg.value, vare.value);
     Pis.sampleFromFC(snpStore, Pis.values);
+    
+    if (iter >= 2000) sigmaSq.scale = scalePrior;
+    scale.getValue(sigmaSq.scale);
+    // cout << "iter " << iter << " scalePrior " << scalePrior << "sigmaSq.scale " << sigmaSq.scale << endl;
+
     if (sparse)
         rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     else
         rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
+
+
+    if (++iter < 2000) {
+        if (noscale)
+        {
+            scalePrior  = 0.5f * varg.value / (data.snp2pq.array().sum()*(1-Pis.values[0]));
+        } else
+        {
+            scalePrior  = 0.5f * varg.value / (data.snp2pq.size()*(1-Pis.values[0]));
+        }
+        genVarPrior += (varg.value - genVarPrior)/iter;
+        scalePrior  += (sigmaSq.scale - scalePrior)/iter;
+    }
 }
 
 // ==============================================================
@@ -2325,6 +2364,7 @@ void ApproxBayesKappa::Kappa::randomWalkMHsampler(const float sigmaSq, const Vec
 
 
 void ApproxBayesKappa::sampleUnknowns(){
+    static unsigned iter = 0;
     fixedEffects.sampleFromFC(data.XPX, data.XPXdiag, data.ZPX, data.XPy, snpEffects.values, vare.value, rcorr);
     unsigned cnt=0;
     do {
@@ -2340,12 +2380,29 @@ void ApproxBayesKappa::sampleUnknowns(){
     varg.compute(snpEffects.values, data.ZPy, rcorr);
     hsq.compute(varg.value, vare.value);
     Pis.sampleFromFC(snpStore, Pis.values);
+
+    if (iter >= 2000) sigmaSq.scale = scalePrior;
+    scale.getValue(sigmaSq.scale);
+    // cout << "iter " << iter << " scalePrior " << scalePrior << "sigmaSq.scale " << sigmaSq.scale << endl;
+
     if (sparse)
         rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     else
         rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
+
+    if (++iter < 2000) {
+        if (noscale)
+        {
+            scalePrior  = 0.5f * varg.value / (data.snp2pq.array().sum()*(1-Pis.values[(Pis.values.size()-1)]));
+        } else
+        {
+            scalePrior  = 0.5f * varg.value / (data.snp2pq.size()*(1-Pis.values[(Pis.values.size()-1)]));
+        }
+        genVarPrior += (varg.value - genVarPrior)/iter;
+        scalePrior  += (sigmaSq.scale - scalePrior)/iter;
+    }
 }
 
 // ==============================================================

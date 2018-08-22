@@ -64,6 +64,7 @@ public:
     bool outputResults;
     bool multiLDmat;
     bool multiThreadEigen;
+    bool noscale;
 
     // Bayes R defauls
     VectorXf gamma;  // Default scaling parameters for Bayes R
@@ -124,7 +125,7 @@ public:
         pis.resize(ndists);                      
         pis                     << 0.95, 0.03, 0.01, 0.01;
         // Kappa defaults
-        kappa_str               = 10;
+        kappa_str               = 2.5;
 
         estimatePi              = true;
         estimateScale           = false;
@@ -132,6 +133,7 @@ public:
         outputResults           = true;
         multiLDmat              = false;
         multiThreadEigen        = false;
+        noscale                 = false; // Scale the genotypes or not. Default is scaling 0
         
         title                   = "gctb";
         analysisType            = "Bayes";

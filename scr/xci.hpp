@@ -118,7 +118,7 @@ public:
     VectorXf ZPZdiagFemale;
     
     BayesCXCI(const Data &data, const float varGenotypic, const float varResidual, const float pival, const bool estimatePi, const float piNDCval, const unsigned nmale, const unsigned nfemale, const bool message = true):
-    BayesC(data, varGenotypic, varResidual, pival, estimatePi, "Gibbs", false),
+    BayesC(data, varGenotypic, varResidual, pival, estimatePi, false, "Gibbs", false),
     ycorrm(data.y.head(nmale)),
     ycorrf(data.y.tail(nfemale)),
     piNDC(piNDCval),

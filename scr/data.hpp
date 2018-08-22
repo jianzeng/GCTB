@@ -216,7 +216,7 @@ public:
     void outputFixedEffects(const MatrixXf &fixedEffects, const string &filename) const;
     void outputWindowResults(const VectorXf &posteriorMean, const string &filename) const;
     void summarizeSnpResults(const SparseMatrix<float> &snpEffects, const string &filename) const;
-    void buildSparseMME(void);
+    void buildSparseMME(const string &bayesType, const bool noscale);
     void readMultiLDmatInfoFile(const string &mldmatFile);
     void readMultiLDmatBinFile(const string &mldmatFile);
     void outputSnpEffectSamples(const SparseMatrix<float> &snpEffects, const unsigned burnin, const unsigned outputFreq, const string &snpResFile, const string &filename) const;

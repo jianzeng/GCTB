@@ -249,6 +249,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             LDthreshold = atof(argv[++i]);
             ss << "--ld " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--unscale-genotype")) {
+            noscale = true;
+            ss << "--unscale-genotype " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--snp")) {
             snpRange = argv[++i];
             ss << "--snp " << argv[i] << "\n";

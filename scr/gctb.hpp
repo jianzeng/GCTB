@@ -34,13 +34,13 @@ public:
     void inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile,
                       const unsigned includeChr, const bool readGenotypes, const string &geneticMapFile);
     void inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile,
-                      const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool multiLDmatrix);
+                      const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool multiLDmatrix, const string &bayesType, const bool noscale);
     // Overloaded for genetic map build and frequency file read
     void inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile,
                       const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool multiLDmatrix, const string &geneticMapFile, const string &freqFile);
     Model* buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
                       const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, 
-                      const float kappa_str, const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S);
+                      const float kappa_str, const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S, const bool noscale);
     vector<McmcSamples*> runMcmc(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior);
     void saveMcmcSamples(const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
     void outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &filename);

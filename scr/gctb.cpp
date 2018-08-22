@@ -35,7 +35,7 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &include
 }
 
 
-void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool multiLDmat){
+void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool multiLDmat, const string &bayesType, const bool noscale){
     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
@@ -49,7 +49,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
         data.readMultiLDmatBinFile(ldmatrixFile);
     else
         data.readLDmatrixBinFile(ldmatrixFile + ".bin");
-    if (!gwasSummaryFile.empty()) data.buildSparseMME();
+    if (!gwasSummaryFile.empty()) data.buildSparseMME(bayesType, noscale);
 }
 
 
@@ -73,24 +73,24 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
         data.readMultiLDmatBinFile(ldmatrixFile);
     else
         data.readLDmatrixBinFile(ldmatrixFile + ".bin");
-    if (!gwasSummaryFile.empty()) data.buildSparseMME();
+    // if (!gwasSummaryFile.empty()) data.buildSparseMME(bayesType, noscale);
 }
 
 
 
 Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
                          const float heritability, const float pi, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, 
-                         const float kappa_str, const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S){
+                         const float kappa_str, const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S, const bool noscale){
     data.initVariances(heritability);
     if (!gwasFile.empty()) {
         if (bayesType == "C")
-            return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi);
+            return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, noscale);
         else if (bayesType == "S")
             return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, estimatePi, varS, S, algorithm);
         else if (bayesType == "R") 
-            return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi);
+            return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi, noscale);
         else if (bayesType == "Kap")
-            return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi, kappa_str);
+            return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, gamma, estimatePi, kappa_str, noscale);
         else
             throw(" Error: Wrong bayes type: " + bayesType + " in the summary-data-based Bayes analysis.");
     }
@@ -100,7 +100,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
     }
     if (bayesType == "C") {
         data.readBedFile(bedFile + ".bed");
-        return new BayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, algorithm);
+        return new BayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, noscale, algorithm);
     } 
     if (bayesType == "R") {
         data.readBedFile(bedFile + ".bed");
@@ -123,7 +123,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
     else if (bayesType == "Cap") {
         //data.readBedFile(bedFile + ".bed");
         data.buildSparseMME(bedFile + ".bed", windowWidth);
-        return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi);
+        return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, estimatePi, noscale);
     }
     else if (bayesType == "Sap") {
         data.buildSparseMME(bedFile + ".bed", windowWidth);
