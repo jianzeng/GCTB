@@ -70,7 +70,7 @@ int main(int argc, const char * argv[]) {
             
             Model *model = gctb.buildModel(data, opt.bedFile, "", opt.bayesType, opt.windowWidth,
                                            opt.heritability, opt.pi, opt.estimatePi, opt.pis, opt.gamma,
-                                           opt.kappa_str, opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S);
+                                           opt.kappa_str, opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.noscale);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior);
             //gctb.saveMcmcSamples(mcmcSampleVec, opt.title);
@@ -98,17 +98,17 @@ int main(int argc, const char * argv[]) {
                 data.makeLDmatrix(opt.bedFile + ".bed", opt.outLDmatType, opt.chisqThreshold, opt.LDthreshold, opt.windowWidth, opt.snpRange, opt.title);
             }
             else { // manipulate an existing LD matrix or merge existing LD matrices
-                gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, "", opt.ldmatrixFile, opt.includeChr, opt.multiLDmat);
+                gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, "", opt.ldmatrixFile, opt.includeChr, opt.multiLDmat, opt.bayesType, opt.noscale);
                 data.resizeLDmatrix(opt.outLDmatType, opt.chisqThreshold, opt.windowWidth, opt.LDthreshold, opt.effpopNE, opt.cutOff);
                 data.outputLDmatrix(opt.outLDmatType, opt.title);
             }
         }
         else if (opt.analysisType == "SBayes") {
-            gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.multiLDmat);
+            gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.multiLDmat, opt.bayesType, opt.noscale);
             
             Model *model = gctb.buildModel(data, "", opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
-                                            opt.heritability, opt.pi, opt.estimatePi, opt.pis, opt.gamma,
-                                             opt.kappa_str, opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S);
+                                           opt.heritability, opt.pi, opt.estimatePi, opt.pis, opt.gamma,
+                                           opt.kappa_str, opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.noscale);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior);
             if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.title);

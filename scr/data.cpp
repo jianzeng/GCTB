@@ -2612,7 +2612,8 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
 // =============================================================================================
 
 
-void Data::buildSparseMME(){
+void Data::buildSparseMME(const string &bayesType, const bool noscale){
+	cout << "Bayes type " << bayesType << " to scale or not to scale " << noscale << endl;
     snp2pq.resize(numIncdSnps);
     D.resize(numIncdSnps);
     ZPZdiag.resize(numIncdSnps);
@@ -2627,11 +2628,22 @@ void Data::buildSparseMME(){
         snp->af = snp->gwas_af;
         snp2pq[i] = 2.0f*snp->gwas_af*(1.0f-snp->gwas_af);
         if(snp2pq[i]==0) cout << "Error: SNP " << snp->ID << " af " << snp->af << " has 2pq = 0." << endl;
-        D[i] = snp2pq[i]*snp->gwas_n;
         b[i] = snp->gwas_b;
         n[i] = snp->gwas_n;
         se[i]= snp->gwas_se;
-        tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
+        tss[i] = (snp2pq[i]*snp->gwas_n)*(n[i]*se[i]*se[i] + b[i]*b[i]); // The first element assumes that the effects have been estimates on a mean centered genotype
+        // Need to adjust R and C models X'X matrix depending scale of genotypes or not
+        if (bayesType == "S") { 
+            // cout << "Bayes S no scale" << endl;
+            D[i] = snp2pq[i]*snp->gwas_n;
+        } else if (((bayesType == "R") || (bayesType == "C") || (bayesType == "Kap")) && noscale == true) {
+            // cout << "Bayes R, C, Kap no scale" << endl;
+            D[i] = snp2pq[i]*snp->gwas_n;  
+        } else {
+            // cout << "Scaling" << endl;
+            // If the model is C, R, or Kappa the default is not to scale
+            D[i] = snp->gwas_n;  
+        }
     }
     
     if (sparseLDM == true) {
@@ -2651,10 +2663,17 @@ void Data::buildSparseMME(){
             }
         }
     }
-        
+    
+    if (noscale || bayesType == "S") {
+        ZPy.array() = ZPZdiag.array()*D.array()*b.array();  
+    } else {
+        ZPy.array() = ZPZdiag.array()*D.array()*b.array()*snp2pq.array().sqrt();  
+    }  
+    ypy = (ZPZdiag.array()*tss.array()).mean();
     ZPZdiag.array() *= D.array();
     
-    ZPy.array() = ZPZdiag.array()*b.array();
+    // ZPy.array() = ZPZdiag.array()*b.array();
+    // ZPy.array() = snp2pq.array()*n.array()*b.array();
     // cout << "I'm in the mixed model equation building thing and print Zpy" << ZPy <<  endl;
     //    cout << "ZPZdiag " << ZPZdiag.transpose() << endl;
     //    cout << "ZPZ.back() " << ZPZ.back().transpose() << endl;
@@ -2663,7 +2682,8 @@ void Data::buildSparseMME(){
     //    cout << "b.mean() " << b.mean() << endl;
     
     // estimate ypy
-    ypy = (D.array()*(n.array()*se.array().square()+b.array().square())).mean();
+    // ypy = tss.mean();
+    // ypy = (D.array()*(n.array()*se.array().square()+b.array().square())).mean();
     numKeptInds = n.mean();
     
     //cout << ZPZ.size() << " " << ZPy.size() << " " << ypy << endl;
