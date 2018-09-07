@@ -1840,7 +1840,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 }
             }
         }
-    } else {
+    } else if (LDmatType == "sparse" && ZPZsp.size() != 0) {
         cout << "Pruning a sparse LD matrix by chisq threshold of " << chisqThreshold << endl;
         SnpInfo *snpi, *snpj;
         for (unsigned i=0; i<numIncdSnps; ++i) {
