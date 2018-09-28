@@ -193,6 +193,7 @@ public:
     bool reindexed;
     bool sparseLDM;
     bool shrunkLDM;
+    bool readLDscore;
     
     vector<SnpInfo*> snpInfoVec;
     vector<IndInfo*> indInfoVec;
@@ -241,6 +242,7 @@ public:
         
         reindexed = false;
         sparseLDM = false;
+        readLDscore = false;
     }
     
     void readFamFile(const string &famFile);
@@ -283,7 +285,7 @@ public:
     void outputFixedEffects(const MatrixXf &fixedEffects, const string &filename) const;
     void outputWindowResults(const VectorXf &posteriorMean, const string &filename) const;
     void summarizeSnpResults(const SparseMatrix<float> &snpEffects, const string &filename) const;
-    void buildSparseMME(void);
+    void buildSparseMME(const bool sampleOverlap);
     void readMultiLDmatInfoFile(const string &mldmatFile);
     void readMultiLDmatBinFile(const string &mldmatFile);
     void outputSnpEffectSamples(const SparseMatrix<float> &snpEffects, const unsigned burnin, const unsigned outputFreq, const string &snpResFile, const string &filename) const;
@@ -299,6 +301,7 @@ public:
     void addLDmatrixInfo(const string &ldmatrixFile);
     
     void readAnnotationFile(const string &annotationFile);
+    void readLDscoreFile(const string &ldscFile);
 };
 
 #endif /* data_hpp */

@@ -740,18 +740,18 @@ void Data::includeMatchedSnp(){
 
     if (myMPI::rank==0) cout << numIncdSnps << " SNPs on " << numChroms << " chromosomes are included." << endl;
     
-    if (numAnnos) {
-        if (myMPI::rank==0) cout << "\nAnnotation info:" << endl;
-        numSnpAnnoVec.resize(numAnnos);
-        for (unsigned i=0; i<numAnnos; ++i) {
-            AnnoInfo *anno = annoInfoVec[i];
-            numSnpAnnoVec[i] = anno->size;
-            anno->getSnpInfo();
-            anno->fraction = float(anno->size)/float(numIncdSnps);
-            anno->print();
-        }
-        if (myMPI::rank==0) cout << endl;
-    }
+//    if (numAnnos) {
+//        if (myMPI::rank==0) cout << "\nAnnotation info:" << endl;
+//        numSnpAnnoVec.resize(numAnnos);
+//        for (unsigned i=0; i<numAnnos; ++i) {
+//            AnnoInfo *anno = annoInfoVec[i];
+//            numSnpAnnoVec[i] = anno->size;
+//            anno->getSnpInfo();
+//            anno->fraction = float(anno->size)/float(numIncdSnps);
+//            anno->print();
+//        }
+//        if (myMPI::rank==0) cout << endl;
+//    }
 }
 
 vector<SnpInfo*> Data::makeIncdSnpInfoVec(const vector<SnpInfo*> &snpInfoVec){
@@ -1195,7 +1195,7 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
             snp->gwas_n  = atof(n.c_str());
             ++numFlip;
         } else {
-            cout << "WARNING: SNP " + id + " has inconsistent allele coding in between the reference and GWAS samples." << endl;
+//            cout << "WARNING: SNP " + id + " has inconsistent allele coding in between the reference and GWAS samples." << endl;
             inconAllele = true;
             ++numInconAllele;
         }
@@ -1896,6 +1896,7 @@ void Data::readLDmatrixInfoFile(const string &ldmatrixFile){
         while (in >> chr >> id >> genPos >> physPos >> allele1 >> allele2 >> af >> idx >> windStart >> windEnd >> windSize >> windWidth >> sampleSize >> ldSamplVar >> ldSum) {
             SnpInfo *snp = new SnpInfo(idx, id, allele1, allele2, chr, genPos, physPos);
             snp->af = af;
+            snp->twopq = 2.0*af*(1.0-af);
             snp->windStart = windStart;
             snp->windEnd = windEnd;
             snp->windSize = windSize;
@@ -1912,6 +1913,7 @@ void Data::readLDmatrixInfoFile(const string &ldmatrixFile){
         while (in >> chr >> id >> genPos >> physPos >> allele1 >> allele2 >> af >> idx >> windStart >> windEnd >> windSize >> windWidth >> sampleSize >> ldSamplVar) {
             SnpInfo *snp = new SnpInfo(idx, id, allele1, allele2, chr, genPos, physPos);
             snp->af = af;
+            snp->twopq = 2.0*af*(1.0-af);
             snp->windStart = windStart;
             snp->windEnd = windEnd;
             snp->windSize = windSize;
@@ -1990,7 +1992,7 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
             ZPZsp[inci].resize(windSizeLDM[i]);
             snpi->ldSamplVar = 0.0;
             snpi->ldSum = 0.0;
-            snpi->ldsc = 0.0;
+            if (!readLDscore) snpi->ldsc = 0.0;
             
             for (unsigned j=0; j<windSizeLDM[i]; ++j) {
                 snpj = snpInfoVec[d[j]];
@@ -1999,7 +2001,7 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
                     rsq = v[j]*v[j];
                     snpi->ldSamplVar += (1.0f-rsq)*(1.0f-rsq)/snpi->sampleSize;
                     snpi->ldSum += v[j];
-                    snpi->ldsc += rsq;
+                    if (!readLDscore) snpi->ldsc += rsq;
                     if (snpj == snpi)
                         ZPZdiag[inci] = v[j];
                 }
@@ -2032,7 +2034,7 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
             ZPZ[inci].resize(windSize[inci]);
             snpi->ldSamplVar = 0.0;
             snpi->ldSum = 0.0;
-            snpi->ldsc = 0.0;
+            if (!readLDscore) snpi->ldsc = 0.0;
             snpi->numNonZeroLD = snpi->windSize;
             
             for (unsigned j=0, incj=0; j<windSizeLDM[i]; ++j) {
@@ -2042,7 +2044,7 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
                     rsq = v[j]*v[j];
                     snpi->ldSamplVar += (1.0f-rsq)*(1.0f-rsq)/snpi->sampleSize;
                     snpi->ldSum += v[j];
-                    snpi->ldsc += rsq;
+                    if (!readLDscore) snpi->ldsc += rsq;
                     if (snpj == snpi)
                         ZPZdiag[inci] = v[j];
                 }
@@ -2135,7 +2137,7 @@ void Data::readLDmatrixBinFileAndShrink(const string &ldmatrixFile){
             ZPZsp[inci].resize(windSizeLDM[i]);
             snpi->ldSamplVar = 0.0;
             snpi->ldSum = 0.0;
-            snpi->ldsc = 0.0;
+            if (!readLDscore) snpi->ldsc = 0.0;
             
             for (unsigned j=0; j<windSizeLDM[i]; ++j) {
                 snpj = snpInfoVec[d[j]];
@@ -2157,7 +2159,7 @@ void Data::readLDmatrixBinFileAndShrink(const string &ldmatrixFile){
                     rsq = shrunkLD * shrunkLD;
                     snpi->ldSamplVar += shrinkage*shrinkage*(1.0f-rsq)*(1.0f-rsq)/snpi->sampleSize;
                     snpi->ldSum += shrunkLD;
-                    snpi->ldsc += rsq;
+                    if (!readLDscore) snpi->ldsc += rsq;
                 }
             }
             SparseVector<float>::InnerIterator it(ZPZsp[inci]);
@@ -2188,7 +2190,7 @@ void Data::readLDmatrixBinFileAndShrink(const string &ldmatrixFile){
             ZPZ[inci].resize(windSize[inci]);
             snpi->ldSamplVar = 0.0;
             snpi->ldSum = 0.0;
-            snpi->ldsc = 0.0;
+            if (!readLDscore) snpi->ldsc = 0.0;
             snpi->numNonZeroLD = 0;
             
             for (unsigned j=0, incj=0; j<windSizeLDM[i]; ++j) {
@@ -2212,7 +2214,7 @@ void Data::readLDmatrixBinFileAndShrink(const string &ldmatrixFile){
                     rsq = shrunkLD * shrunkLD;
                     snpi->ldSamplVar += shrinkage*shrinkage*(1.0f-rsq)*(1.0f-rsq)/snpi->sampleSize;
                     snpi->ldSum += shrunkLD;
-                    snpi->ldsc += rsq;
+                    if (!readLDscore) snpi->ldsc += rsq;
                 }
             }
             
@@ -2329,7 +2331,7 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
                 ZPZsp[incj].resize(windSizeLDM[j]);
                 snpj->ldSamplVar = 0.0;
                 snpj->ldSum = 0.0;
-                snpj->ldsc = 0.0;
+                if (!readLDscore) snpj->ldsc = 0.0;
 
                 for (unsigned k=0; k<windSizeLDM[j]; ++k) {
                     snpk = snpInfoVec[windStartLDM[j]+d[k]-d[0]];
@@ -2338,7 +2340,7 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
                         rsq = v[k]*v[k];
                         snpj->ldSamplVar += (1.0f-rsq)*(1.0f-rsq)/snpj->sampleSize;
                         snpj->ldSum += v[k];
-                        snpj->ldsc += rsq;
+                        if (!readLDscore) snpj->ldsc += rsq;
                         if (snpk == snpj)
                             ZPZdiag[incj] = v[k];
                     }
@@ -2366,7 +2368,7 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
                 ZPZ[incj].resize(windSize[incj]);
                 snpj->ldSamplVar = 0.0;
                 snpj->ldSum = 0.0;
-                snpj->ldsc = 0.0;
+                if (!readLDscore) snpj->ldsc = 0.0;
                 snpj->numNonZeroLD = snpj->windSize;
 
                 for (unsigned k=0, inck=0; k<windSizeLDM[j]; ++k) {
@@ -2377,7 +2379,7 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
                         rsq = v[k]*v[k];
                         snpj->ldSamplVar += (1.0f-rsq)*(1.0f-rsq)/snpj->sampleSize;
                         snpj->ldSum += v[k];
-                        snpj->ldsc += rsq;
+                        if (!readLDscore) snpj->ldsc += rsq;
                         if (snpk == snpj)
                             ZPZdiag[incj] = v[k];
                     }
@@ -2498,7 +2500,7 @@ void Data::readMultiLDmatBinFileAndShrink(const string &mldmatFile){
                 ZPZsp[incj].resize(windSizeLDM[j]);
                 snpj->ldSamplVar = 0.0;
                 snpj->ldSum = 0.0;
-                snpj->ldsc = 0.0;
+                if (!readLDscore) snpj->ldsc = 0.0;
                 
                 for (unsigned k=0; k<windSizeLDM[j]; ++k) {
                     snpk = snpInfoVec[windStartLDM[j]+d[k]-d[0]];
@@ -2520,7 +2522,7 @@ void Data::readMultiLDmatBinFileAndShrink(const string &mldmatFile){
                         rsq = shrunkLD * shrunkLD;
                         snpj->ldSamplVar += shrinkage*shrinkage*(1.0f-rsq)*(1.0f-rsq)/snpj->sampleSize;
                         snpj->ldSum += shrunkLD;
-                        snpj->ldsc += rsq;
+                        if (!readLDscore) snpj->ldsc += rsq;
                     }
                 }
                 SparseVector<float>::InnerIterator it(ZPZsp[incj]);
@@ -2546,7 +2548,7 @@ void Data::readMultiLDmatBinFileAndShrink(const string &mldmatFile){
                 ZPZ[incj].resize(windSize[incj]);
                 snpj->ldSamplVar = 0.0;
                 snpj->ldSum = 0.0;
-                snpj->ldsc = 0.0;
+                if (!readLDscore) snpj->ldsc = 0.0;
                 snpj->numNonZeroLD = 0;
                 
                 for (unsigned k=0, inck=0; k<windSizeLDM[j]; ++k) {
@@ -2571,7 +2573,7 @@ void Data::readMultiLDmatBinFileAndShrink(const string &mldmatFile){
                         rsq = shrunkLD * shrunkLD;
                         snpj->ldSamplVar += shrinkage*shrinkage*(1.0f-rsq)*(1.0f-rsq)/snpj->sampleSize;
                         snpj->ldSum += shrunkLD;
-                        snpj->ldsc += rsq;
+                        if (!readLDscore) snpj->ldsc += rsq;
                     }
                 }
                 //cout << "Here 2 " << endl;
@@ -3465,7 +3467,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
 // =============================================================================================
 
 
-void Data::buildSparseMME(){
+void Data::buildSparseMME(const bool sampleOverlap){
     VectorXf refZPZdiag = ZPZdiag;
     VectorXf refsnp2pq = snp2pq;
     
@@ -3482,6 +3484,7 @@ void Data::buildSparseMME(){
     for (unsigned i=0; i<numIncdSnps; ++i) {
         snp = incdSnpInfoVec[i];
         snp->af = snp->gwas_af;
+        snp->twopq = 2.0*snp->af*(1.0-snp->af);
         snp2pq[i] = snp->twopq = 2.0f*snp->gwas_af*(1.0f-snp->gwas_af);
         if(snp2pq[i]==0) cout << "Error: SNP " << snp->ID << " af " << snp->af << " has 2pq = 0." << endl;
         D[i] = snp2pq[i]*snp->gwas_n;
@@ -3518,10 +3521,13 @@ void Data::buildSparseMME(){
         LDscore.resize(numIncdSnps);
         for (unsigned i=0; i<numIncdSnps; ++i) {
             snp = incdSnpInfoVec[i];
-            LDsamplVar[i]  = (snp->gwas_n + snp->numNonZeroLD)/float(numIncdSnps)*snp->ldSamplVar;
+            if (sampleOverlap)
+                LDsamplVar[i] = 0;
+            else
+                LDsamplVar[i]  = (snp->gwas_n + snp->sampleSize)/float(numIncdSnps)*snp->ldSamplVar;
             LDsamplVar[i] += (numIncdSnps - snp->numNonZeroLD)/float(numIncdSnps);
-//            LDsamplVar[i] = 1;
-            LDscore[i] = snp->ldsc*snp->gwas_n;
+//            LDsamplVar[i] = 0;
+            LDscore[i] = snp->ldsc; //*snp->gwas_n;
         }
 
         ZPZdiag.array() *= D.array();
@@ -3589,7 +3595,7 @@ void Data::buildSparseMME(){
         for (unsigned i=0; i<numIncdSnps; ++i) {
             ZPX(i,0) = ZPZ[i].sum();
         }
-    } if (ZPZsp.size()) {
+    } else if (ZPZsp.size()) {
         for (unsigned i=0; i<numIncdSnps; ++i) {
             ZPX(i,0) = ZPZsp[i].sum();
         }
@@ -3606,6 +3612,7 @@ void Data::buildSparseMME(){
     // data summary
     cout << "\nData summary:" << endl;
     cout << boost::format("%40s %8s %8s\n") %"" %"mean" %"sd";
+    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP Phenotypic variance" %varpSrt.mean() %sqrt(Gadget::calcVariance(varpSrt));
     cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP heterozygosity" %snp2pq.mean() %sqrt(Gadget::calcVariance(snp2pq));
     cout << boost::format("%40s %8.0f %8.0f\n") %"GWAS SNP sample size" %n.mean() %sqrt(Gadget::calcVariance(n));
     cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP effect" %b.mean() %sqrt(Gadget::calcVariance(b));
@@ -3613,7 +3620,8 @@ void Data::buildSparseMME(){
     cout << boost::format("%40s %8.3f %8.3f\n") %"MME left-hand-side diagonals" %ZPZdiag.mean() %sqrt(Gadget::calcVariance(ZPZdiag));
     cout << boost::format("%40s %8.3f %8.3f\n") %"MME right-hand-side" %ZPy.mean() %sqrt(Gadget::calcVariance(ZPy));
     cout << boost::format("%40s %8.3f %8.3f\n") %"LD sampling variance" %LDsamplVar.mean() %sqrt(Gadget::calcVariance(LDsamplVar));
-    cout << "\n  Median of per-SNP phenotypic variance: " << varp << endl;
+    cout << boost::format("%40s %8.3f %8.3f\n") %"LD score" %LDscore.mean() %sqrt(Gadget::calcVariance(LDscore));
+//    cout << "\n  Median of per-SNP phenotypic variance: " << varp << endl;
     
 //    ofstream out("tmp.txt");
 //    out << "refZPZdiag\t gwasZPZdiag\t b\t ZPy\t refsnp2pq\t gwassnp2pq n" << endl;
@@ -3621,6 +3629,20 @@ void Data::buildSparseMME(){
 //        out << refZPZdiag[i] << "\t" << ZPZdiag[i] << "\t" << b[i] << "\t" << ZPy[i] << "\t" << refsnp2pq[i] << "\t" << snp2pq[i] << "\t" << n[i] << endl;
 //    }
 //    out.close();
+    
+    if (numAnnos) {
+        if (myMPI::rank==0) cout << "\nAnnotation info:" << endl;
+        numSnpAnnoVec.resize(numAnnos);
+        for (unsigned i=0; i<numAnnos; ++i) {
+            AnnoInfo *anno = annoInfoVec[i];
+            numSnpAnnoVec[i] = anno->size;
+            anno->getSnpInfo();
+            anno->fraction = float(anno->size)/float(numIncdSnps);
+            anno->print();
+        }
+        if (myMPI::rank==0) cout << endl;
+    }
+
 }
 
 
@@ -4052,4 +4074,42 @@ void Data::readAnnotationFile(const string &annoFile) {
     
     if (myMPI::rank==0)
         cout << line << " matched SNPs in the annotation file (" << numAnnos << " annotations and " << numMultiAnno << " SNPs have more than one annotation)." << endl;
+}
+
+void Data::readLDscoreFile(const string &ldscoreFile) {
+    ifstream in(ldscoreFile.c_str());
+    if (!in) throw ("Error: can not open the LD score file [" + ldscoreFile + "] to read.");
+    if (myMPI::rank==0)
+        cout << "Reading SNP LD scores from [" + ldscoreFile + "]." << endl;
+
+    readLDscore = true;
+    
+    SnpInfo *snp;
+    map<string, SnpInfo*>::iterator it;
+    string id;
+    float ldsc;
+    unsigned line = 0, match = 0;
+    while(in >> id >> ldsc) {
+        ++line;
+        it = snpInfoMap.find(id);
+        if (it == snpInfoMap.end()) continue;
+        snp = it->second;
+        if (snp->included) {
+            snp->ldsc = ldsc;
+            ++match;
+        }
+    }
+    in.close();
+    
+    for (unsigned i=0; i<numSnps; ++i) {
+        snp = snpInfoVec[i];
+        if (!snp->included) continue;
+        if (!snp->ldsc) {
+            snp->included = false;
+        }
+    }
+    
+    if (myMPI::rank==0) {
+        cout << "Read LD scores for " << match << " matched SNPs (in total " << line << " SNPs)." << endl;
+    }
 }

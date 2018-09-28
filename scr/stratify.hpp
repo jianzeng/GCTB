@@ -28,7 +28,8 @@ class StratApproxBayesS : public ApproxBayesS {  // annotation stratified analys
             for (unsigned i=0; i<size; ++i) {
                 AnnoInfo *anno = annoVec[i];
                 values[i] = vg*anno->fraction/(anno->snp2pq.sum()*pi);
-                scales[i] = 0.5*values[i];
+                scales[i] = 0.5*values[i];                
+//                cout << i << " " << values[i] << " " << anno->fraction << " " << anno->snp2pq.sum() << endl;
             }
         }
         
@@ -52,8 +53,8 @@ class StratApproxBayesS : public ApproxBayesS {  // annotation stratified analys
         const float alpha;
         const float beta;
         
-        PiStratified(const vector<string> &header, const float pi, const string &lab = "Pi_Stratified"):
-        ParamSet(lab, header), alpha(1), beta(19) {
+        PiStratified(const vector<string> &header, const float pi, const float alpha, const float beta, const string &lab = "Pi_Stratified"):
+        ParamSet(lab, header), alpha(alpha), beta(beta) {
             values.setConstant(size, pi);
         }
         
@@ -98,7 +99,7 @@ class StratApproxBayesS : public ApproxBayesS {  // annotation stratified analys
     
     class TotalHeritabilityEnrichment : public ParamSet {
     public:
-        TotalHeritabilityEnrichment(const vector<string> &header, const string &lab = "TotalHsq_enrichment"): ParamSet(lab, header) {}
+        TotalHeritabilityEnrichment(const vector<string> &header, const string &lab = "TotalHsq_Enrichment"): ParamSet(lab, header) {}
         
         void compute(const VectorXf &hsqStrat, const VectorXf &expFrac, const float hsqTotal);
     };
@@ -194,7 +195,7 @@ public:
     snpEffects(data.snpEffectNames, data.snp2pq, pival, data.annoInfoVec),
     sigmaSqStrat(data.annoNames, data.annoInfoVec, varGenotypic, pival),
     sigmaSqEnrich(data.annoNames),
-    piStrat(data.annoNames, pival),
+    piStrat(data.annoNames, pival, piAlpha, piBeta),
     piEnrich(data.annoNames, data.annoInfoVec),
     nnzStrat(data.annoNames),
     hsqStrat(data.annoNames, data.numKeptInds),
@@ -213,8 +214,8 @@ public:
             paramToPrint.push_back(&ps);
         }
         if (spouseCorrelation) {
-            paramVec.push_back(&icgc);
-            paramToPrint.push_back(&icgc);
+            paramVec.push_back(&covg);
+            paramToPrint.push_back(&covg);
         }
         if (message && myMPI::rank==0) {
 //            string alg = algorithm;

@@ -99,7 +99,7 @@ int main(int argc, const char * argv[]) {
                     data.jackknifeLDmatrix(opt.ldmatrixFile, opt.outLDmatType, opt.title, opt.writeLdmTxt);
                 }
                 else {
-                    gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, "", opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax);
+                    gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, "", opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.ldscoreFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.sampleOverlap);
                     data.resizeLDmatrix(opt.outLDmatType, opt.chisqThreshold, opt.windowWidth, opt.LDthreshold, opt.effpopNE, opt.cutOff);
                     data.outputLDmatrix(opt.outLDmatType, opt.title, opt.writeLdmTxt);
                 }
@@ -107,9 +107,9 @@ int main(int argc, const char * argv[]) {
         }
         else if (opt.analysisType == "SBayes") {
             if (!opt.ldmatrixFile.empty()) {
-                gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax);
+                gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.ldscoreFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.sampleOverlap);
             } else {
-                gctb.inputSnpInfo(data, opt.bedFile, opt.gwasSummaryFile, opt.afDiff, opt.mafmin, opt.mafmax);
+                gctb.inputSnpInfo(data, opt.bedFile, opt.gwasSummaryFile, opt.afDiff, opt.mafmin, opt.mafmax, opt.sampleOverlap);
             }
             
             data.label = opt.title;

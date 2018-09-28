@@ -325,7 +325,7 @@ void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vecto
 //                    % ""
 //                    % mcmcSamples->posteriorMean[col]
 //                    % sqrt(mcmcSamples->posteriorSqrMean[col]-mcmcSamples->posteriorMean[col]*mcmcSamples->posteriorMean[col]);
-                    out << boost::format("%20s %10s %2s %-15.6f %-15.6f ")
+                    out << boost::format("%25s %10s %2s %-15.6f %-15.6f ")
                     % parset->label
                     % parset->header[col]
                     % ""
