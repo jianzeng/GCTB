@@ -81,6 +81,7 @@ public:
     bool diagnosticMode; // for sbayes
     bool jackknife;   // jackknife estimate for LD sampling variance
     bool excludeAmbiguousSNP;  // exlcude ambiguous SNPs with A/T or G/C alleles
+    bool sampleOverlap;  // whether LD ref is the same as GWAS sample
 
     // Bayes R defauls
     VectorXf gamma;  // Default scaling parameters for Bayes R
@@ -106,6 +107,7 @@ public:
     string ldmatrixFile;
     string skeletonSnpFile;
     string annotationFile;
+    string ldscoreFile;
     string snpRange;
     string outLDmatType;
     
@@ -167,6 +169,7 @@ public:
         diagnosticMode          = false;
         jackknife               = false;
         excludeAmbiguousSNP     = false;
+        sampleOverlap           = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";
@@ -188,6 +191,7 @@ public:
         ldmatrixFile            = "";
         skeletonSnpFile         = "";
         annotationFile          = "";
+        ldscoreFile             = "";
         snpRange                = "";
         outLDmatType            = "sparse";
     }

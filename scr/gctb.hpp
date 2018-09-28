@@ -33,10 +33,10 @@ public:
                       const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const float mafmin, const float mafmax, const bool readGenotypes);
     void inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile,
                       const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP,
-                      const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile,
-                      const bool multiLDmatrix, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax);
+                      const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile, const string &ldscoreFile,
+                      const bool multiLDmatrix, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap);
     
-    void inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile, const float afDiff, const float mafmin, const float mafmax);
+    void inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap);
 
     Model* buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
                       const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma,

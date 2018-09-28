@@ -236,6 +236,8 @@ void StratApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<S
             logDelta0 = logPiComp[annoIdx];
             probDelta1 = 1.0f/(1.0f + expf(logDelta0-logDelta1));
             
+//            cout << i << " " << rhs << " " << invLhs << " " << probDelta1 << " " << logPi[annoIdx] << " " << logPiComp[annoIdx] << " " << snp2pqPowS << " " << sigmaSq[annoIdx] << " " << logf(invLhs) << " " << logf(snp2pqPowS*sigmaSq[annoIdx]) << " " << uhat*rhs << endl;
+            
             if (bernoulli.sample(probDelta1)) {
                 values[i] = normal.sample(uhat, invLhs);
                 sampleDiff = oldSample - values[i];
@@ -279,13 +281,9 @@ void StratApproxBayesS::sampleUnknowns() {
     sigmaSqEnrich.compute(sigmaSqStrat.values, sigmaSq.value);
     
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pqSplusOne);
+    covg.compute(data.ypy, snpEffects.values, data.ZPy, rcorr);
     varg.value = sigmaSqG.value;
-//    varg.compute(snpEffects.values, data.ZPy, rcorr);
-    icgc.compute(varg.value, hsq.value);
-    if (icgc.value)
-        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, icgc.value);
-    else
-        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, varg.value, nnzSnp.value);
+    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value);
     hsq.compute(varg.value, vare.value);
     hsqStrat.compute(sigmaSqStrat.values, snpEffects.sum2pqSplusOneVec, varg.value, vare.value);
 //    hsqStrat.compute(snpEffects.values, annowiseZPZsp, annowiseZPZdiag, data.annoInfoVec, varg.value, vare.value);

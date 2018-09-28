@@ -21,7 +21,7 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &include
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
     if (includeChr) data.includeChr(includeChr);
     if (excludeAmbiguousSNP) data.excludeAmbiguousSNP();
-    if (mafmin || mafmax) data.excludeSNPwithMaf(mafmin, mafmax);
+//    if (mafmin || mafmax) data.excludeSNPwithMaf(mafmin, mafmax);  // need to read in genotype data first
     if (!excludeRegionFile.empty()) data.excludeRegion(excludeRegionFile);
     if (!skeletonSnpFile.empty()) data.includeSkeletonSnp(skeletonSnpFile);
     if (!geneticMapFile.empty()) data.readGeneticMapFile(geneticMapFile);
@@ -29,7 +29,7 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &include
     if (readGenotypes) data.readBedFile(bedFile + ".bed");
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile, const bool multiLDmat, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax){
+void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile, const string &ldscoreFile, const bool multiLDmat, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap){
     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
@@ -43,6 +43,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (!skeletonSnpFile.empty()) data.includeSkeletonSnp(skeletonSnpFile);
     if (!geneticMapFile.empty()) data.readGeneticMapFile(geneticMapFile);
     if (!annotationFile.empty()) data.readAnnotationFile(annotationFile);
+    if (!ldscoreFile.empty()) data.readLDscoreFile(ldscoreFile);
     if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax);
     data.includeMatchedSnp();
     if (geneticMapFile.empty()) {
@@ -56,10 +57,10 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
         else
             data.readLDmatrixBinFileAndShrink(ldmatrixFile + ".bin");
     }
-    if (!gwasSummaryFile.empty()) data.buildSparseMME();
+    if (!gwasSummaryFile.empty()) data.buildSparseMME(sampleOverlap);
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile, const float afDiff, const float mafmin, const float mafmax){
+void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap){
     data.readFamFile(bedFile + ".fam");
     data.readBimFile(bedFile + ".bim");
 
@@ -69,7 +70,7 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSum
     data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax);
     data.includeMatchedSnp();
     data.readBedFile(bedFile + ".bed");
-    data.buildSparseMME();
+    data.buildSparseMME(sampleOverlap);
 }
 
 Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
@@ -90,6 +91,10 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
                 return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, diagnosticMode);
             else if (bayesType == "S")
                 return new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, S, algorithm, diagnosticMode);
+            else if (bayesType == "ST")
+                return new ApproxBayesST(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, overdispersion, estimatePS, varS, S, true);
+            else if (bayesType == "T")
+                return new ApproxBayesST(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, overdispersion, estimatePS, varS, S, false);
             else if (bayesType == "R")
                 return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, icrsq, spouseCorrelation);
             else if (bayesType == "Kap")
