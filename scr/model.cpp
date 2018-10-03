@@ -2444,6 +2444,7 @@ void ApproxBayesKappa::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sp
     gamgam.setZero(pis.size());
     snpStore.setZero(pis.size());
     //snpindist.setZero(tss.size());
+    // kappa=2.302585;
     // --------------------------------------------------------------------------------
     // Scale the variances in each of the normal distributions by the genetic variance
     // and initialise the class membership probabilities
@@ -2453,6 +2454,7 @@ void ApproxBayesKappa::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sp
     {
       gamgam[dstInd] = exp(-kappa * dstInd);
     }
+    // cout << "gamgam " << gamgam << endl;
     gp = gamgam * sigmaSq;
     // --------------------------------------------------------------------------------
     // Cycle over all variants in the window and sample the genetics effects

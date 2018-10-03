@@ -1798,6 +1798,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 windSize[i] = snp->windSize = ZPZsp[i].nonZeros();
                 for (; it; ++it) snp->windEnd = it.index();
                 ZPZ[i].resize(0);
+                if(!(i%1000) && myMPI::rank==0) cout << " Completed snp " << i << "\r" << flush;
             }
         } else {
             if  (windowWidth) {
@@ -1818,6 +1819,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                     for (; it; ++it) snp->windEnd = it.index();
                     ZPZ[i].resize(0);
                     //cout << i << " windsize " << snp->windSize << " " << ZPZsp[i].size() << endl;
+                    if(!(i%1000) && myMPI::rank==0) cout << " Completed snp " << i << "\r" << flush;
                 }
 
             } else {
@@ -1836,6 +1838,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                     windSize[i] = snp->windSize = ZPZsp[i].nonZeros();
                     for (; it; ++it) snp->windEnd = it.index();
                     ZPZ[i].resize(0);
+                    if(!(i%1000) && myMPI::rank==0) cout << " Completed snp " << i << "\r" << flush;
                     //cout << i << " windsize " << snp->windSize << " " << ZPZsp[i].size() << endl;
                 }
             }
@@ -1856,6 +1859,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 windStart[i] = snpi->windStart = it.index();
                 windSize[i] = snpi->windSize = ZPZsp[i].nonZeros();
                 for (; it; ++it) snpi->windEnd = it.index();
+                if(!(i%1000) && myMPI::rank==0) cout << " Completed snp " << i << "\r" << flush;
         }
     }
     if (LDmatType == "band") {
@@ -1873,6 +1877,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 windSize[i]  = snp->windSize  = min(windSize[i], windSizeOri[i]);
                 ZPZiTmp = ZPZ[i].segment(windStart[i]-windStartOri[i], windSize[i]);
                 ZPZ[i] = ZPZiTmp;
+                if(!(i%1000) && myMPI::rank==0) cout << " Completed snp " << i << "\r" << flush;
             }
         } else if (LDthreshold) {
             cout << "Resizing LD matrix based on a LD threshold of " << LDthreshold << "..." << endl;
@@ -2037,6 +2042,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                     ZPZ[i][j] = ZPZ[i][j] + 0.5f * thetai[i] * (1.0 - 0.5f * thetai[i]);
                 }  
             }
+            if(!(i%1000) && myMPI::rank==0) cout << " Completed snp " << i << "\r" << flush;
         }
         // Now back to correlation
         for (unsigned i=0; i<numIncdSnps; ++i) {
@@ -2129,6 +2135,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 it.valueRef()= ZPZij; 
             }
             // cout << "After " << ZPZsp[i] << endl;
+            if(!(i%1000) && myMPI::rank==0) cout << " Completed snp " << i << "\r" << flush;
         }
         // // Now back to correlation
         for (unsigned i=0; i<numIncdSnps; ++i) {
