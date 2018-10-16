@@ -66,8 +66,8 @@ public:
     
     McmcSamples(const string &label): label(label) {}
     
-    void getSample(const unsigned iter, const VectorXf &sample, bool writeBinPosterior);
-    void getSample(const unsigned iter, const float sample, ofstream &out);
+    void getSample(const unsigned iter, const VectorXf &sample, const bool writeBinPosterior, const bool writeTxtPosterior);
+    void getSample(const unsigned iter, const float sample, const bool writeTxtPosterior, ofstream &out);
     void writeSampleBin(const unsigned iter, const VectorXf &sample, const string &title);
     void writeSampleTxt(const unsigned iter, const float sample, const string &title);
     VectorXf mean(void);
@@ -79,6 +79,7 @@ public:
     void writeDataTxt(const string &title);
     void readDataBin(const string &filename);
     void readDataTxt(const string &filename);
+    void readDataTxt(const string &filename, const string &label);
 };
 
 class MCMC {
@@ -88,8 +89,8 @@ private:
     
     void initTxtFile(const vector<Parameter*> &paramVec, const string &title);
     vector<McmcSamples*> initMcmcSamples(const Model &model, const unsigned chainLength, const unsigned burnin,
-                                         const unsigned thin, const string &title, const bool writeBinPosterior);
-    void collectSamples(const Model &model, vector<McmcSamples*> &mcmcSampleVec, const unsigned iteration, const bool writeBinPosterior);
+                                         const unsigned thin, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior);
+    void collectSamples(const Model &model, vector<McmcSamples*> &mcmcSampleVec, const unsigned iteration, const bool writeBinPosterior, const bool writeTxtPosterior);
     void printStatus(const vector<Parameter*> &paramToPrint, const unsigned thisIter, const unsigned outputFreq, const string &timeLeft);
     void printStatusR(const vector<float*> &paramToPrintR, const unsigned thisIter, const unsigned outputFreq, const string &timeLeft);
     void printSummary(const vector<Parameter*> &paramToPrint, const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
@@ -97,7 +98,7 @@ private:
     
 public:
     vector<McmcSamples*> run(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin,
-                             const unsigned outputFreq, const string &title, const bool writeBinPosterior);
+                             const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior);
 };
 
 #endif /* mcmc_hpp */

@@ -29,7 +29,7 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &include
     if (readGenotypes) data.readBedFile(bedFile + ".bed");
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile, const string &ldscoreFile, const bool multiLDmat, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap){
+void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile, const bool transpose, const string &ldscoreFile, const bool multiLDmat, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap){
     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
@@ -42,7 +42,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (excludeMHC) data.excludeMHC();
     if (!skeletonSnpFile.empty()) data.includeSkeletonSnp(skeletonSnpFile);
     if (!geneticMapFile.empty()) data.readGeneticMapFile(geneticMapFile);
-    if (!annotationFile.empty()) data.readAnnotationFile(annotationFile);
+    if (!annotationFile.empty()) data.readAnnotationFile(annotationFile, transpose);
     if (!ldscoreFile.empty()) data.readLDscoreFile(ldscoreFile);
     if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax);
     data.includeMatchedSnp();
@@ -143,9 +143,9 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
     }
 }
 
-vector<McmcSamples*> GCTB::runMcmc(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior){
+vector<McmcSamples*> GCTB::runMcmc(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
     MCMC mcmc;
-    return mcmc.run(model, chainLength, burnin, thin, outputFreq, title, writeBinPosterior);
+    return mcmc.run(model, chainLength, burnin, thin, outputFreq, title, writeBinPosterior, writeTxtPosterior);
 }
 
 void GCTB::saveMcmcSamples(const vector<McmcSamples*> &mcmcSampleVec, const string &filename){
@@ -181,7 +181,8 @@ McmcSamples* GCTB::inputMcmcSamples(const string &mcmcSampleFile, const string &
     if (myMPI::rank==0) cout << "reading MCMC samples for " << label << endl;
     McmcSamples *mcmcSamples = new McmcSamples(label);
     if (fileformat == "bin") mcmcSamples->readDataBin(mcmcSampleFile + "." + label);
-    if (fileformat == "txt") mcmcSamples->readDataTxt(mcmcSampleFile + "." + label);
+//    if (fileformat == "txt") mcmcSamples->readDataTxt(mcmcSampleFile + "." + label);
+    if (fileformat == "txt") mcmcSamples->readDataTxt(mcmcSampleFile + ".Par", label);
     return mcmcSamples;
 }
 
@@ -193,10 +194,6 @@ void GCTB::estimateHsq(const Data &data, const McmcSamples &snpEffects, const st
     hsq.writeMcmcSamples(filename);
 }
 
-void GCTB::inputSnpResults(Data &data, const string &snpResFile){
-    
-}
-
 void GCTB::predict(const Data &data, const string &filename){
     Predict pred;
     pred.getAccuracy(data, filename + ".predRes");
@@ -206,3 +203,48 @@ void GCTB::predict(const Data &data, const string &filename){
 void GCTB::clearGenotypes(Data &data){
     data.X.resize(0,0);
 }
+
+void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDmat, const string &geneticMapFile, const string &snpResFile, const string &mcmcSampleFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const string &gwasSummaryFile, const string &filename, const float piAlpha, const float piBeta, const float varS, const vector<float> &svalue, unsigned chainLength, unsigned burnin, const unsigned thin, const unsigned outputFreq){
+    if (multiLDmat)
+        data.readMultiLDmatInfoFile(ldmatrixFile);
+    else
+        data.readLDmatrixInfoFile(ldmatrixFile + ".info");
+    data.inputSnpInfoAndResults(snpResFile);
+    if (!annotationFile.empty())
+        data.readAnnotationFile(annotationFile, transpose, true);
+    else
+        data.readAnnotationFileFormat2(continuousAnnoFile);
+    data.readGwasSummaryFile(gwasSummaryFile, 1, 0, 0);
+    data.includeMatchedSnp();
+    if (geneticMapFile.empty()) {
+        if (multiLDmat)
+            data.readMultiLDmatBinFile(ldmatrixFile);
+        else
+            data.readLDmatrixBinFile(ldmatrixFile + ".bin");
+    } else {
+        if (multiLDmat)
+            data.readMultiLDmatBinFileAndShrink(ldmatrixFile);
+        else
+            data.readLDmatrixBinFileAndShrink(ldmatrixFile + ".bin");
+    }
+    data.buildSparseMME(false);
+    data.makeAnnowiseSparseLDM(data.ZPZsp, data.annoInfoVec, data.snpInfoVec);
+    
+    McmcSamples *snpEffects = inputMcmcSamples(mcmcSampleFile, "SnpEffects", "bin");
+    McmcSamples *varg = inputMcmcSamples(mcmcSampleFile, "GenVar", "txt");
+    McmcSamples *vare = inputMcmcSamples(mcmcSampleFile, "ResVar", "txt");
+    McmcSamples *sigmaSq = inputMcmcSamples(mcmcSampleFile, "SigmaSq", "txt");
+    McmcSamples *pi = inputMcmcSamples(mcmcSampleFile, "Pi", "txt");
+    
+    float varghat = varg->mean()[0];
+    float varehat = vare->mean()[0];
+    float pihat = pi->mean()[0];
+    
+    PostHocStratify *strat = new PostHocStratify(data, *snpEffects, *varg, *vare, *sigmaSq, *pi, thin, varghat, varehat, pihat, piAlpha, piBeta, varS, svalue);
+    
+    if (chainLength > snpEffects->nrow) chainLength = snpEffects->nrow;
+    if (burnin > chainLength) burnin = 0.2*chainLength;
+    
+    runMcmc(*strat, chainLength, burnin, thin, outputFreq, filename, false, false);
+}
+

@@ -206,6 +206,14 @@ void StratApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<S
     VectorXf logPiComp = (1.0-pi.array()).log();
     VectorXf invSigmaSq = sigmaSq.cwiseInverse();
     
+    float *valuesPtr = values.data();
+    vector<float> urnd(size), nrnd(size);
+    for (unsigned i=0; i<size; ++i) { // need this for openmp to work
+        urnd[i] = Stat::ranf();
+        nrnd[i] = Stat::snorm();
+    }
+
+    
     for (unsigned chr=0; chr<numChr; ++chr) {
         ChromInfo *chromInfo = chromInfoVec[chr];
         unsigned chrStart = chromInfo->startSnpIdx;
@@ -222,7 +230,7 @@ void StratApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<S
         
         for (unsigned i=chrStart; i<=chrEnd; ++i) {
             annoIdx = incdSnpInfoVec[i]->annoPtr[0]->idx;
-            oldSample = values[i];
+            oldSample = valuesPtr[i];
             
             varei = LDsamplVar[i]*varg + vare + ps + overdispersion;
             snp2pqPowS = powf(snp2pq[i], S[annoIdx]);
@@ -238,13 +246,15 @@ void StratApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<S
             
 //            cout << i << " " << rhs << " " << invLhs << " " << probDelta1 << " " << logPi[annoIdx] << " " << logPiComp[annoIdx] << " " << snp2pqPowS << " " << sigmaSq[annoIdx] << " " << logf(invLhs) << " " << logf(snp2pqPowS*sigmaSq[annoIdx]) << " " << uhat*rhs << endl;
             
-            if (bernoulli.sample(probDelta1)) {
-                values[i] = normal.sample(uhat, invLhs);
-                sampleDiff = oldSample - values[i];
+//            if (bernoulli.sample(probDelta1)) {
+            if (urnd[i] < probDelta1) {
+//                values[i] = normal.sample(uhat, invLhs);
+                valuesPtr[i] = uhat + nrnd[i]*sqrtf(invLhs);
+                sampleDiff = oldSample - valuesPtr[i];
                 for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
                     rcorr[it.index()] += it.value() * sampleDiff;
                 }
-                wtdSumSq[annoIdx] += values[i]*values[i]/snp2pqPowS;
+                wtdSumSq[annoIdx] += valuesPtr[i]*valuesPtr[i]/snp2pqPowS;
                 ++numNonZeros[annoIdx];
             } else {
                 if(oldSample) {
@@ -252,10 +262,11 @@ void StratApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<S
                         rcorr[it.index()] += it.value() * oldSample;
                     }
                 }
-                values[i] = 0.0;
+                valuesPtr[i] = 0.0;
             }
         }
     }
+    values = VectorXf::Map(valuesPtr, size);
 }
 
 void StratApproxBayesS::sampleUnknowns() {
@@ -282,6 +293,7 @@ void StratApproxBayesS::sampleUnknowns() {
     
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pqSplusOne);
     covg.compute(data.ypy, snpEffects.values, data.ZPy, rcorr);
+//    varg.compute(snpEffects.values, data.ZPy, rcorr, covg.value);
     varg.value = sigmaSqG.value;
     vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value);
     hsq.compute(varg.value, vare.value);
@@ -351,3 +363,107 @@ void StratApproxBayesS::makeAnnowiseSparseLDM(const vector<SparseVector<float> >
     }
 }
 
+
+
+///// post hoc stratified analysis based on MCMC samples of SNP effects
+
+void PostHocStratify::SnpEffects::getValues(const SparseVector<float> &snpEffects, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &snp2pq, const VectorXf &S) {
+    VectorXf beta(snpEffects);
+    unsigned snpidx;
+    long numAnnos = annoInfoVec.size();
+    wtdSumSq.setZero(numAnnos);
+    numNonZeros.setZero(numAnnos);
+    long chunkSize = size/omp_get_max_threads();
+#pragma omp parallel for schedule(dynamic, chunkSize)
+    for (unsigned i=0; i<numAnnos; ++i) {
+        AnnoInfo *anno = annoInfoVec[i];
+        values[i].setZero(anno->size);
+        for (unsigned j=0; j<anno->size; ++j) {
+            snpidx = anno->memberSnpVec[j]->index;
+            if (beta[snpidx]) {
+                values[i][j] = beta[snpidx];
+                wtdSumSq[i] += beta[snpidx]*beta[snpidx]/powf(snp2pq[snpidx], S[i]);
+                ++numNonZeros[i];
+            }
+        }
+    }
+}
+
+void PostHocStratify::Heritability::compute(const vector<VectorXf> &snpEffects, const vector<SparseMatrix<float> > &annowiseZPZsp, const vector<VectorXf> &annowiseZPZdiag, const float genVar, const float resVar) {
+    float varp = genVar + resVar;
+    for (unsigned i=0; i<size; ++i) {
+        values[i] = 2.0*snpEffects[i].transpose()*annowiseZPZsp[i]*snpEffects[i] + snpEffects[i].cwiseProduct(snpEffects[i]).dot(annowiseZPZdiag[i]);
+        values[i] /= float(sampleSize);
+        values[i] /= varp;
+    }
+}
+
+void PostHocStratify::Pi::compute(const vector<unsigned int> &numSnps, const VectorXf &numSnpEff) {
+    for (unsigned i=0; i<size; ++i) {
+        values[i] = numSnpEff[i]/numSnps[i];
+    }
+}
+
+void PostHocStratify::VarEffects::compute(const VectorXf &snpEffSumSq, const VectorXf &numSnpEff) {
+    for (unsigned i=0; i<size; ++i) {
+        if (numSnpEff[i]) values[i] = snpEffSumSq[i]/numSnpEff[i];
+    }
+}
+
+void PostHocStratify::Sp::sampleFromFC(const vector<VectorXf> &snpEffects, const VectorXf &numNonZeros, const VectorXf &sigmaSq, const VectorXf &hsq, const float genVar, const float resVar, const vector<AnnoInfo *> &annoInfoVec, VectorXf &scales, VectorXf &sum2pqSplusOneVec) {
+    
+    VectorXf varg = hsq.array()*(genVar + resVar);
+    
+    long chunkSize = size/omp_get_max_threads();
+#pragma omp parallel for schedule(dynamic, chunkSize)
+    for (unsigned i=0; i<size; ++i) {
+        unsigned nnzi = numNonZeros[i];
+//        if (nnzi < 3) { // do not estimate S if few non-zero effects in this annotation
+//            values[i] = 0.0;
+//            continue;
+//        }
+        if (nnzi < 2) {
+            values[i] = Stat::snorm()*sqrtf(var);
+            continue;
+        }
+        VectorXf snpEffectsAnnoi(nnzi);
+        VectorXf snp2pqAnnoi(nnzi);
+        VectorXf snp2pqLogAnnoi(nnzi);
+        AnnoInfo *anno = annoInfoVec[i];
+        unsigned idx = 0;
+        for (unsigned j=0; j<anno->size; ++j) {
+            if (snpEffects[i][j]) {
+                snpEffectsAnnoi[idx] = snpEffects[i][j];
+                snp2pqAnnoi[idx] = anno->snp2pq[j];
+                snp2pqLogAnnoi[idx] = snp2pqLog[i][j];
+                ++idx;
+            }
+        }
+        
+        hmcSampler(i, snpEffectsAnnoi, snp2pqAnnoi, snp2pqLogAnnoi, sigmaSq[i], varg[i], scales[i], sum2pqSplusOneVec[i], values[i]);
+
+    }
+}
+
+void PostHocStratify::sampleUnknowns() {
+    varg.value = vargMcmc.datMat.row(iter*thin)[0];
+    vare.value = vareMcmc.datMat.row(iter*thin)[0];
+    sigmaSq.value = sigmaSqMcmc.datMat.row(iter*thin)[0];
+    pi.value = piMcmc.datMat.row(iter*thin)[0];
+    
+    snpEffects.getValues(snpEffectsMcmc.datMatSp.row(iter), data.annoInfoVec, data.snp2pq, Sstrat.values);
+    nnzSnp.getValue(snpEffects.numNonZeros.sum());
+    nnzStrat.getValues(snpEffects.numNonZeros);
+    piStrat.compute(data.numSnpAnnoVec, nnzStrat.values);
+    piEnrich.compute(nnzStrat.values, nnzSnp.value);
+//    sigmaSqStrat.compute(snpEffects.wtdSumSq, nnzStrat.values);
+    sigmaSqStrat.sampleFromFC(snpEffects.wtdSumSq, nnzStrat.values);
+    sigmaSqEnrich.compute(sigmaSqStrat.values, sigmaSq.value);
+    hsq.compute(varg.value, vare.value);
+    hsqStrat.compute(snpEffects.values, data.annowiseZPZsp, data.annowiseZPZdiag, varg.value, vare.value);
+    totalHsqEnrich.compute(hsqStrat.values, piEnrich.expectation, hsq.value);
+    perSnpHsqEnrich.compute(hsqStrat.values, nnzStrat.values, hsq.value, nnzSnp.value);
+    Sstrat.sampleFromFC(snpEffects.values, nnzStrat.values, sigmaSqStrat.values, hsqStrat.values, varg.value, vare.value, data.annoInfoVec, sigmaSqStrat.scales, snpEffects.sum2pqSplusOneVec);
+    
+    ++iter;
+}

@@ -15,6 +15,7 @@
 
 
 class StratApproxBayesS : public ApproxBayesS {  // annotation stratified analysis
+public:
     
     class VarEffectStratified : public ParamSet, public Stat::InvChiSq {
     public:
@@ -29,7 +30,7 @@ class StratApproxBayesS : public ApproxBayesS {  // annotation stratified analys
                 AnnoInfo *anno = annoVec[i];
                 values[i] = vg*anno->fraction/(anno->snp2pq.sum()*pi);
                 scales[i] = 0.5*values[i];                
-//                cout << i << " " << values[i] << " " << anno->fraction << " " << anno->snp2pq.sum() << endl;
+//                cout << i << " " << values[i] << " " << anno->fraction << " " << anno->snp2pq.sum() << " " << pi << endl;
             }
         }
         
@@ -169,7 +170,6 @@ class StratApproxBayesS : public ApproxBayesS {  // annotation stratified analys
                           const float varg, const float vare, const float ps, const float overdispersion);
     };
     
-public:    
     vector<SparseMatrix<float> > annowiseZPZsp;
     vector<VectorXf> annowiseZPZdiag;
     
@@ -191,7 +191,7 @@ public:
                       const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation,
                       const float varS, const vector<float> &svalue,
                       const string &algorithm, const bool message = true):
-    ApproxBayesS(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, svalue, algorithm, false),
+    ApproxBayesS(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, svalue, algorithm, false, false),
     snpEffects(data.snpEffectNames, data.snp2pq, pival, data.annoInfoVec),
     sigmaSqStrat(data.annoNames, data.annoInfoVec, varGenotypic, pival),
     sigmaSqEnrich(data.annoNames),
@@ -228,5 +228,114 @@ public:
     void sampleUnknowns(void);
     void makeAnnowiseSparseLDM(const vector<SparseVector<float> > &ZPZsp, const vector<AnnoInfo*> &annoInfoVec, const vector<SnpInfo*> &snpInfoVec);
 };
+
+
+
+///// post hoc stratified analysis based on MCMC samples of SNP effects
+
+class PostHocStratify : public StratApproxBayesS {
+public:
+    
+    class SnpEffects : public StratApproxBayesS::SnpEffects {
+    public:
+        vector<VectorXf> values;
+        
+        SnpEffects(const vector<string> &header, const VectorXf &snp2pq, const float pi, const vector<AnnoInfo*> &annoVec):
+        StratApproxBayesS::SnpEffects(header, snp2pq, pi, annoVec){
+            values.resize(annoVec.size());
+        }
+        
+        void getValues(const SparseVector<float> &snpEffects, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &snp2pq, const VectorXf &S);
+    };
+
+    class Heritability : public StratApproxBayesS::HeritabilityStratified {
+    public:
+        
+        Heritability(const vector<string> &header, const unsigned n):HeritabilityStratified(header, n){}
+        
+        void compute(const vector<VectorXf> &snpEffects, const vector<SparseMatrix<float> > &annowiseZPZsp,
+                                 const vector<VectorXf> &annowiseZPZdiag, const float genVar, const float resVar);
+    };
+    
+    class Pi : public StratApproxBayesS::PiStratified {
+    public:
+        
+        Pi(const vector<string> &header, const float pi, const float alpha, const float beta): StratApproxBayesS::PiStratified(header, pi, alpha, beta){}
+
+        void compute(const vector<unsigned> &numSnps, const VectorXf &numSnpEff);
+    };
+    
+    class VarEffects : public StratApproxBayesS::VarEffectStratified {
+    public:
+        
+        VarEffects(const vector<string> &header, const vector<AnnoInfo*> annoVec, const float vg, const float pi):
+        StratApproxBayesS::VarEffectStratified(header, annoVec, vg, pi){}
+        
+        void compute(const VectorXf &snpEffSumSq, const VectorXf &numSnpEff);
+
+    };
+    
+    class Sp : public StratApproxBayesS::SpStratified {
+    public:
+        
+        vector<VectorXf> snp2pqLog;
+        
+        Sp(const vector<string> &header, const VectorXf &snp2pq, const vector<AnnoInfo*> &annoInfoVec, const float var): StratApproxBayesS::SpStratified(header, snp2pq, annoInfoVec.size(), var){
+            snp2pqLog.resize(size);
+            for (unsigned i=0; i<size; ++i) {
+                snp2pqLog[i] = annoInfoVec[i]->snp2pq.array().log();
+            }
+        }
+        
+        void sampleFromFC(const vector<VectorXf> &snpEffects,  const VectorXf &numNonZeros, const VectorXf &sigmaSq, const VectorXf &hsq, const float genVar, const float resVar, const vector<AnnoInfo*> &annoInfoVec, VectorXf &scales, VectorXf &sum2pqSplusOneVec);
+    };
+    
+    SnpEffects snpEffects;
+    Heritability hsqStrat;
+    Pi piStrat;
+    VarEffects sigmaSqStrat;
+    Sp Sstrat;
+    
+    const McmcSamples &snpEffectsMcmc;
+    const McmcSamples &vargMcmc;
+    const McmcSamples &vareMcmc;
+    const McmcSamples &sigmaSqMcmc;
+    const McmcSamples &piMcmc;
+    
+    const unsigned thin;
+    
+    unsigned iter;
+    
+    PostHocStratify(const Data &data, const McmcSamples &snpEffectsMcmc, const McmcSamples &vargMcmc, const McmcSamples &vareMcmc, const McmcSamples &sigmaSqMcmc, const McmcSamples &piMcmc, const unsigned thin, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const float varS, const vector<float> &svalue, const bool message = true):
+    StratApproxBayesS(data, varGenotypic, varResidual, pival, piAlpha, piBeta, true, 0, 0, 0, 0, 0, varS, svalue, "HMC", false),
+    snpEffects(data.snpEffectNames, data.snp2pq, pival, data.annoInfoVec),
+    hsqStrat(data.annoNames, data.numKeptInds),
+    piStrat(data.annoNames, pival, piAlpha, piBeta),
+    sigmaSqStrat(data.annoNames, data.annoInfoVec, varGenotypic, pival),
+    Sstrat(data.annoNames, data.snp2pq, data.annoInfoVec, varS),
+    snpEffectsMcmc(snpEffectsMcmc),
+    vargMcmc(vargMcmc),
+    vareMcmc(vareMcmc),
+    sigmaSqMcmc(sigmaSqMcmc),
+    piMcmc(piMcmc),
+    thin(thin)
+    {
+        iter = 0;
+        paramVec.clear();
+        paramToPrint.clear();
+        paramSetVec = {&piStrat, &piEnrich, &nnzStrat, &sigmaSqStrat, &sigmaSqEnrich, &hsqStrat, &totalHsqEnrich, &perSnpHsqEnrich, &Sstrat};
+        paramSetToPrint = {&piStrat, &piEnrich, &nnzStrat, &sigmaSqStrat, &sigmaSqEnrich, &hsqStrat, &totalHsqEnrich, &perSnpHsqEnrich, &Sstrat};
+        if (message && myMPI::rank==0) {
+            cout << "\nPost hoc Annotation-stratified summary-data-based BayesS analysis: " << endl;
+        }
+    }
+    
+    void sampleUnknowns(void);
+};
+
+
+
+
+
 
 #endif /* stratify_hpp */

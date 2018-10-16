@@ -1089,6 +1089,47 @@ void Data::inputSnpResults(const string &snpResFile){
     }
 }
 
+void Data::inputSnpInfoAndResults(const string &snpResFile){
+    ifstream in(snpResFile.c_str());
+    if (!in) throw ("Error: can not open the SNP result file [" + snpResFile + "] to read.");
+    if (myMPI::rank==0)
+        cout << "Reading SNP info and results from [" + snpResFile + "]." << endl;
+    
+    SnpInfo *snp;
+    map<string, SnpInfo*>::iterator it;
+    string name;
+    int id, chrom, pos, window;
+    float freq, effect, se, pip;
+    unsigned line=0, match=0;
+    string header;
+    getline(in, header);
+    for (unsigned i=0; i<numSnps; ++i) {
+        snp = snpInfoVec[i];
+        snp->included = false;
+    }
+    while (in >> id >> name >> chrom >> pos >> freq >> effect >> se >> pip >> window) {
+        ++line;
+        //        SnpInfo *snp = new SnpInfo(id-1, name, "NA", "NA", chrom, 0, pos);
+        it = snpInfoMap.find(name);
+        if (it == snpInfoMap.end()) {
+            throw("Error: SNP " + name + " is not in the LD matrix!");
+        }
+        snp = it->second;
+        snp->included = true;
+        snp->gwas_af = freq;
+        snp->effect = effect;
+//        snpInfoVec.push_back(snp);
+//        snpInfoMap.insert(pair<string, SnpInfo*>(name, snp));
+//        chromosomes.insert(snp->chrom);
+    }
+    in.close();
+    
+//    numSnps = (unsigned) snpInfoVec.size();
+    if (myMPI::rank==0) {
+        cout << line << " SNPs in the SNP result file." << endl;
+    }
+}
+
 
 void Data::summarizeSnpResults(const SparseMatrix<float> &snpEffects, const string &filename) const {
     if (myMPI::rank==0) {
@@ -3468,8 +3509,8 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
 
 
 void Data::buildSparseMME(const bool sampleOverlap){
-    VectorXf refZPZdiag = ZPZdiag;
-    VectorXf refsnp2pq = snp2pq;
+//    VectorXf refZPZdiag = ZPZdiag;
+//    VectorXf refsnp2pq = snp2pq;
     
     VectorXf Dref = snp2pq*numKeptInds;
     snp2pq.resize(numIncdSnps);
@@ -3630,19 +3671,22 @@ void Data::buildSparseMME(const bool sampleOverlap){
 //    }
 //    out.close();
     
-    if (numAnnos) {
-        if (myMPI::rank==0) cout << "\nAnnotation info:" << endl;
-        numSnpAnnoVec.resize(numAnnos);
-        for (unsigned i=0; i<numAnnos; ++i) {
-            AnnoInfo *anno = annoInfoVec[i];
-            numSnpAnnoVec[i] = anno->size;
-            anno->getSnpInfo();
-            anno->fraction = float(anno->size)/float(numIncdSnps);
-            anno->print();
-        }
-        if (myMPI::rank==0) cout << endl;
-    }
+    if (numAnnos) setAnnoInfoVec();
 
+}
+
+void Data::setAnnoInfoVec() {
+    bool print = numAnnos > 50 ? false : true;
+    if (print && myMPI::rank==0) cout << "\nAnnotation info:" << endl;
+    numSnpAnnoVec.resize(numAnnos);
+    for (unsigned i=0; i<numAnnos; ++i) {
+        AnnoInfo *anno = annoInfoVec[i];
+        anno->getSnpInfo();
+        anno->fraction = float(anno->size)/float(numIncdSnps);
+        if (print) anno->print();
+        numSnpAnnoVec[i] = anno->size;
+    }
+    if (print && myMPI::rank==0) cout << endl;
 }
 
 
@@ -3979,7 +4023,7 @@ void Data::jackknifeLDmatrix(const string &ldmatrixFile, const string &outLDmatT
 }
 
 
-void Data::readAnnotationFile(const string &annoFile) {
+void Data::readAnnotationFile(const string &annoFile, const bool transpose, const bool allowMultiAnno) {
     ifstream in(annoFile.c_str());
     if (!in) throw ("Error: can not open the annotation file [" + annoFile + "] to read.");
     if (myMPI::rank==0)
@@ -3998,7 +4042,7 @@ void Data::readAnnotationFile(const string &annoFile) {
     long line=0;
 
     // transpose the data matrix if columns are SNPs rather than annotation categories
-    if (header.size() > 20) {
+    if (transpose) {
         vector<vector<string> > datmat;
         datmat.push_back(header);
         while (getline(in,inputStr)) {
@@ -4024,7 +4068,7 @@ void Data::readAnnotationFile(const string &annoFile) {
             }
             out << "\n";
         }
-        readAnnotationFile(outfile);
+        readAnnotationFile(outfile, false);
         return;
     }
     ///////////////////////////
@@ -4057,23 +4101,113 @@ void Data::readAnnotationFile(const string &annoFile) {
     
     unsigned numMultiAnno = 0;
     
-    for (unsigned i=0; i<numSnps; ++i) {
-        snp = snpInfoVec[i];
-        if (!snp->included) continue;
-        if (!snp->annoPtr.size() || snp->annoPtr.size()>1) {
-            snp->included = false;
-        } else {
-            for (unsigned j=0; j<snp->annoPtr.size(); ++j) {
-                AnnoInfo *anno = snp->annoPtr[j];
-                anno->memberSnpVec.push_back(snp);
-                anno->size++;
+    if (allowMultiAnno) {
+        for (unsigned i=0; i<numSnps; ++i) {
+            snp = snpInfoVec[i];
+            if (!snp->included) continue;
+            if (!snp->annoPtr.size()) {
+                snp->included = false;
+            } else {
+                for (unsigned j=0; j<snp->annoPtr.size(); ++j) {
+                    AnnoInfo *anno = snp->annoPtr[j];
+                    anno->memberSnpVec.push_back(snp);
+                    anno->size++;
+                }
+                if (snp->annoPtr.size() > 1) ++numMultiAnno;
             }
-            if (snp->annoPtr.size() > 1) ++numMultiAnno;
+        }
+    }
+    else {
+        for (unsigned i=0; i<numSnps; ++i) {
+            snp = snpInfoVec[i];
+            if (!snp->included) continue;
+            if (!snp->annoPtr.size() || snp->annoPtr.size()>1) {
+                snp->included = false;
+            } else {
+                for (unsigned j=0; j<snp->annoPtr.size(); ++j) {
+                    AnnoInfo *anno = snp->annoPtr[j];
+                    anno->memberSnpVec.push_back(snp);
+                    anno->size++;
+                }
+                if (snp->annoPtr.size() > 1) ++numMultiAnno;
+            }
         }
     }
     
     if (myMPI::rank==0)
         cout << line << " matched SNPs in the annotation file (" << numAnnos << " annotations and " << numMultiAnno << " SNPs have more than one annotation)." << endl;
+}
+
+void Data::readAnnotationFileFormat2(const string &continuousAnnoFile) {
+    ifstream in(continuousAnnoFile.c_str());
+    if (!in) throw ("Error: can not open the annotation file [" + continuousAnnoFile + "] to read.");
+    if (myMPI::rank==0)
+        cout << "Reading SNP annotation from [" + continuousAnnoFile + "]." << endl;
+    
+    map<string, SnpInfo*>::iterator it, end=snpInfoMap.end();
+    SnpInfo *snp = NULL;
+    AnnoInfo *anno = NULL;
+    unsigned chrom;
+    unsigned startBP;
+    unsigned endBP;
+    string name;
+
+    vector<AnnoInfo*> tmp;
+    unsigned line = 0;
+    map<unsigned, vector<AnnoInfo*> > annoChrMap;
+    while (in >> chrom >> startBP >> endBP >> name) {
+        anno = new AnnoInfo(line++, name);
+        anno->chrom = chrom;
+        anno->startBP = startBP;
+        anno->endBP = endBP;
+        annoChrMap[chrom].push_back(anno);
+        tmp.push_back(anno);
+    }
+    in.close();
+    
+    unsigned numUnannoSnp = 0;
+    unsigned numAnnoSnp = 0;
+    unsigned numMultiAnnoSnp = 0;
+    for (unsigned i=0; i<numSnps; ++i) {
+        snp = snpInfoVec[i];
+        if (!snp->included) continue;
+        vector<AnnoInfo*> &annovec = annoChrMap[snp->chrom];
+        for (unsigned j=0; j<annovec.size(); ++j) {
+            anno = annoChrMap[snp->chrom][j];
+            if (snp->physPos >= anno->startBP && snp->physPos <= anno->endBP) {
+                snp->annoPtr.push_back(anno);
+                anno->memberSnpVec.push_back(snp);
+                anno->size++;
+            }
+        }
+        if (snp->annoPtr.size() == 0) ++numUnannoSnp;
+        else {
+            ++numAnnoSnp;
+            if (snp->annoPtr.size() > 1) ++numMultiAnnoSnp;
+        }
+    }
+    
+    annoInfoVec.clear();
+    annoNames.clear();
+    numAnnos = 0;
+    unsigned meanAnnoSize = 0;
+    for (unsigned i=0; i<line; ++i) {
+        anno = tmp[i];
+        if (anno->size) {
+            annoInfoVec.push_back(anno);
+            annoNames.push_back(anno->label);
+            ++numAnnos;
+            meanAnnoSize += anno->size;
+       }
+    }
+    meanAnnoSize /= numAnnos;
+    
+    if (myMPI::rank==0) {
+        cout << numAnnos << " nonempty annotations (" << line << " annotations in total)." << endl;
+        cout << numAnnoSnp << " annotated SNPs (" << numMultiAnnoSnp << " SNPs with more than one annotation) and " << numUnannoSnp << " unannotated SNPs." << endl;
+        cout << meanAnnoSize << " SNPs per annotation on average." << endl;
+    }
+
 }
 
 void Data::readLDscoreFile(const string &ldscoreFile) {
@@ -4111,5 +4245,53 @@ void Data::readLDscoreFile(const string &ldscoreFile) {
     
     if (myMPI::rank==0) {
         cout << "Read LD scores for " << match << " matched SNPs (in total " << line << " SNPs)." << endl;
+    }
+}
+
+void Data::makeAnnowiseSparseLDM(const vector<SparseVector<float> > &ZPZsp, const vector<AnnoInfo *> &annoInfoVec, const vector<SnpInfo*> &snpInfoVec) {
+    // for memory efficiency, only store the upper triangular off-diagonals
+    if (myMPI::rank==0) {
+        cout << "\nMaking annotation-wise sparse LD matrix ..." << endl;
+    }
+    annowiseZPZsp.resize(numAnnos);
+    annowiseZPZdiag.resize(numAnnos);
+    
+    long chunkSize = numAnnos/omp_get_max_threads();
+#pragma omp parallel for schedule(dynamic, chunkSize)
+    for (unsigned i=0; i<numAnnos; ++i) {
+        AnnoInfo *anno = annoInfoVec[i];
+        annowiseZPZsp[i].resize(anno->size, anno->size);
+        annowiseZPZdiag[i].resize(anno->size);
+        SnpInfo *snpj, *snpk;
+        unsigned r, c;
+        float v;
+        for (unsigned j=0; j<anno->size; ++j) {
+//            if (!(j%10000))
+//                cout << "  annotaion " << std::setw(2) << std::left << i+1 << " snp " << std::setw(6) << std::left << j << "\r";
+            snpj = anno->memberSnpVec[j];
+            r = j;
+            c = 0;
+            VectorXf dense;
+            dense.setZero(numIncdSnps);
+            for (SparseVector<float>::InnerIterator it(ZPZsp[snpj->index]); it; ++it) {
+                dense[it.index()] = it.value();
+            }
+            for (unsigned k=j+1; k<anno->size; ++k) {
+                snpk = anno->memberSnpVec[k];
+                if (snpj->chrom != snpk->chrom) continue;
+                //                v = ZPZsp[snpj->index].coeff(snpk->index);
+                v = dense[snpk->index];
+                if (v) {
+                    annowiseZPZsp[i].insert(c++, r) = v;
+                }
+            }
+            annowiseZPZdiag[i][j] = dense[snpj->index];
+//            if (j==anno->size-1)
+//                cout << "  annotaion " << std::setw(2) << std::left << i+1 << " snp " << std::setw(6) << std::left << j+1 << " nonzeros " << annowiseZPZsp[i].nonZeros() << "\r";
+        }
+//        if (myMPI::rank==0) cout << endl;
+        if (!(i%100))
+            cout << "  annotaion " << std::setw(2) << std::left << i+1 << " size " << std::setw(6) << std::left << anno->size << " nonzeros " << annowiseZPZsp[i].nonZeros() << endl;
+        annowiseZPZsp[i].makeCompressed();
     }
 }

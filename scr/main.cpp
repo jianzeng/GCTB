@@ -72,7 +72,7 @@ int main(int argc, const char * argv[]) {
                                             opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.pis, opt.gamma, opt.phi, opt.kappa,
                                             opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
-                                                               opt.outputFreq, opt.title, opt.writeBinPosterior);
+                                                               opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
             //gctb.saveMcmcSamples(mcmcSampleVec, opt.title);
             gctb.clearGenotypes(data);
             if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.title);
@@ -99,7 +99,7 @@ int main(int argc, const char * argv[]) {
                     data.jackknifeLDmatrix(opt.ldmatrixFile, opt.outLDmatType, opt.title, opt.writeLdmTxt);
                 }
                 else {
-                    gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, "", opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.ldscoreFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.sampleOverlap);
+                    gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, "", opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.transpose, opt.ldscoreFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.sampleOverlap);
                     data.resizeLDmatrix(opt.outLDmatType, opt.chisqThreshold, opt.windowWidth, opt.LDthreshold, opt.effpopNE, opt.cutOff);
                     data.outputLDmatrix(opt.outLDmatType, opt.title, opt.writeLdmTxt);
                 }
@@ -107,7 +107,7 @@ int main(int argc, const char * argv[]) {
         }
         else if (opt.analysisType == "SBayes") {
             if (!opt.ldmatrixFile.empty()) {
-                gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.ldscoreFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.sampleOverlap);
+                gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.transpose, opt.ldscoreFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.sampleOverlap);
             } else {
                 gctb.inputSnpInfo(data, opt.bedFile, opt.gwasSummaryFile, opt.afDiff, opt.mafmin, opt.mafmax, opt.sampleOverlap);
             }
@@ -117,8 +117,11 @@ int main(int argc, const char * argv[]) {
                                             opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.pis, opt.gamma, opt.phi, opt.kappa,
                                             opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
-                                                               opt.outputFreq, opt.title, opt.writeBinPosterior);
+                                                               opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
             if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.title);
+        }
+        else if (opt.analysisType == "Stratify") { // post hoc stratified analysis
+            gctb.stratify(data, opt.ldmatrixFile, opt.multiLDmat, opt.geneticMapFile, opt.snpResFile, opt.mcmcSampleFile, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.gwasSummaryFile, opt.title, opt.piAlpha, opt.piBeta, opt.varS, opt.S, opt.chainLength, opt.burnin, opt.thin, opt.outputFreq);
         }
         else if (opt.analysisType == "hsq") {
             readGenotypes = true;
@@ -159,7 +162,7 @@ int main(int argc, const char * argv[]) {
             }
             Model *model = xci.buildModel(data, opt.bayesType, opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.piNDC);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
-                                                               opt.outputFreq, opt.title, opt.writeBinPosterior);
+                                                               opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
             gctb.saveMcmcSamples(mcmcSampleVec, opt.title);
             gctb.clearGenotypes(data);
             gctb.outputResults(data, mcmcSampleVec, opt.title);

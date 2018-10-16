@@ -82,6 +82,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             annotationFile = argv[++i];
             ss << "--annot " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--cont-annot")) {
+            continuousAnnoFile = argv[++i];
+            ss << "--cont-annot " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--ldsc")) {
             ldscoreFile = argv[++i];
             ss << "--ldsc " << argv[i] << "\n";
@@ -209,6 +213,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--no-mcmc-bin")) {
             writeBinPosterior = false;
             ss << "--no-mcmc-bin " << "\n";
+        }
+        else if (!strcmp(argv[i], "--no-mcmc-txt")) {
+            writeTxtPosterior = false;
+            ss << "--no-mcmc-txt " << "\n";
         }
         else if (!strcmp(argv[i], "--thin")) {
             thin = atoi(argv[++i]);
@@ -349,9 +357,18 @@ void Options::inputOptions(const int argc, const char* argv[]){
             mafmax = atof(argv[++i]);
             ss << "--max-maf " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--transpose")) {
+            transpose = true;
+            ss << "--transpose " << "\n";
+        }
         else if (!strcmp(argv[i], "--overlap")) {
             sampleOverlap = true;
             ss << "--overlap " << "\n";
+        }
+        else if (!strcmp(argv[i], "--stratify")) {
+            analysisType = "Stratify";
+            //            bayesType = argv[++i];
+            ss << "--stratify " << "\n";
         }
         else {
             stringstream errmsg;
@@ -456,6 +473,8 @@ void Options::readFile(const string &file){  // input options from file
             snpFittedPerWindow = stoi(value);
         } else if (key == "writeBinPosterior" && value == "No") {
             writeBinPosterior = false;
+        } else if (key == "writeTxtPosterior" && value == "No") {
+            writeTxtPosterior = false;
         } else if (key == "thin") {
             thin = stoi(value);
         } else if (key == "estimatePi" && value == "No") {

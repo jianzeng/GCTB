@@ -8,15 +8,15 @@
 
 #include "mcmc.hpp"
 
-void McmcSamples::getSample(const unsigned iter, const VectorXf &sample, bool writeBinPosterior){
+void McmcSamples::getSample(const unsigned iter, const VectorXf &sample, const bool writeBinPosterior, const bool writeTxtPosterior){
     if (storageMode == dense) {
-        tout << sample.transpose() << endl;
+        if (writeTxtPosterior) tout << sample.transpose() << endl;
     }
     if (iter % thin) return;
     unsigned thin_iter = iter/thin;
     unsigned thin_iter_post_burnin = thin_iter - burnin/thin;
     if (storageMode == dense) {
-        tout << sample.transpose() << endl;
+        if (writeTxtPosterior) tout << sample.transpose() << endl;
         if (iter >= burnin) {
             datMat.row(thin_iter_post_burnin) = sample;
             posteriorMean.array() += (sample - posteriorMean).array()/(thin_iter_post_burnin+1);
@@ -49,8 +49,8 @@ void McmcSamples::getSample(const unsigned iter, const VectorXf &sample, bool wr
     }
 }
 
-void McmcSamples::getSample(const unsigned iter, const float sample, ofstream &out){
-    out << boost::format("%12s ") %sample;
+void McmcSamples::getSample(const unsigned iter, const float sample, const bool writeTxtPosterior, ofstream &out){
+    if (writeTxtPosterior) out << boost::format("%12s ") %sample;
     if (iter % thin) return;
     unsigned thin_iter_post_burnin = iter/thin - burnin/thin;
     if (iter >= burnin) {
@@ -135,6 +135,9 @@ void McmcSamples::readDataBin(const string &filename){
     unsigned xyn[3];
     fread(xyn, sizeof(unsigned), 3, in);
     
+    nrow = xyn[0];
+    ncol = xyn[1];
+    
     // read with MPI
     unsigned batch_size = xyn[0]/myMPI::clusterSize;
     unsigned my_start = myMPI::rank*batch_size;
@@ -166,6 +169,8 @@ void McmcSamples::readDataBin(const string &filename){
     datMatSp.makeCompressed();
     
     //cout << datMatSp.nonZeros() << " " << nnz << endl;
+    
+    storageMode = sparse;
 }
 
 void McmcSamples::readDataTxt(const string &filename){
@@ -176,8 +181,35 @@ void McmcSamples::readDataTxt(const string &filename){
         tmp.push_back(stof(inputStr));
     }
     in.close();
-    datMat.resize(tmp.size(), 1);
-    datMat.col(0) = Eigen::Map<VectorXf>(&tmp[0], tmp.size());
+    nrow = tmp.size();
+    datMat.resize(nrow, 1);
+    datMat.col(0) = Eigen::Map<VectorXf>(&tmp[0], nrow);
+    storageMode = dense;
+}
+
+void McmcSamples::readDataTxt(const string &filename, const string &label){
+    ifstream in(filename.c_str());
+    Gadget::Tokenizer colData;
+    Gadget::Tokenizer header;
+    string inputStr;
+    string sep(" \t");
+    vector<float> tmp;
+    unsigned line = 0;
+    
+    std::getline(in, inputStr);
+    header.getTokens(inputStr, sep);
+    int idx = header.getIndex(label);
+    
+    while (getline(in, inputStr)) {
+        ++line;
+        colData.getTokens(inputStr, sep);
+        tmp.push_back(stof(colData[idx]));
+    }
+    in.close();
+    nrow = tmp.size();
+    datMat.resize(nrow, 1);
+    datMat.col(0) = Eigen::Map<VectorXf>(&tmp[0], nrow);
+    storageMode = dense;
 }
 
 void McmcSamples::writeDataTxt(const string &title){
@@ -203,7 +235,7 @@ void MCMC::initTxtFile(const vector<Parameter*> &paramVec, const string &title){
 }
 
 vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned chainLength, const unsigned burnin,
-                                           const unsigned thin, const string &title, const bool writeBinPosterior){
+                                           const unsigned thin, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
     vector<McmcSamples*> mcmcSampleVec;
     for (unsigned i=0; i<model.paramSetVec.size(); ++i) {
         ParamSet *parSet = model.paramSetVec[i];
@@ -219,7 +251,7 @@ vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned ch
             if (writeBinPosterior) mcmcSamples->initBinFile(title);
         } else {
             mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size);
-            mcmcSamples->initTxtFile(title);
+            if (writeTxtPosterior) mcmcSamples->initTxtFile(title);
         }
         mcmcSampleVec.push_back(mcmcSamples);
     }
@@ -233,17 +265,17 @@ vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned ch
     return mcmcSampleVec;
 }
 
-void MCMC::collectSamples(const Model &model, vector<McmcSamples*> &mcmcSampleVec, const unsigned iteration, const bool writeBinPosterior){
+void MCMC::collectSamples(const Model &model, vector<McmcSamples*> &mcmcSampleVec, const unsigned iteration, const bool writeBinPosterior, const bool writeTxtPosterior){
     unsigned i = 0;
     for (unsigned j=0; j<model.paramSetVec.size(); ++j) {
         McmcSamples *mcmcSamples = mcmcSampleVec[i++];
         ParamSet *parSet = model.paramSetVec[j];
-        mcmcSamples->getSample(iteration, parSet->values, writeBinPosterior);
+        mcmcSamples->getSample(iteration, parSet->values, writeBinPosterior, writeTxtPosterior);
     }
     for (unsigned j=0; j<model.paramVec.size(); ++j) {
         McmcSamples *mcmcSamples = mcmcSampleVec[i++];
         Parameter *par = model.paramVec[j];
-        mcmcSamples->getSample(iteration, par->value, out);
+        mcmcSamples->getSample(iteration, par->value, writeTxtPosterior, out);
     }
     out << endl;
 }
@@ -272,6 +304,7 @@ void MCMC::printStatus(const vector<Parameter*> &paramToPrint, const unsigned th
 
 
 void MCMC::printSummary(const vector<Parameter*> &paramToPrint, const vector<McmcSamples*> &mcmcSampleVec, const string &filename){
+    if (!paramToPrint.size()) return;
     ofstream out;
     out.open(filename.c_str());
     if (!out) {
@@ -304,6 +337,7 @@ void MCMC::printSummary(const vector<Parameter*> &paramToPrint, const vector<Mcm
 }
 
 void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vector<McmcSamples*> &mcmcSampleVec, const string &filename){
+    if (!paramSetToPrint.size()) return;
     ofstream out;
     out.open(filename.c_str());
     if (!out) {
@@ -325,7 +359,7 @@ void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vecto
 //                    % ""
 //                    % mcmcSamples->posteriorMean[col]
 //                    % sqrt(mcmcSamples->posteriorSqrMean[col]-mcmcSamples->posteriorMean[col]*mcmcSamples->posteriorMean[col]);
-                    out << boost::format("%25s %10s %2s %-15.6f %-15.6f ")
+                    out << boost::format("%25s %20s %2s %-15.6f %-15.6f ")
                     % parset->label
                     % parset->header[col]
                     % ""
@@ -355,10 +389,14 @@ void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vecto
 
 
 vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin,
-                               const unsigned outputFreq, const string &title, const bool writeBinPosterior){
-    if (myMPI::rank==0) cout << "MCMC launched ...\n" << endl;
+                               const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
+    if (myMPI::rank==0) {
+        cout << "MCMC launched ..." << endl;
+        cout << "  Chain length: " << chainLength << " iterations" << endl;
+        cout << "  Burn-in: " << burnin << " iterations" << endl << endl;
+    }
 
-    vector<McmcSamples*> mcmcSampleVec = initMcmcSamples(model, chainLength, burnin, thin, title, writeBinPosterior);
+    vector<McmcSamples*> mcmcSampleVec = initMcmcSamples(model, chainLength, burnin, thin, title, writeBinPosterior, writeTxtPosterior);
     
     Gadget::Timer timer;
     timer.setTime();
@@ -368,7 +406,7 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const u
         
         model.sampleUnknowns();
         if (myMPI::rank==0) {
-            collectSamples(model, mcmcSampleVec, iteration, writeBinPosterior);
+            collectSamples(model, mcmcSampleVec, iteration, writeBinPosterior, writeTxtPosterior);
         }
         
         if (!(thisIter % outputFreq)) {
