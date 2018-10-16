@@ -143,7 +143,7 @@ void BayesC::SnpEffects::sampleFromFC_omp(VectorXf &ycorr, const MatrixXf &Z, co
                                           const float sigmaSq, const float pi, const float vare, VectorXf &ghat){
     // speed-enhanced single site Gibbs sampling due to the use of parallel computing on SNPs with zero effect
     
-    unsigned blockSize = 1; //omp_get_num_threads();
+    unsigned blockSize = 1; //omp_get_max_threads();
     //cout << blockSize << endl;
     
     sumSq = 0.0;
@@ -779,7 +779,7 @@ float BayesS::Sp::gradientU(const float S, const ArrayXf &snpEffects, const floa
     // compute the first derivative of the negative log posterior
 
     long size = snp2pq.size();
-    long chunkSize = size/omp_get_num_threads();
+    long chunkSize = size/omp_get_max_threads();
     ArrayXf snp2pqPowS(size);
 #pragma omp parallel for schedule(dynamic, chunkSize)
     for (unsigned i=0; i<size; ++i) {
@@ -2560,7 +2560,7 @@ Vector2f ApproxBayesST::Sp::gradientU(const Vector2f &ST, const ArrayXf &snpEffe
     float S = ST[0];
     float T = ST[1];
     long size = snp2pq.size();
-    long chunkSize = size/omp_get_num_threads();
+    long chunkSize = size/omp_get_max_threads();
     ArrayXf snp2pqPowS(size);
     ArrayXf ldscPowT(size);
 #pragma omp parallel for schedule(dynamic, chunkSize)
@@ -2657,7 +2657,7 @@ void ApproxBayesST::Tp::sampleFromFC(const unsigned int numNonZeros, const float
 float ApproxBayesST::Tp::gradientU(const float &T, const ArrayXf &snpEffectSq, const float sigmaSq,
                                   const float ldscLogSum, const ArrayXf &ldsc, const ArrayXf &logLdsc) {
     long size = ldsc.size();
-    long chunkSize = size/omp_get_num_threads();
+    long chunkSize = size/omp_get_max_threads();
     ArrayXf ldscPowT(size);
 #pragma omp parallel for schedule(dynamic, chunkSize)
     for (unsigned i=0; i<size; ++i) {

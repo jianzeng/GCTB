@@ -33,7 +33,7 @@ public:
                       const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const float mafmin, const float mafmax, const bool readGenotypes);
     void inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile,
                       const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP,
-                      const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile, const string &ldscoreFile,
+                      const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile, const bool transpose, const string &ldscoreFile,
                       const bool multiLDmatrix, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap);
     
     void inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap);
@@ -43,17 +43,16 @@ public:
                       const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow,
                       const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS,
                       const float icrsq, const float spouseCorrelation, const bool diagnosticMode);
-    vector<McmcSamples*> runMcmc(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior);
+    vector<McmcSamples*> runMcmc(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior);
     void saveMcmcSamples(const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
     void outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
 
     McmcSamples* inputMcmcSamples(const string &mcmcSampleFile, const string &label, const string &fileformat);
     void estimateHsq(const Data &data, const McmcSamples &snpEffects, const string &filename);
-
-    void inputSnpResults(Data &data, const string &snpResFile);
     void predict(const Data &data, const string &filename);
 
-    void clearGenotypes(Data &data);    
+    void clearGenotypes(Data &data);
+    void stratify(Data &data, const string &ldmatrixFile, const bool multiLDmat, const string &geneticMapFile, const string &snpResFile, const string &mcmcSampleFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const string &gwasSummaryFile, const string &filename, const float piAlpha, const float piBeta, const float varS, const vector<float> &svalue, unsigned chainLength, unsigned burnin, const unsigned thin, const unsigned outputFreq);
 };
 
 #endif /* amber_hpp */

@@ -71,6 +71,7 @@ public:
     bool estimatePi;
     bool estimateScale;
     bool writeBinPosterior;
+    bool writeTxtPosterior;
     bool outputResults;
     bool multiLDmat;
     bool multiThreadEigen;
@@ -81,6 +82,7 @@ public:
     bool diagnosticMode; // for sbayes
     bool jackknife;   // jackknife estimate for LD sampling variance
     bool excludeAmbiguousSNP;  // exlcude ambiguous SNPs with A/T or G/C alleles
+    bool transpose;   // transpose the annotation file
     bool sampleOverlap;  // whether LD ref is the same as GWAS sample
 
     // Bayes R defauls
@@ -107,6 +109,7 @@ public:
     string ldmatrixFile;
     string skeletonSnpFile;
     string annotationFile;
+    string continuousAnnoFile;
     string ldscoreFile;
     string snpRange;
     string outLDmatType;
@@ -159,6 +162,7 @@ public:
         estimatePi              = true;
         estimateScale           = false;
         writeBinPosterior       = true;
+        writeTxtPosterior       = true;
         outputResults           = true;
         multiLDmat              = false;
         multiThreadEigen        = false;
@@ -169,6 +173,7 @@ public:
         diagnosticMode          = false;
         jackknife               = false;
         excludeAmbiguousSNP     = false;
+        transpose               = false;
         sampleOverlap           = false;
         
         title                   = "gctb";
@@ -191,6 +196,7 @@ public:
         ldmatrixFile            = "";
         skeletonSnpFile         = "";
         annotationFile          = "";
+        continuousAnnoFile      = "";
         ldscoreFile             = "";
         snpRange                = "";
         outLDmatType            = "sparse";

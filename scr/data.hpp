@@ -116,11 +116,18 @@ public:
     unsigned size;
     float fraction;   // fraction of all SNPs in this annotation
     
+    unsigned chrom;   // for continuous annotation
+    unsigned startBP; // for continuous annotation
+    unsigned endBP;   // for continuous annotation
+    
     vector<SnpInfo*> memberSnpVec;
     VectorXf snp2pq;
     
     AnnoInfo(const int idx, const string &lab): idx(idx), label(lab){
         size = 0;
+        chrom = 0;
+        startBP = 0;
+        endBP = 0;
     }
     
     void getSnpInfo(void);
@@ -219,6 +226,9 @@ public:
     vector<unsigned> numSnpMldVec;
     vector<unsigned> numSnpAnnoVec;
     
+    vector<SparseMatrix<float> > annowiseZPZsp;
+    vector<VectorXf> annowiseZPZdiag;
+    
     unsigned numFixedEffects;
     unsigned numSnps;
     unsigned numInds;
@@ -294,14 +304,18 @@ public:
     void displayAverageWindowSize(const VectorXi &windSize);
     
     void inputSnpResults(const string &snpResFile);
+    void inputSnpInfoAndResults(const string &snpResFile);
     void readLDmatrixBinFileAndShrink(const string &ldmatrixFile);
     void readMultiLDmatBinFileAndShrink(const string &mldmatFile);
     void directPruneLDmatrix(const string &ldmatrixFile, const string &outLDmatType, const float chisqThreshold, const string &title, const bool writeLdmTxt);
     void jackknifeLDmatrix(const string &ldmatrixFile, const string &outLDmatType, const string &title, const bool writeLdmTxt);
     void addLDmatrixInfo(const string &ldmatrixFile);
     
-    void readAnnotationFile(const string &annotationFile);
+    void readAnnotationFile(const string &annotationFile, const bool transpose, const bool allowMultiAnno = false);
+    void readAnnotationFileFormat2(const string &continuousAnnoFile); // for continuous annotations
+    void setAnnoInfoVec(void);
     void readLDscoreFile(const string &ldscFile);
+    void makeAnnowiseSparseLDM(const vector<SparseVector<float> > &ZPZsp, const vector<AnnoInfo *> &annoInfoVec, const vector<SnpInfo*> &snpInfoVec);
 };
 
 #endif /* data_hpp */
