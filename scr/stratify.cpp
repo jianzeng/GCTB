@@ -104,10 +104,6 @@ void StratApproxBayesS::SpStratified::sampleFromFC(const VectorXf &snpEffects, c
     unsigned idx;
     for (unsigned i=0; i<size; ++i) {
         unsigned numNonZeroAnnoi = numNonZeros[i];
-        if (numNonZeroAnnoi < 3) {   // do not estimate S if few non-zero effects in this annotation
-            values[i] = 0.0;
-            continue;
-        }
         VectorXf snpEffectsAnnoi(numNonZeroAnnoi);
         VectorXf snp2pqAnnoi(numNonZeroAnnoi);
         VectorXf snp2pqLogAnnoi(numNonZeroAnnoi);
@@ -123,8 +119,15 @@ void StratApproxBayesS::SpStratified::sampleFromFC(const VectorXf &snpEffects, c
             }
         }
         
-        hmcSampler(i, snpEffectsAnnoi, snp2pqAnnoi, snp2pqLogAnnoi, sigmaSq[i], varg[i], scales[i], sum2pqSplusOneVec[i], values[i]);
-        
+        if (numNonZeroAnnoi < 3) {
+            values[i] = Stat::snorm()*sqrtf(var);
+            if (numNonZeroAnnoi) {
+                sum2pqSplusOneVec[i] = snp2pqAnnoi.sum();
+                scales[i] = 0.5*varg[i]/sum2pqSplusOneVec[i];
+            }
+        } else {
+            hmcSampler(i, snpEffectsAnnoi, snp2pqAnnoi, snp2pqLogAnnoi, sigmaSq[i], varg[i], scales[i], sum2pqSplusOneVec[i], values[i]);
+        }
     }
 }
 
@@ -418,14 +421,6 @@ void PostHocStratify::Sp::sampleFromFC(const vector<VectorXf> &snpEffects, const
 #pragma omp parallel for schedule(dynamic, chunkSize)
     for (unsigned i=0; i<size; ++i) {
         unsigned nnzi = numNonZeros[i];
-//        if (nnzi < 3) { // do not estimate S if few non-zero effects in this annotation
-//            values[i] = 0.0;
-//            continue;
-//        }
-        if (nnzi < 2) {
-            values[i] = Stat::snorm()*sqrtf(var);
-            continue;
-        }
         VectorXf snpEffectsAnnoi(nnzi);
         VectorXf snp2pqAnnoi(nnzi);
         VectorXf snp2pqLogAnnoi(nnzi);
@@ -440,8 +435,15 @@ void PostHocStratify::Sp::sampleFromFC(const vector<VectorXf> &snpEffects, const
             }
         }
         
-        hmcSampler(i, snpEffectsAnnoi, snp2pqAnnoi, snp2pqLogAnnoi, sigmaSq[i], varg[i], scales[i], sum2pqSplusOneVec[i], values[i]);
-
+        if (nnzi < 3) {
+            values[i] = Stat::snorm()*sqrtf(var);
+            if (nnzi) {
+                sum2pqSplusOneVec[i] = snp2pqAnnoi.sum();
+                scales[i] = 0.5*varg[i]/sum2pqSplusOneVec[i];
+            }
+        } else {
+            hmcSampler(i, snpEffectsAnnoi, snp2pqAnnoi, snp2pqLogAnnoi, sigmaSq[i], varg[i], scales[i], sum2pqSplusOneVec[i], values[i]);
+        }
     }
 }
 
