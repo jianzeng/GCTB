@@ -370,6 +370,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             //            bayesType = argv[++i];
             ss << "--stratify " << "\n";
         }
+        else if (!strcmp(argv[i], "--flank")) {
+            flank = atof(argv[++i]);
+            ss << "--flank " << argv[i] << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";

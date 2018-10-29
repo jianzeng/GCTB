@@ -29,7 +29,7 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &include
     if (readGenotypes) data.readBedFile(bedFile + ".bed");
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile, const bool transpose, const string &ldscoreFile, const bool multiLDmat, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap){
+void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &ldscoreFile, const bool multiLDmat, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap){
     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
@@ -42,7 +42,10 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (excludeMHC) data.excludeMHC();
     if (!skeletonSnpFile.empty()) data.includeSkeletonSnp(skeletonSnpFile);
     if (!geneticMapFile.empty()) data.readGeneticMapFile(geneticMapFile);
-    if (!annotationFile.empty()) data.readAnnotationFile(annotationFile, transpose);
+    if (!annotationFile.empty())
+        data.readAnnotationFile(annotationFile, transpose, true);
+    else if (!continuousAnnoFile.empty())
+        data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000);
     if (!ldscoreFile.empty()) data.readLDscoreFile(ldscoreFile);
     if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax);
     data.includeMatchedSnp();
@@ -204,7 +207,7 @@ void GCTB::clearGenotypes(Data &data){
     data.X.resize(0,0);
 }
 
-void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDmat, const string &geneticMapFile, const string &snpResFile, const string &mcmcSampleFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const string &gwasSummaryFile, const string &filename, const float piAlpha, const float piBeta, const float varS, const vector<float> &svalue, unsigned chainLength, unsigned burnin, const unsigned thin, const unsigned outputFreq){
+void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDmat, const string &geneticMapFile, const string &snpResFile, const string &mcmcSampleFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &gwasSummaryFile, const string &filename, const float piAlpha, const float piBeta, const float varS, const vector<float> &svalue, unsigned chainLength, unsigned burnin, const unsigned thin, const unsigned outputFreq){
     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
@@ -213,7 +216,7 @@ void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDma
     if (!annotationFile.empty())
         data.readAnnotationFile(annotationFile, transpose, true);
     else
-        data.readAnnotationFileFormat2(continuousAnnoFile);
+        data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000);
     data.readGwasSummaryFile(gwasSummaryFile, 1, 0, 0);
     data.includeMatchedSnp();
     if (geneticMapFile.empty()) {

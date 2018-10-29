@@ -776,8 +776,7 @@ void BayesS::Sp::hmcSampler(const unsigned numNonZeros, const float sigmaSq, con
 }
 
 float BayesS::Sp::gradientU(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float sigmaSq, const float vg){
-    // compute the first derivative of the negative log posterior
-
+    // compute the first derivative of the negative log posterior    
     long size = snp2pq.size();
     long chunkSize = size/omp_get_max_threads();
     ArrayXf snp2pqPowS(size);

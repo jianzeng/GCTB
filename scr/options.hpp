@@ -45,6 +45,7 @@ public:
     unsigned thin;  // save every this th sampled value in MCMC
     unsigned includeChr;  // chromosome to include
     unsigned ndists; // Number of distributions for base Bayes R
+    unsigned flank;
     
     float pi;
     float piAlpha;
@@ -149,6 +150,7 @@ public:
         afDiff                  = 0.05;
         mafmin                  = 0;
         mafmax                  = 0;
+        flank                   = 0;
 
         // Bayes R defaults
         ndists                  = 4;

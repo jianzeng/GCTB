@@ -26,6 +26,12 @@ void AnnoInfo::getSnpInfo() {
         snp = memberSnpVec[i];
         if (snp->included) {
             incdSnpVec.push_back(snp);
+            snp->annoIdx.resize(snp->numAnnos);   // the index of SNP in the annotation
+            for (unsigned j=0; j<snp->numAnnos; ++j) {
+                if (snp->annoPtr[j] == this) {
+                    snp->annoIdx[j] = numIncdSnps;
+                }
+            }
             ++numIncdSnps;
         }
     }
@@ -3509,9 +3515,6 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
 
 
 void Data::buildSparseMME(const bool sampleOverlap){
-//    VectorXf refZPZdiag = ZPZdiag;
-//    VectorXf refsnp2pq = snp2pq;
-    
     VectorXf Dref = snp2pq*numKeptInds;
     snp2pq.resize(numIncdSnps);
     D.resize(numIncdSnps);
@@ -3533,8 +3536,38 @@ void Data::buildSparseMME(const bool sampleOverlap){
         n[i] = snp->gwas_n;
         se[i]= snp->gwas_se;
         tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
+//        D[i] = 1.0/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
+//        snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
     }
     b.array() -= b.mean();
+    
+    // estimate phenotypic variance based on the input allele frequencies in GWAS
+    //ypy = (D.array()*(n.array()*se.array().square()+b.array().square())).mean();
+    VectorXf ypySrt = D.array()*(n.array()*se.array().square()+b.array().square());
+    VectorXf varpSrt = ypySrt.array()/n.array();
+    std::sort(ypySrt.data(), ypySrt.data() + ypySrt.size());
+    std::sort(varpSrt.data(), varpSrt.data() + varpSrt.size());
+//    ypy = ypySrt[ypySrt.size()/2];  // median
+    float varp = varpSrt[varpSrt.size()/2];
+    
+    //numKeptInds = n.mean();
+    
+    VectorXf nSrt = n;
+    std::sort(nSrt.data(), nSrt.data() + nSrt.size());
+    numKeptInds = nSrt[nSrt.size()/2]; // median
+
+    // NEW
+    // compute D and snp2pq based on n, se and b, assuming varp = 1
+    // these quantities are used in sbayes, as they are more reliable than input allele frequencies
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+        snp = incdSnpInfoVec[i];
+        D[i] = 1.0/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
+        snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
+        tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
+    }
+    ypy = numKeptInds;
+    // NEW END
+
     
     if (ZPZ.size() || ZPZsp.size()) {
         if (sparseLDM == true) {
@@ -3599,20 +3632,6 @@ void Data::buildSparseMME(const bool sampleOverlap){
     //    cout << "ZPy " << ZPy.head(100).transpose() << endl;
     //    cout << "b.mean() " << b.mean() << endl;
     
-    // estimate ypy
-    //ypy = (D.array()*(n.array()*se.array().square()+b.array().square())).mean();
-    VectorXf ypySrt = D.array()*(n.array()*se.array().square()+b.array().square());
-    VectorXf varpSrt = ypySrt.array()/n.array();
-    std::sort(ypySrt.data(), ypySrt.data() + ypySrt.size());
-    std::sort(varpSrt.data(), varpSrt.data() + varpSrt.size());
-    ypy = ypySrt[ypySrt.size()/2];  // median
-    float varp = varpSrt[varpSrt.size()/2];
-
-    //numKeptInds = n.mean();
-    
-    VectorXf nSrt = n;
-    std::sort(nSrt.data(), nSrt.data() + nSrt.size());
-    numKeptInds = nSrt[nSrt.size()/2]; // median
     
     //cout << ZPZ.size() << " " << ZPy.size() << " " << ypy << endl;
     //    cout << ZPy << endl;
@@ -3681,6 +3700,7 @@ void Data::setAnnoInfoVec() {
     numSnpAnnoVec.resize(numAnnos);
     for (unsigned i=0; i<numAnnos; ++i) {
         AnnoInfo *anno = annoInfoVec[i];
+        anno->idx = i;
         anno->getSnpInfo();
         anno->fraction = float(anno->size)/float(numIncdSnps);
         if (print) anno->print();
@@ -4068,7 +4088,7 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
             }
             out << "\n";
         }
-        readAnnotationFile(outfile, false);
+        readAnnotationFile(outfile, false, allowMultiAnno);
         return;
     }
     ///////////////////////////
@@ -4092,6 +4112,7 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
             for (unsigned j=1; j<size; ++j) {
                 if (atoi(colData[j].c_str())) {
                     snp->annoPtr.push_back(annoInfoVec[j-1]);
+                    snp->numAnnos++;
                 }
             }
             ++line;
@@ -4105,15 +4126,15 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
         for (unsigned i=0; i<numSnps; ++i) {
             snp = snpInfoVec[i];
             if (!snp->included) continue;
-            if (!snp->annoPtr.size()) {
+            if (!snp->numAnnos) {
                 snp->included = false;
             } else {
-                for (unsigned j=0; j<snp->annoPtr.size(); ++j) {
+                for (unsigned j=0; j<snp->numAnnos; ++j) {
                     AnnoInfo *anno = snp->annoPtr[j];
                     anno->memberSnpVec.push_back(snp);
                     anno->size++;
                 }
-                if (snp->annoPtr.size() > 1) ++numMultiAnno;
+                if (snp->numAnnos > 1) ++numMultiAnno;
             }
         }
     }
@@ -4121,10 +4142,10 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
         for (unsigned i=0; i<numSnps; ++i) {
             snp = snpInfoVec[i];
             if (!snp->included) continue;
-            if (!snp->annoPtr.size() || snp->annoPtr.size()>1) {
+            if (!snp->numAnnos || snp->numAnnos>1) {
                 snp->included = false;
             } else {
-                for (unsigned j=0; j<snp->annoPtr.size(); ++j) {
+                for (unsigned j=0; j<snp->numAnnos; ++j) {
                     AnnoInfo *anno = snp->annoPtr[j];
                     anno->memberSnpVec.push_back(snp);
                     anno->size++;
@@ -4138,7 +4159,7 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
         cout << line << " matched SNPs in the annotation file (" << numAnnos << " annotations and " << numMultiAnno << " SNPs have more than one annotation)." << endl;
 }
 
-void Data::readAnnotationFileFormat2(const string &continuousAnnoFile) {
+void Data::readAnnotationFileFormat2(const string &continuousAnnoFile, const unsigned flank) {
     ifstream in(continuousAnnoFile.c_str());
     if (!in) throw ("Error: can not open the annotation file [" + continuousAnnoFile + "] to read.");
     if (myMPI::rank==0)
@@ -4174,16 +4195,17 @@ void Data::readAnnotationFileFormat2(const string &continuousAnnoFile) {
         vector<AnnoInfo*> &annovec = annoChrMap[snp->chrom];
         for (unsigned j=0; j<annovec.size(); ++j) {
             anno = annoChrMap[snp->chrom][j];
-            if (snp->physPos >= anno->startBP && snp->physPos <= anno->endBP) {
+            if (snp->physPos >= (anno->startBP - flank) && snp->physPos <= (anno->endBP + flank)) {
                 snp->annoPtr.push_back(anno);
+                snp->numAnnos++;
                 anno->memberSnpVec.push_back(snp);
                 anno->size++;
             }
         }
-        if (snp->annoPtr.size() == 0) ++numUnannoSnp;
+        if (snp->numAnnos == 0) ++numUnannoSnp;
         else {
             ++numAnnoSnp;
-            if (snp->annoPtr.size() > 1) ++numMultiAnnoSnp;
+            if (snp->numAnnos > 1) ++numMultiAnnoSnp;
         }
     }
     
@@ -4203,6 +4225,7 @@ void Data::readAnnotationFileFormat2(const string &continuousAnnoFile) {
     meanAnnoSize /= numAnnos;
     
     if (myMPI::rank==0) {
+        if (flank) cout << "add " << flank << " kb to both sides of each annotation." << endl;
         cout << numAnnos << " nonempty annotations (" << line << " annotations in total)." << endl;
         cout << numAnnoSnp << " annotated SNPs (" << numMultiAnnoSnp << " SNPs with more than one annotation) and " << numUnannoSnp << " unannotated SNPs." << endl;
         cout << meanAnnoSize << " SNPs per annotation on average." << endl;

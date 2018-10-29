@@ -44,6 +44,21 @@ unsigned Stat::Bernoulli::sample(const float p){
     return ranf() < p ? 1:0;
 }
 
+unsigned Stat::Bernoulli::sample(const VectorXf &p){
+    float cum;
+    float rnd = ranf();
+    long size = p.size();
+    unsigned ret = 0;
+    for (unsigned i=0; i<size; ++i) {
+        cum += p[i];
+        if (rnd < cum) {
+            ret = i;
+            break;
+        }
+    }
+    return ret;
+}
+
 float Stat::NormalZeroMixture::sample(const float mean, const float variance, const float p){
     return bernoulli.sample(p) ? normal.sample(mean, variance) : 0;
 }

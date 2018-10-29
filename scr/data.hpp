@@ -54,6 +54,7 @@ public:
     VectorXf genotypes; // temporary storage of genotypes of individuals used for building sparse Z'Z
     
     vector<AnnoInfo*> annoPtr;
+    vector<unsigned> annoIdx;
     
     float effect;   // estimated effect
     
@@ -68,6 +69,7 @@ public:
     float ldsc;          // LD score: sum of r^2
     
     int numNonZeroLD;   // may be different from windSize in shrunk ldm
+    unsigned numAnnos;
 
     SnpInfo(const int idx, const string &id, const string &allele1, const string &allele2,
             const int chr, const float gpos, const int ppos)
@@ -92,6 +94,7 @@ public:
         ldSum = 0.0;
         ldsc = 0.0;
         numNonZeroLD = 0;
+        numAnnos = 0;
     };
     
     void resetWindow(void) {windStart = -1; windSize = 0;};
@@ -111,7 +114,7 @@ public:
 
 class AnnoInfo {  // annotation info for SNPs
 public:
-    const int idx;
+    int idx;
     const string label;
     unsigned size;
     float fraction;   // fraction of all SNPs in this annotation
@@ -311,8 +314,8 @@ public:
     void jackknifeLDmatrix(const string &ldmatrixFile, const string &outLDmatType, const string &title, const bool writeLdmTxt);
     void addLDmatrixInfo(const string &ldmatrixFile);
     
-    void readAnnotationFile(const string &annotationFile, const bool transpose, const bool allowMultiAnno = false);
-    void readAnnotationFileFormat2(const string &continuousAnnoFile); // for continuous annotations
+    void readAnnotationFile(const string &annotationFile, const bool transpose, const bool allowMultiAnno);
+    void readAnnotationFileFormat2(const string &continuousAnnoFile, const unsigned flank); // for continuous annotations
     void setAnnoInfoVec(void);
     void readLDscoreFile(const string &ldscFile);
     void makeAnnowiseSparseLDM(const vector<SparseVector<float> > &ZPZsp, const vector<AnnoInfo *> &annoInfoVec, const vector<SnpInfo*> &snpInfoVec);
