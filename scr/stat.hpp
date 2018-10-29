@@ -66,6 +66,7 @@ namespace Stat {
     class Bernoulli {
     public:
         unsigned sample(const float p);
+        unsigned sample(const VectorXf &p); // multivariate sampling, return the index of component.
     };
 
     class Dirichlet {
