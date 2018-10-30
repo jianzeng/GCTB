@@ -57,7 +57,9 @@ public:
     float piNDC;  // proportion of X-lined SNPs under no dosage compensation model (escape from X-chromosome inactivation)
     float kappa_str; 
     float effpopNE; 
+    float genMapN; 
     float cutOff; 
+    
     bool estimatePi;
     bool estimateScale;
     bool writeBinPosterior;
@@ -116,6 +118,7 @@ public:
         piNDC                   = 0.15;
         // Shrunk matrix defaults
         effpopNE                = 11490.672741; 
+        genMapN                 = 183; // Sample size of CEU population
         cutOff                  = 1e-5;  
 
         // Bayes R defaults

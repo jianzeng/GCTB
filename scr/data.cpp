@@ -1781,7 +1781,7 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
     cout << "Read LD matrix for " << numIncdSnps << " SNPs (time used: " << timer.format(timer.getElapse()) << ")." << endl;
 }
 
-void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, const unsigned windowWidth, const float LDthreshold, const float effpopNE, const float cutOff) {
+void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, const unsigned windowWidth, const float LDthreshold, const float effpopNE, const float cutOff, const float genMapN) {
     if (LDmatType == "full") return;
     if (LDmatType == "sparse" && ZPZsp.size() == 0) {
         cout << "Making a sparse LD matrix by setting the non-significant LD to be zero..." << endl;
@@ -1852,7 +1852,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
                     snpj = incdSnpInfoVec[it.index()];
                     rsq = it.value()*it.value();
-                    if (rsq*snpi->sampleSize < chisqThreshold) it.valueRef() = 0.0;
+                    if (rsq*snpi->sampleSize <= chisqThreshold) it.valueRef() = 0.0;
                 }
                 ZPZsp[i].prune(0.0);
                 SparseVector<float>::InnerIterator it(ZPZsp[i]);
@@ -1970,12 +1970,14 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         nmsumi.resize(numIncdSnps);
         thetai.resize(numIncdSnps);
         sdss.resize(numIncdSnps);
-        mi.resize(numIncdSnps);
+        // mi.resize(numIncdSnps);
+        cout << "\nUsing genetic map sample size of " << genMapN << " please alter with --genmap-n if inappropriate." << endl;
+        float m = genMapN;
         gmapi.resize(numIncdSnps);
         for (unsigned i=0; i<numIncdSnps; ++i) {
             SnpInfo *snp = incdSnpInfoVec[i];
-            mi[i] = (snp->sampleSize);
-            int  n = 2.0 * mi[i] - 1.0;
+            // mi[i] = (snp->sampleSize);
+            int  n = 2.0 * m - 1.0;
             // cout << "snp " << i << " sample size " << snp->sampleSize << endl;
             // Approximation to the harmonic series
             nmsumi[i] = log(n) + 0.5772156649 + 1.0/ (2.0 * n) - 1.0 / (12.0 * pow(n, 2)) + 1.0 / (120.0 * pow(n, 4));
@@ -2008,7 +2010,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         float rho;
         float shrinkage;
         float Ne = effpopNE;
-        cout << "Using European effective population size Ne=" << Ne << " please alter with --ne if inappropriate. ";
+        cout << "Using European effective population size Ne=" << Ne << " please alter with --ne if inappropriate. " << endl;
         float cutoff = cutOff;
         for (unsigned i=0; i<numIncdSnps; ++i) {
             // cout << i << endl;
@@ -2026,7 +2028,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 // cout << " j " << j << " (windStart[i] + j) " << (windStart[i] + j) << endl;
                 mapdiffi = abs(gmapi[(windStart[i] + j)] - gmapi[i]);
                 rho = 4.0 * Ne * (mapdiffi / 100.0);
-                shrinkage = exp(-rho / (mi[i] + mi[(windStart[i] + j)])); 
+                shrinkage = exp(-rho / (2 * m)); 
                 // cout << "Shrinkage " << shrinkage << endl;
                 if (shrinkage <= cutoff)
                 {
@@ -2066,12 +2068,14 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         nmsumi.resize(numIncdSnps);
         thetai.resize(numIncdSnps);
         sdss.resize(numIncdSnps);
-        mi.resize(numIncdSnps);
+        // mi.resize(numIncdSnps);
+        cout << "\nUsing genetic map sample size of " << genMapN << " please alter with --genmap-n if inappropriate." << endl;
+        float m = genMapN;
         gmapi.resize(numIncdSnps);
         for (unsigned i=0; i<numIncdSnps; ++i) {
             SnpInfo *snp = incdSnpInfoVec[i];
-            mi[i] = (snp->sampleSize);
-            int  n = 2.0 * mi[i] - 1.0;
+            // mi[i] = (snp->sampleSize);
+            int  n = 2.0 * m - 1.0;
             // cout << "snp " << i << " sample size " << snp->sampleSize << endl;
             // Approximation to the harmonic series
             nmsumi[i] = log(n) + 0.5772156649 + 1.0 / (2.0 * n) - 1.0 / (12.0 * pow(n, 2)) + 1.0 / (120.0 * pow(n, 4));
@@ -2106,7 +2110,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         float rho;
         float shrinkage;
         float Ne = effpopNE;
-        cout << "Using European effective population size Ne=" << Ne << " please alter with --ne if inappropriate. ";
+        cout << "Using European effective population size Ne=" << Ne << " please alter with --ne if inappropriate. " << endl;
         float cutoff = cutOff;
         for (unsigned i=0; i<numIncdSnps; ++i) {
             // -----------------------------
@@ -2117,7 +2121,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 // cout << " j " << j << " (windStart[i] + j) " << (windStart[i] + j) << endl;
                 mapdiffi = abs(gmapi[it.index()] - gmapi[i]);
                 rho = 4.0 * Ne * (mapdiffi / 100.0);
-                shrinkage = exp(-rho / (mi[i] + mi[it.index()])); 
+                shrinkage = exp(-rho / (2 * m)); 
                 // cout << "Shrinkage " << shrinkage << endl;
                 if (shrinkage <= cutoff)
                 {
@@ -2230,7 +2234,7 @@ void Data::readfreqFile(const string &freqFile){
 // Function to build the shrunk matrix 
 // =============================================================================================
 
-void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, const string &snpRange, const string &filename, const float effpopNE, const float cutOff){
+void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, const string &snpRange, const string &filename, const float effpopNE, const float cutOff, const float genMapN){
     
 
     Gadget::Tokenizer token;
@@ -2429,7 +2433,9 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
     nmsumi.resize(numIncdSnps);
     thetai.resize(numIncdSnps);
     sdss.resize(numIncdSnps);
-    mi.resize(numIncdSnps);
+    // mi.resize(numIncdSnps);
+    cout << "\nUsing genetic map sample size of " << genMapN << " please alter with --genmap-n if inappropriate." << endl;
+    float m = genMapN;
     gmapi.resize(numIncdSnps);
     // cout << " numIncdSnps " << numIncdSnps << endl;
     for (unsigned i=0; i<numIncdSnps; ++i) {
@@ -2440,8 +2446,8 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
             // cout << "start+i " << start+i << endl;
             SnpInfo *snp = incdSnpInfoVec[i];
             // cout << "snp "   << snp << endl;
-            mi[i] = (snp->sampleSize);
-            int  n = 2.0 * mi[i] - 1.0;
+            // mi[i] = (snp->sampleSize);
+            int  n = 2.0 * m - 1.0;
             // cout << "mi "   << mi[i] << endl;
             // Approximation to the harmonic series
             nmsumi[i] = log(n) + 0.5772156649 + 1.0 / (2.0 * n) - 1.0 / (12.0 * pow(n, 2)) + 1.0 / (120.0 * pow(n, 4));
@@ -2469,13 +2475,13 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
     float rho;
     float shrinkage;
     float Ne = effpopNE;
-    cout << "\nUsing European effective population size Ne=" << Ne << " please alter with --ne if inappropriate.";
+    cout << "\nUsing European effective population size Ne=" << Ne << " please alter with --ne if inappropriate." << endl;
     float cutoff = cutOff;
     for (unsigned i=0; i<numSnpInRange; ++i) {
         for (unsigned j=0; j<numIncdSnps; ++j) {
             mapdiffi = abs(gmapi[j] - gmapi[start+i]);
             rho = 4.0 * Ne * (mapdiffi / 100.0);
-            shrinkage = exp(-rho / (mi[start+i] + mi[j])); 
+            shrinkage = exp(-rho / (2 * m)); 
             // if (i <=10 && j <= 10)
             // { 
             //     cout << "Snp " << i << " " << j << " Mapdiff " << mapdiffi << " shrinkage " << shrinkage << endl;
@@ -2633,12 +2639,13 @@ void Data::buildSparseMME(const string &bayesType, const bool noscale){
     for (unsigned i=0; i<numIncdSnps; ++i) {
         snp = incdSnpInfoVec[i];
         snp->af = snp->gwas_af;
-        snp2pq[i] = 2.0f*snp->gwas_af*(1.0f-snp->gwas_af);
-        if(snp2pq[i]==0) cout << "Error: SNP " << snp->ID << " af " << snp->af << " has 2pq = 0." << endl;
         b[i] = snp->gwas_b;
         n[i] = snp->gwas_n;
         se[i]= snp->gwas_se;
-        tss[i] = (snp2pq[i]*snp->gwas_n)*(n[i]*se[i]*se[i] + b[i]*b[i]); // The first element assumes that the effects have been estimates on a mean centered genotype
+        D[i] = 1.0 / (se[i]*se[i] + (b[i]*b[i] / (n[i] - 1)));
+        snp2pq[i] = D[i] / n[i];
+         if(snp2pq[i]==0) cout << "Error: SNP " << snp->ID << " af " << snp->af << " has 2pq = 0." << endl;
+        tss[i] = (snp2pq[i]*n[i])*(n[i]*se[i]*se[i] + b[i]*b[i]); // The first element assumes that the effects have been estimates on a mean centered genotype
         // Need to adjust R and C models X'X matrix depending scale of genotypes or not
         if (bayesType == "S") { 
             // cout << "Bayes S no scale" << endl;
