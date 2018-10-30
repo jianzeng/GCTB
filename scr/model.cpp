@@ -521,9 +521,10 @@ void BayesR::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
     // ----------------
     int ndist, indistflag;
     double v1,  b_ls, ssculm, r;
-    VectorXf gp, ll, pll, snpindist, var_b_ls;
+    VectorXf gp, ll, ll2, pll, pll2, snpindist, var_b_ls;
     ndist = pis.size();
     snpStore.setZero(pis.size());
+    pll2.setZero(pis.size());
     // --------------------------------------------------------------------------------
     // Scale the variances in each of the normal distributions by the genetic variance
     // and initialise the class membership probabilities
@@ -548,12 +549,20 @@ void BayesR::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
         // ------------------------------------------------------
         // Calculate the likelihoods for each distribution
         // ------------------------------------------------------
-        ll = (-1.0 / 2.0) * var_b_ls.array().log()  - (b_ls * b_ls)  / (2 * var_b_ls.array());
+        ll  = (-1.0 / 2.0) * var_b_ls.array().log()  - (b_ls * b_ls)  / (2 * var_b_ls.array());
+        ll2 = (-1.0 / 2.0) * var_b_ls.array().log()  - (b_ls * b_ls)  / (2 * var_b_ls.array()) + pis.array().log();
+        cout << "Likelihood 1 " << ll << endl;
+        cout << "Likelihood 2 " << ll2 << endl;
         // --------------------------------------------------------------
         // Calculate probability that snp is in each of the distributions
         // in this iteration
         // --------------------------------------------------------------
         pll = (ll.array().exp().cwiseProduct(pis.array())) / ((ll.array().exp()).cwiseProduct(pis.array())).sum();
+        for (unsigned k=0; k<pis.size(); ++k) {
+          pll2[k] = 1.0 / exp(ll2.array() - ll2[k]).sum();
+        }
+        cout << "P likelihood 1 " << pll << endl;
+        cout << "P likelihood 2 " << pll2 << endl;
         // --------------------------------------------------------------
         // Sample the group based on the calculated probabilities
         // --------------------------------------------------------------
@@ -2046,8 +2055,10 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
     // R specific parameters
     int ndist, indistflag;
     double rhs, v1,  b_ls, ssculm, r;
-    VectorXf gp, ll, pll, snpindist, var_b_ls;
+    VectorXf gp, ll, ll2, pll, pll2, snpindist, var_b_ls;
     snpStore.setZero(pis.size());
+    ll2.setZero(pis.size());
+    pll2.setZero(pis.size());
     // --------------------------------------------------------------------------------
     // Scale the variances in each of the normal distributions by the genetic variance
     // and initialise the class membership probabilities
@@ -2099,12 +2110,20 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
             // ------------------------------------------------------
             // Calculate the likelihoods for each distribution
             // ------------------------------------------------------
-            ll = (-1.0 / 2.0) * var_b_ls.array().log()  - (b_ls * b_ls)  / (2 * var_b_ls.array());
-            // --------------------------------------------------------------
-            // Calculate probability that snp is in each of the distributions
-            // in this iteration
-            // --------------------------------------------------------------
-            pll = (ll.array().exp().cwiseProduct(pis.array())) / ((ll.array().exp()).cwiseProduct(pis.array())).sum();
+        ll  = (-1.0 / 2.0) * var_b_ls.array().log()  - (b_ls * b_ls)  / (2 * var_b_ls.array());
+        ll2 = (-1.0 / 2.0) * var_b_ls.array().log()  - (b_ls * b_ls)  / (2 * var_b_ls.array()) + pis.array().log();
+        cout << "Likelihood 1 " << ll << endl;
+        cout << "Likelihood 2 " << ll2 << endl;
+        // --------------------------------------------------------------
+        // Calculate probability that snp is in each of the distributions
+        // in this iteration
+        // --------------------------------------------------------------
+        pll = (ll.array().exp().cwiseProduct(pis.array())) / ((ll.array().exp()).cwiseProduct(pis.array())).sum();
+        for (unsigned k=0; k<pis.size(); ++k) {
+          pll2[k] = 1.0 / (ll2.array() - ll2[k]).exp().sum();
+        }
+        cout << "P likelihood 1 " << pll << endl;
+        cout << "P likelihood 2 " << pll2 << endl;
             // --------------------------------------------------------------
             // Sample the group based on the calculated probabilities
             // --------------------------------------------------------------
@@ -2176,8 +2195,10 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
     // ----------------
     int ndist, indistflag;
     double rhs, v1,  b_ls, ssculm, r;
-    VectorXf gp, ll, pll, snpindist, var_b_ls;
+    VectorXf gp, ll, ll2, pll, pll2, snpindist, var_b_ls;
     snpStore.setZero(pis.size());
+    ll2.setZero(pis.size());
+    pll2.setZero(pis.size());
     // --------------------------------------------------------------------------------
     // Scale the variances in each of the normal distributions by the genetic variance
     // and initialise the class membership probabilities
@@ -2228,13 +2249,19 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
             // ------------------------------------------------------
             // Calculate the likelihoods for each distribution
             // ------------------------------------------------------
-            ll = (-1.0 / 2.0) * var_b_ls.array().log()  - (b_ls * b_ls)  / (2 * var_b_ls.array());
+            ll = (-1.0 / 2.0) * var_b_ls.array().log()  - (b_ls * b_ls)  / (2 * var_b_ls.array()) + pis.array().log();
             // --------------------------------------------------------------
             // Calculate probability that snp is in each of the distributions
             // in this iteration
             // --------------------------------------------------------------
             pll = (ll.array().exp().cwiseProduct(pis.array())) / ((ll.array().exp()).cwiseProduct(pis.array())).sum();
-            // cout << "Likelihoods " << pll << endl;
+            for (unsigned k=0; k<pis.size(); ++k) {
+              pll2[k] = 1.0 / (exp(ll2.array() - ll2[k])).sum();
+            }
+            if (i < 10) {
+              cout << "P likelihood 1 " << pll << endl;
+              cout << "P likelihood 2 " << pll2 << endl;
+            }
             // --------------------------------------------------------------
             // Sample the group based on the calculated probabilities
             // --------------------------------------------------------------

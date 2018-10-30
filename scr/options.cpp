@@ -259,7 +259,11 @@ void Options::inputOptions(const int argc, const char* argv[]){
         }
         else if (!strcmp(argv[i], "--ne")) {
             effpopNE = atof(argv[++i]);
-            ss << "--snp " << argv[i] << "\n";
+            ss << "--ne " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--genmap-n")) {
+            genMapN = atof(argv[++i]);
+            ss << "--genmap-n " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--shrunk-cutoff")) {
             cutOff = atof(argv[++i]);
