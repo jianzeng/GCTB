@@ -377,26 +377,28 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
     if (myMPI::rank) return;
     string filename = title + ".snpRes";
     ofstream out(filename.c_str());
-    out << boost::format("%6s %20s %6s %12s %8s %12s %8s %8s\n")
+    out << boost::format("%6s %20s %6s %12s %8s %12s %12s %8s %8s\n")
     % "Id"
     % "Name"
     % "Chrom"
     % "Position"
     % "GeneFrq"
     % "Effect"
+    % "SE"
     % "PIP"
     % "PrNDC";
     for (unsigned i=0, idx=0; i<data.numSnps; ++i) {
         SnpInfo *snp = data.snpInfoVec[i];
         if(!data.fullSnpFlag[i]) continue;
         if(snp->isQTL) continue;
-        out << boost::format("%6s %20s %6s %12s %8.3f %12.6f %8.3f %8.3f\n")
+        out << boost::format("%6s %20s %6s %12s %8.3f %12.6f %12.6f %8.3f %8.3f\n")
         % (idx+1)
         % snp->ID
         % snp->chrom
         % snp->physPos
         % snp->af
         % snpEffects->posteriorMean[idx]
+        % sqrt(snpEffects->posteriorSqrMean[idx]-snpEffects->posteriorMean[idx]*snpEffects->posteriorMean[idx])
         % snpEffects->pip[idx]
         % gamma->posteriorMean[idx];
         ++idx;

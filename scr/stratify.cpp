@@ -198,10 +198,10 @@ void StratApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<S
         float varei;
         float sampleDiff;
         
-        VectorXf invLhs, uhat;
-        VectorXf snp2pqPowS;
-        VectorXf logDeltaAnno;
-        VectorXf probDeltaAnno;
+        ArrayXf invLhs, uhat;
+        ArrayXf snp2pqPowS;
+        ArrayXf logDeltaAnno;
+        ArrayXf probDeltaAnno;
         
         SnpInfo *snp;
         
@@ -211,6 +211,7 @@ void StratApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<S
             uhat.resize(snp->numAnnos);
             snp2pqPowS.resize(snp->numAnnos);
             logDeltaAnno.resize(snp->numAnnos);
+            probDeltaAnno.resize(snp->numAnnos);
 
             oldSample = values[i];
             varei = LDsamplVar[i]*varg + vare + ps + overdispersion;
@@ -228,7 +229,10 @@ void StratApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<S
                 logDeltaAnno[j] = 0.5*(logf(invLhs[j]) - logf(snp2pqPowS[j]*sigmaSq[annoIdx]) + uhat[j]*rhs);
             }
             
-            probDeltaAnno = logDeltaAnno.array().exp()/logDeltaAnno.array().exp().sum();
+            for (j=0; j<snp->numAnnos; ++j) {
+                probDeltaAnno[j] = 1.0f/(logDeltaAnno-logDeltaAnno[j]).exp().sum();
+            }
+            
             j = bernoulli.sample(probDeltaAnno);
             annoIdx = snp->annoPtr[j]->idx;
             

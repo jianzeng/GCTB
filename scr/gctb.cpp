@@ -98,6 +98,8 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
                 return new ApproxBayesST(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, overdispersion, estimatePS, varS, S, true);
             else if (bayesType == "T")
                 return new ApproxBayesST(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, overdispersion, estimatePS, varS, S, false);
+            else if (bayesType == "SMix")
+                return new ApproxBayesSMix(data, data.varGenotypic, data.varResidual, pi, overdispersion, estimatePS, varS, S);
             else if (bayesType == "R")
                 return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, icrsq, spouseCorrelation);
             else if (bayesType == "Kap")
@@ -160,7 +162,7 @@ void GCTB::saveMcmcSamples(const vector<McmcSamples*> &mcmcSampleVec, const stri
     }
 }
 
-void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &filename){
+void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &bayesType, const string &filename){
     vector<McmcSamples*> mcmcSamplesPar;
     for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
         McmcSamples *mcmcSamples = mcmcSampleVec[i];
@@ -177,6 +179,41 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
         } else {
             mcmcSamplesPar.push_back(mcmcSamples);
         }
+    }
+    if (bayesType == "SMix") {
+        McmcSamples *snpEffects = NULL;
+        McmcSamples *delta = NULL;
+        for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
+            if (mcmcSampleVec[i]->label == "SnpEffects") snpEffects = mcmcSampleVec[i];
+            if (mcmcSampleVec[i]->label == "DeltaS") delta = mcmcSampleVec[i];
+        }
+        if (myMPI::rank) return;
+        string newfilename = filename + ".snpRes";
+        ofstream out(newfilename.c_str());
+        out << boost::format("%6s %20s %6s %12s %8s %12s %12s %8s %8s\n")
+        % "Id"
+        % "Name"
+        % "Chrom"
+        % "Position"
+        % "GeneFrq"
+        % "Effect"
+        % "SE"
+        % "PIP"
+        % "PiS";
+        for (unsigned i=0; i<data.numIncdSnps; ++i) {
+            SnpInfo *snp = data.incdSnpInfoVec[i];
+            out << boost::format("%6s %20s %6s %12s %8.3f %12.6f %12.6f %8.3f %8.3f\n")
+            % (i+1)
+            % snp->ID
+            % snp->chrom
+            % snp->physPos
+            % snp->af
+            % snpEffects->posteriorMean[i]
+            % sqrt(snpEffects->posteriorSqrMean[i]-snpEffects->posteriorMean[i]*snpEffects->posteriorMean[i])
+            % snpEffects->pip[i]
+            % delta->posteriorMean[i];
+        }
+        out.close();
     }
 }
 

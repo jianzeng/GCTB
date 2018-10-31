@@ -246,7 +246,7 @@ vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned ch
             else
                 mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "sparse");
             if (writeBinPosterior) mcmcSamples->initBinFile(title);
-        } else if (parSet->label == "WindowDelta") {
+        } else if (parSet->label.find("Delta") != string::npos) {
             mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "sparse");
             if (writeBinPosterior) mcmcSamples->initBinFile(title);
         } else {

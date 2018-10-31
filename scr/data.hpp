@@ -318,7 +318,7 @@ public:
     void readAnnotationFileFormat2(const string &continuousAnnoFile, const unsigned flank); // for continuous annotations
     void setAnnoInfoVec(void);
     void readLDscoreFile(const string &ldscFile);
-    void makeAnnowiseSparseLDM(const vector<SparseVector<float> > &ZPZsp, const vector<AnnoInfo *> &annoInfoVec, const vector<SnpInfo*> &snpInfoVec);
+    void makeAnnowiseSparseLDM(const vector<SparseVector<float> > &ZPZsp, const vector<AnnoInfo *> &annoInfoVec, const vector<SnpInfo*> &snpInfoVec);    
 };
 
 #endif /* data_hpp */

@@ -72,7 +72,7 @@ namespace Stat {
     class Dirichlet {
     public:
         Gamma gamma;
-        VectorXf sample(int n, VectorXf irx, VectorXf ps);
+        VectorXf sample(const int n, const VectorXf &irx);
     };
     
     class NormalZeroMixture {
