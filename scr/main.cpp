@@ -75,7 +75,7 @@ int main(int argc, const char * argv[]) {
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
             //gctb.saveMcmcSamples(mcmcSampleVec, opt.title);
             gctb.clearGenotypes(data);
-            if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.title);
+            if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.bayesType, opt.title);
         }
         else if (opt.analysisType == "LDmatrix") {
             readGenotypes = false;
@@ -118,7 +118,7 @@ int main(int argc, const char * argv[]) {
                                             opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
-            if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.title);
+            if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.bayesType, opt.title);
         }
         else if (opt.analysisType == "Stratify") { // post hoc stratified analysis
             gctb.stratify(data, opt.ldmatrixFile, opt.multiLDmat, opt.geneticMapFile, opt.snpResFile, opt.mcmcSampleFile, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.gwasSummaryFile, opt.title, opt.piAlpha, opt.piBeta, opt.varS, opt.S, opt.chainLength, opt.burnin, opt.thin, opt.outputFreq);
@@ -165,7 +165,7 @@ int main(int argc, const char * argv[]) {
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
             gctb.saveMcmcSamples(mcmcSampleVec, opt.title);
             gctb.clearGenotypes(data);
-            gctb.outputResults(data, mcmcSampleVec, opt.title);
+            gctb.outputResults(data, mcmcSampleVec, opt.bayesType, opt.title);
             xci.outputResults(data, mcmcSampleVec, opt.title);
         }
         else if (opt.analysisType == "VGMAF") {  // ad hoc method for cumulative Vg against MAF to detect selection

@@ -45,7 +45,7 @@ unsigned Stat::Bernoulli::sample(const float p){
 }
 
 unsigned Stat::Bernoulli::sample(const VectorXf &p){
-    float cum;
+    float cum = 0;
     float rnd = ranf();
     long size = p.size();
     unsigned ret = 0;
@@ -65,14 +65,14 @@ float Stat::NormalZeroMixture::sample(const float mean, const float variance, co
 
 // Sample Dirichlet
 
-VectorXf Stat::Dirichlet::sample(int n, VectorXf irx, VectorXf ps)
-{
-        double sx = 0.0;
-        for (int i = 0; i < n; i++)
-        {
-            ps[i] = gamma.sample(irx(i), 1.0);
-            sx += ps[i];
-        }
-        ps = ps / sx;
-        return ps;
+VectorXf Stat::Dirichlet::sample(const int n, const VectorXf &irx){
+    VectorXf ps(n);
+    double sx = 0.0;
+    for (int i = 0; i < n; i++)
+    {
+        ps[i] = gamma.sample(irx(i), 1.0);
+        sx += ps[i];
+    }
+    ps = ps / sx;
+    return ps;
 }

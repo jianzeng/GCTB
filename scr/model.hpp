@@ -131,6 +131,7 @@ public:
         }
         
         void sampleFromFC(const float snpEffSumSq, const unsigned numSnpEff);
+        void computeScale(const float varg, const float sum2pq) {scale = (df-2)/df*varg/sum2pq;};
     };
     
     class ScaleVar : public Parameter, public Stat::Gamma {
@@ -452,7 +453,7 @@ public:
             values = pis;
         }
         
-        void sampleFromFC(const VectorXf snpStore, const VectorXf &pis);
+        void sampleFromFC(const VectorXf snpStore);
     };
 
     class Gammas : public ParamSet {
@@ -1224,7 +1225,7 @@ public:
             values = pis;
         }
         
-        void sampleFromFC(const VectorXf snpStore, const VectorXf &pis);
+        void sampleFromFC(const VectorXf snpStore);
     };
 
     class Gammas : public ParamSet {
@@ -1338,26 +1339,6 @@ public:
     };
     
 
-    class ProbMixComps : public vector<Parameter*>, public Stat::Dirichlet {
-
-        // prior probability of a snp being in any of the distributions effect has a dirichlet prior
-    public:
-        VectorXf alphaVec;  // hyperparameter
-        VectorXf values;
-        const unsigned ndist;
-
-        ProbMixComps(const VectorXf &pis): ndist(pis.size()){  
-            for (unsigned i = 0; i<ndist; ++i) {
-                 //Parameter * pi = new Parameter("Pi");
-                 this->push_back(new Parameter("Pi" + to_string(static_cast<long long>(i + 1))));
-            }
-            alphaVec.setOnes(pis.size());
-            values = pis;
-        }
-        
-        void sampleFromFC(const VectorXf snpStore, const VectorXf &pis);
-    };
-
     class Gammas : public ParamSet {
         // Set of scaling factors for each of the distributions
     public:
@@ -1378,7 +1359,7 @@ public:
     VectorXf snpStore;   
     SnpIndist snpindist;
     SnpEffects snpEffects;
-    ProbMixComps Pis; 
+    ApproxBayesR::ProbMixComps Pis;
     Gammas gamma;
     ApproxBayesC::GenotypicVar varg;
     Kappa kappa;
@@ -1410,6 +1391,129 @@ public:
     
     void sampleUnknowns(void);
 };
+
+
+class ApproxBayesSMix : public ApproxBayesS {
+    // Approximate BayesSMix is a mixture model of zero (component 1), BayesC (component 2) and BayesS (component 3) prior
+public:
+    
+    class SnpEffects : public ApproxBayesS::SnpEffects {
+    public:
+        Vector2f wtdSum2pq;
+        Vector2f wtdSumSq;
+        Vector2f numNonZeros;
+        Vector3f numSnpMixComp;
+        VectorXf valuesMixCompS;
+        
+        SnpEffects(const vector<string> &header, const VectorXf &snp2pq, const float pi): ApproxBayesS::SnpEffects(header, snp2pq, pi) {}
+        
+        void sampleFromFC(VectorXf &rcorr,const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
+                          const vector<ChromInfo*> &chromInfoVec, const VectorXf &LDsamplVar, const ArrayXf &snp2pqPowS, const VectorXf &snp2pq,
+                          const Vector2f &sigmaSq, const Vector3f &pi, const float vare, const float varg,
+                          const float ps, const float overdispersion, VectorXf &gamma);
+    };
+    
+    class DeltaS : public ParamSet {  // indicator variable for S model component
+    public:
+        DeltaS(const vector<string> &header): ParamSet("DeltaS", header){};
+    };
+    
+    class Pi : public vector<Parameter*>, public Stat::Dirichlet {
+    public:
+        const unsigned ndist;
+        Vector3f alpha;
+        Vector3f values;
+        
+        Pi(const float pival): ndist(3) {
+            vector<string> label = {"0", "C", "S"};
+            for (unsigned i=0; i<ndist; ++i) {
+                this->push_back(new Parameter("pi" + label[i]));
+            }
+            alpha.setOnes();
+            values << 1.0-pival, 0.5*pival, 0.5*pival;
+        }
+        
+        void sampleFromFC(const VectorXf &numSnpMixComp);
+    };
+    
+    class VarEffects : public vector<BayesC::VarEffects*> {
+    public:
+        Vector2f values;
+        
+        VarEffects(const float vg, const float pi, const VectorXf &snp2pq) {
+            vector<string> label = {"C", "S"};
+            for (unsigned i=0; i<2; ++i) {
+                this->push_back(new BayesC::VarEffects(vg, snp2pq, 0.5*pi, "SigmaSq" + label[i]));
+                values[i] = (*this)[i]->value;
+            }
+        }
+        
+        void sampleFromFC(const Vector2f &snpEffSumSq, const Vector2f &numSnpEff);
+        void computeScale(const Vector2f &varg, const Vector2f &wtdSum2pq);
+    };
+    
+    class GenotypicVarMixComp : public vector<Parameter*> {
+    public:
+        Vector2f values;
+        
+        GenotypicVarMixComp() {
+            vector<string> label = {"C", "S"};
+            for (unsigned i=0; i<2; ++i) {
+                this->push_back(new Parameter("GenVar" + label[i]));
+            }
+        }
+        
+        void compute(const Vector2f &sigmaSq, const Vector2f &wtdSum2pq);
+
+    };
+    
+    class HeritabilityMixComp : public vector<Parameter*> {
+    public:
+        Vector2f values;
+        
+        HeritabilityMixComp() {
+            vector<string> label = {"C", "S"};
+            for (unsigned i=0; i<2; ++i) {
+                this->push_back(new Parameter("hsq" + label[i]));
+            }
+        }
+        
+        void compute(const Vector2f &vargMixComp, const float varg, const float vare);
+    };
+    
+    SnpEffects snpEffects;
+    DeltaS deltaS;
+    Pi pi;
+    VarEffects sigmaSq;
+    GenotypicVarMixComp vargMixComp;
+    HeritabilityMixComp hsqMixComp;
+    
+    ApproxBayesSMix(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float overdispersion,
+                  const bool estimatePS, const float varS, const vector<float> &svalue,
+                  const bool message = true):
+    ApproxBayesS(data, varGenotypic, varResidual, pival, 1, 1, true, 0, overdispersion, estimatePS, 0, 0, varS, svalue, "HMC", false, false),
+    snpEffects(data.snpEffectNames, data.snp2pq, 0.5*pival),
+    deltaS(data.snpEffectNames),
+    pi(pival),
+    sigmaSq(varGenotypic, pival, data.snp2pq)
+    {
+        paramSetVec = {&snpEffects, &deltaS};
+        paramVec = {pi[2], pi[1], &nnzSnp, sigmaSq[1], &S, sigmaSq[0], hsqMixComp[1], hsqMixComp[0]};
+        paramToPrint = {pi[2], pi[1], &nnzSnp, sigmaSq[1], &S, sigmaSq[0], hsqMixComp[1], hsqMixComp[0], &rounding};
+        if (modelPS) {
+            paramVec.push_back(&ps);
+            paramToPrint.push_back(&ps);
+        }
+        if (message && myMPI::rank==0) {
+            cout << "\nApproximate BayesSMix model fitted." << endl;
+        }
+    }
+    
+    void sampleUnknowns(void);
+
+};
+
+
 
 
 
