@@ -1409,7 +1409,7 @@ public:
         
         void sampleFromFC(VectorXf &rcorr,const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const vector<ChromInfo*> &chromInfoVec, const VectorXf &LDsamplVar, const ArrayXf &snp2pqPowS, const VectorXf &snp2pq,
-                          const float sigmaSq, const Vector3f &pi, const float vare, const float varg,
+                          const Vector2f &sigmaSq, const Vector3f &pi, const float vare, const float varg,
                           const float ps, const float overdispersion, VectorXf &gamma);
     };
     
@@ -1435,7 +1435,24 @@ public:
         
         void sampleFromFC(const VectorXf &numSnpMixComp);
     };
+    
+    class VarEffects : public vector<BayesC::VarEffects*> {
+    public:
+        Vector2f values;
         
+        VarEffects(const float vg, const float pi, const VectorXf &snp2pq) {
+            vector<string> label = {"C", "S"};
+            for (unsigned i=0; i<2; ++i) {
+                this->push_back(new BayesC::VarEffects(vg, snp2pq, 0.5*pi, "SigmaSq" + label[i]));
+                values[i] = (*this)[i]->value;
+            }
+        }
+        
+        void sampleFromFC(const Vector2f &snpEffSumSq, const Vector2f &numSnpEff);
+        void computeScale(const Vector2f &varg, const Vector2f &wtdSum2pq);
+    };
+    
+    
     class GenotypicVarMixComp : public vector<Parameter*> {
     public:
         Vector2f values;
@@ -1447,7 +1464,7 @@ public:
             }
         }
         
-        void compute(const float sigmaSq, const Vector2f &wtdSum2pq);
+        void compute(const Vector2f &sigmaSq, const Vector2f &wtdSum2pq);
 
     };
     
@@ -1468,6 +1485,7 @@ public:
     SnpEffects snpEffects;
     DeltaS deltaS;
     PiMixComp piMixComp;
+    VarEffects sigmaSq;
     GenotypicVarMixComp vargMixComp;
     HeritabilityMixComp hsqMixComp;
     
@@ -1477,11 +1495,12 @@ public:
     ApproxBayesS(data, varGenotypic, varResidual, pival, 1, 1, true, 0, overdispersion, estimatePS, 0, 0, varS, svalue, "HMC", false, false),
     snpEffects(data.snpEffectNames, data.snp2pq, 0.5*pival),
     deltaS(data.snpEffectNames),
-    piMixComp(pival)
+    piMixComp(pival),
+    sigmaSq(varGenotypic, pival, data.snp2pq)
     {
         paramSetVec = {&snpEffects, &deltaS};
-        paramVec = {piMixComp[2], piMixComp[1], &pi, &nnzSnp, &sigmaSq, &S, hsqMixComp[1], hsqMixComp[0], &hsq};
-        paramToPrint = {piMixComp[2], piMixComp[1], &pi, &nnzSnp, &sigmaSq, &S, hsqMixComp[1], hsqMixComp[0], &hsq, &rounding};
+        paramVec = {piMixComp[2], piMixComp[1], &pi, &nnzSnp, sigmaSq[1], &S, sigmaSq[0], hsqMixComp[1], hsqMixComp[0], &hsq};
+        paramToPrint = {piMixComp[2], piMixComp[1], &pi, &nnzSnp, sigmaSq[1], &S, sigmaSq[0], hsqMixComp[1], hsqMixComp[0], &hsq, &rounding};
         if (modelPS) {
             paramVec.push_back(&ps);
             paramToPrint.push_back(&ps);

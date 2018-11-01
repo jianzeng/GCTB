@@ -249,13 +249,13 @@ void StratApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<S
                 wtdSumSq += values[i]*values[i]/powf(snp2pq[i], Sgw);
                 ++numNonZeros;
                 
-//                for (j=0; j<snp->numAnnos; ++j) {
-//                    annoIdx = snp->annoPtr[j]->idx;
+                for (j=0; j<snp->numAnnos; ++j) {
+                    annoIdx = snp->annoPtr[j]->idx;
                     snpIdx = snp->annoIdx[j];
                     valuesPerAnno[annoIdx][snpIdx] = values[i];
                     wtdSumSqPerAnno[annoIdx] += values[i]*values[i]/snp2pqPowS[j];
                     ++numNonZeroPerAnno[annoIdx];
-//                }
+                }
             } else {
                 if (oldSample) {
                     for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
