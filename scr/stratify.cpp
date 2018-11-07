@@ -194,13 +194,14 @@ void StratApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<S
         
         float oldSample;
         float rhs;
-        float logDelta1, logDelta0, probDelta1;
+        float probDelta1;
         float varei;
         float sampleDiff;
         
         ArrayXf invLhs, uhat;
         ArrayXf snp2pqPowS;
-        ArrayXf logDeltaAnno;
+        ArrayXf logDelta1Anno;
+        ArrayXf logDelta0Anno;
         ArrayXf probDeltaAnno;
         
         SnpInfo *snp;
@@ -210,7 +211,8 @@ void StratApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<S
             invLhs.resize(snp->numAnnos);
             uhat.resize(snp->numAnnos);
             snp2pqPowS.resize(snp->numAnnos);
-            logDeltaAnno.resize(snp->numAnnos);
+            logDelta1Anno.resize(snp->numAnnos);
+            logDelta0Anno.resize(snp->numAnnos);
             probDeltaAnno.resize(snp->numAnnos);
 
             oldSample = values[i];
@@ -226,19 +228,19 @@ void StratApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<S
                 invLhs[j] = 1.0f/(ZPZdiag[i]/varei + invSigmaSq[annoIdx]/snp2pqPowS[j]);
                 uhat[j] = invLhs[j]*rhs;
                 
-                logDeltaAnno[j] = 0.5*(logf(invLhs[j]) - logf(snp2pqPowS[j]*sigmaSq[annoIdx]) + uhat[j]*rhs);
+                logDelta1Anno[j]  = 0.5*(logf(invLhs[j]) - logf(snp2pqPowS[j]*sigmaSq[annoIdx]) + uhat[j]*rhs) + logPi[annoIdx];
+                logDelta0Anno[j] = logPiComp[annoIdx];
             }
             
             for (j=0; j<snp->numAnnos; ++j) {
-                probDeltaAnno[j] = 1.0f/(logDeltaAnno-logDeltaAnno[j]).exp().sum();
+                probDeltaAnno[j] = (1.0+expf(logDelta0Anno[j]-logDelta1Anno[j]))/((logDelta1Anno-logDelta1Anno[j]).exp().sum() + (logDelta0Anno-logDelta1Anno[j]).exp().sum());
             }
             
             j = bernoulli.sample(probDeltaAnno);
+            
             annoIdx = snp->annoPtr[j]->idx;
             
-            logDelta1 = 0.5*(logf(invLhs[j]) - logf(snp2pqPowS[j]*sigmaSq[annoIdx]) + uhat[j]*rhs) + logPi[annoIdx];
-            logDelta0 = logPiComp[annoIdx];
-            probDelta1 = 1.0f/(1.0f + expf(logDelta0-logDelta1));
+            probDelta1 = 1.0f/(1.0f + expf(logDelta0Anno[j]-logDelta1Anno[j]));
             
             if (bernoulli.sample(probDelta1)) {
                 values[i] = normal.sample(uhat[j], invLhs[j]);
@@ -320,21 +322,24 @@ void StratApproxBayesS::sampleUnknowns() {
 
 ///// post hoc stratified analysis based on MCMC samples of SNP effects
 
-void PostHocStratify::SnpEffects::getValues(const SparseVector<float> &snpEffects, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &snp2pq, const VectorXf &S) {
+void PostHocStratifyS::SnpEffects::getValues(const SparseVector<float> &snpEffects, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &snp2pq, const VectorXf &S, const float Sgw) {
     VectorXf beta(snpEffects);
     values = beta;
-    unsigned snpidx;
     long numAnnos = annoInfoVec.size();
     wtdSumSqPerAnno.setZero(numAnnos);
     numNonZeroPerAnno.setZero(numAnnos);
     numNonZeros = snpEffects.nonZeros();
+    wtdSumSq = 0;
+    for (unsigned i=0; i<size; ++i) {
+        if (values[i]) wtdSumSq += values[i]*values[i]/powf(snp2pq[i], Sgw);
+    }
     long chunkSize = size/omp_get_max_threads();
 #pragma omp parallel for schedule(dynamic, chunkSize)
     for (unsigned i=0; i<numAnnos; ++i) {
         AnnoInfo *anno = annoInfoVec[i];
         valuesPerAnno[i].setZero(anno->size);
         for (unsigned j=0; j<anno->size; ++j) {
-            snpidx = anno->memberSnpVec[j]->index;
+            unsigned snpidx = anno->memberSnpVec[j]->index;
             if (beta[snpidx]) {
                 valuesPerAnno[i][j] = beta[snpidx];
                 wtdSumSqPerAnno[i] += beta[snpidx]*beta[snpidx]/powf(snp2pq[snpidx], S[i]);
@@ -344,41 +349,97 @@ void PostHocStratify::SnpEffects::getValues(const SparseVector<float> &snpEffect
     }
 }
 
-void PostHocStratify::Pi::compute(const vector<unsigned int> &numSnps, const VectorXf &numSnpEff) {
+void PostHocStratifyS::PiStratified::compute(const vector<unsigned int> &numSnps, const VectorXf &numSnpEff) {
     for (unsigned i=0; i<size; ++i) {
         values[i] = numSnpEff[i]/numSnps[i];
     }
 }
 
-void PostHocStratify::VarEffects::compute(const VectorXf &snpEffSumSq, const VectorXf &numSnpEff) {
+void PostHocStratifyS::VarEffectStratified::compute(const VectorXf &snpEffSumSq, const VectorXf &numSnpEff) {
     for (unsigned i=0; i<size; ++i) {
         if (numSnpEff[i]) values[i] = snpEffSumSq[i]/numSnpEff[i];
     }
 }
 
-void PostHocStratify::sampleUnknowns() {
-    varg.value = vargMcmc.datMat.row(iter*thin)[0];
-    vare.value = vareMcmc.datMat.row(iter*thin)[0];
-    sigmaSq.value = sigmaSqMcmc.datMat.row(iter*thin)[0];
-    pi.value = piMcmc.datMat.row(iter*thin)[0];
-    
-    snpEffects.getValues(snpEffectsMcmc.datMatSp.row(iter), data.annoInfoVec, data.snp2pq, Sstrat.values);
+void PostHocStratifyS::sampleUnknowns() {
+    snpEffects.getValues(snpEffectsMcmc.datMatSp.row(iter), data.annoInfoVec, data.snp2pq, Sstrat.values, S.value);
+    hsq.value = hsqMcmc.datMat.row(iter*thin)[0];
+    varg.value = hsq.value;
+    vare.value = 1.0 - hsq.value;
+
     nnzSnp.getValue(snpEffects.numNonZeros);
     nnzStrat.getValues(snpEffects.numNonZeroPerAnno);
     propNnzStrat.compute(nnzStrat.values, nnzSnp.value);
+
+    pi.compute(data.numIncdSnps, nnzSnp.value);
     piStrat.compute(data.numSnpAnnoVec, nnzStrat.values);
     piEnrich.compute(nnzStrat.values, nnzSnp.value);
-//    sigmaSqStrat.compute(snpEffects.wtdSumSq, nnzStrat.values);
-    sigmaSqStrat.sampleFromFC(snpEffects.wtdSumSqPerAnno, nnzStrat.values);
+    
+    sigmaSq.compute(snpEffects.wtdSumSq, nnzSnp.value);
+    sigmaSqStrat.compute(snpEffects.wtdSumSqPerAnno, nnzStrat.values);
     sigmaSqEnrich.compute(sigmaSqStrat.values, sigmaSq.value);
-    hsq.compute(varg.value, vare.value);
+    
+//    hsq.compute(varg.value, vare.value);
     hsqStrat.compute(snpEffects.valuesPerAnno, data.annowiseZPZsp, data.annowiseZPZdiag, varg.value, vare.value);
     propHsqStrat.compute(hsqStrat.values, hsq.value);
     perSnpHsqEnrich.compute(hsqStrat.values, piEnrich.expectation, hsq.value);
     perNzHsqEnrich.compute(hsqStrat.values, nnzStrat.values, hsq.value, nnzSnp.value);
+    
     S.sampleFromFC(snpEffects.wtdSumSq, nnzSnp.value, sigmaSq.value, snpEffects.values, data.snp2pq, snp2pqPowS, logSnp2pq, varg.value, sigmaSq.scale, snpEffects.sum2pqSplusOne);
     Sstrat.sampleFromFC(snpEffects.valuesPerAnno, nnzStrat.values, sigmaSqStrat.values, hsqStrat.values, varg.value, vare.value, data.annoInfoVec, sigmaSqStrat.scales, snpEffects.sum2pqSplusOnePerAnno);
     Senrich.compute(Sstrat.values, S.value);
     
     ++iter;
 }
+
+
+void PostHocStratifySMix::DeltaS::getValues(const SparseVector<float> &deltaS, const vector<AnnoInfo*> &annoInfoVec){
+    VectorXf delta(deltaS);
+    values = delta;
+    sum = values.sum();
+    
+    long numAnnos = annoInfoVec.size();
+    sumPerAnno.setZero(numAnnos);
+    
+    long chunkSize = size/omp_get_max_threads();
+#pragma omp parallel for schedule(dynamic, chunkSize)
+    for (unsigned i=0; i<numAnnos; ++i) {
+        AnnoInfo *anno = annoInfoVec[i];
+        for (unsigned j=0; j<anno->size; ++j) {
+            unsigned snpidx = anno->memberSnpVec[j]->index;
+            sumPerAnno[i] += values[snpidx];
+        }
+    }
+}
+
+
+void PostHocStratifySMix::sampleUnknowns() {
+    snpEffects.getValues(snpEffectsMcmc.datMatSp.row(iter), data.annoInfoVec, data.snp2pq, Sstrat.values, S.value);
+    deltaS.getValues(deltaSmcmc.datMatSp.row(iter), data.annoInfoVec);
+    hsq.value = hsqMcmc.datMat.row(iter*thin)[0];
+    varg.value = hsq.value;
+    vare.value = 1.0 - hsq.value;
+    
+    nnzSnp.getValue(snpEffects.numNonZeros);
+    nnzStrat.getValues(snpEffects.numNonZeroPerAnno);
+    propNnzStrat.compute(nnzStrat.values, nnzSnp.value);
+    
+    pi.compute(data.numIncdSnps, nnzSnp.value);
+    piStrat.compute(data.numSnpAnnoVec, nnzStrat.values);
+    piEnrich.compute(nnzStrat.values, nnzSnp.value);
+    
+//    hsq.compute(varg.value, vare.value);
+    hsqStrat.compute(snpEffects.valuesPerAnno, data.annowiseZPZsp, data.annowiseZPZdiag, varg.value, vare.value);
+    propHsqStrat.compute(hsqStrat.values, hsq.value);
+    perSnpHsqEnrich.compute(hsqStrat.values, piEnrich.expectation, hsq.value);
+    perNzHsqEnrich.compute(hsqStrat.values, nnzStrat.values, hsq.value, nnzSnp.value);
+    
+    piS.compute(data.numIncdSnps, deltaS.sum);
+    piSstrat.compute(data.numSnpAnnoVec, deltaS.sumPerAnno);
+    piSenrich.compute(deltaS.sumPerAnno, deltaS.sum);
+    
+    ++iter;
+}
+
+
+

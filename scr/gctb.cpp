@@ -244,12 +244,12 @@ void GCTB::clearGenotypes(Data &data){
     data.X.resize(0,0);
 }
 
-void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDmat, const string &geneticMapFile, const string &snpResFile, const string &mcmcSampleFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &gwasSummaryFile, const string &filename, const float piAlpha, const float piBeta, const float varS, const vector<float> &svalue, unsigned chainLength, unsigned burnin, const unsigned thin, const unsigned outputFreq){
+void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDmat, const string &geneticMapFile, const string &snpResFile, const string &mcmcSampleFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &gwasSummaryFile, const string &filename, const string &bayesType, unsigned chainLength, unsigned burnin, const unsigned thin, const unsigned outputFreq){
     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
         data.readLDmatrixInfoFile(ldmatrixFile + ".info");
-    data.inputSnpInfoAndResults(snpResFile);
+    data.inputSnpInfoAndResults(snpResFile, bayesType);
     if (!annotationFile.empty())
         data.readAnnotationFile(annotationFile, transpose, true);
     else
@@ -271,20 +271,24 @@ void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDma
     data.makeAnnowiseSparseLDM(data.ZPZsp, data.annoInfoVec, data.snpInfoVec);
     
     McmcSamples *snpEffects = inputMcmcSamples(mcmcSampleFile, "SnpEffects", "bin");
-    McmcSamples *varg = inputMcmcSamples(mcmcSampleFile, "GenVar", "txt");
-    McmcSamples *vare = inputMcmcSamples(mcmcSampleFile, "ResVar", "txt");
-    McmcSamples *sigmaSq = inputMcmcSamples(mcmcSampleFile, "SigmaSq", "txt");
-    McmcSamples *pi = inputMcmcSamples(mcmcSampleFile, "Pi", "txt");
+    McmcSamples *hsq = inputMcmcSamples(mcmcSampleFile, "hsq", "txt");
+
+    Model *model;
     
-    float varghat = varg->mean()[0];
-    float varehat = vare->mean()[0];
-    float pihat = pi->mean()[0];
-    
-    PostHocStratify *strat = new PostHocStratify(data, *snpEffects, *varg, *vare, *sigmaSq, *pi, thin, varghat, varehat, pihat, piAlpha, piBeta, varS, svalue);
+    if (bayesType == "S") {
+        model = new PostHocStratifyS(data, *snpEffects, *hsq, thin, hsq->mean()[0]);
+    }
+    else if (bayesType == "SMix") {
+        McmcSamples *deltaS = inputMcmcSamples(mcmcSampleFile, "DeltaS", "bin");
+        model = new PostHocStratifySMix(data, *snpEffects, *hsq, *deltaS, thin, hsq->mean()[0]);
+    }
+    else
+        throw(" Error: Wrong bayes type: " + bayesType + " in the annotation-stratified summary-data-based Bayesian analysis.");
+
     
     if (chainLength > snpEffects->nrow) chainLength = snpEffects->nrow;
     if (burnin > chainLength) burnin = 0.2*chainLength;
     
-    runMcmc(*strat, chainLength, burnin, thin, outputFreq, filename, false, false);
+    runMcmc(*model, chainLength, burnin, thin, outputFreq, filename, false, false);
 }
 

@@ -367,8 +367,8 @@ void Options::inputOptions(const int argc, const char* argv[]){
         }
         else if (!strcmp(argv[i], "--stratify")) {
             analysisType = "Stratify";
-            //            bayesType = argv[++i];
-            ss << "--stratify " << "\n";
+            bayesType = argv[++i];
+            ss << "--stratify " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--flank")) {
             flank = atof(argv[++i]);

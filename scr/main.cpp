@@ -121,7 +121,7 @@ int main(int argc, const char * argv[]) {
             if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.bayesType, opt.title);
         }
         else if (opt.analysisType == "Stratify") { // post hoc stratified analysis
-            gctb.stratify(data, opt.ldmatrixFile, opt.multiLDmat, opt.geneticMapFile, opt.snpResFile, opt.mcmcSampleFile, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.gwasSummaryFile, opt.title, opt.piAlpha, opt.piBeta, opt.varS, opt.S, opt.chainLength, opt.burnin, opt.thin, opt.outputFreq);
+            gctb.stratify(data, opt.ldmatrixFile, opt.multiLDmat, opt.geneticMapFile, opt.snpResFile, opt.mcmcSampleFile, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.gwasSummaryFile, opt.title, opt.bayesType, opt.chainLength, opt.burnin, opt.thin, opt.outputFreq);
         }
         else if (opt.analysisType == "hsq") {
             readGenotypes = true;

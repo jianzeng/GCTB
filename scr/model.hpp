@@ -132,6 +132,10 @@ public:
         
         void sampleFromFC(const float snpEffSumSq, const unsigned numSnpEff);
         void computeScale(const float varg, const float sum2pq) {scale = (df-2)/df*varg/sum2pq;};
+        void compute(const float snpEffSumSq, const float numSnpEff) {
+            if (numSnpEff) value = snpEffSumSq/numSnpEff;
+        };
+
     };
     
     class ScaleVar : public Parameter, public Stat::Gamma {
@@ -159,6 +163,7 @@ public:
         }
         
         void sampleFromFC(const unsigned numSnps, const unsigned numSnpEff);
+        void compute(const float numSnps, const float numSnpEff) {value = numSnpEff/numSnps;};
     };
     
     

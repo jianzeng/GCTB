@@ -1095,7 +1095,7 @@ void Data::inputSnpResults(const string &snpResFile){
     }
 }
 
-void Data::inputSnpInfoAndResults(const string &snpResFile){
+void Data::inputSnpInfoAndResults(const string &snpResFile, const string &bayesType){
     ifstream in(snpResFile.c_str());
     if (!in) throw ("Error: can not open the SNP result file [" + snpResFile + "] to read.");
     if (myMPI::rank==0)
@@ -1113,20 +1113,36 @@ void Data::inputSnpInfoAndResults(const string &snpResFile){
         snp = snpInfoVec[i];
         snp->included = false;
     }
-    while (in >> id >> name >> chrom >> pos >> freq >> effect >> se >> pip >> window) {
-        ++line;
-        //        SnpInfo *snp = new SnpInfo(id-1, name, "NA", "NA", chrom, 0, pos);
-        it = snpInfoMap.find(name);
-        if (it == snpInfoMap.end()) {
-            throw("Error: SNP " + name + " is not in the LD matrix!");
+    if (bayesType == "SMix") {
+        float piS;
+        while (in >> id >> name >> chrom >> pos >> freq >> effect >> se >> pip >> piS) {
+            ++line;
+            it = snpInfoMap.find(name);
+            if (it == snpInfoMap.end()) {
+                throw("Error: SNP " + name + " is not in the LD matrix!");
+            }
+            snp = it->second;
+            snp->included = true;
+            snp->gwas_af = freq;
+            snp->effect = effect;
         }
-        snp = it->second;
-        snp->included = true;
-        snp->gwas_af = freq;
-        snp->effect = effect;
-//        snpInfoVec.push_back(snp);
-//        snpInfoMap.insert(pair<string, SnpInfo*>(name, snp));
-//        chromosomes.insert(snp->chrom);
+    }
+    else {
+        while (in >> id >> name >> chrom >> pos >> freq >> effect >> se >> pip >> window) {
+            ++line;
+            //        SnpInfo *snp = new SnpInfo(id-1, name, "NA", "NA", chrom, 0, pos);
+            it = snpInfoMap.find(name);
+            if (it == snpInfoMap.end()) {
+                throw("Error: SNP " + name + " is not in the LD matrix!");
+            }
+            snp = it->second;
+            snp->included = true;
+            snp->gwas_af = freq;
+            snp->effect = effect;
+            //        snpInfoVec.push_back(snp);
+            //        snpInfoMap.insert(pair<string, SnpInfo*>(name, snp));
+            //        chromosomes.insert(snp->chrom);
+        }
     }
     in.close();
     
@@ -2148,7 +2164,8 @@ void Data::readLDmatrixBinFileAndShrink(const string &ldmatrixFile){
     
     float rsq = 0.0;
     
-    float nref = incdSnpInfoVec[0]->sampleSize;
+//    float nref = incdSnpInfoVec[0]->sampleSize;
+    float nref = 183;  // this is the sample size for genetic map
     float n = 2.0*nref-1.0;
     // Approximation to the harmonic series
     float nsum = log(n) + 0.5772156649 + 1.0 / (2.0 * n) - 1.0 / (12.0 * pow(n, 2.0)) + 1.0 / (120.0 * pow(n, 4.0));
