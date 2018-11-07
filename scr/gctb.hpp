@@ -52,7 +52,7 @@ public:
     void predict(const Data &data, const string &filename);
 
     void clearGenotypes(Data &data);
-    void stratify(Data &data, const string &ldmatrixFile, const bool multiLDmat, const string &geneticMapFile, const string &snpResFile, const string &mcmcSampleFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &gwasSummaryFile, const string &filename, const float piAlpha, const float piBeta, const float varS, const vector<float> &svalue, unsigned chainLength, unsigned burnin, const unsigned thin, const unsigned outputFreq);
+    void stratify(Data &data, const string &ldmatrixFile, const bool multiLDmat, const string &geneticMapFile, const string &snpResFile, const string &mcmcSampleFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &gwasSummaryFile, const string &filename, const string &bayesType, unsigned chainLength, unsigned burnin, const unsigned thin, const unsigned outputFreq);
 };
 
 #endif /* amber_hpp */

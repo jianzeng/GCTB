@@ -3515,6 +3515,7 @@ void ApproxBayesSMix::HeritabilityMixComp::compute(const Vector2f &vargMixComp, 
 }
 
 void ApproxBayesSMix::sampleUnknowns() {
+    static unsigned iter = 0;
     unsigned cnt=0;
     do {
         snpEffects.sampleFromFC(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.chromInfoVec,
@@ -3531,7 +3532,14 @@ void ApproxBayesSMix::sampleUnknowns() {
     vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value);
     hsq.compute(varg.value, vare.value);
     hsqMixComp.compute(vargMixComp.values, varg.value, vare.value);
-    sigmaSq.computeScale(hsqMixComp.values, snpEffects.wtdSum2pq);
+    
+    if (++iter < 2000) {
+        sigmaSq.computeScale(hsqMixComp.values, snpEffects.wtdSum2pq);
+        scalePrior += (sigmaSq[0]->scale - scalePrior)/iter;
+    } else {
+        sigmaSq[0]->scale = scalePrior;
+    }
+    
     S.sampleFromFC(snpEffects.wtdSumSq[1], snpEffects.numNonZeros[1], sigmaSq.values[1], snpEffects.valuesMixCompS, data.snp2pq, snp2pqPowS, logSnp2pq, genVarPrior, sigmaSq[1]->scale, snpEffects.sum2pqSplusOne);
     
     rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);

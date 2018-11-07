@@ -307,7 +307,7 @@ public:
     void displayAverageWindowSize(const VectorXi &windSize);
     
     void inputSnpResults(const string &snpResFile);
-    void inputSnpInfoAndResults(const string &snpResFile);
+    void inputSnpInfoAndResults(const string &snpResFile, const string &bayesType);
     void readLDmatrixBinFileAndShrink(const string &ldmatrixFile);
     void readMultiLDmatBinFileAndShrink(const string &mldmatFile);
     void directPruneLDmatrix(const string &ldmatrixFile, const string &outLDmatType, const float chisqThreshold, const string &title, const bool writeLdmTxt);
