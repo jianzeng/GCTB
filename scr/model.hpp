@@ -890,8 +890,8 @@ public:
         modelPS = estimatePS;
         diagnose = diagnosticMode;
         paramSetVec = {&snpEffects};
-        paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq};
-        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &rounding};
+        paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &sigmaSqG, &hsq};
+        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &sigmaSqG, &hsq, &rounding};
         if (sparse) {
             paramVec.push_back(&pigwas);
             paramVec.push_back(&nnzgwas);
@@ -1047,8 +1047,8 @@ public:
         estimateEffectMean = false;
         
         paramSetVec = {&snpEffects};
-        paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
-        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &rounding};
+        paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &sigmaSqG, &hsq};
+        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &sigmaSqG, &hsq, &rounding};
         if (sparse) {
             paramVec.push_back(&pigwas);
             paramVec.push_back(&nnzgwas);
@@ -1412,10 +1412,16 @@ public:
         
         SnpEffects(const vector<string> &header, const VectorXf &snp2pq, const float pi): ApproxBayesS::SnpEffects(header, snp2pq, pi) {}
         
-        void sampleFromFC(VectorXf &rcorr,const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
+        void sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const vector<ChromInfo*> &chromInfoVec, const VectorXf &LDsamplVar, const ArrayXf &snp2pqPowS, const VectorXf &snp2pq,
                           const Vector2f &sigmaSq, const Vector3f &pi, const float vare, const float varg,
-                          const float ps, const float overdispersion, VectorXf &gamma);
+                          const float ps, const float overdispersion, VectorXf &deltaS);
+        
+        void sampleFromFC(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
+                          const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec, const VectorXf &LDsamplVar, const ArrayXf &snp2pqPowS, const VectorXf &snp2pq,
+                          const Vector2f &sigmaSq, const Vector3f &pi, const float vare, const float varg,
+                          const float ps, const float overdispersion, VectorXf &deltaS);
+
     };
     
     class DeltaS : public ParamSet {  // indicator variable for S model component
@@ -1432,7 +1438,7 @@ public:
         PiMixComp(const float pival): ndist(3) {
             vector<string> label = {"0", "C", "S"};
             for (unsigned i=0; i<ndist; ++i) {
-                this->push_back(new Parameter("pi" + label[i]));
+                this->push_back(new Parameter("Pi" + label[i]));
             }
             alpha.setOnes();
             values << 1.0-pival, 0.5*pival, 0.5*pival;
@@ -1519,7 +1525,58 @@ public:
 
 };
 
+class BayesSMix : public BayesS {
+    // BayesSMix is a mixture model of zero (component 1), BayesC (component 2) and BayesS (component 3) prior
+public:
 
+    class SnpEffects : public BayesS::SnpEffects {
+    public:
+        Vector2f wtdSum2pq;
+        Vector2f wtdSumSq;
+        Vector2f numNonZeros;
+        Vector3f numSnpMixComp;
+        VectorXf valuesMixCompS;
+        
+        SnpEffects(const vector<string> &header, const VectorXf &snp2pq, const float pi): BayesS::SnpEffects(header, snp2pq, pi) {}
+        
+        void sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const ArrayXf &snp2pqPowS, const VectorXf &snp2pq,
+                          const Vector2f &sigmaSq, const Vector3f &pi, const float vare, VectorXf &deltaS, VectorXf &ghat, vector<VectorXf> &ghatMixComp);
+    };
+    
+    class GenotypicVarMixComp : public ApproxBayesSMix::GenotypicVarMixComp {
+    public:
+        
+        void compute(const vector<VectorXf> &ghatMixComp);
+    };
+
+    
+    vector<VectorXf> ghatMixComp;
+    
+    SnpEffects snpEffects;
+    GenotypicVarMixComp vargMixComp;
+    ApproxBayesSMix::DeltaS deltaS;
+    ApproxBayesSMix::PiMixComp piMixComp;
+    ApproxBayesSMix::VarEffects sigmaSq;
+    ApproxBayesSMix::HeritabilityMixComp hsqMixComp;
+
+    BayesSMix(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi, const float varS, const vector<float> &svalue, const string &algorithm, const bool message = true):
+    BayesS(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, varS, svalue, "HMC", false),
+    snpEffects(data.snpEffectNames, data.snp2pq, 0.5*pival),
+    deltaS(data.snpEffectNames),
+    piMixComp(pival),
+    sigmaSq(varGenotypic, pival, data.snp2pq)
+    {
+        ghatMixComp.resize(2);
+        paramSetVec = {&snpEffects, &deltaS, &fixedEffects};
+        paramVec = {piMixComp[2], piMixComp[1], &pi, &nnzSnp, sigmaSq[1], &S, sigmaSq[0], hsqMixComp[1], hsqMixComp[0], &hsq};
+        paramToPrint = {piMixComp[2], piMixComp[1], &pi, &nnzSnp, sigmaSq[1], &S, sigmaSq[0], hsqMixComp[1], hsqMixComp[0], &hsq, &rounding};
+        if (message && myMPI::rank==0) {
+            cout << "\nBayesSMix model fitted." << endl;
+        }
+    }
+    
+    void sampleUnknowns(void);
+};
 
 
 

@@ -112,6 +112,7 @@ public:
     string annotationFile;
     string continuousAnnoFile;
     string ldscoreFile;
+    string eQTLFile;
     string snpRange;
     string outLDmatType;
     
@@ -200,6 +201,7 @@ public:
         annotationFile          = "";
         continuousAnnoFile      = "";
         ldscoreFile             = "";
+        eQTLFile                = "";
         snpRange                = "";
         outLDmatType            = "sparse";
     }

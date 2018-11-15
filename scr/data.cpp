@@ -28,7 +28,7 @@ void AnnoInfo::getSnpInfo() {
             incdSnpVec.push_back(snp);
             snp->annoIdx.resize(snp->numAnnos);   // the index of SNP in the annotation
             for (unsigned j=0; j<snp->numAnnos; ++j) {
-                if (snp->annoPtr[j] == this) {
+                if (snp->annoVec[j] == this) {
                     snp->annoIdx[j] = numIncdSnps;
                 }
             }
@@ -4128,7 +4128,7 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
             snp = it->second;
             for (unsigned j=1; j<size; ++j) {
                 if (atoi(colData[j].c_str())) {
-                    snp->annoPtr.push_back(annoInfoVec[j-1]);
+                    snp->annoVec.push_back(annoInfoVec[j-1]);
                     snp->numAnnos++;
                 }
             }
@@ -4147,7 +4147,7 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
                 snp->included = false;
             } else {
                 for (unsigned j=0; j<snp->numAnnos; ++j) {
-                    AnnoInfo *anno = snp->annoPtr[j];
+                    AnnoInfo *anno = snp->annoVec[j];
                     anno->memberSnpVec.push_back(snp);
                     anno->size++;
                 }
@@ -4163,11 +4163,11 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
                 snp->included = false;
             } else {
                 for (unsigned j=0; j<snp->numAnnos; ++j) {
-                    AnnoInfo *anno = snp->annoPtr[j];
+                    AnnoInfo *anno = snp->annoVec[j];
                     anno->memberSnpVec.push_back(snp);
                     anno->size++;
                 }
-                if (snp->annoPtr.size() > 1) ++numMultiAnno;
+                if (snp->annoVec.size() > 1) ++numMultiAnno;
             }
         }
     }
@@ -4176,13 +4176,13 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
         cout << line << " matched SNPs in the annotation file (" << numAnnos << " annotations and " << numMultiAnno << " SNPs have more than one annotation)." << endl;
 }
 
-void Data::readAnnotationFileFormat2(const string &continuousAnnoFile, const unsigned flank) {
-    ifstream in(continuousAnnoFile.c_str());
+void Data::readAnnotationFileFormat2(const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile) {
+    ifstream in;
+    in.open(continuousAnnoFile.c_str());
     if (!in) throw ("Error: can not open the annotation file [" + continuousAnnoFile + "] to read.");
     if (myMPI::rank==0)
         cout << "Reading SNP annotation from [" + continuousAnnoFile + "]." << endl;
     
-    map<string, SnpInfo*>::iterator it, end=snpInfoMap.end();
     SnpInfo *snp = NULL;
     AnnoInfo *anno = NULL;
     unsigned chrom;
@@ -4190,22 +4190,22 @@ void Data::readAnnotationFileFormat2(const string &continuousAnnoFile, const uns
     unsigned endBP;
     string name;
 
-    vector<AnnoInfo*> tmp;
     unsigned line = 0;
     map<unsigned, vector<AnnoInfo*> > annoChrMap;
+    map<string, AnnoInfo*> annoInfoMap;
+    vector<AnnoInfo*> annoVec;
     while (in >> chrom >> startBP >> endBP >> name) {
         anno = new AnnoInfo(line++, name);
         anno->chrom = chrom;
         anno->startBP = startBP;
         anno->endBP = endBP;
         annoChrMap[chrom].push_back(anno);
-        tmp.push_back(anno);
+        annoInfoMap[name] = anno;
+        annoVec.push_back(anno);
     }
     in.close();
+    in.clear();
     
-    unsigned numUnannoSnp = 0;
-    unsigned numAnnoSnp = 0;
-    unsigned numMultiAnnoSnp = 0;
     for (unsigned i=0; i<numSnps; ++i) {
         snp = snpInfoVec[i];
         if (!snp->included) continue;
@@ -4213,12 +4213,68 @@ void Data::readAnnotationFileFormat2(const string &continuousAnnoFile, const uns
         for (unsigned j=0; j<annovec.size(); ++j) {
             anno = annoChrMap[snp->chrom][j];
             if (snp->physPos >= (anno->startBP - flank) && snp->physPos <= (anno->endBP + flank)) {
-                snp->annoPtr.push_back(anno);
+                snp->annoVec.push_back(anno);
+                snp->annoMap[anno->idx] = anno;
                 snp->numAnnos++;
                 anno->memberSnpVec.push_back(snp);
+                anno->memberSnpMap[snp->index] = snp;
                 anno->size++;
             }
         }
+    }
+    
+    if (!eQTLFile.empty()) {
+        ifstream in;
+        in.open(eQTLFile.c_str());
+        if (!in) throw ("Error: can not open the eQTL file [" + eQTLFile + "] to read.");
+        if (myMPI::rank==0)
+            cout << "Reading eQTL info from [" + eQTLFile + "]." << endl;
+        Gadget::Tokenizer header;
+        Gadget::Tokenizer colData;
+        string inputStr;
+        string sep(" \t");
+        getline(in, inputStr);
+        header.getTokens(inputStr, sep);
+        unsigned snpIDidx = header.getIndex("SNP");
+        unsigned chrIDidx = header.getIndex("Chr");
+        unsigned geneIDidx = header.getIndex("Gene");
+        string snpID, geneID;
+        unsigned chrID;
+        map<string, SnpInfo*>::iterator itsnp, endsnp = snpInfoMap.end();
+        map<string, AnnoInfo*>::iterator itgene, endgene = annoInfoMap.end();
+        while (getline(in, inputStr)) {
+            colData.getTokens(inputStr, sep);
+            snpID = colData[snpIDidx];
+            geneID = colData[geneIDidx];
+            chrID = atoi(colData[chrIDidx].c_str());
+            itsnp = snpInfoMap.find(snpID);
+            if (itsnp != endsnp) {
+                snp = itsnp->second;
+                if (!snp->included) continue;
+                itgene = annoInfoMap.find(geneID);
+                if (itgene != endgene) {
+                    anno = itgene->second;
+                    if (snp->annoMap.insert(pair<int, AnnoInfo*>(anno->idx, anno)).second) {
+                        snp->annoVec.push_back(anno);
+                        snp->numAnnos++;
+                    }
+                    if (anno->memberSnpMap.insert(pair<int, SnpInfo*>(snp->index, snp)).second) {
+                        anno->memberSnpVec.push_back(snp);
+                        anno->size++;
+                    }
+                }
+            }
+        }
+        in.close();
+        in.clear();
+    }
+
+    unsigned numUnannoSnp = 0;
+    unsigned numAnnoSnp = 0;
+    unsigned numMultiAnnoSnp = 0;
+    for (unsigned i=0; i<numSnps; ++i) {
+        snp = snpInfoVec[i];
+        if (!snp->included) continue;
         if (snp->numAnnos == 0) ++numUnannoSnp;
         else {
             ++numAnnoSnp;
@@ -4226,12 +4282,13 @@ void Data::readAnnotationFileFormat2(const string &continuousAnnoFile, const uns
         }
     }
     
+    
     annoInfoVec.clear();
     annoNames.clear();
     numAnnos = 0;
     unsigned meanAnnoSize = 0;
     for (unsigned i=0; i<line; ++i) {
-        anno = tmp[i];
+        anno = annoVec[i];
         if (anno->size) {
             annoInfoVec.push_back(anno);
             annoNames.push_back(anno->label);
