@@ -260,7 +260,7 @@ public:
             values.resize(annoVec.size());
         }
         
-        void getValues(const SparseVector<float> &snpEffects, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &snp2pq, const VectorXf &S, const float Sgw);
+        void getValues(const SparseVector<float> &snpEffects, const vector<SnpInfo*> &snpInfoVec, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &snp2pq, const VectorXf &S, const float Sgw);
     };
     
     class PiStratified : public StratApproxBayesS::PiStratified {

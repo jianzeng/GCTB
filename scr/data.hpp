@@ -53,8 +53,9 @@ public:
     
     VectorXf genotypes; // temporary storage of genotypes of individuals used for building sparse Z'Z
     
-    vector<AnnoInfo*> annoPtr;
-    vector<unsigned> annoIdx;
+    vector<AnnoInfo*> annoVec;
+    vector<unsigned> annoIdx;   // the index of SNP in the annotation
+    map<int, AnnoInfo*> annoMap;
     
     float effect;   // estimated effect
     
@@ -124,6 +125,7 @@ public:
     unsigned endBP;   // for continuous annotation
     
     vector<SnpInfo*> memberSnpVec;
+    map<int, SnpInfo*> memberSnpMap;
     VectorXf snp2pq;
     
     AnnoInfo(const int idx, const string &lab): idx(idx), label(lab){
@@ -315,7 +317,7 @@ public:
     void addLDmatrixInfo(const string &ldmatrixFile);
     
     void readAnnotationFile(const string &annotationFile, const bool transpose, const bool allowMultiAnno);
-    void readAnnotationFileFormat2(const string &continuousAnnoFile, const unsigned flank); // for continuous annotations
+    void readAnnotationFileFormat2(const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile); // for continuous annotations
     void setAnnoInfoVec(void);
     void readLDscoreFile(const string &ldscFile);
     void makeAnnowiseSparseLDM(const vector<SparseVector<float> > &ZPZsp, const vector<AnnoInfo *> &annoInfoVec, const vector<SnpInfo*> &snpInfoVec);    

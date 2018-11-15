@@ -64,7 +64,7 @@
       <CommandLineArguments>
          <CommandLineArgument
             argument = "--inp-file"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "/Users/j.zeng/XCode/gctb/test/res/test.inp"
@@ -88,6 +88,34 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "/Users/j.zeng/Work/Projects/sbayes/test/bayes.inp"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--sbayes SMix"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--ldm /Users/j.zeng/Work/Projects/sbayes/slim/test.ldm.full"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--gwas-summary /Users/j.zeng/Work/Projects/sbayes/slim/test.ma"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--chain-length 1000"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--burn-in 0"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--no-mcmc-bin"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--out /Users/j.zeng/Work/Projects/sbayes/slim/test"
             isEnabled = "YES">
          </CommandLineArgument>
       </CommandLineArguments>

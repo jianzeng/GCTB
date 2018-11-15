@@ -374,6 +374,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             flank = atof(argv[++i]);
             ss << "--flank " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--eqtl")) {
+            eQTLFile = argv[++i];
+            ss << "--eqtl " << argv[i] << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";

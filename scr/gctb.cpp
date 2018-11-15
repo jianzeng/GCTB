@@ -29,7 +29,7 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &include
     if (readGenotypes) data.readBedFile(bedFile + ".bed");
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &ldscoreFile, const bool multiLDmat, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap){
+void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile, const bool multiLDmat, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap){
     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
@@ -45,7 +45,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (!annotationFile.empty())
         data.readAnnotationFile(annotationFile, transpose, true);
     else if (!continuousAnnoFile.empty())
-        data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000);
+        data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000, eQTLFile);
     if (!ldscoreFile.empty()) data.readLDscoreFile(ldscoreFile);
     if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax);
     data.includeMatchedSnp();
@@ -123,6 +123,10 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
     else if (bayesType == "S") {
         data.readBedFile(bedFile + ".bed");
         return new BayesS(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm);
+    }
+    else if (bayesType == "SMix") {
+        data.readBedFile(bedFile + ".bed");
+        return new BayesSMix(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm);
     }
     else if (bayesType == "N") {
         data.readBedFile(bedFile + ".bed");
@@ -244,7 +248,7 @@ void GCTB::clearGenotypes(Data &data){
     data.X.resize(0,0);
 }
 
-void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDmat, const string &geneticMapFile, const string &snpResFile, const string &mcmcSampleFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &gwasSummaryFile, const string &filename, const string &bayesType, unsigned chainLength, unsigned burnin, const unsigned thin, const unsigned outputFreq){
+void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDmat, const string &geneticMapFile, const string &snpResFile, const string &mcmcSampleFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &gwasSummaryFile, const string &filename, const string &bayesType, unsigned chainLength, unsigned burnin, const unsigned thin, const unsigned outputFreq){
     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
@@ -253,7 +257,7 @@ void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDma
     if (!annotationFile.empty())
         data.readAnnotationFile(annotationFile, transpose, true);
     else
-        data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000);
+        data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000, eQTLFile);
     data.readGwasSummaryFile(gwasSummaryFile, 1, 0, 0);
     data.includeMatchedSnp();
     if (geneticMapFile.empty()) {
