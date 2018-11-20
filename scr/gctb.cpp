@@ -154,7 +154,46 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
 
 vector<McmcSamples*> GCTB::runMcmc(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
     MCMC mcmc;
-    return mcmc.run(model, chainLength, burnin, thin, outputFreq, title, writeBinPosterior, writeTxtPosterior);
+    return mcmc.run(model, chainLength, burnin, thin, true, outputFreq, title, writeBinPosterior, writeTxtPosterior);
+}
+
+vector<McmcSamples*> GCTB::multi_chain_mcmc(Data &data, const string &bayesType, const unsigned windowWidth, const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
+    
+    data.initVariances(heritability);
+
+    vector<Model*> modelVec(numChains);
+    
+    for (unsigned i=0; i<numChains; ++i) {
+        if (bayesType == "C")
+            modelVec[i] = new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, diagnosticMode, true, !i);
+        else if (bayesType == "S")
+            modelVec[i] = new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, S, algorithm, diagnosticMode, true, !i);
+        else if (bayesType == "ST")
+            modelVec[i] = new ApproxBayesST(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, overdispersion, estimatePS, varS, S, true, true, !i);
+        else if (bayesType == "T")
+            modelVec[i] = new ApproxBayesST(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, overdispersion, estimatePS, varS, S, false, true, !i);
+        else
+            throw(" Error: " + bayesType + " is not available in the multi-chain Bayesian analysis.");
+    }
+    
+    vector<vector<McmcSamples*> > mcmcSampleVecChain;
+    mcmcSampleVecChain.resize(numChains);
+    
+    if (myMPI::rank==0) cout << numChains << "-chain ";
+
+#pragma omp parallel for
+    for (unsigned i=0; i<numChains; ++i) {
+        MCMC mcmc;
+        bool print = !i;
+        mcmcSampleVecChain[i] = mcmc.run(*modelVec[i], chainLength, burnin, thin, print, outputFreq, title, (writeBinPosterior && print), (writeTxtPosterior && print));
+    }
+    
+    if (numChains) {
+        MCMC mcmc;
+        mcmc.convergeDiagGelmanRubin(*modelVec[0], mcmcSampleVecChain, title + ".parRes");
+    }
+    
+    return mcmcSampleVecChain[0];
 }
 
 void GCTB::saveMcmcSamples(const vector<McmcSamples*> &mcmcSampleVec, const string &filename){

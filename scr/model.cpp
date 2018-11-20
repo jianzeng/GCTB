@@ -222,6 +222,18 @@ void BayesC::VarEffects::sampleFromFC(const float snpEffSumSq, const unsigned nu
     //cout << "snpEffSumSq " << snpEffSumSq << " scale " << scale << " scaleTilde " << scaleTilde << " dfTilde " << dfTilde << " value " << value << endl;
 }
 
+void BayesC::VarEffects::sampleFromPrior(){
+    value = InvChiSq::sample(df, scale);
+}
+
+void BayesC::VarEffects::computeScale(const float varg, const float sum2pq){
+    scale = (df-2)/df*varg/sum2pq;
+}
+
+void BayesC::VarEffects::compute(const float snpEffSumSq, const float numSnpEff){
+    if (numSnpEff) value = snpEffSumSq/numSnpEff;
+}
+
 void BayesC::ScaleVar::sampleFromFC(const float sigmaSq, const float df, float &scaleVar){
     float shapeTilde = shape + 0.5*df;
     float scaleTilde = 1.0/(1.0/scale + 0.5*df/sigmaSq);
@@ -233,6 +245,14 @@ void BayesC::Pi::sampleFromFC(const unsigned numSnps, const unsigned numSnpEff){
     float alphaTilde = numSnpEff + alpha;
     float betaTilde  = numSnps - numSnpEff + beta;
     value = Beta::sample(alphaTilde, betaTilde);
+}
+
+void BayesC::Pi::sampleFromPrior(){
+    value = Beta::sample(alpha, beta);
+}
+
+void BayesC::Pi::compute(const float numSnps, const float numSnpEff){
+    value = numSnpEff/numSnps;
 }
 
 void BayesC::ResidualVar::sampleFromFC(VectorXf &ycorr){
@@ -290,6 +310,16 @@ void BayesC::sampleUnknowns(){
     
     rounding.computeYcorr(data.y, data.X, data.Z, fixedEffects.values, snpEffects.values, ycorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
+}
+
+void BayesC::sampleStartVal(){
+    sigmaSq.sampleFromPrior();
+    if (estimatePi) pi.sampleFromPrior();
+    if (myMPI::rank==0) {
+        cout << "  Starting value for " << sigmaSq.label << ": " << sigmaSq.value << endl;
+        if (estimatePi) cout << "  Starting value for " << pi.label << ": " << pi.value << endl;
+        cout << endl;
+    }
 }
 
 
@@ -627,6 +657,10 @@ void BayesS::Sp::sampleFromFC(const float snpEffWtdSumSq, const unsigned numNonZ
     }
 }
 
+void BayesS::Sp::sampleFromPrior(){
+    value = sample(mean, var);
+}
+
 void BayesS::Sp::randomWalkMHsampler(const float snpEffWtdSumSq, const unsigned numNonZeros, const float sigmaSq, const VectorXf &snpEffects,
                                      const VectorXf &snp2pq, ArrayXf &snp2pqPowS, const ArrayXf &logSnp2pq,
                                      const float vg, float &scale, float &sum2pqSplusOne){
@@ -858,8 +892,6 @@ void BayesS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
 }
 
 void BayesS::sampleUnknowns(){
-    static unsigned iter = 0;
-    
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
     
     unsigned cnt=0;
@@ -894,6 +926,19 @@ void BayesS::sampleUnknowns(){
         scalePrior += (sigmaSq.scale - scalePrior)/iter;
     }
 }
+
+void BayesS::sampleStartVal(){
+    sigmaSq.sampleFromPrior();
+    if (estimatePi) pi.sampleFromPrior();
+    S.sampleFromPrior();
+    if (myMPI::rank==0) {
+        cout << "  Starting value for " << sigmaSq.label << ": " << sigmaSq.value << endl;
+        if (estimatePi) cout << "  Starting value for " << pi.label << ": " << pi.value << endl;
+        cout << "  Starting value for " << S.label << ": " << S.value << endl;
+        cout << endl;
+    }
+}
+
 
 void BayesS::findStartValueForS(const vector<float> &val){
     long size = val.size();
@@ -955,9 +1000,6 @@ void BayesNS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const
     wtdSumSq = 0.0;
     numNonZeros = 0;
     numNonZeroWind = 0;
-    
-    static unsigned iter = 0;
-    static unsigned burnin = 2000;
     
     ghat.setZero(ycorr.size());
     
@@ -1126,8 +1168,6 @@ float BayesNS::Sp::computeU(const float S, const ArrayXf &snpEffects, const floa
 }
 
 void BayesNS::sampleUnknowns(){
-    static unsigned iter = 0;
-    
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
     
     unsigned cnt=0;
@@ -1183,7 +1223,6 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
                                             const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
                                             const float sigmaSq, const float pi, const float vare, const float varg, const float ps, const float overdispersion){
     
-    static unsigned iter = 0;
     long numChr = chromInfoVec.size();
 
     float ssq[numChr], s2pq[numChr], nnz[numChr];
@@ -1296,7 +1335,6 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
         numNonZeros += nnz[i];
         nnzPerChr[i] = nnz[i];
     }
-    ++iter;
 
     values = VectorXf::Map(valuesPtr, size);
 }
@@ -1306,7 +1344,6 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<VectorX
                                             const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
                                             const float sigmaSq, const float pi, const float vare, const float varg, const float ps, const float overdispersion){
     
-    static unsigned iter = 0;
     long numChr = chromInfoVec.size();
     
     float ssq[numChr], nnz[numChr], s2pq[numChr];
@@ -1404,7 +1441,6 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<VectorX
         numNonZeros += nnz[i];
         nnzPerChr[i] = nnz[i];
     }
-    ++iter;
     
     values = VectorXf::Map(valuesPtr, size);
 }
@@ -1852,10 +1888,10 @@ void ApproxBayesC::sampleUnknowns(){
     if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, data.chisq);
 //    if (modelPS) ldScoreReg(data.chisq, data.LDscore, data.LDsamplVar, varg.value, vare.value, ps.value);
     
-    if (sparse) {
-        nnzgwas.compute(snpEffects.values, data.ZPZsp, data.ZPZdiag);
-        pigwas.compute(nnzgwas.value, data.numIncdSnps);
-    }
+//    if (sparse) {
+//        nnzgwas.compute(snpEffects.values, data.ZPZsp, data.ZPZdiag);
+//        pigwas.compute(nnzgwas.value, data.numIncdSnps);
+//    }
 }
 
 
@@ -1866,7 +1902,6 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
                                             const VectorXf &snp2pqPowS, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
                                             const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n,
                                             const float varg, const float ps, const float overdispersion){
-    static unsigned iter = 0;
     long numChr = chromInfoVec.size();
     
     float ssq[numChr], nnz[numChr];
@@ -1875,15 +1910,15 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
     //ssq.setZero(numChr);
     //nnz.setZero(numChr);
     
-    for (unsigned chr=0; chr<numChr; ++chr) {
-        ChromInfo *chromInfo = chromInfoVec[chr];
-        unsigned chrStart = chromInfo->startSnpIdx;
-        unsigned chrEnd   = chromInfo->endSnpIdx;
-        if (iter==0) {
-            cout << "chr " << chr+1 << " start " << chrStart << " end " << chrEnd << endl;
-        }
-    }
-    if (iter==0) cout << endl;
+//    for (unsigned chr=0; chr<numChr; ++chr) {
+//        ChromInfo *chromInfo = chromInfoVec[chr];
+//        unsigned chrStart = chromInfo->startSnpIdx;
+//        unsigned chrEnd   = chromInfo->endSnpIdx;
+//        if (iter==0) {
+//            cout << "chr " << chr+1 << " start " << chrStart << " end " << chrEnd << endl;
+//        }
+//    }
+//    if (iter==0) cout << endl;
     
     float *valuesPtr = values.data(); // for openmp, otherwise when one thread writes to the vector, the vector locking prevents the writing from other threads
 
@@ -1990,7 +2025,6 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
         numNonZeros += nnz[i];
         nnzPerChr[i] = nnz[i];
     }
-    ++iter;
 
     values = VectorXf::Map(valuesPtr, size);
 }
@@ -2001,7 +2035,6 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<VectorX
                                             const VectorXf &snp2pqPowS, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
                                             const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n,
                                             const float varg, const float ps, const float overdispersion){
-    static unsigned iter = 0;
     long numChr = chromInfoVec.size();
     
     float ssq[numChr], nnz[numChr];
@@ -2095,7 +2128,6 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<VectorX
         numNonZeros += nnz[i];
         nnzPerChr[i] = nnz[i];
     }
-    ++iter;
 
     values = VectorXf::Map(valuesPtr, size);
 }
@@ -2319,7 +2351,6 @@ void ApproxBayesS::Smu::sampleFromFC(const vector<SparseVector<float> > &ZPZ, co
 
 
 void ApproxBayesS::sampleUnknowns(){
-    static unsigned iter = 0;
     
 //    if (iter==0) vareiMean.setZero(data.numIncdSnps); ///TMP
 
@@ -2378,10 +2409,10 @@ void ApproxBayesS::sampleUnknowns(){
         scalePrior += (sigmaSq.scale - scalePrior)/iter;
     }
     
-    if (sparse) {
-        nnzgwas.compute(snpEffects.values, data.ZPZsp, data.ZPZdiag);
-        pigwas.compute(nnzgwas.value, data.numIncdSnps);
-    }
+//    if (sparse) {
+//        nnzgwas.compute(snpEffects.values, data.ZPZsp, data.ZPZdiag);
+//        pigwas.compute(nnzgwas.value, data.numIncdSnps);
+//    }
 }
 
 
@@ -2390,7 +2421,6 @@ void ApproxBayesST::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
                                              const vector<ChromInfo *> &chromInfoVec, const VectorXf &LDsamplVar, const ArrayXf &hSlT, const VectorXf &snp2pq,
                                              const float sigmaSq, const float pi, const float vare, const float varg,
                                              const float ps, const float overdispersion) {
-    static unsigned iter = 0;
     long numChr = chromInfoVec.size();
     
     float ssq[numChr], nnz[numChr];
@@ -2399,15 +2429,15 @@ void ApproxBayesST::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
     
     sum2pqhSlT = 0.0;
     
-    for (unsigned chr=0; chr<numChr; ++chr) {
-        ChromInfo *chromInfo = chromInfoVec[chr];
-        unsigned chrStart = chromInfo->startSnpIdx;
-        unsigned chrEnd   = chromInfo->endSnpIdx;
-        if (iter==0) {
-            cout << "chr " << chr+1 << " start " << chrStart << " end " << chrEnd << endl;
-        }
-    }
-    if (iter==0) cout << endl;
+//    for (unsigned chr=0; chr<numChr; ++chr) {
+//        ChromInfo *chromInfo = chromInfoVec[chr];
+//        unsigned chrStart = chromInfo->startSnpIdx;
+//        unsigned chrEnd   = chromInfo->endSnpIdx;
+//        if (iter==0) {
+//            cout << "chr " << chr+1 << " start " << chrStart << " end " << chrEnd << endl;
+//        }
+//    }
+//    if (iter==0) cout << endl;
     
     float *valuesPtr = values.data(); // for openmp, otherwise when one thread writes to the vector, the vector locking prevents the writing from other threads
     
@@ -2475,7 +2505,6 @@ void ApproxBayesST::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
         numNonZeros += nnz[i];
         nnzPerChr[i] = nnz[i];
     }
-    ++iter;
     
     values = VectorXf::Map(valuesPtr, size);
 }
@@ -2673,7 +2702,6 @@ float ApproxBayesST::Tp::computeU(const float &T, const ArrayXf &snpEffectSq, co
 
 
 void ApproxBayesST::sampleUnknowns(){
-    static unsigned iter = 0;
     unsigned cnt=0;
     do {
         snpEffects.sampleFromFC(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.chromInfoVec,
@@ -2697,8 +2725,22 @@ void ApproxBayesST::sampleUnknowns(){
     scale.getValue(sigmaSq.scale);
     rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, data.chisq);
-    nnzgwas.compute(snpEffects.values, data.ZPZsp, data.ZPZdiag);
-    pigwas.compute(nnzgwas.value, data.numIncdSnps);
+//    nnzgwas.compute(snpEffects.values, data.ZPZsp, data.ZPZdiag);
+//    pigwas.compute(nnzgwas.value, data.numIncdSnps);
+}
+
+void ApproxBayesST::sampleStartVal(){
+    sigmaSq.sampleFromPrior();
+    if (estimatePi) pi.sampleFromPrior();
+    S.sampleFromPrior();
+    T.sampleFromPrior();
+    if (myMPI::rank==0) {
+        cout << "  Starting value for " << sigmaSq.label << ": " << sigmaSq.value << endl;
+        if (estimatePi) cout << "  Starting value for " << pi.label << ": " << pi.value << endl;
+        cout << "  Starting value for " << S.label << ": " << S.value << endl;
+        cout << "  Starting value for " << T.label << ": " << T.value << endl;
+        cout << endl;
+    }
 }
 
 
@@ -3383,7 +3425,6 @@ void ApproxBayesKappa::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Ve
 
 
 void ApproxBayesSMix::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy, const vector<ChromInfo *> &chromInfoVec, const VectorXf &LDsamplVar, const ArrayXf &snp2pqPowS, const VectorXf &snp2pq, const Vector2f &sigmaSq, const Vector3f &pi, const float vare, const float varg, const float ps, const float overdispersion, VectorXf &deltaS) {
-    static unsigned iter = 0;
     long numChr = chromInfoVec.size();
     
     wtdSum2pq.setZero();
@@ -3394,15 +3435,15 @@ void ApproxBayesSMix::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spa
     valuesMixCompS.setZero(size);
     deltaS.setZero(size);
     
-    for (unsigned chr=0; chr<numChr; ++chr) {
-        ChromInfo *chromInfo = chromInfoVec[chr];
-        unsigned chrStart = chromInfo->startSnpIdx;
-        unsigned chrEnd   = chromInfo->endSnpIdx;
-        if (iter==0) {
-            cout << "chr " << chr+1 << " start " << chrStart << " end " << chrEnd << endl;
-        }
-    }
-    if (iter==0) cout << endl;
+//    for (unsigned chr=0; chr<numChr; ++chr) {
+//        ChromInfo *chromInfo = chromInfoVec[chr];
+//        unsigned chrStart = chromInfo->startSnpIdx;
+//        unsigned chrEnd   = chromInfo->endSnpIdx;
+//        if (iter==0) {
+//            cout << "chr " << chr+1 << " start " << chrStart << " end " << chrEnd << endl;
+//        }
+//    }
+//    if (iter==0) cout << endl;
     
     for (unsigned chr=0; chr<numChr; ++chr) {
         //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;
@@ -3476,11 +3517,9 @@ void ApproxBayesSMix::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spa
             }
         }
     }
-    ++iter;
 }
 
 void ApproxBayesSMix::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy, const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo *> &chromInfoVec, const VectorXf &LDsamplVar, const ArrayXf &snp2pqPowS, const VectorXf &snp2pq, const Vector2f &sigmaSq, const Vector3f &pi, const float vare, const float varg, const float ps, const float overdispersion, VectorXf &deltaS) {
-    static unsigned iter = 0;
     long numChr = chromInfoVec.size();
     
     wtdSum2pq.setZero();
@@ -3491,15 +3530,15 @@ void ApproxBayesSMix::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vec
     valuesMixCompS.setZero(size);
     deltaS.setZero(size);
     
-    for (unsigned chr=0; chr<numChr; ++chr) {
-        ChromInfo *chromInfo = chromInfoVec[chr];
-        unsigned chrStart = chromInfo->startSnpIdx;
-        unsigned chrEnd   = chromInfo->endSnpIdx;
-        if (iter==0) {
-            cout << "chr " << chr+1 << " start " << chrStart << " end " << chrEnd << endl;
-        }
-    }
-    if (iter==0) cout << endl;
+//    for (unsigned chr=0; chr<numChr; ++chr) {
+//        ChromInfo *chromInfo = chromInfoVec[chr];
+//        unsigned chrStart = chromInfo->startSnpIdx;
+//        unsigned chrEnd   = chromInfo->endSnpIdx;
+//        if (iter==0) {
+//            cout << "chr " << chr+1 << " start " << chrStart << " end " << chrEnd << endl;
+//        }
+//    }
+//    if (iter==0) cout << endl;
     
     for (unsigned chr=0; chr<numChr; ++chr) {
         //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;
@@ -3570,7 +3609,6 @@ void ApproxBayesSMix::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vec
             }
         }
     }
-    ++iter;
 }
 
 
@@ -3610,7 +3648,6 @@ void ApproxBayesSMix::HeritabilityMixComp::compute(const Vector2f &vargMixComp, 
 }
 
 void ApproxBayesSMix::sampleUnknowns() {
-    static unsigned iter = 0;
     unsigned cnt=0;
     do {
         if (sparse) {
@@ -3653,8 +3690,6 @@ void ApproxBayesSMix::sampleUnknowns() {
 
 
 void BayesSMix::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const ArrayXf &snp2pqPowS, const VectorXf &snp2pq, const Vector2f &sigmaSq, const Vector3f &pi, const float vare, VectorXf &deltaS, VectorXf &ghat, vector<VectorXf> &ghatMixComp){
-    
-    static unsigned iter=0;
     
     wtdSum2pq.setZero();
     wtdSumSq.setZero();
@@ -3733,7 +3768,6 @@ void BayesSMix::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, con
         }
     }
     
-    ++iter;
 }
 
 void BayesSMix::GenotypicVarMixComp::compute(const vector<VectorXf> &ghatMixComp){
@@ -3742,9 +3776,7 @@ void BayesSMix::GenotypicVarMixComp::compute(const vector<VectorXf> &ghatMixComp
     }
 }
 
-void BayesSMix::sampleUnknowns(){
-    static unsigned iter = 0;
-    
+void BayesSMix::sampleUnknowns(){    
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
     
     unsigned cnt=0;

@@ -97,8 +97,9 @@ private:
     void printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
     
 public:
-    vector<McmcSamples*> run(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin,
+    vector<McmcSamples*> run(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const bool print,
                              const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior);
+    void convergeDiagGelmanRubin(const Model &model, vector<vector<McmcSamples*> > &mcmcSampleVecChain, const string &filename);
 };
 
 #endif /* mcmc_hpp */
