@@ -186,6 +186,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
 //            varResidual = atof(argv[++i]);
 //            ss << "--vare " << argv[i] << "\n";
 //        }
+        else if (!strcmp(argv[i], "--num-chains")) {
+            numChains = atoi(argv[++i]);
+            ss << "--num-chains " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--chain-length")) {
             chainLength = atoi(argv[++i]);
             ss << "--chain-length " << argv[i] << "\n";

@@ -33,6 +33,7 @@ const unsigned Megabase = 1e6;
 
 class Options {
 public:
+    unsigned numChains;
     unsigned chainLength;
     unsigned burnin;
     unsigned outputFreq;
@@ -117,6 +118,7 @@ public:
     string outLDmatType;
     
     Options(){
+        numChains               = 1;
         chainLength             = 50000;
         burnin                  = 20000;
         outputFreq              = 100;

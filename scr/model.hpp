@@ -52,6 +52,7 @@ public:
     vector<ParamSet*> paramSetToPrint;
     
     virtual void sampleUnknowns(void) = 0;
+    virtual void sampleStartVal(void) = 0;
 };
 
 
@@ -131,10 +132,9 @@ public:
         }
         
         void sampleFromFC(const float snpEffSumSq, const unsigned numSnpEff);
-        void computeScale(const float varg, const float sum2pq) {scale = (df-2)/df*varg/sum2pq;};
-        void compute(const float snpEffSumSq, const float numSnpEff) {
-            if (numSnpEff) value = snpEffSumSq/numSnpEff;
-        };
+        void sampleFromPrior(void);
+        void computeScale(const float varg, const float sum2pq);
+        void compute(const float snpEffSumSq, const float numSnpEff);
 
     };
     
@@ -163,7 +163,8 @@ public:
         }
         
         void sampleFromFC(const unsigned numSnps, const unsigned numSnpEff);
-        void compute(const float numSnps, const float numSnpEff) {value = numSnpEff/numSnps;};
+        void sampleFromPrior(void);
+        void compute(const float numSnps, const float numSnpEff);
     };
     
     
@@ -282,6 +283,7 @@ public:
     }
     
     void sampleUnknowns(void);
+    void sampleStartVal(void);
 };
 
 
@@ -556,6 +558,7 @@ public:
         void sampleFromFC(const float snpEffWtdSumSq, const unsigned numNonZeros, const float sigmaSq, const VectorXf &snpEffects,
                           const VectorXf &snp2pq, ArrayXf &snp2pqPowS, const ArrayXf &logSnp2pq,
                           const float vg, float &scale, float &sum2pqSplusOne);
+        void sampleFromPrior(void);
         void randomWalkMHsampler(const float snpEffWtdSumSq, const unsigned numNonZeros, const float sigmaSq, const VectorXf &snpEffects,
                                  const VectorXf &snp2pq, ArrayXf &snp2pqPowS, const ArrayXf &logSnp2pq,
                                  const float vg, float &scale, float &sum2pqSplusOne);
@@ -584,6 +587,8 @@ public:
     
     
 public:
+    unsigned iter;
+    
     float genVarPrior;
     float scalePrior;
     ArrayXf snp2pqPowS;
@@ -601,6 +606,7 @@ public:
     genVarPrior(varGenotypic),
     scalePrior(sigmaSq.scale)
     {
+        iter = 0;
         findStartValueForS(svalue);
         snp2pqPowS = data.snp2pq.array().pow(S.value);
         sigmaSq.value = varGenotypic/((snp2pqPowS*data.snp2pq.array()).sum()*pival);
@@ -618,6 +624,7 @@ public:
     }
     
     void sampleUnknowns(void);
+    void sampleStartVal(void);
     void findStartValueForS(const vector<float> &val);
     float computeLogLikelihood(void);
     void sampleUnknownsWarmup(void);
@@ -630,6 +637,9 @@ public:
     
     class SnpEffects : public BayesN::SnpEffects {
     public:
+        unsigned iter;
+        unsigned burnin;
+        
         float wtdSumSq;  // weighted sum of squares by 2pq^S
         float sum2pqSplusOne;  // sum of delta_j* (2p_j q_j)^{1+S}
         
@@ -638,6 +648,8 @@ public:
         SnpEffects(const vector<string> &header, const VectorXi &windStart, const VectorXi &windSize,
                    const unsigned snpFittedPerWindow, const VectorXf &snp2pq, const float pi):
         BayesN::SnpEffects(header, windStart, windSize, snpFittedPerWindow){
+            iter - 0;
+            burnin = 2000;
             wtdSumSq = 0.0;
             sum2pqSplusOne = 0.0;
             //sum2pqSplusOne = snp2pq.sum()*(1.0f-pi)*(1.0f-snpFittedPerWindow/float(windSize));  // starting value of S is 0
@@ -870,7 +882,7 @@ public:
     
     ApproxBayesC(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi,
                  const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation,
-                 const bool diagnosticMode, const bool message = true)
+                 const bool diagnosticMode, const bool randomStart = false, const bool message = true)
     : BayesC(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, "Gibbs", false)
     , data(data)
     , rcorr(data.ZPy)
@@ -892,12 +904,12 @@ public:
         paramSetVec = {&snpEffects};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &sigmaSqG, &hsq};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &sigmaSqG, &hsq, &rounding};
-        if (sparse) {
-            paramVec.push_back(&pigwas);
-            paramVec.push_back(&nnzgwas);
-            paramToPrint.push_back(&pigwas);
-            paramToPrint.push_back(&nnzgwas);
-        }
+//        if (sparse) {
+//            paramVec.push_back(&pigwas);
+//            paramVec.push_back(&nnzgwas);
+//            paramToPrint.push_back(&pigwas);
+//            paramToPrint.push_back(&nnzgwas);
+//        }
         if (modelPS) {
             paramVec.push_back(&ps);
             paramToPrint.push_back(&ps);
@@ -914,6 +926,7 @@ public:
         if (message && myMPI::rank==0) {
             cout << "\nApproximate BayesC model fitted." << endl;
         }
+        if (randomStart) sampleStartVal();
     }
     
     void sampleUnknowns(void);
@@ -1025,7 +1038,7 @@ public:
     ApproxBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi,
                  const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation,
                  const float varS, const vector<float> &svalue,
-                 const string &algorithm, const bool diagnosticMode, const bool message = true)
+                 const string &algorithm, const bool diagnosticMode, const bool randomStart = false, const bool message = true)
     : BayesS(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, varS, svalue, algorithm, false)
     , rcorr(data.ZPy)
     , varei(data.tss.array()/data.n.array())
@@ -1049,12 +1062,12 @@ public:
         paramSetVec = {&snpEffects};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &sigmaSqG, &hsq};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &sigmaSqG, &hsq, &rounding};
-        if (sparse) {
-            paramVec.push_back(&pigwas);
-            paramVec.push_back(&nnzgwas);
-            paramToPrint.push_back(&pigwas);
-            paramToPrint.push_back(&nnzgwas);
-        }
+//        if (sparse) {
+//            paramVec.push_back(&pigwas);
+//            paramVec.push_back(&nnzgwas);
+//            paramToPrint.push_back(&pigwas);
+//            paramToPrint.push_back(&nnzgwas);
+//        }
         if (estimateEffectMean) {
             paramVec.push_back(&mu);
             paramVec.push_back(&Su);
@@ -1079,6 +1092,8 @@ public:
             if (alg!="RMH") alg = "HMC (default)";
             cout << "\nApproximate BayesS model fitted. Algorithm: " << alg << "." << endl;
         }
+
+        if (randomStart) sampleStartVal();
 
 //        MatrixXf X(data.numIncdSnps, 2);
 //        X.col(0) = VectorXf::Ones(data.numIncdSnps);
@@ -1155,7 +1170,7 @@ public:
     ApproxBayesST(const Data &data, const float varGenotypic, const float varResidual, const float pival,
                   const float piAlpha, const float piBeta, const bool estimatePi, const float overdispersion,
                   const bool estimatePS, const float varS, const vector<float> &svalue, const bool estimateS,
-                  const bool message = true):
+                  const bool randomStart = false, const bool message = true):
     ApproxBayesS(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, 0, overdispersion, estimatePS, 0, 0, varS, svalue, "HMC", false, false),
     estimateS(estimateS),
     logLdsc(data.LDscore.array().log()),
@@ -1179,9 +1194,12 @@ public:
         if (message && myMPI::rank==0) {
             cout << "\nApproximate BayesST model fitted." << endl;
         }
+        
+        if (randomStart) sampleStartVal();
     }
 
     void sampleUnknowns(void);
+    void sampleStartVal(void);
 };
 
 

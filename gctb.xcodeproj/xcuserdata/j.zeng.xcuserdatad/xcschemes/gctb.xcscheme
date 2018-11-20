@@ -91,7 +91,7 @@
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--sbayes SMix"
+            argument = "--sbayes R"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
@@ -103,11 +103,15 @@
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--chain-length 1000"
+            argument = "--chain-length 200"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--burn-in 0"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--out-freq 1"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
@@ -117,6 +121,14 @@
          <CommandLineArgument
             argument = "--out /Users/j.zeng/Work/Projects/sbayes/slim/test"
             isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--num-chains 2"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--thread 2"
+            isEnabled = "NO">
          </CommandLineArgument>
       </CommandLineArguments>
       <AdditionalOptions>
