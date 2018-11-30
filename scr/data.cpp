@@ -1035,16 +1035,16 @@ void Data::readGwasSummaryFile(const string &gwasFile){
         if (it == snpInfoMap.end()) continue;
         snp = it->second;
         if (!snp->included) continue;
-        if (allele1 == snp->a1 && allele2 == snp->a2) {
+        if ((allele1 == "A" && allele2 == "T") || (allele1 == "T" && allele2 == "A") || (allele1 == "G" && allele2 == "C") || (allele1 == "C" && allele2 == "G") ) {
+            cout << "WARNING: SNP " + id + " is being removed due to strand abiguity." << endl;
+            snp->included = false;
+            ++incon;
+        } else if (allele1 == snp->a1 && allele2 == snp->a2) {
             snp->gwas_b  = atof(b.c_str());
             snp->gwas_af = atof(freq.c_str());
             snp->gwas_se = atof(se.c_str());
             snp->gwas_n  = atof(n.c_str());
             ++match;
-        } else if ((allele1 == "A" && allele2 == "T") || (allele1 == "T" && allele2 == "A") || (allele1 == "G" && allele2 == "C") || (allele1 == "C" && allele2 == "G") ) {
-            cout << "WARNING: SNP " + id + " is being removed due to strand abiguity." << endl;
-            snp->included = false;
-            ++incon;
         } else {
             cout << "WARNING: SNP " + id + " has inconsistent allele coding in between the reference and GWAS samples." << endl;
             snp->included = false;
