@@ -223,9 +223,9 @@ public:
     Senrich(data.annoNames),
     scaleStrat(data.annoNames)
     {
-        paramSetVec = {&snpEffects, &piStrat, &piEnrich, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &Sstrat, &Senrich};
+        paramSetVec = {&snpEffects, &piStrat, &piEnrich, &sigmaSqStrat, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &Sstrat, &Senrich};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
-        paramSetToPrint = {&piStrat, &piEnrich, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &Sstrat, &Senrich};
+        paramSetToPrint = {&piStrat, &piEnrich, &sigmaSqStrat, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &Sstrat, &Senrich};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &rounding};
         if (modelPS) {
             paramVec.push_back(&ps);

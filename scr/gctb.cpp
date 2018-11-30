@@ -101,9 +101,9 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
             else if (bayesType == "SMix")
                 return new ApproxBayesSMix(data, data.varGenotypic, data.varResidual, pi, overdispersion, estimatePS, varS, S);
             else if (bayesType == "R")
-                return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, icrsq, spouseCorrelation);
+                return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, icrsq);
             else if (bayesType == "Kap")
-                return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, icrsq, spouseCorrelation, kappa);
+                return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, icrsq, kappa);
             else
                 throw(" Error: Wrong bayes type: " + bayesType + " in the summary-data-based Bayesian analysis.");
         }
@@ -181,10 +181,10 @@ vector<McmcSamples*> GCTB::multi_chain_mcmc(Data &data, const string &bayesType,
     
     if (myMPI::rank==0) cout << numChains << "-chain ";
 
-#pragma omp parallel for
+//#pragma omp parallel for
     for (unsigned i=0; i<numChains; ++i) {
         MCMC mcmc;
-        bool print = !i;
+        bool print = true;
         mcmcSampleVecChain[i] = mcmc.run(*modelVec[i], chainLength, burnin, thin, print, outputFreq, title, (writeBinPosterior && print), (writeTxtPosterior && print));
     }
     
