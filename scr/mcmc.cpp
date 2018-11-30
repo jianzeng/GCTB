@@ -16,7 +16,7 @@ void McmcSamples::getSample(const unsigned iter, const VectorXf &sample, const b
     unsigned thin_iter = iter/thin;
     unsigned thin_iter_post_burnin = thin_iter - burnin/thin;
     if (storageMode == dense) {
-        if (writeTxtPosterior) tout << sample.transpose() << endl;
+//        if (writeTxtPosterior) tout << sample.transpose() << endl;
         if (iter >= burnin) {
             datMat.row(thin_iter_post_burnin) = sample;
             posteriorMean.array() += (sample - posteriorMean).array()/(thin_iter_post_burnin+1);

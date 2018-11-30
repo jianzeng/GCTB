@@ -1180,8 +1180,8 @@ public:
     T(data.numIncdSnps)
     {
         paramSetVec = {&snpEffects};
-        paramVec = {&pi, &nnzSnp, &pigwas, &nnzgwas, &sigmaSq, &S, &T, &vare, &varg, &hsq};
-        paramToPrint = {&pi, &nnzSnp, &pigwas, &nnzgwas, &sigmaSq, &S, &T, &vare, &varg, &hsq, &rounding};
+        paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &T, &vare, &varg, &hsq};
+        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &T, &vare, &varg, &hsq, &rounding};
         if (modelPS) {
             paramVec.push_back(&ps);
             paramToPrint.push_back(&ps);
@@ -1269,7 +1269,7 @@ public:
     
     ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const float piAlpha, const float piBeta, const VectorXf gamma, const bool estimatePi, const float icrsq,
                  const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, pis[0], piAlpha, piBeta, estimatePi, 0, 0, false, icrsq, false, false),
+    ApproxBayesC(data, varGenotypic, varResidual, pis[0], piAlpha, piBeta, estimatePi, 0, 0, false, icrsq, 0, false, false, false),
     Pis(pis),
     gamma(gamma, vector<string>(gamma.size())),
     varg(varGenotypic, data.numKeptInds),
@@ -1387,9 +1387,9 @@ public:
     ApproxBayesC::GenotypicVar varg;
     Kappa kappa;
     
-    ApproxBayesKappa(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const float piAlpha, const float piBeta, const VectorXf gamma, const bool estimatePi, const float icrsq, const float spouseCorrelation,
+    ApproxBayesKappa(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const float piAlpha, const float piBeta, const VectorXf gamma, const bool estimatePi, const float icrsq,
                      const float kappa_str, const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, pis[0], piAlpha, piBeta, estimatePi, 0, 0, icrsq, spouseCorrelation, false, false),
+    ApproxBayesC(data, varGenotypic, varResidual, pis[0], piAlpha, piBeta, estimatePi, 0, 0, false, icrsq, 0, false, false, false),
     Pis(pis),
     gamma(gamma, vector<string>(gamma.size())),
     kappa(kappa_str),
