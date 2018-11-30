@@ -2462,6 +2462,8 @@ void ApproxBayesKappa::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sp
     VectorXf gp, ll, gamgam, pll, var_b_ls;
     gamgam.setZero(pis.size());
     snpStore.setZero(pis.size());
+    ll.setZero(pis.size());
+    pll.setZero(pis.size());
     //snpindist.setZero(tss.size());
     // kappa=2.302585;
     // --------------------------------------------------------------------------------
@@ -2520,12 +2522,15 @@ void ApproxBayesKappa::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sp
             // ------------------------------------------------------
             // Calculate the likelihoods for each distribution
             // ------------------------------------------------------
-            ll = (-1.0 / 2.0) * var_b_ls.array().log()  - (b_ls * b_ls)  / (2 * var_b_ls.array());
+            ll = (-1.0 / 2.0) * var_b_ls.array().log()  - (b_ls * b_ls)  / (2 * var_b_ls.array()) + pis.array().log();
             // --------------------------------------------------------------
             // Calculate probability that snp is in each of the distributions
             // in this iteration
             // --------------------------------------------------------------
-            pll = (ll.array().exp().cwiseProduct(pis.array())) / ((ll.array().exp()).cwiseProduct(pis.array())).sum();
+            // pll = (ll.array().exp().cwiseProduct(pis.array())) / ((ll.array().exp()).cwiseProduct(pis.array())).sum();
+            for (unsigned k=0; k<pis.size(); ++k) {
+              pll[k] = 1.0 / (exp(ll.array() - ll[k])).sum();
+            }
             // --------------------------------------------------------------
             // Sample the group based on the calculated probabilities
             // --------------------------------------------------------------
@@ -2607,6 +2612,8 @@ void ApproxBayesKappa::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Ve
     VectorXf gp, gamgam, ll, pll, var_b_ls;
     gamgam.setZero(pis.size());
     snpStore.setZero(pis.size());
+    ll.setZero(pis.size());
+    pll.setZero(pis.size());
     //snpindist.setZero(tss.size());
     // --------------------------------------------------------------------------------
     // Scale the variances in each of the normal distributions by the genetic variance
@@ -2664,12 +2671,15 @@ void ApproxBayesKappa::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Ve
             // ------------------------------------------------------
             // Calculate the likelihoods for each distribution
             // ------------------------------------------------------
-            ll = (-1.0 / 2.0) * var_b_ls.array().log()  - (b_ls * b_ls)  / (2 * var_b_ls.array());
+            ll = (-1.0 / 2.0) * var_b_ls.array().log()  - (b_ls * b_ls)  / (2 * var_b_ls.array()) + pis.array().log();
             // --------------------------------------------------------------
             // Calculate probability that snp is in each of the distributions
             // in this iteration
             // --------------------------------------------------------------
-            pll = (ll.array().exp().cwiseProduct(pis.array())) / ((ll.array().exp()).cwiseProduct(pis.array())).sum();
+            // pll = (ll.array().exp().cwiseProduct(pis.array())) / ((ll.array().exp()).cwiseProduct(pis.array())).sum();
+            for (unsigned k=0; k<pis.size(); ++k) {
+              pll[k] = 1.0 / (exp(ll.array() - ll[k])).sum();
+            }
             // cout << "Likelihoods " << pll << endl;
             // --------------------------------------------------------------
             // Sample the group based on the calculated probabilities
