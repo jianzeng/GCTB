@@ -448,10 +448,7 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const u
 void MCMC::convergeDiagGelmanRubin(const Model &model, vector<vector<McmcSamples *> > &mcmcSampleVecChain, const string &filename){
     if (!model.paramToPrint.size()) return;
     ofstream out;
-    out.open(filename.c_str());
-    if (!out) {
-        throw("Error: cannot open file " + filename);
-    }
+    out.open((filename + ".parRes").c_str());
     cout << "\nPosterior statistics from multiple chains:\n\n";
     cout << boost::format("%13s %-15s %-15s %-12s\n") %"" % "Mean" % "SD " % "R_GelmanRubin ";
     out << "Posterior statistics from multiple chains:\n\n";
@@ -494,4 +491,59 @@ void MCMC::convergeDiagGelmanRubin(const Model &model, vector<vector<McmcSamples
         }
     }
     out.close();
+    
+    if (model.paramSetToPrint.size()) {
+        ofstream out2;
+        out2.open((filename + ".parSetRes").c_str());
+        
+        for (unsigned i=0; i<model.paramSetToPrint.size(); ++i) {
+            ParamSet *parset = model.paramSetToPrint[i];
+            for (unsigned j=0; j<mcmcSampleVecChain[0].size(); ++j) {
+                McmcSamples *mcmcSamples = mcmcSampleVecChain[0][j];
+                if (mcmcSamples->label == parset->label) {
+                    MatrixXf meanMat(numChains, parset->size);
+                    MatrixXf varMat(numChains, parset->size);
+                    float nsample = mcmcSamples->nrow;
+                    for (unsigned m=0; m<numChains; ++m) {
+                        mcmcSamples = mcmcSampleVecChain[m][j];
+                        meanMat.row(m) = mcmcSamples->mean();
+                        varMat.row(m)  = mcmcSamples->sd();
+                        varMat.row(m) *= varMat.row(m);
+                    }
+                    VectorXf posteriorMean = meanMat.colwise().mean();
+                    VectorXf B = (meanMat.rowwise() - posteriorMean.transpose()).colwise().squaredNorm()*nsample/float(numChains-1);
+                    VectorXf W = varMat.colwise().mean();
+                    VectorXf posteriorVar = (nsample-1.0)*W/nsample + B/nsample;
+                    VectorXf R = sqrt(posteriorVar.array()/W.array());
+                    
+                    for (unsigned col=0; col<parset->size; ++col) {
+                        
+                        out2 << boost::format("%25s %20s %2s %-15.6f %-15.6f ")
+                        % parset->label
+                        % parset->header[col]
+                        % ""
+                        % posteriorMean[col]
+                        % sqrt(posteriorVar[col]);
+                        Gadget::Tokenizer token;
+                        token.getTokens(parset->label, "_");
+                        float postprob = 0;
+                        if (token.back() == "Enrichment") {
+                            for (unsigned row=0; row<mcmcSamples->nrow; ++row) {
+                                if (mcmcSamples->datMat(row, col) > 1) ++postprob;
+                            }
+                        } else {
+                            for (unsigned row=0; row<mcmcSamples->nrow; ++row) {
+                                if (mcmcSamples->datMat(row, col) > 0) ++postprob;
+                            }
+                        }
+                        postprob /= float(mcmcSamples->nrow);
+                        out2 << boost::format("%-15.6f %-12.3f\n") % postprob % R[col];
+                    }
+                    break;
+                }
+            }
+        }
+        
+    }
+
 }

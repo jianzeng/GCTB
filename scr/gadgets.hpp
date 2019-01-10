@@ -73,10 +73,12 @@ namespace Gadget {
     void fileExist(const string &filename);
     
     // statistics functions
+    float calcMean(const VectorXf &vec);
     float calcVariance(const VectorXf &vec);
     float calcCovariance(const VectorXf &vec1, const VectorXf &vec2);
     float calcCorrelation(const VectorXf &vec1, const VectorXf &vec2);
     float calcRegression(const VectorXf &y, const VectorXf &x);
+    float findMedian(const VectorXf &vec);
 
 }
 

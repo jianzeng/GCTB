@@ -91,15 +91,19 @@
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--sbayes R"
+            argument = "--sbayes S"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--ldm /Users/j.zeng/Work/Projects/sbayes/slim/test.ldm.full"
+            argument = "--cont-annot /Users/j.zeng/Work/Projects/sbayes/test/rep1_pi0.05_hsq0.05_delta0.anno"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--gwas-summary /Users/j.zeng/Work/Projects/sbayes/slim/test.ma"
+            argument = "--ldm /Users/j.zeng/Work/Projects/sbayes/test/rep1_pi0.05_hsq0.05_delta0.ldm.full"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--gwas-summary /Users/j.zeng/Work/Projects/sbayes/test/rep1_pi0.05_hsq0.05_delta0.ma"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument

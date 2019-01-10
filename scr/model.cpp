@@ -1560,7 +1560,7 @@ float ApproxBayesC::SnpEffects::computeU(const VectorXf &effects, const VectorXf
 
 void ApproxBayesC::ResidualVar::sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float covg) {
     float sse = ypy - effects.dot(ZPy) - effects.dot(rcorr) + nobs*covg;
-//    if (sse < 0) sse = 0.0;
+    if (sse < 0) sse = 0.0;
 //    if (sse > ypy) sse = ypy;
     float dfTilde = df + nobs;
     float scaleTilde = sse + df*scale;

@@ -71,15 +71,23 @@ void Gadget::fileExist(const string &filename){
     if(!file) throw("Error: can not open the file ["+filename+"] to read.");
 }
 
+float Gadget::calcMean(const VectorXf &vec){
+    VectorXd vec_double = vec.cast<double>();
+    return vec_double.mean();
+}
+
 float Gadget::calcVariance(const VectorXf &vec){
-    return (vec.array() - vec.mean()).square().sum()/vec.size();
+    VectorXd vec_double = vec.cast<double>();
+    return (vec_double.array() - vec_double.mean()).square().sum()/vec_double.size();
 }
 
 float Gadget::calcCovariance(const VectorXf &vec1, const VectorXf &vec2){
     if (vec1.size() != vec2.size()) {
         throw("Error: Gadget::calcCovariance: the two vectors have different sizes.");
     }
-    return (vec1.array()-vec1.mean()).cwiseProduct(vec2.array()-vec2.mean()).sum()/vec1.size();
+    VectorXd vec1_double = vec1.cast<double>();
+    VectorXd vec2_double = vec2.cast<double>();
+    return (vec1_double.array()-vec1_double.mean()).cwiseProduct(vec2_double.array()-vec2_double.mean()).sum()/vec1_double.size();
 }
 
 float Gadget::calcCorrelation(const VectorXf &vec1, const VectorXf &vec2){
@@ -94,3 +102,10 @@ float Gadget::calcRegression(const VectorXf &y, const VectorXf &x){
     float varx = calcVariance(x);
     return cov/varx;
 }
+
+float Gadget::findMedian(const VectorXf &vec){
+    VectorXf tmp = vec;
+    std::sort(tmp.data(), tmp.data() + tmp.size());
+    return tmp[tmp.size()/2];
+}
+
