@@ -29,7 +29,7 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &include
     if (readGenotypes) data.readBedFile(bedFile + ".bed");
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile, const bool multiLDmat, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap){
+void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile, const bool multiLDmat, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap, const bool imputeN){
     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
@@ -47,7 +47,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     else if (!continuousAnnoFile.empty())
         data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000, eQTLFile);
     if (!ldscoreFile.empty()) data.readLDscoreFile(ldscoreFile);
-    if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax);
+    if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, imputeN);
     data.includeMatchedSnp();
     if (geneticMapFile.empty()) {
         if (multiLDmat)
@@ -63,14 +63,14 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (!gwasSummaryFile.empty()) data.buildSparseMME(sampleOverlap);
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap){
+void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap, const bool imputeN){
     data.readFamFile(bedFile + ".fam");
     data.readBimFile(bedFile + ".bim");
 
     data.keptIndInfoVec = data.makeKeptIndInfoVec(data.indInfoVec);
     data.numKeptInds =  (unsigned) data.keptIndInfoVec.size();
     
-    data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax);
+    data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, imputeN);
     data.includeMatchedSnp();
     data.readBedFile(bedFile + ".bed");
     data.buildSparseMME(sampleOverlap);
@@ -164,16 +164,24 @@ vector<McmcSamples*> GCTB::multi_chain_mcmc(Data &data, const string &bayesType,
     vector<Model*> modelVec(numChains);
     
     for (unsigned i=0; i<numChains; ++i) {
-        if (bayesType == "C")
-            modelVec[i] = new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, diagnosticMode, true, !i);
-        else if (bayesType == "S")
-            modelVec[i] = new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, S, algorithm, diagnosticMode, true, !i);
-        else if (bayesType == "ST")
-            modelVec[i] = new ApproxBayesST(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, overdispersion, estimatePS, varS, S, true, true, !i);
-        else if (bayesType == "T")
-            modelVec[i] = new ApproxBayesST(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, overdispersion, estimatePS, varS, S, false, true, !i);
-        else
-            throw(" Error: " + bayesType + " is not available in the multi-chain Bayesian analysis.");
+        if (data.numAnnos) {
+            if (bayesType == "S")
+                modelVec[i] = new StratApproxBayesS(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, S, algorithm, true, !i);
+            else
+                throw(" Error: " + bayesType + " is not available in the multi-chain annotation-stratified Bayesian analysis.");
+        }
+        else {
+            if (bayesType == "C")
+                modelVec[i] = new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, diagnosticMode, true, !i);
+            else if (bayesType == "S")
+                modelVec[i] = new ApproxBayesS(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, S, algorithm, diagnosticMode, true, !i);
+            else if (bayesType == "ST")
+                modelVec[i] = new ApproxBayesST(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, overdispersion, estimatePS, varS, S, true, true, !i);
+            else if (bayesType == "T")
+                modelVec[i] = new ApproxBayesST(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, overdispersion, estimatePS, varS, S, false, true, !i);
+            else
+                throw(" Error: " + bayesType + " is not available in the multi-chain Bayesian analysis.");
+        }
     }
     
     vector<vector<McmcSamples*> > mcmcSampleVecChain;
@@ -190,7 +198,7 @@ vector<McmcSamples*> GCTB::multi_chain_mcmc(Data &data, const string &bayesType,
     
     if (numChains) {
         MCMC mcmc;
-        mcmc.convergeDiagGelmanRubin(*modelVec[0], mcmcSampleVecChain, title + ".parRes");
+        mcmc.convergeDiagGelmanRubin(*modelVec[0], mcmcSampleVecChain, title);
     }
     
     return mcmcSampleVecChain[0];
@@ -287,7 +295,7 @@ void GCTB::clearGenotypes(Data &data){
     data.X.resize(0,0);
 }
 
-void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDmat, const string &geneticMapFile, const string &snpResFile, const string &mcmcSampleFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &gwasSummaryFile, const string &filename, const string &bayesType, unsigned chainLength, unsigned burnin, const unsigned thin, const unsigned outputFreq){
+void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDmat, const string &geneticMapFile, const string &snpResFile, const string &mcmcSampleFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &gwasSummaryFile, const bool imputeN, const string &filename, const string &bayesType, unsigned chainLength, unsigned burnin, const unsigned thin, const unsigned outputFreq){
     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
@@ -297,7 +305,7 @@ void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDma
         data.readAnnotationFile(annotationFile, transpose, true);
     else
         data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000, eQTLFile);
-    data.readGwasSummaryFile(gwasSummaryFile, 1, 0, 0);
+    data.readGwasSummaryFile(gwasSummaryFile, 1, 0, 0, imputeN);
     data.includeMatchedSnp();
     if (geneticMapFile.empty()) {
         if (multiLDmat)

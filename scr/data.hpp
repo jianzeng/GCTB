@@ -90,7 +90,7 @@ public:
         gwas_b  = -999;
         gwas_se = -999;
         gwas_n  = -999;
-        gwas_af = -999;
+        gwas_af = -1;
         ldSamplVar = 0.0;
         ldSum = 0.0;
         ldsc = 0.0;
@@ -265,7 +265,8 @@ public:
     void readBedFile(const string &bedFile);
     void readPhenotypeFile(const string &phenFile, const unsigned mphen);
     void readCovariateFile(const string &covarFile);
-    void readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax);
+    void readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax, const bool imputeN);
+    void readLDmatrixInfoFileOld(const string &ldmatrixFile);
     void readLDmatrixInfoFile(const string &ldmatrixFile);
     void readLDmatrixBinFile(const string &ldmatrixFile);
     void readGeneticMapFile(const string &freqFile);
@@ -320,7 +321,8 @@ public:
     void readAnnotationFileFormat2(const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile); // for continuous annotations
     void setAnnoInfoVec(void);
     void readLDscoreFile(const string &ldscFile);
-    void makeAnnowiseSparseLDM(const vector<SparseVector<float> > &ZPZsp, const vector<AnnoInfo *> &annoInfoVec, const vector<SnpInfo*> &snpInfoVec);    
+    void makeAnnowiseSparseLDM(const vector<SparseVector<float> > &ZPZsp, const vector<AnnoInfo *> &annoInfoVec, const vector<SnpInfo*> &snpInfoVec);
+    void imputePerSnpSampleSize(vector<SnpInfo*> &snpInfoVec, unsigned &numIncdSnps, float sd);
 };
 
 #endif /* data_hpp */

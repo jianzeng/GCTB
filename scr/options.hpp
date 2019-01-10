@@ -86,6 +86,7 @@ public:
     bool excludeAmbiguousSNP;  // exlcude ambiguous SNPs with A/T or G/C alleles
     bool transpose;   // transpose the annotation file
     bool sampleOverlap;  // whether LD ref is the same as GWAS sample
+    bool imputeN;  // impute per-SNP sample size
 
     // Bayes R defauls
     VectorXf gamma;  // Default scaling parameters for Bayes R
@@ -150,7 +151,7 @@ public:
         cutOff                  = 1e-5;
         icrsq                   = 0;
         spouseCorrelation       = 0;
-        afDiff                  = 0.05;
+        afDiff                  = 999;
         mafmin                  = 0;
         mafmax                  = 0;
         flank                   = 0;
@@ -180,6 +181,7 @@ public:
         excludeAmbiguousSNP     = false;
         transpose               = false;
         sampleOverlap           = false;
+        imputeN                 = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";

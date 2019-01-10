@@ -35,6 +35,7 @@ public:
         }
         
         void sampleFromFC(const VectorXf &snpEffSumSq, const VectorXf &numSnpEff);
+        void sampleFromPrior(void);
     };
     
     class VarEffectEnrichment : public ParamSet {
@@ -60,6 +61,7 @@ public:
         }
         
         void sampleFromFC(const vector<unsigned> &numSnps, const VectorXf &numSnpEff);
+        void sampleFromPrior(void);
     };
     
     class PiEnrichment : public ParamSet {
@@ -150,6 +152,7 @@ public:
         float gradientU(const float S, const VectorXf &snpEffects, const float snp2pqLogSum, const VectorXf &snp2pq,
                         const VectorXf &Snp2pqLog, const float sigmaSq);
         float computeU(const float S, const VectorXf &snpEffects, const float snp2pqLogSum, const VectorXf &snp2pq, const float sigmaSq);
+        void sampleFromPrior(void);
     };
     
     class SpEnrichment : public ParamSet {
@@ -185,6 +188,12 @@ public:
                           const VectorXf &snp2pq, const VectorXf &LDsamplVar, const unsigned numAnnos,
                           const VectorXf &sigmaSq, const VectorXf &pi, const VectorXf &S, const float Sgw,
                           const float varg, const float vare, const float ps, const float overdispersion);
+        void sampleFromFC(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag,
+                          const VectorXi &windStart, const VectorXi &windSize,
+                          const vector<ChromInfo*> &chromInfoVec, const vector<SnpInfo*> &incdSnpInfoVec,
+                          const VectorXf &snp2pq, const VectorXf &LDsamplVar, const unsigned numAnnos,
+                          const VectorXf &sigmaSq, const VectorXf &pi, const VectorXf &S, const float Sgw,
+                          const float varg, const float vare, const float ps, const float overdispersion);
     };
     
     SnpEffects snpEffects;
@@ -206,8 +215,8 @@ public:
     StratApproxBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi,
                       const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation,
                       const float varS, const vector<float> &svalue,
-                      const string &algorithm, const bool message = true):
-    ApproxBayesS(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, svalue, algorithm, false, false),
+                      const string &algorithm, const bool randomStart = false, const bool message = true):
+    ApproxBayesS(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, svalue, algorithm, false, randomStart, false),
     snpEffects(data.snpEffectNames, data.snp2pq, pival, data.annoInfoVec),
     sigmaSqStrat(data.annoNames, data.annoInfoVec, varGenotypic, pival),
     sigmaSqEnrich(data.annoNames),
@@ -240,9 +249,11 @@ public:
 //            if (alg!="RMH") alg = "HMC (default)";
             cout << "\nAnnotation-stratified summary-data-based BayesS model fitted." << endl;
         }
+        if (randomStart) sampleStartVal();
     }
     
     void sampleUnknowns(void);
+    void sampleStartVal(void);
 };
 
 

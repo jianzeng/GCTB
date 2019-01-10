@@ -507,7 +507,7 @@ void Data::initVariances(const float heritability){
     }
     varGenotypic = varPhenotypic * heritability;
     varResidual  = varPhenotypic - varGenotypic;
-    //cout <<varPhenotypic<<" " <<varGenotypic << " " <<varResidual << endl;
+//    cout <<ypy<<" "<<numKeptInds<<" "<<varPhenotypic<<" " <<varGenotypic << " " <<varResidual << endl;
 }
 
 void Data::includeSnp(const string &includeSnpFile){
@@ -1223,7 +1223,7 @@ void Data::outputWindowResults(const VectorXf &posteriorMean, const string &file
     out.close();
 }
 
-void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax){
+void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax, const bool imputeN){
     ifstream in(gwasFile.c_str());
     if (!in) throw ("Error: can not open the GWAS summary data file [" + gwasFile + "] to read.");
     if (myMPI::rank==0)
@@ -1239,6 +1239,7 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
     unsigned numInconAllele=0, numInconAf=0, numFixed=0, numMafMin=0, numMafMax=0;
     unsigned numFlip=0;
     bool inconAllele, inconAf, fixed, ismafmin, ismafmax;
+    float gwas_af;
     while (in >> id >> allele1 >> allele2 >> freq >> b >> se >> pval >> n) {
         ++line;
         it = snpInfoMap.find(id);
@@ -1247,13 +1248,15 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
         if (!snp->included) continue;
         inconAllele = inconAf = fixed = ismafmin = ismafmax = false;
         if (allele1 == snp->a1 && allele2 == snp->a2) {
+            gwas_af = atof(freq.c_str());
             snp->gwas_b  = atof(b.c_str());
-            snp->gwas_af = atof(freq.c_str());
+            snp->gwas_af = gwas_af != -1 ? gwas_af : snp->af;  // set -1 in gwas summary file if allele frequencies are not available
             snp->gwas_se = atof(se.c_str());
             snp->gwas_n  = atof(n.c_str());
         } else if (allele1 == snp->a2 && allele2 == snp->a1) {
+            gwas_af = atof(freq.c_str());
             snp->gwas_b  = -atof(b.c_str());
-            snp->gwas_af = 1.0-atof(freq.c_str());
+            snp->gwas_af = gwas_af != -1 ? 1.0 - gwas_af : 1.0 - snp->af;
             snp->gwas_se = atof(se.c_str());
             snp->gwas_n  = atof(n.c_str());
             ++numFlip;
@@ -1287,11 +1290,14 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
     }
     in.close();
     
+    numIncdSnps = 0;
     for (unsigned i=0; i<numSnps; ++i) {
         snp = snpInfoVec[i];
         if (!snp->included) continue;
         if (snp->gwas_b == -999) {
             snp->included = false;
+        } else {
+            ++numIncdSnps;
         }
     }
 
@@ -1305,6 +1311,68 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
         cout << match << " matched SNPs in the GWAS summary data (in total " << line << " SNPs)." << endl;
     }
 
+    if (imputeN) imputePerSnpSampleSize(snpInfoVec, numIncdSnps, 0);
+    
+}
+
+void Data::imputePerSnpSampleSize(vector<SnpInfo*> &snpInfoVec, unsigned &numIncdSnps, float sd) {
+    // use input allele frequencies, b_hat and se to impute per-snp N
+    // then filter SNPs with N > 3 sd apart from the median value
+    ArrayXf n(numIncdSnps);
+    ArrayXf p(numIncdSnps);
+    ArrayXf bsq(numIncdSnps);
+    ArrayXf var(numIncdSnps);
+    ArrayXf tpq(numIncdSnps);
+    ArrayXf ypy(numIncdSnps);
+    SnpInfo *snp;
+    unsigned j = 0;
+    for (unsigned i=0; i<numSnps; ++i) {
+        snp = snpInfoVec[i];
+        if (!snp->included) continue;
+        n[j] = snp->gwas_n;
+        p[j] = snp->gwas_af;
+        bsq[j] = snp->gwas_b*snp->gwas_b;
+        var[j] = snp->gwas_se*snp->gwas_se;
+        ++j;
+    }
+    tpq = 2.0*p*(1.0-p);
+    ypy = tpq*n.square()*var + tpq*n*bsq;
+    float ypy_med = Gadget::findMedian(ypy);
+    // Given ypy and n compute 2pq
+    tpq = ypy / (var*n.square() + bsq*n);
+    // Given ypy_med and 2pq compute n
+    float n_med = Gadget::findMedian(n);
+    float vary = ypy_med / n_med;
+    n = (vary - tpq*bsq) / (tpq*var);
+    // compute sd of n
+    float sdOld = sd;
+    sd = sqrt(Gadget::calcVariance(n));
+    float p_new;
+    j = 0;
+    numIncdSnps = 0;
+    for (unsigned i=0; i<numSnps; ++i) {
+        snp = snpInfoVec[i];
+        if (!snp->included) continue;
+        if (n[j] < n_med - 3*sd || n[j] > n_med + 3*sd) {
+            snp->included = false;
+        }
+        else {
+            snp->gwas_n = n[j];
+            p_new = 0.5 - 0.5*sqrt(1.0-2.0*tpq[j]);
+            snp->gwas_af = p[j] < 0.5 ? p_new : 1.0-p_new;
+            ++numIncdSnps;
+        }
+        ++j;
+    }
+//    cout << n.mean() << " " << ypy_med << " " << sdOld << " " << sd << " " << numIncdSnps << " " << n.head(10).transpose() << endl;
+    if (abs(sd-sdOld) > 0.01) {
+        imputePerSnpSampleSize(snpInfoVec, numIncdSnps, sd);
+    } else {
+        if (myMPI::rank==0) {
+            cout << numIncdSnps << " SNPs with per-SNP sample size within 3 sd around the median value of " << n_med << endl;
+        }
+        return;
+    }
 }
 
 void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const float chisqThreshold, const float LDthreshold, const unsigned windowWidth, const string &snpRange, const string &filename, const bool writeLdmTxt){
@@ -1920,6 +1988,34 @@ void Data::resizeWindow(const vector<SnpInfo *> &incdSnpInfoVec, const VectorXi 
     }
 }
 
+void Data::readLDmatrixInfoFileOld(const string &ldmatrixFile){   // old format: no allele frequency, no header
+    ifstream in(ldmatrixFile.c_str());
+    if (!in) throw ("Error: can not open the file [" + ldmatrixFile + "] to read.");
+    cout << "Reading SNP info from [" + ldmatrixFile + "]." << endl;
+    //snpInfoVec.clear();
+    //snpInfoMap.clear();
+    string header;
+    string id, allele1, allele2;
+    unsigned chr, physPos;
+    float genPos;
+    unsigned idx, windStart, windEnd, windSize, windWidth;
+    long sampleSize;
+    while (in >> chr >> id >> genPos >> physPos >> allele1 >> allele2 >> idx >> windStart >> windEnd >> windSize >> windWidth >> sampleSize) {
+        SnpInfo *snp = new SnpInfo(idx, id, allele1, allele2, chr, genPos, physPos);
+        snp->windStart = windStart;
+        snp->windEnd = windEnd;
+        snp->windSize = windSize;
+        snp->sampleSize = sampleSize;
+        snpInfoVec.push_back(snp);
+        if (snpInfoMap.insert(pair<string, SnpInfo*>(id, snp)).second == false) {
+            throw ("Error: Duplicate SNP ID found: \"" + id + "\".");
+        }
+    }
+    in.close();
+    numSnps = (unsigned) snpInfoVec.size();
+    cout << numSnps << " SNPs to be included from [" + ldmatrixFile + "]." << endl;
+}
+
 void Data::readLDmatrixInfoFile(const string &ldmatrixFile){
     ifstream in(ldmatrixFile.c_str());
     if (!in) throw ("Error: can not open the file [" + ldmatrixFile + "] to read.");
@@ -1936,6 +2032,12 @@ void Data::readLDmatrixInfoFile(const string &ldmatrixFile){
     getline(in, header);
     Gadget::Tokenizer token;
     token.getTokens(header, " ");
+    
+    if (token.size() == 12) {
+        in.close();
+        readLDmatrixInfoFileOld(ldmatrixFile);
+        return;
+    }
 
     if (token.back() == "Skeleton") {
         while (in >> chr >> id >> genPos >> physPos >> allele1 >> allele2 >> af >> idx >> windStart >> windEnd >> windSize >> windWidth >> sampleSize >> ldSamplVar >> ldSum >> skeleton) {
@@ -3545,7 +3647,6 @@ void Data::buildSparseMME(const bool sampleOverlap){
     for (unsigned i=0; i<numIncdSnps; ++i) {
         snp = incdSnpInfoVec[i];
         snp->af = snp->gwas_af;
-        snp->twopq = 2.0*snp->af*(1.0-snp->af);
         snp2pq[i] = snp->twopq = 2.0f*snp->gwas_af*(1.0f-snp->gwas_af);
         if(snp2pq[i]==0) cout << "Error: SNP " << snp->ID << " af " << snp->af << " has 2pq = 0." << endl;
         D[i] = snp2pq[i]*snp->gwas_n;
@@ -3572,7 +3673,7 @@ void Data::buildSparseMME(const bool sampleOverlap){
     VectorXf nSrt = n;
     std::sort(nSrt.data(), nSrt.data() + nSrt.size());
     numKeptInds = nSrt[nSrt.size()/2]; // median
-
+    
     // NEW
     // compute D and snp2pq based on n, se and b, assuming varp = 1
     // these quantities are used in sbayes, as they are more reliable than input allele frequencies
@@ -3585,7 +3686,6 @@ void Data::buildSparseMME(const bool sampleOverlap){
     ypy = numKeptInds;
     // NEW END
 
-    
     if (ZPZ.size() || ZPZsp.size()) {
         if (sparseLDM == true) {
             for (unsigned i=0; i<numIncdSnps; ++i) {
@@ -3612,10 +3712,11 @@ void Data::buildSparseMME(const bool sampleOverlap){
         LDscore.resize(numIncdSnps);
         for (unsigned i=0; i<numIncdSnps; ++i) {
             snp = incdSnpInfoVec[i];
-            if (sampleOverlap)
+            if (sampleOverlap) {
                 LDsamplVar[i] = 0;
-            else
+            } else {
                 LDsamplVar[i]  = (snp->gwas_n + snp->sampleSize)/float(numIncdSnps)*snp->ldSamplVar;
+            }
             LDsamplVar[i] += (numIncdSnps - snp->numNonZeroLD)/float(numIncdSnps);
 //            LDsamplVar[i] = 0;
             LDscore[i] = snp->ldsc; //*snp->gwas_n;
@@ -3689,15 +3790,15 @@ void Data::buildSparseMME(const bool sampleOverlap){
     // data summary
     cout << "\nData summary:" << endl;
     cout << boost::format("%40s %8s %8s\n") %"" %"mean" %"sd";
-    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP Phenotypic variance" %varpSrt.mean() %sqrt(Gadget::calcVariance(varpSrt));
-    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP heterozygosity" %snp2pq.mean() %sqrt(Gadget::calcVariance(snp2pq));
-    cout << boost::format("%40s %8.0f %8.0f\n") %"GWAS SNP sample size" %n.mean() %sqrt(Gadget::calcVariance(n));
-    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP effect" %b.mean() %sqrt(Gadget::calcVariance(b));
-    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP SE" %se.mean() %sqrt(Gadget::calcVariance(se));
-    cout << boost::format("%40s %8.3f %8.3f\n") %"MME left-hand-side diagonals" %ZPZdiag.mean() %sqrt(Gadget::calcVariance(ZPZdiag));
-    cout << boost::format("%40s %8.3f %8.3f\n") %"MME right-hand-side" %ZPy.mean() %sqrt(Gadget::calcVariance(ZPy));
-    cout << boost::format("%40s %8.3f %8.3f\n") %"LD sampling variance" %LDsamplVar.mean() %sqrt(Gadget::calcVariance(LDsamplVar));
-    cout << boost::format("%40s %8.3f %8.3f\n") %"LD score" %LDscore.mean() %sqrt(Gadget::calcVariance(LDscore));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP Phenotypic variance" %Gadget::calcMean(varpSrt) %sqrt(Gadget::calcVariance(varpSrt));
+//    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP heterozygosity" %Gadget::calcMean(snp2pq) %sqrt(Gadget::calcVariance(snp2pq));
+    cout << boost::format("%40s %8.0f %8.0f\n") %"GWAS SNP sample size" %Gadget::calcMean(n) %sqrt(Gadget::calcVariance(n));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP effect" %Gadget::calcMean(b) %sqrt(Gadget::calcVariance(b));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP SE" %Gadget::calcMean(se) %sqrt(Gadget::calcVariance(se));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"MME left-hand-side diagonals" %Gadget::calcMean(ZPZdiag) %sqrt(Gadget::calcVariance(ZPZdiag));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"MME right-hand-side" %Gadget::calcMean(ZPy) %sqrt(Gadget::calcVariance(ZPy));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"LD sampling variance" %Gadget::calcMean(LDsamplVar) %sqrt(Gadget::calcVariance(LDsamplVar));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"LD score" %Gadget::calcMean(LDscore) %sqrt(Gadget::calcVariance(LDscore));
 //    cout << "\n  Median of per-SNP phenotypic variance: " << varp << endl;
     
 //    ofstream out("tmp.txt");

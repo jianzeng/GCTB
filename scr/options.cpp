@@ -353,6 +353,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             excludeAmbiguousSNP = true;
             ss << "--ambiguous-snp " << "\n";
         }
+        else if (!strcmp(argv[i], "--impute-n")) {
+            imputeN = true;
+            ss << "--impute-n " << "\n";
+        }
         else if (!strcmp(argv[i], "--maf")) {
             mafmin = atof(argv[++i]);
             ss << "--maf " << argv[i] << "\n";

@@ -16,6 +16,12 @@ void StratApproxBayesS::VarEffectStratified::sampleFromFC(const VectorXf &snpEff
     }
 }
 
+void StratApproxBayesS::VarEffectStratified::sampleFromPrior() {
+    for (unsigned i=0; i<size; ++i) {
+        values[i] = InvChiSq::sample(df, scales[i]);
+    }
+}
+
 void StratApproxBayesS::VarEffectEnrichment::compute(const VectorXf &sigmaSqStrat, const float sigmaSq) {
     for (unsigned i=0; i<size; ++i) {
         values[i] = sigmaSqStrat[i]/sigmaSq;
@@ -27,6 +33,12 @@ void StratApproxBayesS::PiStratified::sampleFromFC(const vector<unsigned> &numSn
         float alphaTilde = numSnpEff[i] + alpha;
         float betaTilde  = numSnps[i] - numSnpEff[i] + beta;
         values[i] = Beta::sample(alphaTilde, betaTilde);
+    }
+}
+
+void StratApproxBayesS::PiStratified::sampleFromPrior() {
+    for (unsigned i=0; i<size; ++i) {
+        values[i] = Beta::sample(alpha, beta);
     }
 }
 
@@ -162,6 +174,12 @@ float StratApproxBayesS::SpStratified::computeU(const float S, const VectorXf &s
     return 0.5*S*snp2pqLogSum + 0.5/sigmaSq*(snpEffects.array().square()/snp2pq.array().pow(S)).sum() + 0.5*S*S/var;
 }
 
+void StratApproxBayesS::SpStratified::sampleFromPrior() {
+    for (unsigned i=0; i<size; ++i) {
+        values[i] = Stat::snorm()*sqrtf(var);
+    }
+}
+
 void StratApproxBayesS::SpEnrichment::compute(const VectorXf &Sstrat, const float S) {
     for (unsigned i=0; i<size; ++i) {
         values[i] = Sstrat[i]/S;
@@ -270,12 +288,116 @@ void StratApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<S
     }
 }
 
+void StratApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo *> &chromInfoVec, const vector<SnpInfo *> &incdSnpInfoVec, const VectorXf &snp2pq, const VectorXf &LDsamplVar, const unsigned numAnnos, const VectorXf &sigmaSq, const VectorXf &pi, const VectorXf &S, const float Sgw, const float varg, const float vare, const float ps, const float overdispersion) {
+    
+    long numChr = chromInfoVec.size();
+    
+    wtdSumSq = 0;
+    numNonZeros = 0;
+    wtdSumSqPerAnno.setZero(numAnnos);
+    numNonZeroPerAnno.setZero(numAnnos);
+    
+    VectorXf logPi = pi.array().log();
+    VectorXf logPiComp = (1.0-pi.array()).log();
+    VectorXf invSigmaSq = sigmaSq.cwiseInverse();
+    
+    for (unsigned i=0; i<numAnnos; ++i) {
+        valuesPerAnno[i].setZero(valuesPerAnno[i].size());
+    }
+    
+    for (unsigned chr=0; chr<numChr; ++chr) {
+        ChromInfo *chromInfo = chromInfoVec[chr];
+        unsigned chrStart = chromInfo->startSnpIdx;
+        unsigned chrEnd   = chromInfo->endSnpIdx;
+        unsigned annoIdx, snpIdx;
+        unsigned i, j;
+        
+        float oldSample;
+        float rhs;
+        float probDelta1;
+        float varei;
+        float sampleDiff;
+        
+        ArrayXf invLhs, uhat;
+        ArrayXf snp2pqPowS;
+        ArrayXf logDelta1Anno;
+        ArrayXf logDelta0Anno;
+        ArrayXf probDeltaAnno;
+        
+        SnpInfo *snp;
+        
+        for (i = chrStart; i <= chrEnd; ++i) {
+            snp = incdSnpInfoVec[i];
+            invLhs.resize(snp->numAnnos);
+            uhat.resize(snp->numAnnos);
+            snp2pqPowS.resize(snp->numAnnos);
+            logDelta1Anno.resize(snp->numAnnos);
+            logDelta0Anno.resize(snp->numAnnos);
+            probDeltaAnno.resize(snp->numAnnos);
+            
+            oldSample = values[i];
+            varei = LDsamplVar[i]*varg + vare + ps + overdispersion;
+            
+            rhs  = rcorr[i] + ZPZdiag[i]*oldSample;
+            rhs /= varei;
+            
+            for (j=0; j<snp->numAnnos; ++j) {
+                annoIdx = snp->annoVec[j]->idx;
+                
+                snp2pqPowS[j] = powf(snp2pq[i], S[annoIdx]);
+                invLhs[j] = 1.0f/(ZPZdiag[i]/varei + invSigmaSq[annoIdx]/snp2pqPowS[j]);
+                uhat[j] = invLhs[j]*rhs;
+                
+                logDelta1Anno[j]  = 0.5*(logf(invLhs[j]) - logf(snp2pqPowS[j]*sigmaSq[annoIdx]) + uhat[j]*rhs) + logPi[annoIdx];
+                logDelta0Anno[j] = logPiComp[annoIdx];
+            }
+            
+            for (j=0; j<snp->numAnnos; ++j) {
+                probDeltaAnno[j] = (1.0+expf(logDelta0Anno[j]-logDelta1Anno[j]))/((logDelta1Anno-logDelta1Anno[j]).exp().sum() + (logDelta0Anno-logDelta1Anno[j]).exp().sum());
+            }
+            
+            j = bernoulli.sample(probDeltaAnno);
+            
+            annoIdx = snp->annoVec[j]->idx;
+            
+            probDelta1 = 1.0f/(1.0f + expf(logDelta0Anno[j]-logDelta1Anno[j]));
+            
+            if (bernoulli.sample(probDelta1)) {
+                values[i] = normal.sample(uhat[j], invLhs[j]);
+                sampleDiff = oldSample - values[i];
+                rcorr.segment(windStart[i], windSize[i]) += ZPZ[i]*sampleDiff;
+                wtdSumSq += values[i]*values[i]/powf(snp2pq[i], Sgw);
+                ++numNonZeros;
+                
+                for (j=0; j<snp->numAnnos; ++j) {
+                    annoIdx = snp->annoVec[j]->idx;
+                    snpIdx = snp->annoIdx[j];
+                    valuesPerAnno[annoIdx][snpIdx] = values[i];
+                    wtdSumSqPerAnno[annoIdx] += values[i]*values[i]/snp2pqPowS[j];
+                    ++numNonZeroPerAnno[annoIdx];
+                }
+            } else {
+                if (oldSample) {
+                    rcorr.segment(windStart[i], windSize[i]) += ZPZ[i]*oldSample;
+                }
+                values[i] = 0.0;
+            }
+        }
+    }
+}
+
 void StratApproxBayesS::sampleUnknowns() {
     unsigned cnt=0;
     do {
-        snpEffects.sampleFromFC(rcorr, data.ZPZsp, data.ZPZdiag, data.chromInfoVec, data.incdSnpInfoVec, data.snp2pq,
-                                data.LDsamplVar, data.numAnnos, sigmaSqStrat.values, piStrat.values, Sstrat.values, S.value,
-                                varg.value, vare.value, ps.value, overdispersion);
+        if (sparse) {
+            snpEffects.sampleFromFC(rcorr, data.ZPZsp, data.ZPZdiag, data.chromInfoVec, data.incdSnpInfoVec, data.snp2pq,
+                                    data.LDsamplVar, data.numAnnos, sigmaSqStrat.values, piStrat.values, Sstrat.values, S.value,
+                                    varg.value, vare.value, ps.value, overdispersion);
+        } else {
+            snpEffects.sampleFromFC(rcorr, data.ZPZ, data.ZPZdiag, data.windStart, data.windSize, data.chromInfoVec, data.incdSnpInfoVec, data.snp2pq,
+                                    data.LDsamplVar, data.numAnnos, sigmaSqStrat.values, piStrat.values, Sstrat.values, S.value,
+                                    varg.value, vare.value, ps.value, overdispersion);
+        }
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
 
@@ -312,9 +434,24 @@ void StratApproxBayesS::sampleUnknowns() {
     
     if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, data.chisq);
     
-    rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
+    if (sparse)
+        rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
+    else
+        rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     
     scaleStrat.values = sigmaSqStrat.scales;
+}
+
+void StratApproxBayesS::sampleStartVal(){
+    sigmaSqStrat.sampleFromPrior();
+    if (estimatePi) piStrat.sampleFromPrior();
+    Sstrat.sampleFromPrior();
+    if (myMPI::rank==0) {
+        cout << "  Starting value for " << sigmaSq.label << ": " << sigmaSqStrat.values.transpose() << endl;
+        if (estimatePi) cout << "  Starting value for " << pi.label << ": " << piStrat.values.transpose() << endl;
+        cout << "  Starting value for " << S.label << ": " << Sstrat.values.transpose() << endl;
+        cout << endl;
+    }
 }
 
 
