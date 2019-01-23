@@ -1051,6 +1051,7 @@ void Data::readGwasSummaryFile(const string &gwasFile){
             snp->gwas_af = 1.0-atof(freq.c_str());
             snp->gwas_se = atof(se.c_str());
             snp->gwas_n  = atof(n.c_str());
+            ++match;
             ++numFlip;
         } else {
             // cout << "WARNING: SNP " + id + " has inconsistent allele coding in between the reference and GWAS samples." << endl;
@@ -1070,8 +1071,8 @@ void Data::readGwasSummaryFile(const string &gwasFile){
     }
 
     if (myMPI::rank==0) {
-        if (numFlip) cout << "flipped " << numFlip << " SNPs according to the minor allele in the reference and GWAS samples." << endl;
-        if (incon) cout << "removed " << incon << " SNPs with inconsistent allele coding in between the reference and GWAS samples or strand ambiguity." << endl;
+        if (numFlip) cout << "Flipped " << numFlip << " SNPs according to the minor allele in the reference and GWAS samples." << endl;
+        if (incon) cout << "Removed " << incon << " SNPs with inconsistent allele coding in between the reference and GWAS samples or strand ambiguity." << endl;
         cout << match << " matched SNPs in the GWAS summary data (in total " << line << " SNPs)." << endl;
     }
 
