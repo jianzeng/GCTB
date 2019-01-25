@@ -2877,6 +2877,24 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 for (; it; ++it) snpi->windEnd = it.index();
             }
         }
+    } else if (LDmatType == "sparse" && ZPZsp.size() != 0) {
+        cout << "Pruning a sparse LD matrix by chisq threshold of " << chisqThreshold << endl;
+        SnpInfo *snpi, *snpj;
+        for (unsigned i=0; i<numIncdSnps; ++i) {
+                snpi = incdSnpInfoVec[i];
+                float rsq = 0.0;  
+                for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
+                    snpj = incdSnpInfoVec[it.index()];
+                    rsq = it.value()*it.value();
+                    if (rsq*snpi->sampleSize <= chisqThreshold) it.valueRef() = 0.0;
+                }
+                ZPZsp[i].prune(0.0);
+                SparseVector<float>::InnerIterator it(ZPZsp[i]);
+                windStart[i] = snpi->windStart = it.index();
+                windSize[i] = snpi->windSize = ZPZsp[i].nonZeros();
+                for (; it; ++it) snpi->windEnd = it.index();
+                if(!(i%1000) && myMPI::rank==0) cout << " Completed snp " << i << "\r" << flush;
+        }
     }
     if (LDmatType == "band") {
         VectorXi windStartOri = windStart;
@@ -3012,7 +3030,9 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         nmsumi.resize(numIncdSnps);
         thetai.resize(numIncdSnps);
         sdss.resize(numIncdSnps);
-        mi.resize(numIncdSnps);
+        // mi.resize(numIncdSnps);
+        cout << "\nUsing genetic map sample size of " << genMapN << " please alter with --genmap-n if inappropriate." << endl;
+        float m = genMapN;
         gmapi.resize(numIncdSnps);
         for (unsigned i=0; i<numIncdSnps; ++i) {
             SnpInfo *snp = incdSnpInfoVec[i];
@@ -3050,7 +3070,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         float rho;
         float shrinkage;
         float Ne = effpopNE;
-        cout << "Using European effective population size Ne=" << Ne << " please alter with --ne if inappropriate. ";
+        cout << "Using European effective population size Ne=" << Ne << " please alter with --ne if inappropriate. " << endl;
         float cutoff = cutOff;
         for (unsigned i=0; i<numIncdSnps; ++i) {
             if (!(i%1000)) cout << i << " SNPs processed\r";
@@ -3073,6 +3093,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                     ZPZ[i][j] = ZPZ[i][j] + 0.5f * thetai[i] * (1.0 - 0.5f * thetai[i]);
                 }  
             }
+            if(!(i%1000) && myMPI::rank==0) cout << " Completed snp " << i << "\r" << flush;
         }
         // Now back to correlation
         for (unsigned i=0; i<numIncdSnps; ++i) {
@@ -3096,12 +3117,14 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         nmsumi.resize(numIncdSnps);
         thetai.resize(numIncdSnps);
         sdss.resize(numIncdSnps);
-        mi.resize(numIncdSnps);
+        // mi.resize(numIncdSnps);
+        cout << "\nUsing genetic map sample size of " << genMapN << " please alter with --genmap-n if inappropriate." << endl;
+        float m = genMapN;
         gmapi.resize(numIncdSnps);
         for (unsigned i=0; i<numIncdSnps; ++i) {
             SnpInfo *snp = incdSnpInfoVec[i];
-            mi[i] = (snp->sampleSize);
-            int  n = 2.0 * mi[i] - 1.0;
+            // mi[i] = (snp->sampleSize);
+            int  n = 2.0 * m - 1.0;
             // cout << "snp " << i << " sample size " << snp->sampleSize << endl;
             // Approximation to the harmonic series
             nmsumi[i] = log(n) + 0.5772156649 + 1.0 / (2.0 * n) - 1.0 / (12.0 * pow(n, 2)) + 1.0 / (120.0 * pow(n, 4));
@@ -3136,7 +3159,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         float rho;
         float shrinkage;
         float Ne = effpopNE;
-        cout << "Using European effective population size Ne=" << Ne << " please alter with --ne if inappropriate. ";
+        cout << "Using European effective population size Ne=" << Ne << " please alter with --ne if inappropriate. " << endl;
         float cutoff = cutOff;
         for (unsigned i=0; i<numIncdSnps; ++i) {
             // -----------------------------
@@ -3147,7 +3170,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 // cout << " j " << j << " (windStart[i] + j) " << (windStart[i] + j) << endl;
                 mapdiffi = abs(gmapi[it.index()] - gmapi[i]);
                 rho = 4.0 * Ne * (mapdiffi / 100.0);
-                shrinkage = exp(-rho / (mi[i] + mi[it.index()])); 
+                shrinkage = exp(-rho / (2 * m)); 
                 // cout << "Shrinkage " << shrinkage << endl;
                 if (shrinkage <= cutoff)
                 {
@@ -3165,6 +3188,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 it.valueRef()= ZPZij; 
             }
             // cout << "After " << ZPZsp[i] << endl;
+            if(!(i%1000) && myMPI::rank==0) cout << " Completed snp " << i << "\r" << flush;
         }
         // // Now back to correlation
         for (unsigned i=0; i<numIncdSnps; ++i) {
@@ -3484,7 +3508,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
     float rho;
     float shrinkage;
     float Ne = effpopNE;
-    cout << "\nUsing European effective population size Ne=" << Ne << " please alter with --ne if inappropriate.";
+    cout << "\nUsing European effective population size Ne=" << Ne << " please alter with --ne if inappropriate." << endl;
     float cutoff = cutOff;
     for (unsigned i=0; i<numSnpInRange; ++i) {
         for (unsigned j=0; j<numIncdSnps; ++j) {
