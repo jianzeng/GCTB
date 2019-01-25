@@ -290,7 +290,7 @@ public:
 //    void makeLDmatrix(const string &bedFile, const unsigned windowWidth, const string &filename);
     void makeLDmatrix(const string &bedFile, const string &LDmatType, const float chisqThreshold, const float LDthreshold, const unsigned windowWidth,
                       const string &snpRange, const string &filename, const bool writeLdmTxt);
-    void makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, const string &snpRange, const string &filename, const bool writeLdmTxt, const float effpopNE, const float cutOff);
+    void makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, const string &snpRange, const string &filename, const bool writeLdmTxt, const float effpopNE, const float cutOff, const float genMapN);
     void resizeWindow(const vector<SnpInfo*> &incdSnpInfoVec, const VectorXi &windStartOri, const VectorXi &windSizeOri,
                       VectorXi &windStartNew, VectorXi &windSizeNew);
     void computeAlleleFreq(const MatrixXf &Z, vector<SnpInfo*> &incdSnpInfoVec, VectorXf &snp2pq);
@@ -301,18 +301,18 @@ public:
     void outputFixedEffects(const MatrixXf &fixedEffects, const string &filename) const;
     void outputWindowResults(const VectorXf &posteriorMean, const string &filename) const;
     void summarizeSnpResults(const SparseMatrix<float> &snpEffects, const string &filename) const;
-    void buildSparseMME(const bool sampleOverlap);
+    void buildSparseMME(const bool sampleOverlap, const string &bayesType, const bool noscale);
     void readMultiLDmatInfoFile(const string &mldmatFile);
     void readMultiLDmatBinFile(const string &mldmatFile);
     void outputSnpEffectSamples(const SparseMatrix<float> &snpEffects, const unsigned burnin, const unsigned outputFreq, const string &snpResFile, const string &filename) const;
-    void resizeLDmatrix(const string &LDmatType, const float chisqThreshold, const unsigned windowWidth, const float LDthreshold, const float effpopNE, const float cutOff);
+    void resizeLDmatrix(const string &LDmatType, const float chisqThreshold, const unsigned windowWidth, const float LDthreshold, const float effpopNE, const float cutOff, const float genMapN);
     void outputLDmatrix(const string &LDmatType, const string &filename, const bool writeLdmTxt) const;
     void displayAverageWindowSize(const VectorXi &windSize);
     
     void inputSnpResults(const string &snpResFile);
     void inputSnpInfoAndResults(const string &snpResFile, const string &bayesType);
     void readLDmatrixBinFileAndShrink(const string &ldmatrixFile);
-    void readMultiLDmatBinFileAndShrink(const string &mldmatFile);
+    void readMultiLDmatBinFileAndShrink(const string &mldmatFile, const float genMapN);
     void directPruneLDmatrix(const string &ldmatrixFile, const string &outLDmatType, const float chisqThreshold, const string &title, const bool writeLdmTxt);
     void jackknifeLDmatrix(const string &ldmatrixFile, const string &outLDmatType, const string &title, const bool writeLdmTxt);
     void addLDmatrixInfo(const string &ldmatrixFile);
