@@ -2568,7 +2568,7 @@ void Data::readMultiLDmatBinFile(const string &mldmatFile){
     cout << "Read LD matrix for " << numIncdSnps << " SNPs (time used: " << timer.format(timer.getElapse()) << ")." << endl;
 }
 
-void Data::readMultiLDmatBinFileAndShrink(const string &mldmatFile){
+void Data::readMultiLDmatBinFileAndShrink(const string &mldmatFile, const float genMapN){
     //cout << "Hi I'm in here " << endl;
     vector<string> filenameVec;
     ifstream in1(mldmatFile.c_str());
@@ -2633,7 +2633,7 @@ void Data::readMultiLDmatBinFileAndShrink(const string &mldmatFile){
         
         float rsq = 0.0;
         
-        float nref = incdSnpInfoVec[0]->sampleSize;
+        float nref = genMapN;
         float n = 2.0*nref-1.0;
         // Approximation to the harmonic series
         float nsum = log(n) + 0.5772156649 + 1.0 / (2.0 * n) - 1.0 / (12.0 * pow(n, 2.0)) + 1.0 / (120.0 * pow(n, 4.0));
@@ -2760,7 +2760,7 @@ void Data::readMultiLDmatBinFileAndShrink(const string &mldmatFile){
     cout << "Read LD matrix for " << numIncdSnps << " SNPs (time used: " << timer.format(timer.getElapse()) << ")." << endl;
 }
 
-void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, const unsigned windowWidth, const float LDthreshold, const float effpopNE, const float cutOff) {
+void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, const unsigned windowWidth, const float LDthreshold, const float effpopNE, const float cutOff, const float genMapN) {
     if (LDmatType == "full") {
 //        for (unsigned i=0; i<numIncdSnps; ++i) {
 //            SnpInfo *snp = incdSnpInfoVec[i];
@@ -2876,24 +2876,6 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 windSize[i] = snpi->windSize = ZPZsp[i].nonZeros();
                 for (; it; ++it) snpi->windEnd = it.index();
             }
-        }
-    } else if (LDmatType == "sparse" && ZPZsp.size() != 0) {
-        cout << "Pruning a sparse LD matrix by chisq threshold of " << chisqThreshold << endl;
-        SnpInfo *snpi, *snpj;
-        for (unsigned i=0; i<numIncdSnps; ++i) {
-                snpi = incdSnpInfoVec[i];
-                float rsq = 0.0;  
-                for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
-                    snpj = incdSnpInfoVec[it.index()];
-                    rsq = it.value()*it.value();
-                    if (rsq*snpi->sampleSize <= chisqThreshold) it.valueRef() = 0.0;
-                }
-                ZPZsp[i].prune(0.0);
-                SparseVector<float>::InnerIterator it(ZPZsp[i]);
-                windStart[i] = snpi->windStart = it.index();
-                windSize[i] = snpi->windSize = ZPZsp[i].nonZeros();
-                for (; it; ++it) snpi->windEnd = it.index();
-                if(!(i%1000) && myMPI::rank==0) cout << " Completed snp " << i << "\r" << flush;
         }
     }
     if (LDmatType == "band") {
@@ -3036,8 +3018,8 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         gmapi.resize(numIncdSnps);
         for (unsigned i=0; i<numIncdSnps; ++i) {
             SnpInfo *snp = incdSnpInfoVec[i];
-            mi[i] = (snp->sampleSize);
-            int  n = 2 * mi[i] - 1;
+            //mi[i] = (snp->sampleSize);
+            int  n = 2 * m - 1;
 //            cout << "snp " << i << " sample size " << snp->sampleSize << endl;
             // Approximation to the harmonic series
             nmsumi[i] = log(n) + 0.5772156649 + 1.0/ (2.0 * n) - 1.0 / (12.0 * pow(n, 2)) + 1.0 / (120.0 * pow(n, 4));
@@ -3076,9 +3058,9 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
             if (!(i%1000)) cout << i << " SNPs processed\r";
             SnpInfo *snp = incdSnpInfoVec[i];
             for (unsigned j=i; j<=snp->windEnd; ++j) {
-                mapdiffi = gmapi[j] - gmapi[i];
+                mapdiffi = abs(gmapi[j] - gmapi[i]);
                 rho = 4 * Ne * (mapdiffi / 100);
-                shrinkage = exp(-rho / (2 * mi[i])); 
+                shrinkage = exp(-rho / (2 * m));
                 if (shrinkage <= cutoff)
                 {
                     shrinkage = 0.0;
@@ -3283,7 +3265,7 @@ void Data::readfreqFile(const string &freqFile){
 // Function to build the shrunk matrix 
 // =============================================================================================
 
-void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, const string &snpRange, const string &filename, const bool writeLdmTxt, const float effpopNE, const float cutOff){
+void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, const string &snpRange, const string &filename, const bool writeLdmTxt, const float effpopNE, const float cutOff, const float genMapN){
     
 
     Gadget::Tokenizer token;
@@ -3478,10 +3460,12 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
     VectorXf mi(numIncdSnps);
     VectorXf gmapi(numIncdSnps);
     VectorXf sdss(numIncdSnps);
+    cout << "\nUsing genetic map sample size of " << genMapN << " please alter with --genmap-n if inappropriate." << endl;
+    float m = genMapN;
     for (unsigned i=0; i<numIncdSnps; ++i) {
             SnpInfo *snp = incdSnpInfoVec[i];
-            mi[i] = (snp->sampleSize);
-            int  n = 2.0 * mi[i] - 1.0;
+            //mi[i] = (snp->sampleSize);
+            int  n = 2.0 * m - 1.0;
             // Approximation to the harmonic series
             nmsumi[i] = log(n) + 0.5772156649 + 1.0 / (2.0 * n) - 1.0 / (12.0 * pow(n, 2.0)) + 1.0 / (120.0 * pow(n, 4.0));
             //cout << nmsumi[i] << endl;
@@ -3514,8 +3498,8 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
         for (unsigned j=0; j<numIncdSnps; ++j) {
             mapdiffi = abs(gmapi[j] - gmapi[start+i]);
             rho = 4.0 * Ne * (mapdiffi / 100.0);
-            shrinkage = exp(-rho / (2.0 * mi[start+i]));
-            // if (j >= 2580)
+            shrinkage = exp(-rho / (2 * m)); 
+            // if (i <=10 && j <= 10)
             // { 
             //     cout << "Snp " << i << " " << j << " Mapdiff " << mapdiffi << " shrinkage " << shrinkage << endl;
             //     cout << "Start position " << start  << " start plus i " << start + i << " gmap start plus i " << gmapi[start +i] << endl;
@@ -3657,7 +3641,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
 // =============================================================================================
 
 
-void Data::buildSparseMME(const bool sampleOverlap){
+void Data::buildSparseMME(const bool sampleOverlap, const string &bayesType, const bool noscale){
     VectorXf Dref = snp2pq*numKeptInds;
     snp2pq.resize(numIncdSnps);
     D.resize(numIncdSnps);
@@ -3706,7 +3690,19 @@ void Data::buildSparseMME(const bool sampleOverlap){
         D[i] = 1.0/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
         snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
         tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
-    }
+        // Need to adjust R and C models X'X matrix depending scale of genotypes or not
+        if (bayesType == "S") {
+            // cout << "Bayes S no scale" << endl;
+            D[i] = snp2pq[i]*snp->gwas_n;
+        } else if (((bayesType == "R") || (bayesType == "C") || (bayesType == "Kap")) && noscale == true) {
+            // cout << "Bayes R, C, Kap no scale" << endl;
+            D[i] = snp2pq[i]*snp->gwas_n;
+        } else {
+            // cout << "Scaling" << endl;
+            // If the model is C, R, or Kappa the default is not to scale
+            D[i] = snp->gwas_n;
+        }
+   }
     ypy = numKeptInds;
     // NEW END
 
@@ -3758,7 +3754,11 @@ void Data::buildSparseMME(const bool sampleOverlap){
     }
     
     
-    ZPy = ZPZdiag.cwiseProduct(b);
+    if (noscale || bayesType == "S") {
+        ZPy = ZPZdiag.cwiseProduct(b);
+    } else {
+        ZPy = ZPZdiag.cwiseProduct(b).cwiseProduct(snp2pq.array().sqrt().matrix());
+    }
     chisq = ZPy.cwiseProduct(b);
     
 //        ofstream out("ldsc.txt");
@@ -3774,6 +3774,10 @@ void Data::buildSparseMME(const bool sampleOverlap){
     //    cout << "ZPy " << ZPy.head(100).transpose() << endl;
     //    cout << "b.mean() " << b.mean() << endl;
     
+    // estimate ypy
+    // ypy = tss.mean();
+    // ypy = (D.array()*(n.array()*se.array().square()+b.array().square())).mean();
+    numKeptInds = n.mean();
     
     //cout << ZPZ.size() << " " << ZPy.size() << " " << ypy << endl;
     //    cout << ZPy << endl;
