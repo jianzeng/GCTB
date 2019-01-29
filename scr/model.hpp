@@ -1249,12 +1249,14 @@ public:
         
         void sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float>> &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
-                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq,
-                          const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, VectorXf &snpStore);
+                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
+                          const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, VectorXf &snpStore, 
+                          const float varg, const float ps, const float overdispersion);
         void sampleFromFC(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
-                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq,
-                          const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, VectorXf &snpStore);
+                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
+                          const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, VectorXf &snpStore,
+                          const float varg, const float ps, const float overdispersion);
     };
     
 
@@ -1290,9 +1292,18 @@ public:
     
     VectorXf snpStore;   
     SnpEffects snpEffects;
+    ApproxBayesC::FixedEffects fixedEffects;
+    ApproxBayesC::ResidualVar vare;
+    ApproxBayesC::GenotypicVar varg;
+    ApproxBayesC::Rounding rounding;
+    varEffectScaled sigmaSqG;
+    ApproxBayesC::PopulationStratification ps;
+    ApproxBayesC::NumResidualOutlier nro;
+    ApproxBayesC::InterChrGenetCov covg;
+    ApproxBayesC::PiGwas pigwas;
+    ApproxBayesC::NnzGwas nnzgwas;
     ProbMixComps Pis; 
     Gammas gamma;
-    ApproxBayesC::GenotypicVar varg;
     float genVarPrior;
     float scalePrior;
     bool noscale;    
@@ -1300,13 +1311,16 @@ public:
     
     ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const float piAlpha, const float piBeta, const VectorXf gamma, const bool estimatePi, const bool noscale, const float icrsq,
                  const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, pis[0], piAlpha, piBeta, estimatePi, noscale, 0, 0, false, icrsq, 0, false, false, false),
+    ApproxBayesC(data, varGenotypic, varResidual, (1-pis[0]), piAlpha, piBeta, estimatePi, noscale, 0, 0, false, icrsq, 0, false, false, false),
     Pis(pis),
     gamma(gamma, vector<string>(gamma.size())),
     varg(varGenotypic, data.numKeptInds),
     snpEffects(data.snpEffectNames),
     genVarPrior(varGenotypic),
     noscale(noscale),
+    phi(phi),
+    overdispersion(overdispersion),
+    covg(spouseCorrelation, data.numKeptInds),
     scalePrior(sigmaSq.scale)
     {
         sparse = data.sparseLDM;
@@ -1435,11 +1449,11 @@ public:
     bool noscale;
     
     ApproxBayesKappa(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const float piAlpha, const float piBeta, const VectorXf gamma, const bool estimatePi, const bool noscale, const float icrsq,
-                     const float kappa_str, const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, pis[0], piAlpha, piBeta, estimatePi, noscale, 0, 0, false, icrsq, 0, false, false, false),
+                     const float kappa, const bool message = true):
+    ApproxBayesC(data, varGenotypic, varResidual, (1-pis[(gamma.size()-1)]), piAlpha, piBeta, estimatePi, noscale, 0, 0, false, icrsq, 0, false, false, false),
     Pis(pis),
     gamma(gamma, vector<string>(gamma.size())),
-    kappa(kappa_str),
+    kappa(kappa),
     varg(varGenotypic, data.numKeptInds),
     snpindist(data.snpEffectNames), 
     genVarPrior(varGenotypic),
