@@ -455,6 +455,58 @@ void StratApproxBayesS::sampleStartVal(){
 }
 
 
+// individual-level stratified BayesS
+
+void StratBayesS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const unsigned int numAnnos, const VectorXf &sigmaSq, const VectorXf &pi, const float vare, const VectorXf &snp2pq, const float vg, VectorXf &ghat) {
+    wtdSumSq = 0.0;
+    numNonZeros = 0;
+    wtdSumSqPerAnno.setZero(numAnnos);
+    numNonZeroPerAnno.setZero(numAnnos);
+    
+    ghat.setZero(ycorr.size());
+    
+    VectorXf logPi = pi.array().log();
+    VectorXf logPiComp = (1.0-pi.array()).log();
+    VectorXf invSigmaSq = sigmaSq.cwiseInverse();
+    
+    for (unsigned i=0; i<numAnnos; ++i) {
+        valuesPerAnno[i].setZero(valuesPerAnno[i].size());
+    }
+
+    float oldSample;
+    float my_rhs, rhs, invLhs, uhat;
+    float logDelta0, logDelta1, probDelta1;
+    float invVare = 1.0f/vare;
+    
+    for (unsigned i=0; i<size; ++i) {
+        if (!ZPZdiag[i]) continue;
+        
+        oldSample = values[i];
+        my_rhs = Z.col(i).dot(ycorr);
+        
+        MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+        
+        rhs += ZPZdiag[i]*oldSample;
+        rhs *= invVare;
+        invLhs = 1.0f/(ZPZdiag[i]*invVare + invSigmaSq/snp2pqPowS[i]);
+        uhat = invLhs*rhs;
+        logDelta1 = 0.5*(logf(invLhs) - logf(snp2pqPowS[i]*sigmaSq) + uhat*rhs) + logPi;
+        logDelta0 = logPiComp;
+        
+        probDelta1 = 1.0f/(1.0f + expf(logDelta0-logDelta1));
+        
+        if (bernoulli.sample(probDelta1)) {
+            values[i] = normal.sample(uhat, invLhs);
+            ycorr += Z.col(i) * (oldSample - values[i]);
+            ghat  += Z.col(i) * values[i];
+            wtdSumSq += values[i]*values[i]/snp2pqPowS[i];
+            ++numNonZeros;
+        } else {
+            if (oldSample) ycorr += Z.col(i) * oldSample;
+            values[i] = 0.0;
+        }
+    }
+}
 
 
 ///// post hoc stratified analysis based on MCMC samples of SNP effects

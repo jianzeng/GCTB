@@ -257,6 +257,60 @@ public:
 };
 
 
+class StratBayesS : public BayesS {   // individual-level stratified BayesS
+public:
+    
+    class SnpEffects : public StratApproxBayesS::SnpEffects {
+    public:
+        
+        SnpEffects(const vector<string> &header, const VectorXf &snp2pq, const float pi, const vector<AnnoInfo*> &annoVec):
+        StratApproxBayesS::SnpEffects(header, snp2pq, pi, annoVec){}
+        
+        void sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const unsigned numAnnos,
+                          const VectorXf &sigmaSq, const VectorXf &pi, const float vare,
+                          const VectorXf &snp2pq,
+                          const float vg, VectorXf &ghat);
+        
+    };
+    
+    SnpEffects snpEffects;
+    StratApproxBayesS::VarEffectStratified sigmaSqStrat;
+    StratApproxBayesS::VarEffectEnrichment sigmaSqEnrich;
+    StratApproxBayesS::PiStratified piStrat;
+    StratApproxBayesS::PiEnrichment piEnrich;
+    StratApproxBayesS::NnzStratified nnzStrat;
+    StratApproxBayesS::PropNnzStratified propNnzStrat;
+    StratApproxBayesS::HeritabilityStratified hsqStrat;
+    StratApproxBayesS::PropHeritabilityStratified propHsqStrat;
+    StratApproxBayesS::PerSnpHeritabilityEnrichment perSnpHsqEnrich;
+    StratApproxBayesS::PerNzHeritabilityEnrichment perNzHsqEnrich;
+    StratApproxBayesS::SpStratified Sstrat;
+    StratApproxBayesS::SpEnrichment Senrich;
+    StratApproxBayesS::ScaleVarStratified scaleStrat;
+
+    
+    StratBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi, const float varS, const vector<float> &svalue,
+                const string &algorithm, const bool message = true):
+    BayesS(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, varS, svalue, algorithm, false),
+    snpEffects(data.snpEffectNames, data.snp2pq, pival, data.annoInfoVec),
+    sigmaSqStrat(data.annoNames, data.annoInfoVec, varGenotypic, pival),
+    sigmaSqEnrich(data.annoNames),
+    piStrat(data.annoNames, pival, piAlpha, piBeta),
+    piEnrich(data.annoNames, data.annoInfoVec),
+    nnzStrat(data.annoNames),
+    propNnzStrat(data.annoNames),
+    hsqStrat(data.annoNames, data.numKeptInds),
+    propHsqStrat(data.annoNames),
+    perSnpHsqEnrich(data.annoNames),
+    perNzHsqEnrich(data.annoNames),
+    Sstrat(data.annoNames, data.annoInfoVec, varS),
+    Senrich(data.annoNames),
+    scaleStrat(data.annoNames)
+    {
+        
+    }
+};
+
 
 ///// post hoc stratified analysis based on MCMC samples of SNP effects
 
