@@ -1308,17 +1308,20 @@ public:
     float scalePrior;
     bool noscale;    
 
+    const float overdispersion;
+
     
-    ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const float piAlpha, const float piBeta, const VectorXf gamma, const bool estimatePi, const bool noscale, const float icrsq,
+    ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const float piAlpha, const float piBeta, const VectorXf gamma, const bool estimatePi, const bool noscale, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode,
                  const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, (1-pis[0]), piAlpha, piBeta, estimatePi, noscale, 0, 0, false, icrsq, 0, false, false, false),
+    ApproxBayesC(data, varGenotypic, varResidual, (1-pis[0]), piAlpha, piBeta, estimatePi, noscale, 0, overdispersion, estimatePS, 0, spouseCorrelation, false, false, false),
     Pis(pis),
     gamma(gamma, vector<string>(gamma.size())),
+    vare(varResidual, data.numKeptInds, 0),
     varg(varGenotypic, data.numKeptInds),
+    fixedEffects(data.fixedEffectNames),
     snpEffects(data.snpEffectNames),
     genVarPrior(varGenotypic),
     noscale(noscale),
-    phi(phi),
     overdispersion(overdispersion),
     covg(spouseCorrelation, data.numKeptInds),
     scalePrior(sigmaSq.scale)
@@ -1442,6 +1445,7 @@ public:
     SnpEffects snpEffects;
     ApproxBayesR::ProbMixComps Pis;
     Gammas gamma;
+    ApproxBayesC::ResidualVar vare;
     ApproxBayesC::GenotypicVar varg;
     Kappa kappa;
     float genVarPrior;
@@ -1454,6 +1458,7 @@ public:
     Pis(pis),
     gamma(gamma, vector<string>(gamma.size())),
     kappa(kappa),
+    vare(varResidual, data.numKeptInds, 0),
     varg(varGenotypic, data.numKeptInds),
     snpindist(data.snpEffectNames), 
     genVarPrior(varGenotypic),
@@ -1467,9 +1472,9 @@ public:
         for (unsigned i=0; i<Pis.size(); ++i) { 
            Pis[i]->value=Pis.values[i];  
         }
-        paramVec     = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq, &kappa};
+        //paramVec     = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq, &kappa};
         paramVec.insert(paramVec.begin(), Pis.begin(), Pis.end());
-        paramToPrint = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq, &kappa, &rounding};
+        //paramToPrint = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq, &kappa, &rounding};
         paramToPrint.insert(paramToPrint.begin(), Pis.begin(), Pis.end());
         if (message && myMPI::rank==0) {
             cout << "\nApproximate Bayes Kappa model fitted." << endl;
