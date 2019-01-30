@@ -101,7 +101,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
             else if (bayesType == "SMix")
                 return new ApproxBayesSMix(data, data.varGenotypic, data.varResidual, pi, overdispersion, estimatePS, varS, S);
             else if (bayesType == "R")
-                return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, noscale, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, diagnosticMode);
+                return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, noscale, overdispersion, estimatePS, spouseCorrelation, diagnosticMode);
             else if (bayesType == "Kap")
                 return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, noscale, icrsq, kappa);
             else
