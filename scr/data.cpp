@@ -2864,7 +2864,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
                     snpj = incdSnpInfoVec[it.index()];
                     rsq = it.value()*it.value();
-                    if (rsq*snpi->sampleSize < chisqThreshold) it.valueRef() = 0.0;
+                    if (rsq*snpi->sampleSize <= chisqThreshold) it.valueRef() = 0.0;
                     else {
                         snpi->ldSamplVar += (1.0-rsq)*(1.0-rsq)/snpi->sampleSize;
                         snpi->ldSum += it.value();
