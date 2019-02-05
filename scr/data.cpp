@@ -2838,7 +2838,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                         snpi->ldSum = 0.0;
                         for (unsigned j=0; j<snpi->windSize; ++j) {
                             snpj = incdSnpInfoVec[snpi->windStart + j];
-                            if (ZPZ[i][j]*ZPZ[i][j]*snpi->sampleSize >= chisqThreshold) {
+                            if (ZPZ[i][j]*ZPZ[i][j]*snpi->sampleSize > chisqThreshold) {
                                 ZPZsp[i].insertBack(snpi->windStart + j) = ZPZ[i][j];
                                 rsq = ZPZ[i][j]*ZPZ[i][j];
                                 snpi->ldSamplVar += (1.0-rsq)*(1.0-rsq)/snpi->sampleSize;
