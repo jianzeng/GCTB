@@ -24,7 +24,7 @@ int main(int argc, const char * argv[]) {
     
     if (myMPI::rank==0) {
         cout << "***********************************************\n";
-        cout << "* GCTB 1.91                                   *\n";
+        cout << "* GCTB 2.0 Beta                               *\n";
         cout << "* Genome-wide Complex Trait Bayesian analysis *\n";
         cout << "* Author: Jian Zeng, Luke Lloyd-Jones         *\n";
         cout << "* MIT License                                 *\n";
@@ -32,12 +32,6 @@ int main(int argc, const char * argv[]) {
         if (myMPI::clusterSize > 1)
             cout << "\nGCTB is using MPI with " << myMPI::clusterSize << " processors" << endl;
     }
-
-    //printf("Hello from processor %s, rank %d\n", myMPI::processorName, myMPI::rank);
-
-//    omp_set_num_threads(2);
-//    #pragma omp parallel
-//    printf("Hello from thread %d, nthreads %d\n", omp_get_thread_num(), omp_get_num_threads());
 
     Gadget::Timer timer;
     timer.setTime();
