@@ -83,7 +83,7 @@ VectorXf McmcSamples::sd(){
 }
 
 void McmcSamples::initBinFile(const string &title){
-    if (myMPI::rank) return;
+//    if (myMPI::rank) return;
     filename = title + ".mcmcsamples." + label;
     bout = fopen(filename.c_str(), "wb");
     if (!bout) {
@@ -95,7 +95,7 @@ void McmcSamples::initBinFile(const string &title){
 }
 
 void McmcSamples::initTxtFile(const string &title){
-    if (myMPI::rank) return;
+//    if (myMPI::rank) return;
     filename = title + ".mcmcsamples." + label;
     tout.open(filename.c_str());
     if (!tout) {
@@ -104,7 +104,7 @@ void McmcSamples::initTxtFile(const string &title){
 }
 
 void McmcSamples::writeDataBin(const string &title){
-    if (myMPI::rank) return;
+//    if (myMPI::rank) return;
     filename = title+ ".mcmcsamples." + label ;
     FILE *out = fopen(filename.c_str(), "wb");
     if (!out) {
@@ -139,12 +139,13 @@ void McmcSamples::readDataBin(const string &filename){
     ncol = xyn[1];
     
     // read with MPI
-    unsigned batch_size = xyn[0]/myMPI::clusterSize;
-    unsigned my_start = myMPI::rank*batch_size;
-    unsigned my_end = myMPI::rank+1 == myMPI::clusterSize ? xyn[0] : my_start + batch_size;
-    unsigned my_size = my_end - my_start;
-    
-    datMatSp.resize(my_size, xyn[1]);
+//    unsigned batch_size = xyn[0]/myMPI::clusterSize;
+//    unsigned my_start = myMPI::rank*batch_size;
+//    unsigned my_end = myMPI::rank+1 == myMPI::clusterSize ? xyn[0] : my_start + batch_size;
+//    unsigned my_size = my_end - my_start;
+//    
+//    datMatSp.resize(my_size, xyn[1]);
+    datMatSp.resize(xyn[0], xyn[1]);
 //    vector<Triplet<float>> trips(xyn[2]);
     vector<Triplet<float> > trips;
     
@@ -155,13 +156,14 @@ void McmcSamples::readDataBin(const string &filename){
         float v;
         fread(&v, sizeof(float), 1, in);
         
-        if (rc[0] < my_start) continue;
-        else if (rc[0]>= my_end) break;
+//        if (rc[0] < my_start) continue;
+//        else if (rc[0]>= my_end) break;
         
         if(rc[0]>xyn[0] || rc[1]>xyn[1]) continue;
         
         //trips[i] = Triplet<float>(rc[0], rc[1], v);
-        trips.push_back(Triplet<float>(rc[0]-my_start, rc[1], v));
+        trips.push_back(Triplet<float>(rc[0], rc[1], v));
+//        trips.push_back(Triplet<float>(rc[0]-my_start, rc[1], v));
     }
     fclose(in);
     
@@ -213,7 +215,7 @@ void McmcSamples::readDataTxt(const string &filename, const string &label){
 }
 
 void McmcSamples::writeDataTxt(const string &title){
-    if (myMPI::rank) return;
+//    if (myMPI::rank) return;
     filename = title+ ".mcmcsamples." + label ;
     ofstream out(filename);
     out << datMat << endl;
@@ -221,7 +223,7 @@ void McmcSamples::writeDataTxt(const string &title){
 }
 
 void MCMC::initTxtFile(const vector<Parameter*> &paramVec, const string &title){
-    if (myMPI::rank) return;
+//    if (myMPI::rank) return;
     outfilename = title + ".mcmcsamples.Par";
     out.open(outfilename.c_str());
     if (!out) {
@@ -241,9 +243,9 @@ vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned ch
         ParamSet *parSet = model.paramSetVec[i];
         McmcSamples *mcmcSamples;
         if (parSet->label == "SnpEffects") {
-            if (myMPI::partition=="bycol")
-                mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, model.numSnps, "sparse");
-            else
+//            if (myMPI::partition=="bycol")
+//                mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, model.numSnps, "sparse");
+//            else
                 mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "sparse");
             if (writeBinPosterior) mcmcSamples->initBinFile(title);
         } else if (parSet->label.find("Delta") != string::npos) {
@@ -390,7 +392,8 @@ void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vecto
 
 vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const bool print,
                                const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
-    if (print && myMPI::rank==0) {
+//    if (print && myMPI::rank==0) {
+    if (print) {
         cout << "MCMC launched ..." << endl;
         cout << "  Chain length: " << chainLength << " iterations" << endl;
         cout << "  Burn-in: " << burnin << " iterations" << endl << endl;
@@ -405,14 +408,15 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const u
         unsigned thisIter = iteration + 1;
         
         model.sampleUnknowns();
-        if (myMPI::rank==0) {
+//        if (myMPI::rank==0) {
             collectSamples(model, mcmcSampleVec, iteration, writeBinPosterior, writeTxtPosterior);
-        }
+//        }
         
         if (!(thisIter % outputFreq)) {
             timer.getTime();
             time_t timeToFinish = (chainLength-thisIter)*timer.getElapse()/thisIter; // remaining iterations multiplied by average time per iteration in seconds
-            if (print && myMPI::rank==0) {
+//            if (print && myMPI::rank==0) {
+            if (print) {
                 printStatus(model.paramToPrint, thisIter, outputFreq, timer.format(timeToFinish));
             }
         }
@@ -421,7 +425,8 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const u
     // save the samples in the last iteration for potential continual run
     
 
-    if (print && myMPI::rank==0) {
+//    if (print && myMPI::rank==0) {
+    if (print) {
         cout << "\nMCMC cycles completed." << endl;
         printSummary(model.paramToPrint, mcmcSampleVec, title + ".parRes");
         printSetSummary(model.paramSetToPrint, mcmcSampleVec, title + ".parSetRes");

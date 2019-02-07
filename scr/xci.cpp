@@ -57,7 +57,7 @@ void XCI::inputIndInfo(Data &data, const string &bedFile, const string &phenotyp
     unsigned numKeptMales_all, numKeptFemales_all;
     MPI_Allreduce(&numKeptMales, &numKeptMales_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
     MPI_Allreduce(&numKeptFemales, &numKeptFemales_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
-   if (myMPI::rank==0)
+//   if (myMPI::rank==0)
         cout << "Matched " << numKeptMales_all << " males and " << numKeptFemales_all << " females." << endl;
     
     restoreFamFileOrder(data.indInfoVec);
@@ -87,7 +87,7 @@ void XCI::readBedFile(Data &data, const string &bedFile){
     // Read bed file
     FILE *in = fopen(bedFile.c_str(), "rb");
     if (!in) throw ("Error: can not open the file [" + bedFile + "] to read.");
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << "Reading PLINK BED file from [" + bedFile + "] in SNP-major format ..." << endl;
     char header[3];
     fread(header, sizeof(header), 1, in);
@@ -227,7 +227,7 @@ void XCI::readBedFile(Data &data, const string &bedFile){
 //    
 //    MPI_Allreduce(&my_ZPZdiag[0], &data.ZPZdiag[0], data.numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
     
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << "Genotype data for " << numKeptMales_all + numKeptFemales_all << " individuals (" << numKeptMales_all << " males and " << numKeptFemales_all << " females) and " << data.numIncdSnps << " SNPs are included from [" + bedFile + "]." << endl;
 }
 
@@ -357,13 +357,13 @@ void XCI::simu(Data &data, const unsigned numQTL, const float heritability, cons
     }
     out.close();
     
-    if (!myMPI::rank) {
+//    if (!myMPI::rank) {
         cout << "\nSimulated " << numQTL << " QTL with " << numQTL - numFDC << " QTL escaped from XCI." << endl;
         cout << "Simulated genotypic variance: " << genVar << " (male: " << genVarMale << "; female: " << genVarFemale << ")" <<  endl;
         cout << "Simulated residual  variance: " << resVar << endl;
         if (removeQTL) cout << "QTL removed from the analysis." << endl;
         cout << "Saved simulated QTL info to [" << filename << "]." << endl;
-    }
+//    }
     
 }
 
@@ -374,7 +374,7 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
         if (mcmcSampleVec[i]->label == "SnpEffects") snpEffects = mcmcSampleVec[i];
         if (mcmcSampleVec[i]->label == "Gamma") gamma = mcmcSampleVec[i];
     }
-    if (myMPI::rank) return;
+//    if (myMPI::rank) return;
     string filename = title + ".snpRes";
     ofstream out(filename.c_str());
     out << boost::format("%6s %20s %6s %12s %8s %12s %12s %8s %8s\n")

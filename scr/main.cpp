@@ -16,31 +16,32 @@ using namespace std;
 
 int main(int argc, const char * argv[]) {
     
-    MPI_Init(NULL, NULL);
-    
-    MPI_Comm_size(MPI_COMM_WORLD, &myMPI::clusterSize);
-    MPI_Comm_rank(MPI_COMM_WORLD, &myMPI::rank);
-    MPI_Get_processor_name(myMPI::processorName, &myMPI::processorNameLength);
-    
-    if (myMPI::rank==0) {
+//    MPI_Init(NULL, NULL);
+//    
+//    MPI_Comm_size(MPI_COMM_WORLD, &myMPI::clusterSize);
+//    MPI_Comm_rank(MPI_COMM_WORLD, &myMPI::rank);
+//    MPI_Get_processor_name(myMPI::processorName, &myMPI::processorNameLength);
+//    
+//    if (myMPI::rank==0) {
         cout << "***********************************************\n";
         cout << "* GCTB 2.0 Beta                               *\n";
         cout << "* Genome-wide Complex Trait Bayesian analysis *\n";
         cout << "* Author: Jian Zeng, Luke Lloyd-Jones         *\n";
         cout << "* MIT License                                 *\n";
         cout << "***********************************************\n";
-        if (myMPI::clusterSize > 1)
-            cout << "\nGCTB is using MPI with " << myMPI::clusterSize << " processors" << endl;
-    }
+//        if (myMPI::clusterSize > 1)
+//            cout << "\nGCTB is using MPI with " << myMPI::clusterSize << " processors" << endl;
+//    }
 
     Gadget::Timer timer;
     timer.setTime();
-    if (myMPI::rank==0) cout << "\nAnalysis started: " << timer.getDate();
+//    if (myMPI::rank==0)
+        cout << "\nAnalysis started: " << timer.getDate();
     
-    if (argc < 2){
-        if (myMPI::rank==0) cerr << " \nDid you forget to give the input parameters?\n" << endl;
-        exit(1);
-    }
+//    if (argc < 2){
+//        if (myMPI::rank==0) cerr << " \nDid you forget to give the input parameters?\n" << endl;
+//        exit(1);
+//    }
     
     try {
         
@@ -205,20 +206,22 @@ int main(int argc, const char * argv[]) {
         }
     }
     catch (const string &err_msg) {
-        if (myMPI::rank==0) cerr << "\n" << err_msg << endl;
+//        if (myMPI::rank==0)
+            cerr << "\n" << err_msg << endl;
     }
     catch (const char *err_msg) {
-        if (myMPI::rank==0) cerr << "\n" << err_msg << endl;
+//        if (myMPI::rank==0)
+            cerr << "\n" << err_msg << endl;
     }
     
     timer.getTime();
     
-    if (myMPI::rank==0) {
+//    if (myMPI::rank==0) {
         cout << "\nAnalysis finished: " << timer.getDate();
         cout << "Computational time: "  << timer.format(timer.getElapse()) << endl;
-    }
+//    }
     
-    MPI_Finalize();
+//    MPI_Finalize();
 
     return 0;
 }

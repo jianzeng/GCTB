@@ -14,8 +14,9 @@ void BayesC::FixedEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &X,
     float rhs;
     for (unsigned i=0; i<size; ++i) {
         float oldSample = values[i];
-        float my_rhs = X.col(i).dot(ycorr);
-        MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+        float rhs = X.col(i).dot(ycorr);
+//        float my_rhs = X.col(i).dot(ycorr);
+//        MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
         rhs += XPXdiag[i]*oldSample;
         float invLhs = 1.0f/XPXdiag[i];
         float bhat = invLhs*rhs;
@@ -51,8 +52,9 @@ void BayesC::SnpEffects::gibbsSampler(VectorXf &ycorr, const MatrixXf &Z, const 
     
     for (unsigned i=0; i<size; ++i) {
         oldSample = values[i];
-        my_rhs = Z.col(i).dot(ycorr);
-        MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+        rhs = Z.col(i).dot(ycorr);
+//        my_rhs = Z.col(i).dot(ycorr);
+//        MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
         rhs += ZPZdiag[i]*oldSample;
         rhs *= invVare;
         invLhs = 1.0f/(ZPZdiag[i]*invVare + invSigmaSq);
@@ -119,7 +121,8 @@ void BayesC::SnpEffects::hmcSampler(VectorXf &ycorr, const MatrixXf &Z, const Ve
         ++mhr;
     }
     
-    if (!(++cnt % 100) && myMPI::rank==0) {
+//    if (!(++cnt % 100) && myMPI::rank==0) {
+    if (!(++cnt % 100)) {
         float ar = mhr/float(cnt);
         if      (ar < 0.5) cout << "Warning: acceptance rate for SNP effects is too low "  << ar << endl;
         else if (ar > 0.9) cout << "Warning: acceptance rate for SNP effects is too high " << ar << endl;
@@ -256,26 +259,27 @@ void BayesC::Pi::compute(const float numSnps, const float numSnpEff){
 }
 
 void BayesC::ResidualVar::sampleFromFC(VectorXf &ycorr){
-    float sse;
-    float my_sse = ycorr.squaredNorm();
-    MPI_Allreduce(&my_sse, &sse, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    float sse = ycorr.squaredNorm();
+//    float sse;
+//    float my_sse = ycorr.squaredNorm();
+//    MPI_Allreduce(&my_sse, &sse, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
     float dfTilde = df + nobs;
     float scaleTilde = sse + df*scale;
     value = InvChiSq::sample(dfTilde, scaleTilde);
 }
 
 void BayesC::GenotypicVar::compute(const VectorXf &ghat){
-    //value = Gadget::calcVariance(ghat);
-    float my_sum = ghat.sum();
-    float my_ssq = ghat.squaredNorm();
-    unsigned my_size = (unsigned)ghat.size();
-    float sum, ssq;
-    unsigned size;
-    MPI_Allreduce(&my_sum, &sum, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&my_ssq, &ssq, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&my_size, &size, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
-    float mean = sum/size;
-    value = ssq/size - mean*mean;
+    value = Gadget::calcVariance(ghat);
+//    float my_sum = ghat.sum();
+//    float my_ssq = ghat.squaredNorm();
+//    unsigned my_size = (unsigned)ghat.size();
+//    float sum, ssq;
+//    unsigned size;
+//    MPI_Allreduce(&my_sum, &sum, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//    MPI_Allreduce(&my_ssq, &ssq, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//    MPI_Allreduce(&my_size, &size, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+//    float mean = sum/size;
+//    value = ssq/size - mean*mean;
 }
 
 void BayesC::Rounding::computeYcorr(const VectorXf &y, const MatrixXf &X, const MatrixXf &Z,
@@ -287,9 +291,10 @@ void BayesC::Rounding::computeYcorr(const VectorXf &y, const MatrixXf &X, const 
     for (unsigned i=0; i<snpEffects.size(); ++i) {
         if (snpEffects[i]) ycorr -= Z.col(i)*snpEffects[i];
     }
-    float my_ss = (ycorr - oldYcorr).squaredNorm();
-    float ss;
-    MPI_Allreduce(&my_ss, &ss, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    float ss = (ycorr - oldYcorr).squaredNorm();
+//    float my_ss = (ycorr - oldYcorr).squaredNorm();
+//    float ss;
+//    MPI_Allreduce(&my_ss, &ss, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
     value = sqrt(ss);
 }
 
@@ -315,11 +320,11 @@ void BayesC::sampleUnknowns(){
 void BayesC::sampleStartVal(){
     sigmaSq.sampleFromPrior();
     if (estimatePi) pi.sampleFromPrior();
-    if (myMPI::rank==0) {
+//    if (myMPI::rank==0) {
         cout << "  Starting value for " << sigmaSq.label << ": " << sigmaSq.value << endl;
         if (estimatePi) cout << "  Starting value for " << pi.label << ": " << pi.value << endl;
         cout << endl;
-    }
+//    }
 }
 
 
@@ -339,8 +344,9 @@ void BayesB::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
     
     for (unsigned i=0; i<size; ++i) {
         oldSample = values[i];
-        my_rhs = Z.col(i).dot(ycorr);
-        MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+        rhs = Z.col(i).dot(ycorr);
+//        my_rhs = Z.col(i).dot(ycorr);
+//        MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
         rhs += ZPZdiag[i]*oldSample;
         rhs *= invVare;
         invLhs = 1.0f/(ZPZdiag[i]*invVare + 1.0f/sigmaSq[i]);
@@ -421,16 +427,18 @@ void BayesN::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
         if (windDelta[i]) {
             for (unsigned j=start; j<end; ++j) {
                 if (snpDelta[j]) {
-                    my_rhs = Z.col(j).dot(ycorr);
-                    MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+                    rhs = Z.col(j).dot(ycorr);
+//                    my_rhs = Z.col(j).dot(ycorr);
+//                    MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
                     diffQuadSum += 2.0f*beta[j]*rhs + beta[j]*beta[j]*ZPZdiag[j];
                 }
             }
         } else {
             for (unsigned j=start; j<end; ++j) {
                 if (snpDelta[j]) {
-                    my_rhs = Z.col(j).dot(ycorr);
-                    MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+                    rhs = Z.col(j).dot(ycorr);
+//                    my_rhs = Z.col(j).dot(ycorr);
+//                    MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
                     diffQuadSum += 2.0f*beta[j]*rhs - beta[j]*beta[j]*ZPZdiag[j];
                 }
             }
@@ -453,9 +461,10 @@ void BayesN::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
             
             for (unsigned j=start; j<end; ++j) {
                 oldSample = beta[j]*snpDelta[j];
-                my_rhs = Z.col(j).dot(ycorr);
+                rhs = Z.col(j).dot(ycorr);
+//                my_rhs = Z.col(j).dot(ycorr);
                 
-                MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//                MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
                 
                 rhs += ZPZdiag[j]*oldSample;
                 rhs *= invVare;
@@ -871,9 +880,10 @@ void BayesS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
         if (!ZPZdiag[i]) continue;
         
         oldSample = values[i];
-        my_rhs = Z.col(i).dot(ycorr);
+        rhs = Z.col(i).dot(ycorr);
+//        my_rhs = Z.col(i).dot(ycorr);
         
-        MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//        MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
         
         rhs += ZPZdiag[i]*oldSample;
         rhs *= invVare;
@@ -937,12 +947,12 @@ void BayesS::sampleStartVal(){
     sigmaSq.sampleFromPrior();
     if (estimatePi) pi.sampleFromPrior();
     S.sampleFromPrior();
-    if (myMPI::rank==0) {
+//    if (myMPI::rank==0) {
         cout << "  Starting value for " << sigmaSq.label << ": " << sigmaSq.value << endl;
         if (estimatePi) cout << "  Starting value for " << pi.label << ": " << pi.value << endl;
         cout << "  Starting value for " << S.label << ": " << S.value << endl;
         cout << endl;
-    }
+//    }
 }
 
 
@@ -981,9 +991,10 @@ void BayesS::findStartValueForS(const vector<float> &val){
 }
 
 float BayesS::computeLogLikelihood(){
-    float sse;
-    float my_sse = ycorr.squaredNorm();
-    MPI_Allreduce(&my_sse, &sse, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    float sse = ycorr.squaredNorm();
+//    float sse;
+//    float my_sse = ycorr.squaredNorm();
+//    MPI_Allreduce(&my_sse, &sse, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
     return -0.5f*data.numKeptInds*log(vare.value) - 0.5f*sse/vare.value;
 }
 
@@ -1032,16 +1043,18 @@ void BayesNS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const
         if (windDelta[i]) {
             for (unsigned j=start; j<end; ++j) {
                 if (snpDelta[j]) {
-                    my_rhs = Z.col(j).dot(ycorr);
-                    MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+                    rhs = Z.col(j).dot(ycorr);
+//                    my_rhs = Z.col(j).dot(ycorr);
+//                    MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
                     diffQuadSum += 2.0f*beta[j]*rhs + beta[j]*beta[j]*ZPZdiag[j];
                 }
             }
         } else {
             for (unsigned j=start; j<end; ++j) {
                 if (snpDelta[j]) {
-                    my_rhs = Z.col(j).dot(ycorr);
-                    MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+                    rhs = Z.col(j).dot(ycorr);
+//                    my_rhs = Z.col(j).dot(ycorr);
+//                    MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
                     diffQuadSum += 2.0f*beta[j]*rhs - beta[j]*beta[j]*ZPZdiag[j];
                 }
             }
@@ -1064,9 +1077,10 @@ void BayesNS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const
 
             for (unsigned j=start; j<end; ++j) {
                 oldSample = beta[j]*snpDelta[j];
-                my_rhs = Z.col(j).dot(ycorr);
+                rhs = Z.col(j).dot(ycorr);
+//                my_rhs = Z.col(j).dot(ycorr);
                 
-                MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//                MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
                 
                 rhs += ZPZdiag[j]*oldSample;
                 rhs *= invVare;
@@ -2756,13 +2770,13 @@ void ApproxBayesST::sampleStartVal(){
     if (estimatePi) pi.sampleFromPrior();
     S.sampleFromPrior();
     T.sampleFromPrior();
-    if (myMPI::rank==0) {
+//    if (myMPI::rank==0) {
         cout << "  Starting value for " << sigmaSq.label << ": " << sigmaSq.value << endl;
         if (estimatePi) cout << "  Starting value for " << pi.label << ": " << pi.value << endl;
         cout << "  Starting value for " << S.label << ": " << S.value << endl;
         cout << "  Starting value for " << T.label << ": " << T.value << endl;
         cout << endl;
-    }
+//    }
 }
 
 
@@ -3838,9 +3852,10 @@ void BayesSMix::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, con
         oldSample = values[i];
         weight[2] = snp2pqPowS[i];
         
-        my_rhs = Z.col(i).dot(ycorr);
+        rhs = Z.col(i).dot(ycorr);
+//        my_rhs = Z.col(i).dot(ycorr);
         
-        MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//        MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
         
         rhs += ZPZdiag[i]*oldSample;
         rhs *= invVare;

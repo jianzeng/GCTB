@@ -10,7 +10,7 @@
 #define amber_hpp
 
 #include <stdio.h>
-#include <mpi.h>
+//#include <mpi.h>
 #include <omp.h>
 #include "options.hpp"
 #include "data.hpp"
@@ -18,7 +18,7 @@
 #include "mcmc.hpp"
 #include "hsq.hpp"
 #include "predict.hpp"
-#include "mympi.hpp"
+//#include "mympi.hpp"
 #include "stratify.hpp"
 
 class GCTB {
