@@ -44,7 +44,7 @@ void AnnoInfo::getSnpInfo() {
 }
 
 void AnnoInfo::print() {
-    if (myMPI::rank) return;
+//    if (myMPI::rank) return;
     cout << boost::format("%6s %12s %10s %8.3f\n")
     % (idx+1)
     % label
@@ -56,7 +56,7 @@ void Data::readFamFile(const string &famFile){
     // ignore phenotype column
     ifstream in(famFile.c_str());
     if (!in) throw ("Error: can not open the file [" + famFile + "] to read.");
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << "Reading PLINK FAM file from [" + famFile + "]." << endl;
     indInfoVec.clear();
     indInfoMap.clear();
@@ -71,7 +71,7 @@ void Data::readFamFile(const string &famFile){
     }
     in.close();
     numInds = (unsigned) indInfoVec.size();
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << numInds << " individuals to be included from [" + famFile + "]." << endl;
 }
 
@@ -79,7 +79,7 @@ void Data::readBimFile(const string &bimFile) {
     // Read bim file: recombination rate is defined between SNP i and SNP i-1
     ifstream in(bimFile.c_str());
     if (!in) throw ("Error: can not open the file [" + bimFile + "] to read.");
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << "Reading PLINK BIM file from [" + bimFile + "]." << endl;
     snpInfoVec.clear();
     snpInfoMap.clear();
@@ -97,7 +97,7 @@ void Data::readBimFile(const string &bimFile) {
     }
     in.close();
     numSnps = (unsigned) snpInfoVec.size();
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << numSnps << " SNPs to be included from [" + bimFile + "]." << endl;
 }
 
@@ -197,7 +197,7 @@ void Data::readBedFile(const string &bedFile){
     // Read bed file
     FILE *in = fopen(bedFile.c_str(), "rb");
     if (!in) throw ("Error: can not open the file [" + bedFile + "] to read.");
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << "Reading PLINK BED file from [" + bedFile + "] in SNP-major format ..." << endl;
     char header[3];
     fread(header, sizeof(header), 1, in);
@@ -206,15 +206,16 @@ void Data::readBedFile(const string &bedFile){
         exit(1);
     }
 
-    unsigned numKeptInds_all;
-    MPI_Allreduce(&numKeptInds, &numKeptInds_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+//    unsigned numKeptInds_all;
+//    MPI_Allreduce(&numKeptInds, &numKeptInds_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
     
     // Read genotypes
     SnpInfo *snpInfo = NULL;
     IndInfo *indInfo = NULL;
     unsigned snp = 0;
     unsigned nmiss=0, nmiss_all;
-    float sum=0.0, sum_all=0.0, mean_all;
+    float sum=0.0, mean;
+//    float sum=0.0, sum_all=0.0, mean_all;
     
     const int bedToGeno[4] = {2, -9, 1, 0};
     unsigned size = (numInds+3)>>2;
@@ -249,24 +250,28 @@ void Data::readBedFile(const string &bedFile){
         }
         delete[] bedLineIn;
         
-        MPI_Allreduce(&sum, &sum_all, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-        MPI_Allreduce(&nmiss, &nmiss_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+//        MPI_Allreduce(&sum, &sum_all, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//        MPI_Allreduce(&nmiss, &nmiss_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
         
         // fill missing values with the mean
-        mean_all = sum_all/float(numKeptInds_all - nmiss_all);
+//        mean_all = sum_all/float(numKeptInds_all - nmiss_all);
+        mean = sum/float(numKeptInds - nmiss);
         if (nmiss) {
             for (i=0; i<numKeptInds; ++i) {
-                if (Z(i,snp) == -9) Z(i,snp) = mean_all;
+//                if (Z(i,snp) == -9) Z(i,snp) = mean_all;
+                if (Z(i,snp) == -9) Z(i,snp) = mean;
             }
         }
         
         // compute allele frequency
-        snpInfo->af = 0.5f*mean_all;
+//        snpInfo->af = 0.5f*mean_all;
+        snpInfo->af = 0.5f*mean;
         snp2pq[snp] = snpInfo->twopq = 2.0f*snpInfo->af*(1.0f-snpInfo->af);
         
         //cout << "snp " << snp << "     " << Z.col(snp).sum() << endl;
         
-        Z.col(snp).array() -= mean_all; // center column by 2p rather than the real mean
+//        Z.col(snp).array() -= mean_all; // center column by 2p rather than the real mean
+        Z.col(snp).array() -= mean; // center column by 2p rather than the real mean
 
         if (++snp == numIncdSnps) break;
     }
@@ -274,25 +279,27 @@ void Data::readBedFile(const string &bedFile){
     
     
     // standardize genotypes
-    VectorXf colsums = Z.colwise().sum();
-    VectorXf colsums_all(numIncdSnps);
+//    VectorXf colsums = Z.colwise().sum();
+//    VectorXf colsums_all(numIncdSnps);
     
-    MPI_Allreduce(&colsums[0], &colsums_all[0], numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//    MPI_Allreduce(&colsums[0], &colsums_all[0], numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
     
     //Z.rowwise() -= colsums_all.transpose()/numKeptInds_all;  // center
-    VectorXf my_ZPZdiag = Z.colwise().squaredNorm();
+//    VectorXf my_ZPZdiag = Z.colwise().squaredNorm();
+    ZPZdiag = Z.colwise().squaredNorm();
     
-    MPI_Allreduce(&my_ZPZdiag[0], &ZPZdiag[0], numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//    MPI_Allreduce(&my_ZPZdiag[0], &ZPZdiag[0], numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
     
-    if (myMPI::rank==0)
-        cout << "Genotype data for " << numKeptInds_all << " individuals and " << numIncdSnps << " SNPs are included from [" + bedFile + "]." << endl;
+//    if (myMPI::rank==0)
+//        cout << "Genotype data for " << numKeptInds_all << " individuals and " << numIncdSnps << " SNPs are included from [" + bedFile + "]." << endl;
+    cout << "Genotype data for " << numKeptInds << " individuals and " << numIncdSnps << " SNPs are included from [" + bedFile + "]." << endl;
 }
 
 void Data::readPhenotypeFile(const string &phenFile, const unsigned mphen) {
     // NA: missing phenotype
     ifstream in(phenFile.c_str());
     if (!in) throw ("Error: can not open the phenotype file [" + phenFile + "] to read.");
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << "Reading phenotypes from [" + phenFile + "]." << endl;
     map<string, IndInfo*>::iterator it, end=indInfoMap.end();
     IndInfo *ind = NULL;
@@ -312,7 +319,7 @@ void Data::readPhenotypeFile(const string &phenFile, const unsigned mphen) {
         }
     }
     in.close();
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << "Non-missing phenotypes of trait " << mphen << " of " << line << " individuals are included from [" + phenFile + "]." << endl;
 }
 
@@ -352,7 +359,7 @@ void Data::readCovariateFile(const string &covarFile){
     }
     in.close();
     
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << "Read " << numCovariates << " covariates from [" + covarFile + "]." << endl;
 }
 
@@ -398,66 +405,67 @@ void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){
         in.close();
     }
     
-    unsigned numKeptInds_all = 0;
+//    unsigned numKeptInds_all = 0;
+    numKeptInds = 0;
 
-    if (myMPI::partition == "byrow") {
-        unsigned total_size = (unsigned) keep.size();
-        unsigned batch_size = total_size/myMPI::clusterSize;
-        unsigned my_start = myMPI::rank*batch_size;
-        unsigned my_end = (myMPI::rank+1)==myMPI::clusterSize ? total_size : my_start + batch_size;
-        unsigned my_size = my_end - my_start;
-                
-        myMPI::iStart = my_start;
-        myMPI::iSize  = my_size;
-        
-        vector<string>::const_iterator first = keep.begin() + my_start;
-        vector<string>::const_iterator last  = keep.begin() + my_end;
-        vector<string> my_keep(first, last);
-        
-        for (unsigned i=0; i<my_size; ++i) {
-            it = indInfoMap.find(my_keep[i]);
-            if (it == end) {
-                Gadget::Tokenizer token;
-                token.getTokens(my_keep[i], ":");
-                throw("Error: Individual " + token[0] + " " + token[1] + " from file [" + keepIndFile + "] does not exist!");
-            } else {
-                ind = it->second;
-                if (ind->phenotype != -9) {
-                    ind->kept = true;
-                } else {
-                    throw("Error: Individual " + ind->famID + " " + ind->indID + " from file [" + keepIndFile + "] does not have phenotype!");
-                }
-            }
-        }
-        
-        keptIndInfoVec = makeKeptIndInfoVec(indInfoVec);
-        numKeptInds =  (unsigned) keptIndInfoVec.size();
-        
-        y.setZero(numKeptInds);
-        for (unsigned i=0; i<numKeptInds; ++i) {
-            y[i] = keptIndInfoVec[i]->phenotype;
-        }
-        float my_ypy = (y.array()-y.mean()).square().sum();
-        MPI_Allreduce(&my_ypy, &ypy, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-        
-        X.resize(numKeptInds, numFixedEffects);
-        for (unsigned i=0; i<numKeptInds; ++i) {
-            X.row(i) = keptIndInfoVec[i]->covariates;
-        }
-        VectorXf my_XPXdiag = X.colwise().squaredNorm();
-        XPXdiag.setZero(numFixedEffects);
-        MPI_Allreduce(&my_XPXdiag[0], &XPXdiag[0], numFixedEffects, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-        
-        MPI_Allreduce(&numKeptInds, &numKeptInds_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
-        
-        if (myMPI::rank==0) {
-            cout << numKeptInds_all << " matched individuals are kept." << endl;
-        }
-        
-        MPI_Barrier(MPI_COMM_WORLD);
-        printf("%d individuals assigned to processor %s at rank %d.\n", numKeptInds, myMPI::processorName, myMPI::rank);
-    }
-    else {
+//    if (myMPI::partition == "byrow") {
+//        unsigned total_size = (unsigned) keep.size();
+//        unsigned batch_size = total_size/myMPI::clusterSize;
+//        unsigned my_start = myMPI::rank*batch_size;
+//        unsigned my_end = (myMPI::rank+1)==myMPI::clusterSize ? total_size : my_start + batch_size;
+//        unsigned my_size = my_end - my_start;
+//                
+//        myMPI::iStart = my_start;
+//        myMPI::iSize  = my_size;
+//        
+//        vector<string>::const_iterator first = keep.begin() + my_start;
+//        vector<string>::const_iterator last  = keep.begin() + my_end;
+//        vector<string> my_keep(first, last);
+//        
+//        for (unsigned i=0; i<my_size; ++i) {
+//            it = indInfoMap.find(my_keep[i]);
+//            if (it == end) {
+//                Gadget::Tokenizer token;
+//                token.getTokens(my_keep[i], ":");
+//                throw("Error: Individual " + token[0] + " " + token[1] + " from file [" + keepIndFile + "] does not exist!");
+//            } else {
+//                ind = it->second;
+//                if (ind->phenotype != -9) {
+//                    ind->kept = true;
+//                } else {
+//                    throw("Error: Individual " + ind->famID + " " + ind->indID + " from file [" + keepIndFile + "] does not have phenotype!");
+//                }
+//            }
+//        }
+//        
+//        keptIndInfoVec = makeKeptIndInfoVec(indInfoVec);
+//        numKeptInds =  (unsigned) keptIndInfoVec.size();
+//        
+//        y.setZero(numKeptInds);
+//        for (unsigned i=0; i<numKeptInds; ++i) {
+//            y[i] = keptIndInfoVec[i]->phenotype;
+//        }
+//        float my_ypy = (y.array()-y.mean()).square().sum();
+//        MPI_Allreduce(&my_ypy, &ypy, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//        
+//        X.resize(numKeptInds, numFixedEffects);
+//        for (unsigned i=0; i<numKeptInds; ++i) {
+//            X.row(i) = keptIndInfoVec[i]->covariates;
+//        }
+//        VectorXf my_XPXdiag = X.colwise().squaredNorm();
+//        XPXdiag.setZero(numFixedEffects);
+//        MPI_Allreduce(&my_XPXdiag[0], &XPXdiag[0], numFixedEffects, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//        
+//        MPI_Allreduce(&numKeptInds, &numKeptInds_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+//        
+//        if (myMPI::rank==0) {
+//            cout << numKeptInds_all << " matched individuals are kept." << endl;
+//        }
+//        
+//        MPI_Barrier(MPI_COMM_WORLD);
+//        printf("%d individuals assigned to processor %s at rank %d.\n", numKeptInds, myMPI::processorName, myMPI::rank);
+//    }
+//    else {
         for (unsigned i=0; i<keep.size(); ++i) {
             it = indInfoMap.find(keep[i]);
             if (it == end) {
@@ -476,8 +484,8 @@ void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){
         
         keptIndInfoVec = makeKeptIndInfoVec(indInfoVec);
         numKeptInds =  (unsigned) keptIndInfoVec.size();
-        numKeptInds_all = numKeptInds;
-        
+//        numKeptInds_all = numKeptInds;
+    
         y.setZero(numKeptInds);
         for (unsigned i=0; i<numKeptInds; ++i) {
             y[i] = keptIndInfoVec[i]->phenotype;
@@ -490,21 +498,22 @@ void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){
         }
         XPXdiag = X.colwise().squaredNorm();
 
-        if (myMPI::rank==0) {
+//        if (myMPI::rank==0) {
             cout << numKeptInds << " matched individuals are kept." << endl;
-        }
-    }
+//        }
+//    }
 }
 
 void Data::initVariances(const float heritability){
-    float varPhenotypic;
-    if (myMPI::partition == "byrow") {
-        unsigned numKeptInds_all = 0;
-        MPI_Allreduce(&numKeptInds, &numKeptInds_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
-        varPhenotypic = ypy/numKeptInds_all;
-    } else {
-        varPhenotypic = ypy/numKeptInds;
-    }
+    float varPhenotypic = ypy/numKeptInds;
+//    float varPhenotypic;
+//    if (myMPI::partition == "byrow") {
+//        unsigned numKeptInds_all = 0;
+//        MPI_Allreduce(&numKeptInds, &numKeptInds_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+//        varPhenotypic = ypy/numKeptInds_all;
+//    } else {
+//        varPhenotypic = ypy/numKeptInds;
+//    }
     varGenotypic = varPhenotypic * heritability;
     varResidual  = varPhenotypic - varGenotypic;
 //    cout <<ypy<<" "<<numKeptInds<<" "<<varPhenotypic<<" " <<varGenotypic << " " <<varResidual << endl;
@@ -565,9 +574,9 @@ void Data::includeSkeletonSnp(const string &skeletonSnpFile){
             ++numSkeletonSnps;
         }
     }
-    if (myMPI::rank==0) {
+//    if (myMPI::rank==0) {
         cout << numSkeletonSnps << " skeleton SNPs are included." << endl;
-    }
+//    }
     in.close();
 }
 
@@ -582,9 +591,9 @@ void Data::excludeMHC(){
             }
         }
     }
-    if (myMPI::rank==0) {
+//    if (myMPI::rank==0) {
         cout << cnt << " SNPs in the MHC region (Chr6:28-34Mb) are excluded." << endl;
-    }
+//    }
 }
 
 void Data::excludeAmbiguousSNP(){
@@ -599,9 +608,9 @@ void Data::excludeAmbiguousSNP(){
             ++cnt;
         }
     }
-    if (myMPI::rank==0) {
+//    if (myMPI::rank==0) {
         cout << cnt << " SNPs with ambiguous nucleotides, i.e. A/T or G/C, are excluded." << endl;
-    }
+//    }
 }
 
 void Data::excludeSNPwithMaf(const float mafmin, const float mafmax){
@@ -618,10 +627,10 @@ void Data::excludeSNPwithMaf(const float mafmin, const float mafmax){
             ++cntmax;
         }
     }
-    if (myMPI::rank==0) {
+//    if (myMPI::rank==0) {
         if (mafmin) cout << cntmin << " SNPs with MAF below " << mafmin << " are excluded." << endl;
         if (mafmax) cout << cntmax << " SNPs with MAF above " << mafmax << " are excluded." << endl;
-    }
+//    }
 }
 
 void Data::excludeRegion(const string &excludeRegionFile){
@@ -652,9 +661,9 @@ void Data::excludeRegion(const string &excludeRegionFile){
             }
         }
     }
-    if (myMPI::rank==0) {
+//    if (myMPI::rank==0) {
         cout << cnt << " SNPs are excluded due to --exclude-region." << endl;
-    }
+//    }
 
 }
 
@@ -676,55 +685,60 @@ void Data::includeMatchedSnp(){
     for (int i=0; i<numSnps; ++i) fullSnpFlag[i] = snpInfoVec[i]->included; // for output purpose
     
     
-    if (myMPI::partition == "bycol") {  // MPI by chromosome
-        vector<int> chromVec;
-        for (set<int>::iterator it=chromosomes.begin(); it!=chromosomes.end(); ++it) {
-            chromVec.push_back(*it);
-        }
-        unsigned my_chrom = (myMPI::rank+1)==myMPI::clusterSize ? 99 : chromVec[myMPI::rank];
-
-        SnpInfo *snp;
-        for (unsigned i=0; i<numSnps; ++i) {  // each core takes one chromosome, if #chrom > #core, the last core takes all rest chroms
-            snp = snpInfoVec[i];
-            if (my_chrom != 99) {
-                if (snp->chrom != my_chrom) snp->included = false;
-            } else {
-                if (snp->chrom < chromVec[myMPI::rank]) snp->included = false;
-            }
-        }
-        
-        incdSnpInfoVec = makeIncdSnpInfoVec(snpInfoVec);
-        numIncdSnps = (unsigned) incdSnpInfoVec.size();
-        snp2pq.resize(numIncdSnps);
-        
-        // setup MPI for collecting SNP info
-        myMPI::iSize = numIncdSnps;
-        myMPI::iStart = incdSnpInfoVec[0]->index;
-        myMPI::srcounts.resize(myMPI::clusterSize);
-        myMPI::displs.resize(myMPI::clusterSize);
-        
-        MPI_Allgather(&myMPI::iSize, 1, MPI_INT, &myMPI::srcounts[0], 1, MPI_INT, MPI_COMM_WORLD);
-        MPI_Allgather(&myMPI::iStart, 1, MPI_INT, &myMPI::displs[0], 1, MPI_INT, MPI_COMM_WORLD);
-
-        
-        reindexSnp(incdSnpInfoVec);  // reindex based on the snplist for each core
-
-        //cout << "rank " << myMPI::rank << " " << myMPI::iStart << " " << myMPI::iSize << endl;
-        
-        unsigned numIncdSnps_all;
-        MPI_Reduce(&numIncdSnps, &numIncdSnps_all, 1, MPI_UNSIGNED, MPI_SUM, 0, MPI_COMM_WORLD);
-        if (myMPI::rank==0) cout << numIncdSnps_all << " SNPs are included." << endl;
-        MPI_Barrier(MPI_COMM_WORLD);
-        cout << numIncdSnps << " SNPs assigned to processor " << myMPI::processorName << " at rank " << myMPI::rank << "." << endl;
-        MPI_Barrier(MPI_COMM_WORLD);
-    }
-    else {
-        incdSnpInfoVec = makeIncdSnpInfoVec(snpInfoVec);
-        numIncdSnps = (unsigned) incdSnpInfoVec.size();
-        reindexSnp(incdSnpInfoVec);
-        snp2pq.resize(numIncdSnps);
-    }
+//    if (myMPI::partition == "bycol") {  // MPI by chromosome
+//        vector<int> chromVec;
+//        for (set<int>::iterator it=chromosomes.begin(); it!=chromosomes.end(); ++it) {
+//            chromVec.push_back(*it);
+//        }
+//        unsigned my_chrom = (myMPI::rank+1)==myMPI::clusterSize ? 99 : chromVec[myMPI::rank];
+//
+//        SnpInfo *snp;
+//        for (unsigned i=0; i<numSnps; ++i) {  // each core takes one chromosome, if #chrom > #core, the last core takes all rest chroms
+//            snp = snpInfoVec[i];
+//            if (my_chrom != 99) {
+//                if (snp->chrom != my_chrom) snp->included = false;
+//            } else {
+//                if (snp->chrom < chromVec[myMPI::rank]) snp->included = false;
+//            }
+//        }
+//        
+//        incdSnpInfoVec = makeIncdSnpInfoVec(snpInfoVec);
+//        numIncdSnps = (unsigned) incdSnpInfoVec.size();
+//        snp2pq.resize(numIncdSnps);
+//        
+//        // setup MPI for collecting SNP info
+//        myMPI::iSize = numIncdSnps;
+//        myMPI::iStart = incdSnpInfoVec[0]->index;
+//        myMPI::srcounts.resize(myMPI::clusterSize);
+//        myMPI::displs.resize(myMPI::clusterSize);
+//        
+//        MPI_Allgather(&myMPI::iSize, 1, MPI_INT, &myMPI::srcounts[0], 1, MPI_INT, MPI_COMM_WORLD);
+//        MPI_Allgather(&myMPI::iStart, 1, MPI_INT, &myMPI::displs[0], 1, MPI_INT, MPI_COMM_WORLD);
+//
+//        
+//        reindexSnp(incdSnpInfoVec);  // reindex based on the snplist for each core
+//
+//        //cout << "rank " << myMPI::rank << " " << myMPI::iStart << " " << myMPI::iSize << endl;
+//        
+//        unsigned numIncdSnps_all;
+//        MPI_Reduce(&numIncdSnps, &numIncdSnps_all, 1, MPI_UNSIGNED, MPI_SUM, 0, MPI_COMM_WORLD);
+//        if (myMPI::rank==0) cout << numIncdSnps_all << " SNPs are included." << endl;
+//        MPI_Barrier(MPI_COMM_WORLD);
+//        cout << numIncdSnps << " SNPs assigned to processor " << myMPI::processorName << " at rank " << myMPI::rank << "." << endl;
+//        MPI_Barrier(MPI_COMM_WORLD);
+//    }
+//    else {
+//        incdSnpInfoVec = makeIncdSnpInfoVec(snpInfoVec);
+//        numIncdSnps = (unsigned) incdSnpInfoVec.size();
+//        reindexSnp(incdSnpInfoVec);
+//        snp2pq.resize(numIncdSnps);
+//    }
     
+    incdSnpInfoVec = makeIncdSnpInfoVec(snpInfoVec);
+    numIncdSnps = (unsigned) incdSnpInfoVec.size();
+    reindexSnp(incdSnpInfoVec);
+    snp2pq.resize(numIncdSnps);
+
     map<int, vector<SnpInfo*> > chrmap;
     map<int, vector<SnpInfo*> >::iterator it;
     for (unsigned i=0; i<numIncdSnps; ++i) {
@@ -744,7 +758,8 @@ void Data::includeMatchedSnp(){
         //cout << "size chrom " << id << ": " << vec.back()->physPos - vec[0]->physPos << endl;
     }
 
-    if (myMPI::rank==0) cout << numIncdSnps << " SNPs on " << numChroms << " chromosomes are included." << endl;
+//    if (myMPI::rank==0) cout << numIncdSnps << " SNPs on " << numChroms << " chromosomes are included." << endl;
+    cout << numIncdSnps << " SNPs on " << numChroms << " chromosomes are included." << endl;
     
 //    if (numAnnos) {
 //        if (myMPI::rank==0) cout << "\nAnnotation info:" << endl;
@@ -793,8 +808,9 @@ vector<IndInfo*> Data::makeKeptIndInfoVec(const vector<IndInfo*> &indInfoVec){
 
 
 void Data::computeAlleleFreq(const MatrixXf &Z, vector<SnpInfo*> &incdSnpInfoVec, VectorXf &snp2pq){
-    if (myMPI::rank==0)
-        cout << "Computing allele frequencies ..." << endl;
+//    if (myMPI::rank==0)
+//        cout << "Computing allele frequencies ..." << endl;
+    cout << "Computing allele frequencies ..." << endl;
     snp2pq.resize(numIncdSnps);
     SnpInfo *snp = NULL;
     for (unsigned i=0; i<numIncdSnps; ++i) {
@@ -805,7 +821,7 @@ void Data::computeAlleleFreq(const MatrixXf &Z, vector<SnpInfo*> &incdSnpInfoVec
 }
 
 void Data::getWindowInfo(const vector<SnpInfo*> &incdSnpInfoVec, const unsigned windowWidth, VectorXi &windStart, VectorXi &windSize){
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << "Creating windows (window width: " + to_string(static_cast<long long>(windowWidth/1e6)) + "Mb) ..." << endl;
     int i=0, j=0;
     windStart.setZero(numIncdSnps);
@@ -827,7 +843,8 @@ void Data::getWindowInfo(const vector<SnpInfo*> &incdSnpInfoVec, const unsigned 
                 snpi->windSize++;
             } else break;
         }
-        if(!(i%10000) && myMPI::rank==0)
+//        if(!(i%10000) && myMPI::rank==0)
+        if(!(i%10000))
             cout << "SNP " << i << " Window Size " << snpi->windSize << endl;
         if (!snpi->windSize) {
             throw("Error: SNP " + snpi->ID + " has zero SNPs in its window!");
@@ -868,13 +885,13 @@ void Data::getNonoverlapWindowInfo(const unsigned windowWidth){
             windSize[i] = numIncdSnps - windStart[i];
     }
     
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << "Created " << numberWindows << " non-overlapping " << windowWidth/1e3 << "kb windows with average size of " << windSize.sum()/float(numberWindows) << " SNPs." << endl;
 }
 
 
 void Data::buildSparseMME(const string &bedFile, const unsigned windowWidth){
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << "Building sparse MME ..." << endl;
     
     getWindowInfo(incdSnpInfoVec, windowWidth, windStart, windSize);
@@ -944,7 +961,8 @@ void Data::buildSparseMME(const string &bedFile, const unsigned windowWidth){
             char *bedLineIn = new char[size];
             in.read((char *)bedLineIn, size);
 
-            if(!(inc%1000) && myMPI::rank==0) {
+//            if(!(inc%1000) && myMPI::rank==0) {
+            if(!(inc%1000)) {
                 cout << " thread " << omp_get_thread_num() << " read snp " << inc << " windStart " << snpj->windStart << " windSize " << snpj->windSize << endl;
             }
 
@@ -1009,11 +1027,11 @@ void Data::buildSparseMME(const string &bedFile, const unsigned windowWidth){
 
     timer.getTime();
 
-    if (myMPI::rank==0) {
+//    if (myMPI::rank==0) {
         cout << "Average window size " << windSize.sum()/numIncdSnps << endl;
         cout << "Genotype data for " << numKeptInds << " individuals and " << numIncdSnps << " SNPs are included from [" + bedFile + "]." << endl;
         cout << "Construction of sparse MME completed (time used: " << timer.format(timer.getElapse()) << ")" << endl;
-    }
+//    }
     
 //    for (unsigned i=0; i<ZPZ.size(); ++i) {
 //        cout << i << " " << ZPZ[i].transpose() << endl;
@@ -1033,7 +1051,7 @@ void Data::buildSparseMME(const string &bedFile, const unsigned windowWidth){
 
 
 void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const string &filename) const {
-    if (myMPI::rank) return;
+//    if (myMPI::rank) return;
     ofstream out(filename.c_str());
     out << boost::format("%6s %20s %6s %12s %8s %12s %12s %8s %8s\n")
     % "Id"
@@ -1067,7 +1085,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
 void Data::inputSnpResults(const string &snpResFile){
     ifstream in(snpResFile.c_str());
     if (!in) throw ("Error: can not open the SNP result file [" + snpResFile + "] to read.");
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << "Reading SNP results from [" + snpResFile + "]." << endl;
     
     SnpInfo *snp;
@@ -1090,15 +1108,15 @@ void Data::inputSnpResults(const string &snpResFile){
     }
     in.close();
     
-    if (myMPI::rank==0) {
+//    if (myMPI::rank==0) {
         cout << match << " matched SNPs in the SNP result file (in total " << line << " SNPs)." << endl;
-    }
+//    }
 }
 
 void Data::inputSnpInfoAndResults(const string &snpResFile, const string &bayesType){
     ifstream in(snpResFile.c_str());
     if (!in) throw ("Error: can not open the SNP result file [" + snpResFile + "] to read.");
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << "Reading SNP info and results from [" + snpResFile + "]." << endl;
     
     SnpInfo *snp;
@@ -1147,16 +1165,16 @@ void Data::inputSnpInfoAndResults(const string &snpResFile, const string &bayesT
     in.close();
     
 //    numSnps = (unsigned) snpInfoVec.size();
-    if (myMPI::rank==0) {
+//    if (myMPI::rank==0) {
         cout << line << " SNPs in the SNP result file." << endl;
-    }
+//    }
 }
 
 
 void Data::summarizeSnpResults(const SparseMatrix<float> &snpEffects, const string &filename) const {
-    if (myMPI::rank==0) {
+//    if (myMPI::rank==0) {
         cout << "SNP results to be summarized in " << filename << endl;
-    }
+//    }
     unsigned nrow = snpEffects.rows();
     VectorXf effectSum(numIncdSnps), effectMean(numIncdSnps);
     VectorXf pipSum(numIncdSnps), pip(numIncdSnps);  // posterior inclusion probability
@@ -1164,13 +1182,16 @@ void Data::summarizeSnpResults(const SparseMatrix<float> &snpEffects, const stri
         effectSum[i] = snpEffects.col(i).sum();
         pipSum[i] = (VectorXf(snpEffects.col(i)).array()!=0).count();
     }
-    MPI_Allreduce(MPI_IN_PLACE, &nrow, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&effectSum[0], &effectMean[0], numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&pipSum[0], &pip[0], numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    effectMean /= (float)nrow;
-    pip /= (float)nrow;
+//    MPI_Allreduce(MPI_IN_PLACE, &nrow, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+//    MPI_Allreduce(&effectSum[0], &effectMean[0], numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//    MPI_Allreduce(&pipSum[0], &pip[0], numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//    effectMean /= (float)nrow;
+//    pip /= (float)nrow;
     
-    if (myMPI::rank) return;
+    effectMean = effectSum/(float)nrow;
+    pip = pipSum/(float)nrow;
+    
+//    if (myMPI::rank) return;
     
     ofstream out(filename.c_str());
     out << boost::format("%6s %20s %6s %12s %8s %12s %8s %8s\n")
@@ -1200,7 +1221,7 @@ void Data::summarizeSnpResults(const SparseMatrix<float> &snpEffects, const stri
 }
 
 void Data::outputFixedEffects(const MatrixXf &fixedEffects, const string &filename) const {
-    if (myMPI::rank) return;
+//    if (myMPI::rank) return;
     ofstream out(filename.c_str());
     long nrow = fixedEffects.rows();
     VectorXf mean = fixedEffects.colwise().mean();
@@ -1212,7 +1233,7 @@ void Data::outputFixedEffects(const MatrixXf &fixedEffects, const string &filena
 }
 
 void Data::outputWindowResults(const VectorXf &posteriorMean, const string &filename) const {
-    if (myMPI::rank) return;
+//    if (myMPI::rank) return;
     ofstream out(filename.c_str());
     out << boost::format("%6s %8s\n") %"Id" %"PIP";
     for (unsigned i=0; i<posteriorMean.size(); ++i) {
@@ -1226,7 +1247,7 @@ void Data::outputWindowResults(const VectorXf &posteriorMean, const string &file
 void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax, const bool imputeN){
     ifstream in(gwasFile.c_str());
     if (!in) throw ("Error: can not open the GWAS summary data file [" + gwasFile + "] to read.");
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << "Reading GWAS summary data from [" + gwasFile + "]." << endl;
     
     string header;
@@ -1301,7 +1322,7 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
         }
     }
 
-    if (myMPI::rank==0) {
+//    if (myMPI::rank==0) {
         if (numFlip) cout << "flipped " << numFlip << " SNPs according to the minor allele in the reference and GWAS samples." << endl;
         if (numInconAllele) cout << "removed " << numInconAllele << " SNPs with inconsistent allele coding in between the reference and GWAS samples." << endl;
         if (numInconAf) cout << "removed " << numInconAf << " SNPs with differences in allele frequency between the reference and GWAS samples > " << afDiff << "." << endl;
@@ -1309,7 +1330,7 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
         if (mafmin) cout << "removed " << numMafMin << " SNPs with MAF below " << mafmin << " in either reference and GWAS samples." << endl;
         if (mafmax) cout << "removed " << numMafMax << " SNPs with MAF above " << mafmax << " in either reference and GWAS samples." << endl;
         cout << match << " matched SNPs in the GWAS summary data (in total " << line << " SNPs)." << endl;
-    }
+//    }
 
     if (imputeN) imputePerSnpSampleSize(snpInfoVec, numIncdSnps, 0);
     
@@ -1368,9 +1389,9 @@ void Data::imputePerSnpSampleSize(vector<SnpInfo*> &snpInfoVec, unsigned &numInc
     if (abs(sd-sdOld) > 0.01) {
         imputePerSnpSampleSize(snpInfoVec, numIncdSnps, sd);
     } else {
-        if (myMPI::rank==0) {
+//        if (myMPI::rank==0) {
             cout << numIncdSnps << " SNPs with per-SNP sample size within 3 sd around the median value of " << n_med << endl;
-        }
+//        }
         return;
     }
 }
@@ -1535,8 +1556,9 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
                 continue;
             }
 
-            if(!(inck%1000) && myMPI::rank==0) cout << " read snp " << inck << "\r" << flush;
-
+//            if(!(inck%1000) && myMPI::rank==0) cout << " read snp " << inck << "\r" << flush;
+            cout << " read snp " << inck << "\r" << flush;
+            
             if (chromInRange.find(snpk->chrom) == setend && !snpk->skeleton) {
                 skipk += size;
                 ++inck;       // ensure the index is correct
@@ -1665,7 +1687,8 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
 //            samplVarEmp.col(inck) = (ZPZkCwise.colwise() - ZPZkCwise.rowwise().mean()).rowwise().squaredNorm() * numJackknife/numKeptInds;
 //            // Jackknife end
             
-            if(!(inck%1000) && myMPI::rank==0) cout << " read snp " << inck << "\r" << flush;
+//            if(!(inck%1000) && myMPI::rank==0) cout << " read snp " << inck << "\r" << flush;
+            cout << " read snp " << inck << "\r" << flush;
             
             ++inck;
         }
@@ -3076,7 +3099,8 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                     ZPZ[i][j] = ZPZ[i][j] + 0.5f * thetai[i] * (1.0 - 0.5f * thetai[i]);
                 }  
             }
-            if(!(i%1000) && myMPI::rank==0) cout << " Completed snp " << i << "\r" << flush;
+//            if(!(i%1000) && myMPI::rank==0) cout << " Completed snp " << i << "\r" << flush;
+            cout << " Completed snp " << i << "\r" << flush;
         }
         // Now back to correlation
         for (unsigned i=0; i<numIncdSnps; ++i) {
@@ -3171,7 +3195,8 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 it.valueRef()= ZPZij; 
             }
             // cout << "After " << ZPZsp[i] << endl;
-            if(!(i%1000) && myMPI::rank==0) cout << " Completed snp " << i << "\r" << flush;
+//            if(!(i%1000) && myMPI::rank==0) cout << " Completed snp " << i << "\r" << flush;
+            cout << " Completed snp " << i << "\r" << flush;
         }
         // // Now back to correlation
         for (unsigned i=0; i<numIncdSnps; ++i) {
@@ -3444,7 +3469,8 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
         
         denseZPZ.col(inck) = ZP * Zk;
         
-        if(!(inck%1000) && myMPI::rank==0) cout << " read snp " << inck << "\r" << flush;
+//        if(!(inck%1000) && myMPI::rank==0) cout << " read snp " << inck << "\r" << flush;
+        cout << " read snp " << inck << "\r" << flush;
         
         ++inck;
     }
@@ -3843,7 +3869,8 @@ void Data::buildSparseMME(const bool sampleOverlap, const string &bayesType, con
 
 void Data::setAnnoInfoVec() {
     bool print = numAnnos > 50 ? false : true;
-    if (print && myMPI::rank==0) cout << "\nAnnotation info:" << endl;
+//    if (print && myMPI::rank==0) cout << "\nAnnotation info:" << endl;
+    cout << "\nAnnotation info:" << endl;
     numSnpAnnoVec.resize(numAnnos);
     for (unsigned i=0; i<numAnnos; ++i) {
         AnnoInfo *anno = annoInfoVec[i];
@@ -3853,7 +3880,8 @@ void Data::setAnnoInfoVec() {
         if (print) anno->print();
         numSnpAnnoVec[i] = anno->size;
     }
-    if (print && myMPI::rank==0) cout << endl;
+//    if (print && myMPI::rank==0) cout << endl;
+    cout << endl;
 }
 
 
@@ -4193,7 +4221,7 @@ void Data::jackknifeLDmatrix(const string &ldmatrixFile, const string &outLDmatT
 void Data::readAnnotationFile(const string &annoFile, const bool transpose, const bool allowMultiAnno) {
     ifstream in(annoFile.c_str());
     if (!in) throw ("Error: can not open the annotation file [" + annoFile + "] to read.");
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << "Reading SNP annotation from [" + annoFile + "]." << endl;
     
     map<string, SnpInfo*>::iterator it, end=snpInfoMap.end();
@@ -4226,7 +4254,7 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
         line = datmat.size();
         string outfile = Gadget::getFileName(annoFile) + ".transpose" + Gadget::getFileSuffix(annoFile);
         ofstream out(outfile.c_str());
-        if (myMPI::rank==0)
+//        if (myMPI::rank==0)
             cout << "Writing the tranposed SNP annotation to [" + outfile + "]." << endl;
         for (unsigned j=0; j<size; ++j) {
             for (unsigned i=0; i<line; ++i) {
@@ -4302,7 +4330,7 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
         }
     }
     
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << line << " matched SNPs in the annotation file (" << numAnnos << " annotations and " << numMultiAnno << " SNPs have more than one annotation)." << endl;
 }
 
@@ -4310,7 +4338,7 @@ void Data::readAnnotationFileFormat2(const string &continuousAnnoFile, const uns
     ifstream in;
     in.open(continuousAnnoFile.c_str());
     if (!in) throw ("Error: can not open the annotation file [" + continuousAnnoFile + "] to read.");
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << "Reading SNP annotation from [" + continuousAnnoFile + "]." << endl;
     
     SnpInfo *snp = NULL;
@@ -4357,7 +4385,7 @@ void Data::readAnnotationFileFormat2(const string &continuousAnnoFile, const uns
         ifstream in;
         in.open(eQTLFile.c_str());
         if (!in) throw ("Error: can not open the eQTL file [" + eQTLFile + "] to read.");
-        if (myMPI::rank==0)
+//        if (myMPI::rank==0)
             cout << "Reading eQTL info from [" + eQTLFile + "]." << endl;
         Gadget::Tokenizer header;
         Gadget::Tokenizer colData;
@@ -4428,19 +4456,19 @@ void Data::readAnnotationFileFormat2(const string &continuousAnnoFile, const uns
     }
     meanAnnoSize /= numAnnos;
     
-    if (myMPI::rank==0) {
+//    if (myMPI::rank==0) {
         if (flank) cout << "add " << flank << " kb to both sides of each annotation." << endl;
         cout << numAnnos << " nonempty annotations (" << line << " annotations in total)." << endl;
         cout << numAnnoSnp << " annotated SNPs (" << numMultiAnnoSnp << " SNPs with more than one annotation) and " << numUnannoSnp << " unannotated SNPs." << endl;
         cout << meanAnnoSize << " SNPs per annotation on average." << endl;
-    }
+//    }
 
 }
 
 void Data::readLDscoreFile(const string &ldscoreFile) {
     ifstream in(ldscoreFile.c_str());
     if (!in) throw ("Error: can not open the LD score file [" + ldscoreFile + "] to read.");
-    if (myMPI::rank==0)
+//    if (myMPI::rank==0)
         cout << "Reading SNP LD scores from [" + ldscoreFile + "]." << endl;
 
     readLDscore = true;
@@ -4470,16 +4498,16 @@ void Data::readLDscoreFile(const string &ldscoreFile) {
         }
     }
     
-    if (myMPI::rank==0) {
+//    if (myMPI::rank==0) {
         cout << "Read LD scores for " << match << " matched SNPs (in total " << line << " SNPs)." << endl;
-    }
+//    }
 }
 
 void Data::makeAnnowiseSparseLDM(const vector<SparseVector<float> > &ZPZsp, const vector<AnnoInfo *> &annoInfoVec, const vector<SnpInfo*> &snpInfoVec) {
     // for memory efficiency, only store the upper triangular off-diagonals
-    if (myMPI::rank==0) {
+//    if (myMPI::rank==0) {
         cout << "\nMaking annotation-wise sparse LD matrix ..." << endl;
-    }
+//    }
     annowiseZPZsp.resize(numAnnos);
     annowiseZPZdiag.resize(numAnnos);
     

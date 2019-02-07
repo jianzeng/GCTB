@@ -446,12 +446,12 @@ void StratApproxBayesS::sampleStartVal(){
     sigmaSqStrat.sampleFromPrior();
     if (estimatePi) piStrat.sampleFromPrior();
     Sstrat.sampleFromPrior();
-    if (myMPI::rank==0) {
+//    if (myMPI::rank==0) {
         cout << "  Starting value for " << sigmaSq.label << ": " << sigmaSqStrat.values.transpose() << endl;
         if (estimatePi) cout << "  Starting value for " << pi.label << ": " << piStrat.values.transpose() << endl;
         cout << "  Starting value for " << S.label << ": " << Sstrat.values.transpose() << endl;
         cout << endl;
-    }
+//    }
 }
 
 

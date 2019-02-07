@@ -147,7 +147,8 @@ public:
         paramSetVec = {&snpEffects, &gamma, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &piNDC, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf};
         paramToPrint = {&pi, &nnzSnp, &piNDC, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf, &rounding};
-        if (message && myMPI::rank==0)
+//        if (message && myMPI::rank==0)
+        if (message)
             cout << "\nBayesCXCI model fitted." << endl;
     }
     
@@ -179,7 +180,8 @@ public:
         paramSetVec = {&snpEffects, &gamma, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &piNDC, &scale, &vare, &varg, &hsq};
         paramToPrint = {&pi, &nnzSnp, &piNDC, &scale, &vare, &varg, &hsq, &rounding};
-        if (message && myMPI::rank==0)
+//        if (message && myMPI::rank==0)
+        if (message)
             cout << "\nBayesBXCI model fitted." << endl;
     }
     

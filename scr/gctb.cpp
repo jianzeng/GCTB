@@ -187,7 +187,8 @@ vector<McmcSamples*> GCTB::multi_chain_mcmc(Data &data, const string &bayesType,
     vector<vector<McmcSamples*> > mcmcSampleVecChain;
     mcmcSampleVecChain.resize(numChains);
     
-    if (myMPI::rank==0) cout << numChains << "-chain ";
+//    if (myMPI::rank==0)
+        cout << numChains << "-chain ";
 
 //#pragma omp parallel for
     for (unsigned i=0; i<numChains; ++i) {
@@ -238,7 +239,7 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
             if (mcmcSampleVec[i]->label == "SnpEffects") snpEffects = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label == "DeltaS") delta = mcmcSampleVec[i];
         }
-        if (myMPI::rank) return;
+//        if (myMPI::rank) return;
         string newfilename = filename + ".snpRes";
         ofstream out(newfilename.c_str());
         out << boost::format("%6s %20s %6s %12s %8s %12s %12s %8s %8s\n")
@@ -269,7 +270,8 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
 }
 
 McmcSamples* GCTB::inputMcmcSamples(const string &mcmcSampleFile, const string &label, const string &fileformat){
-    if (myMPI::rank==0) cout << "reading MCMC samples for " << label << endl;
+//    if (myMPI::rank==0)
+        cout << "reading MCMC samples for " << label << endl;
     McmcSamples *mcmcSamples = new McmcSamples(label);
     if (fileformat == "bin") mcmcSamples->readDataBin(mcmcSampleFile + "." + label);
 //    if (fileformat == "txt") mcmcSamples->readDataTxt(mcmcSampleFile + "." + label);

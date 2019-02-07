@@ -418,8 +418,9 @@ void Options::inputOptions(const int argc, const char* argv[]){
               "The flags for these are --pi and --gamma.");
     }    
     
-    MPI_Comm_rank(MPI_COMM_WORLD, &myMPI::rank);
-    if(myMPI::rank==0) cout << ss.str() << endl;
+//    MPI_Comm_rank(MPI_COMM_WORLD, &myMPI::rank);
+//    if(myMPI::rank==0)
+        cout << ss.str() << endl;
 
     setThread();
 }
@@ -552,8 +553,9 @@ void Options::readFile(const string &file){  // input options from file
     }
     in.close();
     
-    MPI_Comm_rank(MPI_COMM_WORLD, &myMPI::rank);
-    if(myMPI::rank==0) cout << ss.str() << endl;
+//    MPI_Comm_rank(MPI_COMM_WORLD, &myMPI::rank);
+//    if(myMPI::rank==0)
+        cout << ss.str() << endl;
         
     setThread();
 }

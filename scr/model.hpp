@@ -118,20 +118,21 @@ public:
         {
             // cout << "To scale or not to scale " << noscale << endl;
             // cout << "Scale value 1 " << value << endl;
-            if (myMPI::partition == "bycol" && noscale == true) {
-                int sizeFull;
-                MPI_Allreduce(&myMPI::iSize, &sizeFull, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-                VectorXf snp2pqFull(sizeFull);
-                MPI_Allgatherv((float*)&snp2pq[0], myMPI::iSize, MPI_FLOAT, &snp2pqFull[0], &myMPI::srcounts[0], &myMPI::displs[0], MPI_FLOAT, MPI_COMM_WORLD);
-                value = vg/(snp2pqFull.sum()*pi);  // derived from prior knowledge on Vg and pi
-            } else if (myMPI::partition == "bycol" && noscale == false) {
-                int sizeFull;
-                MPI_Allreduce(&myMPI::iSize, &sizeFull, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
-                VectorXf snp2pqFull(sizeFull);
-                MPI_Allgatherv((float*)&snp2pq[0], myMPI::iSize, MPI_FLOAT, &snp2pqFull[0], &myMPI::srcounts[0], &myMPI::displs[0], MPI_FLOAT, MPI_COMM_WORLD);
-                value = vg/(snp2pq.size() * pi);  // derived from prior knowledge on Vg and pi
-            }
-            else if (noscale == true) {
+//            if (myMPI::partition == "bycol" && noscale == true) {
+//                int sizeFull;
+//                MPI_Allreduce(&myMPI::iSize, &sizeFull, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+//                VectorXf snp2pqFull(sizeFull);
+//                MPI_Allgatherv((float*)&snp2pq[0], myMPI::iSize, MPI_FLOAT, &snp2pqFull[0], &myMPI::srcounts[0], &myMPI::displs[0], MPI_FLOAT, MPI_COMM_WORLD);
+//                value = vg/(snp2pqFull.sum()*pi);  // derived from prior knowledge on Vg and pi
+//            } else if (myMPI::partition == "bycol" && noscale == false) {
+//                int sizeFull;
+//                MPI_Allreduce(&myMPI::iSize, &sizeFull, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+//                VectorXf snp2pqFull(sizeFull);
+//                MPI_Allgatherv((float*)&snp2pq[0], myMPI::iSize, MPI_FLOAT, &snp2pqFull[0], &myMPI::srcounts[0], &myMPI::displs[0], MPI_FLOAT, MPI_COMM_WORLD);
+//                value = vg/(snp2pq.size() * pi);  // derived from prior knowledge on Vg and pi
+//            }
+//            else if (noscale == true) {
+            if (noscale == true) {
                 value = vg / (snp2pq.sum() * pi);  // derived from prior knowledge on Vg and pi
             } else {
                 value = vg / (snp2pq.size() * pi);  // derived from prior knowledge on Vg and pi
@@ -188,11 +189,11 @@ public:
         ResidualVar(const float vare, const unsigned n, const string &lab = "ResVar")
         : Parameter(lab), df(4)
         , scale(0.5f*vare){
-            if (myMPI::partition == "byrow") {
-                MPI_Allreduce(&n, &nobs, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
-            } else {
+//            if (myMPI::partition == "byrow") {
+//                MPI_Allreduce(&n, &nobs, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+//            } else {
                 nobs = n;
-            }
+//            }
             value = vare;  // due to df = 4
         }
         
@@ -284,7 +285,8 @@ public:
         paramSetVec = {&snpEffects, &fixedEffects};           // for which collect mcmc samples
         paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq};       // for which collect mcmc samples
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &rounding};   // print in order
-        if (message && myMPI::rank==0) {
+//        if (message && myMPI::rank==0) {
+        if (message) {
             string alg = algorithm;
             if (alg!="HMC") alg = "Gibbs (default)";
             cout << "\nBayesC model fitted. Algorithm: " << alg << "." << endl;
@@ -336,7 +338,8 @@ public:
         paramSetVec = {&snpEffects, &fixedEffects};           // for which collect mcmc samples
         paramVec = {&pi, &nnzSnp, &vare, &varg, &hsq};       // for which collect mcmc samples
         paramToPrint = {&pi, &nnzSnp, &vare, &varg, &hsq, &rounding};   // print in order
-        if (message && myMPI::rank==0) {
+//        if (message && myMPI::rank==0) {
+        if (message) {
             cout << "\nBayesB model fitted." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
         }
@@ -423,7 +426,8 @@ public:
         paramSetVec = {&snpEffects, &fixedEffects, &windDelta};           // for which collect mcmc samples
         paramVec = {&pi, &nnzWind, &nnzSnp, &sigmaSq, &vare, &varg, &hsq};       // for which collect mcmc samples
         paramToPrint = {&pi, &nnzWind, &nnzSnp, &sigmaSq, &vare, &varg, &hsq, &rounding};   // print in order
-        if (message && myMPI::rank==0) {
+//        if (message && myMPI::rank==0) {
+        if (message) {
             cout << "\nBayesN model fitted." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
         }
@@ -503,7 +507,8 @@ public:
         paramVec.insert(paramVec.begin(), Pis.begin(), Pis.end());
         paramToPrint = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq, &rounding};
         paramToPrint.insert(paramToPrint.begin(), Pis.begin(), Pis.end());
-        if (message && myMPI::rank==0) {
+//        if (message && myMPI::rank==0) {
+        if (message) {
             string alg = algorithm;
             if (alg!="HMC") alg = "Gibbs (default)";
             cout << "\nBayesR model fitted. Algorithm: " << alg << "." << endl;
@@ -627,7 +632,8 @@ public:
         paramSetVec = {&snpEffects, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &scale, &S, &vare, &varg, &hsq, &S.ar, &S.tuner, &rounding};
-        if (message && myMPI::rank==0) {
+//        if (message && myMPI::rank==0) {
+        if (message) {
             string alg = algorithm;
             if (alg!="RMH") alg = "HMC (default)";
             cout << "\nBayesS model fitted. Algorithm: " << alg << "." << endl;
@@ -709,7 +715,8 @@ public:
         paramSetVec = {&snpEffects, &fixedEffects, &windDelta};
         paramVec = {&pi, &nnzWind, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
         paramToPrint = {&pi, &nnzWind, &nnzSnp, &sigmaSq, &scale, &S, &vare, &varg, &hsq, &S.ar, &S.tuner, &rounding};
-        if (message && myMPI::rank==0) {
+//        if (message && myMPI::rank==0) {
+        if (message) {
             string alg = algorithm;
             if (alg!="RMH") alg = "HMC (default)";
             cout << "\nBayesNS model fitted. Algorithm: " << alg << "." << endl;
@@ -941,7 +948,8 @@ public:
             paramVec.push_back(&covg);
             paramToPrint.push_back(&covg);
         }
-        if (message && myMPI::rank==0) {
+//        if (message && myMPI::rank==0) {
+        if (message) {
             cout << "\nApproximate BayesC model fitted." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
             if (noscale)
@@ -1113,7 +1121,8 @@ public:
             paramVec.push_back(&covg);
             paramToPrint.push_back(&covg);
         }
-        if (message && myMPI::rank==0) {
+//        if (message && myMPI::rank==0) {
+        if (message) {
             string alg = algorithm;
             if (alg!="RMH") alg = "HMC (default)";
             cout << "\nApproximate BayesS model fitted. Algorithm: " << alg << "." << endl;
@@ -1218,7 +1227,8 @@ public:
 //        } else {
 //            paramToPrint.push_back(&T.ar);
 //        }
-        if (message && myMPI::rank==0) {
+//        if (message && myMPI::rank==0) {
+        if (message) {
             cout << "\nApproximate BayesST model fitted." << endl;
         }
         
@@ -1338,7 +1348,8 @@ public:
         paramVec.insert(paramVec.begin(), Pis.begin(), Pis.end());
         paramToPrint = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq, &rounding};
         paramToPrint.insert(paramToPrint.begin(), Pis.begin(), Pis.end());
-        if (message && myMPI::rank==0) {
+//        if (message && myMPI::rank==0) {
+        if (message) {
             cout << "\nApproximate BayesR model fitted." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
             if (noscale)
@@ -1476,7 +1487,8 @@ public:
         paramVec.insert(paramVec.begin(), Pis.begin(), Pis.end());
         //paramToPrint = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq, &kappa, &rounding};
         paramToPrint.insert(paramToPrint.begin(), Pis.begin(), Pis.end());
-        if (message && myMPI::rank==0) {
+//        if (message && myMPI::rank==0) {
+        if (message) {
             cout << "\nApproximate Bayes Kappa model fitted." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
             if (noscale)
@@ -1611,7 +1623,8 @@ public:
             paramVec.push_back(&ps);
             paramToPrint.push_back(&ps);
         }
-        if (message && myMPI::rank==0) {
+//        if (message && myMPI::rank==0) {
+        if (message) {
             cout << "\nApproximate BayesSMix model fitted." << endl;
         }
     }
@@ -1665,7 +1678,8 @@ public:
         paramSetVec = {&snpEffects, &deltaS, &fixedEffects};
         paramVec = {piMixComp[2], piMixComp[1], &pi, &nnzSnp, sigmaSq[1], &S, sigmaSq[0], hsqMixComp[1], hsqMixComp[0], &hsq};
         paramToPrint = {piMixComp[2], piMixComp[1], &pi, &nnzSnp, sigmaSq[1], &S, sigmaSq[0], hsqMixComp[1], hsqMixComp[0], &hsq, &rounding};
-        if (message && myMPI::rank==0) {
+//        if (message && myMPI::rank==0) {
+        if (message) {
             cout << "\nBayesSMix model fitted." << endl;
         }
     }

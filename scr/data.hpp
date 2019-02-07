@@ -19,10 +19,10 @@
 #include <Eigen/Eigen>
 #include <Eigen/Sparse>
 #include <boost/format.hpp>
-#include <mpi.h>
+//#include <mpi.h>
 #include <omp.h>
 #include "gadgets.hpp"
-#include "mympi.hpp"
+//#include "mympi.hpp"
 
 using namespace std;
 using namespace Eigen;

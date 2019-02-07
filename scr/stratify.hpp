@@ -244,7 +244,8 @@ public:
             paramVec.push_back(&covg);
             paramToPrint.push_back(&covg);
         }
-        if (message && myMPI::rank==0) {
+//        if (message && myMPI::rank==0) {
+        if (message) {
 //            string alg = algorithm;
 //            if (alg!="RMH") alg = "HMC (default)";
             cout << "\nAnnotation-stratified summary-data-based BayesS model fitted." << endl;
@@ -317,7 +318,8 @@ public:
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &hsq};
         paramSetVec = {&piStrat, &piEnrich, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &Sstrat, &Senrich};
         paramSetToPrint = {&piStrat, &piEnrich, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &Sstrat, &Senrich};
-        if (message && myMPI::rank==0) {
+//        if (message && myMPI::rank==0) {
+        if (message) {
             cout << "\nPost hoc Annotation-stratified summary-data-based BayesS analysis: " << endl;
         }
     }
@@ -376,7 +378,8 @@ public:
         paramToPrint = {&pi, &piS, &hsq};
         paramSetVec = {&piStrat, &piEnrich, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &piSstrat, &piSenrich};
         paramSetToPrint = {&piStrat, &piEnrich, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &piSstrat, &piSenrich};
-        if (message && myMPI::rank==0) {
+//        if (message && myMPI::rank==0) {
+        if (message) {
             cout << "\nPost hoc Annotation-stratified summary-data-based BayesSMix analysis: " << endl;
         }
 
