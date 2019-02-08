@@ -22,7 +22,6 @@
 		50E376D41FC58EEC0038770F /* vgmaf.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 50E376C41FC58EEC0038770F /* vgmaf.cpp */; };
 		50E376D51FC58EEC0038770F /* xci.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 50E376C61FC58EEC0038770F /* xci.cpp */; };
 		50E376D71FC596B60038770F /* libiomp5.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 50E376D61FC596B60038770F /* libiomp5.dylib */; };
-		50E376D91FC5981A0038770F /* libmpi_cxx.1.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 50E376D81FC5981A0038770F /* libmpi_cxx.1.dylib */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -67,7 +66,6 @@
 		50E376C61FC58EEC0038770F /* xci.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = xci.cpp; path = scr/xci.cpp; sourceTree = SOURCE_ROOT; };
 		50E376C71FC58EEC0038770F /* xci.hpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.h; name = xci.hpp; path = scr/xci.hpp; sourceTree = SOURCE_ROOT; };
 		50E376D61FC596B60038770F /* libiomp5.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libiomp5.dylib; path = ../../../../usr/local/Cellar/libiomp/20150701/lib/libiomp5.dylib; sourceTree = "<group>"; };
-		50E376D81FC5981A0038770F /* libmpi_cxx.1.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libmpi_cxx.1.dylib; path = "../../../../usr/local/Cellar/open-mpi/1.10.3/lib/libmpi_cxx.1.dylib"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -75,7 +73,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				50E376D91FC5981A0038770F /* libmpi_cxx.1.dylib in Frameworks */,
 				50E376D71FC596B60038770F /* libiomp5.dylib in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -86,7 +83,6 @@
 		50E376761FC585380038770F = {
 			isa = PBXGroup;
 			children = (
-				50E376D81FC5981A0038770F /* libmpi_cxx.1.dylib */,
 				50E376D61FC596B60038770F /* libiomp5.dylib */,
 				50E376811FC585380038770F /* scr */,
 				50E376801FC585380038770F /* Products */,

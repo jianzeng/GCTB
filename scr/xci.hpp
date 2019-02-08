@@ -134,14 +134,17 @@ public:
     vargf(varGenotypic, "GenVarF"),
     hsqm("hsqM"),
     hsqf("hsqF") {
-                
+
+        ZPZdiagMale = data.Z.block(0, 0, nmale, data.numIncdSnps).colwise().squaredNorm();
+        ZPZdiagFemale = data.Z.block(nmale, 0, nfemale, data.numIncdSnps).colwise().squaredNorm();
+
         // MPI
-        ZPZdiagMale.setZero(data.numIncdSnps);
-        ZPZdiagFemale.setZero(data.numIncdSnps);
-        VectorXf my_ZPZdiagMale   = data.Z.block(0, 0, nmale, data.numIncdSnps).colwise().squaredNorm();
-        VectorXf my_ZPZdiagFemale = data.Z.block(nmale, 0, nfemale, data.numIncdSnps).colwise().squaredNorm();
-        MPI_Allreduce(&my_ZPZdiagMale[0], &ZPZdiagMale[0], data.numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-        MPI_Allreduce(&my_ZPZdiagFemale[0], &ZPZdiagFemale[0], data.numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//        ZPZdiagMale.setZero(data.numIncdSnps);
+//        ZPZdiagFemale.setZero(data.numIncdSnps);
+//        VectorXf my_ZPZdiagMale   = data.Z.block(0, 0, nmale, data.numIncdSnps).colwise().squaredNorm();
+//        VectorXf my_ZPZdiagFemale = data.Z.block(nmale, 0, nfemale, data.numIncdSnps).colwise().squaredNorm();
+//        MPI_Allreduce(&my_ZPZdiagMale[0], &ZPZdiagMale[0], data.numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//        MPI_Allreduce(&my_ZPZdiagFemale[0], &ZPZdiagFemale[0], data.numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
         
         gamma.values.setZero(data.numIncdSnps);
         paramSetVec = {&snpEffects, &gamma, &fixedEffects};

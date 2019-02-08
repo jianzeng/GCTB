@@ -54,11 +54,12 @@ void XCI::inputIndInfo(Data &data, const string &bedFile, const string &phenotyp
     }
     
     // MPI
-    unsigned numKeptMales_all, numKeptFemales_all;
-    MPI_Allreduce(&numKeptMales, &numKeptMales_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&numKeptFemales, &numKeptFemales_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+//    unsigned numKeptMales_all, numKeptFemales_all;
+//    MPI_Allreduce(&numKeptMales, &numKeptMales_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+//    MPI_Allreduce(&numKeptFemales, &numKeptFemales_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
 //   if (myMPI::rank==0)
-        cout << "Matched " << numKeptMales_all << " males and " << numKeptFemales_all << " females." << endl;
+//        cout << "Matched " << numKeptMales_all << " males and " << numKeptFemales_all << " females." << endl;
+    cout << "Matched " << numKeptMales << " males and " << numKeptFemales << " females." << endl;
     
     restoreFamFileOrder(data.indInfoVec);
 }
@@ -96,19 +97,23 @@ void XCI::readBedFile(Data &data, const string &bedFile){
         exit(1);
     }
     
-    unsigned numKeptMales_all;
-    unsigned numKeptFemales_all;
-    MPI_Allreduce(&numKeptMales, &numKeptMales_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&numKeptFemales, &numKeptFemales_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+//    unsigned numKeptMales_all;
+//    unsigned numKeptFemales_all;
+//    MPI_Allreduce(&numKeptMales, &numKeptMales_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+//    MPI_Allreduce(&numKeptFemales, &numKeptFemales_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
     
     // Read genotypes
     SnpInfo *snpInfo = NULL;
     IndInfo *indInfo = NULL;
     unsigned snp = 0;
-    unsigned nmiss_male=0, nmiss_male_all;
-    unsigned nmiss_female=0, nmiss_female_all;
-    float sum_male=0.0, sum_male_all=0.0, mean_male_all;
-    float sum_female=0.0, sum_female_all=0.0, mean_female_all;
+    unsigned nmiss_male=0;
+//    unsigned nmiss_male_all;
+    unsigned nmiss_female=0;
+//    unsigned nmiss_female_all;
+    float sum_male=0.0, mean_male;
+//    float sum_male_all=0.0, mean_male_all;
+    float sum_female=0.0, mean_female;
+//    flaot sum_female_all=0.0, mean_female_all;
     
     const int bedToGeno[4] = {2, -9, 1, 0};
     unsigned size = (data.numInds+3)>>2;
@@ -189,34 +194,41 @@ void XCI::readBedFile(Data &data, const string &bedFile){
 //        if (myMPI::rank==0)
 //            if (sum_wrong_coding) cout << "Warning: SNP " << snpInfo->ID << " is coded as 0/2 in male X chromosome!" << endl;
 
-        MPI_Allreduce(&sum_male, &sum_male_all, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-        MPI_Allreduce(&nmiss_male, &nmiss_male_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
-        MPI_Allreduce(&sum_female, &sum_female_all, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-        MPI_Allreduce(&nmiss_female, &nmiss_female_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+//        MPI_Allreduce(&sum_male, &sum_male_all, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//        MPI_Allreduce(&nmiss_male, &nmiss_male_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+//        MPI_Allreduce(&sum_female, &sum_female_all, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//        MPI_Allreduce(&nmiss_female, &nmiss_female_all, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
         
         // fill missing values with the mean
-        mean_male_all = sum_male_all/float(numKeptMales_all - nmiss_male_all);
-        mean_female_all = sum_female_all/float(numKeptFemales_all - nmiss_female_all);
+//        mean_male_all = sum_male_all/float(numKeptMales_all - nmiss_male_all);
+//        mean_female_all = sum_female_all/float(numKeptFemales_all - nmiss_female_all);
+        mean_male = sum_male/float(numKeptMales - nmiss_male);
+        mean_female = sum_female/float(numKeptFemales - nmiss_female);
         if (nmiss_male) {
             for (i=0; i<numKeptMales; ++i) {
-                if (data.Z(i,snp) == -9) data.Z(i,snp) = mean_male_all;
+//                if (data.Z(i,snp) == -9) data.Z(i,snp) = mean_male_all;
+                if (data.Z(i,snp) == -9) data.Z(i,snp) = mean_male;
             }
         }
         if (nmiss_female) {
             for (i=numKeptMales; i<data.numKeptInds; ++i) {
-                if (data.Z(i,snp) == -9) data.Z(i,snp) = mean_female_all;
+//                if (data.Z(i,snp) == -9) data.Z(i,snp) = mean_female_all;
+                if (data.Z(i,snp) == -9) data.Z(i,snp) = mean_female;
             }
         }
         
         // compute allele frequency
-        snpInfo->af = 0.5f*mean_female_all;
+//        snpInfo->af = 0.5f*mean_female_all;
+        snpInfo->af = 0.5f*mean_female;
         data.snp2pq[snp] = 2.0f*snpInfo->af*(1.0f-snpInfo->af);
         
         //cout << "snp " << snp << "     " << Z.col(snp).sum() << endl;
         
-        data.Z.col(snp).head(numKeptMales).array() -= mean_male_all; // center column by 2p rather than the real mean
-        data.Z.col(snp).tail(numKeptFemales).array() -= mean_female_all; // center column by 2p rather than the real mean
-        
+//        data.Z.col(snp).head(numKeptMales).array() -= mean_male_all; // center column by 2p rather than the real mean
+//        data.Z.col(snp).tail(numKeptFemales).array() -= mean_female_all; // center column by 2p rather than the real mean
+        data.Z.col(snp).head(numKeptMales).array() -= mean_male; // center column by 2p rather than the real mean
+        data.Z.col(snp).tail(numKeptFemales).array() -= mean_female; // center column by 2p rather than the real mean
+
         if (++snp == data.numIncdSnps) break;
     }
     fclose(in);
@@ -228,7 +240,9 @@ void XCI::readBedFile(Data &data, const string &bedFile){
 //    MPI_Allreduce(&my_ZPZdiag[0], &data.ZPZdiag[0], data.numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
     
 //    if (myMPI::rank==0)
-        cout << "Genotype data for " << numKeptMales_all + numKeptFemales_all << " individuals (" << numKeptMales_all << " males and " << numKeptFemales_all << " females) and " << data.numIncdSnps << " SNPs are included from [" + bedFile + "]." << endl;
+//        cout << "Genotype data for " << numKeptMales_all + numKeptFemales_all << " individuals (" << numKeptMales_all << " males and " << numKeptFemales_all << " females) and " << data.numIncdSnps << " SNPs are included from [" + bedFile + "]." << endl;
+    cout << "Genotype data for " << numKeptMales + numKeptFemales << " individuals (" << numKeptMales << " males and " << numKeptFemales << " females) and " << data.numIncdSnps << " SNPs are included from [" + bedFile + "]." << endl;
+
 }
 
 
@@ -278,38 +292,46 @@ void XCI::simu(Data &data, const unsigned numQTL, const float heritability, cons
     VectorXf g = Q*alpha;
     
     // calculate genetic variance with MPI
-    float my_sumg = g.sum();
-    float my_ssg  = g.squaredNorm();
-    float sumg, ssg;
-    unsigned ng;
-    MPI_Allreduce(&my_sumg, &sumg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&my_ssg, &ssg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&data.numKeptInds, &ng, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+    float sumg = g.sum();
+    float ssg = g.squaredNorm();
+    unsigned ng = data.numKeptInds;
+//    float my_sumg = g.sum();
+//    float my_ssg  = g.squaredNorm();
+//    float sumg, ssg;
+//    unsigned ng;
+//    MPI_Allreduce(&my_sumg, &sumg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//    MPI_Allreduce(&my_ssg, &ssg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//    MPI_Allreduce(&data.numKeptInds, &ng, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
     
-    float genVar = ssg/float(ng) - sumg*sumg/float(ng*ng);
+    float genVar = ssg/float(ng) - sumg/float(ng)*sumg/float(ng);
     float resVar = genVar*(1.0-heritability)/heritability;
     float resSD  = sqrt(resVar);
     
-    my_sumg = g.head(numKeptMales).sum();
-    my_ssg  = g.head(numKeptMales).squaredNorm();
-    MPI_Allreduce(&my_sumg, &sumg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&my_ssg, &ssg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&numKeptMales, &ng, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+//    my_sumg = g.head(numKeptMales).sum();
+//    my_ssg  = g.head(numKeptMales).squaredNorm();
+//    MPI_Allreduce(&my_sumg, &sumg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//    MPI_Allreduce(&my_ssg, &ssg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//    MPI_Allreduce(&numKeptMales, &ng, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+    sumg = g.head(numKeptMales).sum();
+    ssg = g.head(numKeptMales).squaredNorm();
     float genVarMale = ssg/float(ng) - sumg*sumg/float(ng*ng);
 
-    my_sumg = g.tail(numKeptFemales).sum();
-    my_ssg  = g.tail(numKeptFemales).squaredNorm();
-    MPI_Allreduce(&my_sumg, &sumg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&my_ssg, &ssg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&numKeptFemales, &ng, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+//    my_sumg = g.tail(numKeptFemales).sum();
+//    my_ssg  = g.tail(numKeptFemales).squaredNorm();
+//    MPI_Allreduce(&my_sumg, &sumg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//    MPI_Allreduce(&my_ssg, &ssg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//    MPI_Allreduce(&numKeptFemales, &ng, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+    sumg = g.tail(numKeptFemales).sum();
+    ssg  = g.tail(numKeptFemales).squaredNorm();
     float genVarFemale = ssg/float(ng) - sumg*sumg/float(ng*ng);
 
     for (unsigned i=0; i<data.numKeptInds; ++i) {
         data.y[i] = g[i] + Stat::snorm()*resSD;
     }
-    float my_ypy = (data.y.array()-data.y.mean()).square().sum();
+//    float my_ypy = (data.y.array()-data.y.mean()).square().sum();
+    data.ypy = (data.y.array()-data.y.mean()).square().sum();
     
-    MPI_Allreduce(&my_ypy, &data.ypy, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//    MPI_Allreduce(&my_ypy, &data.ypy, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
     
     data.varGenotypic = genVar;
     data.varResidual  = resVar;
@@ -455,10 +477,13 @@ void BayesCXCI::SnpEffects::sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, con
         rhsFemale[1] = Z.col(i).tail(nfemale).dot(ycorrf) * invVaref;
         rhsFemale[0] = rhsFemale[1] * 0.5f;
         
-        my_rhs[1] = rhsMale + rhsFemale[1];
-        my_rhs[0] = rhsMale + rhsFemale[0];
-        
-        MPI_Allreduce(&my_rhs[0], &rhs[0], 2, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+        rhs[1] = rhsMale + rhsFemale[1];
+        rhs[0] = rhsMale + rhsFemale[0];
+
+//        my_rhs[1] = rhsMale + rhsFemale[1];
+//        my_rhs[0] = rhsMale + rhsFemale[0];
+//        
+//        MPI_Allreduce(&my_rhs[0], &rhs[0], 2, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
 
         invLhs[1] = 1.0f/(ZPZdiagMale[i]*invVarem + ZPZdiagFemale[i]*invVaref       + invSigmaSq);
         invLhs[0] = 1.0f/(ZPZdiagMale[i]*invVarem + ZPZdiagFemale[i]*0.25f*invVaref + invSigmaSq);
@@ -790,9 +815,10 @@ void BayesCXCI::Rounding::computeYcorr(const VectorXf &y, const MatrixXf &X, con
     }
     ycorrm = ycorr.head(nmale);
     ycorrf = ycorr.tail(nfemale);
-    float my_ss = (ycorrm - oldYcorrm).squaredNorm() + (ycorrf - oldYcorrf).squaredNorm();
-    float ss;
-    MPI_Allreduce(&my_ss, &ss, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    float ss = (ycorrm - oldYcorrm).squaredNorm() + (ycorrf - oldYcorrf).squaredNorm();
+//    float my_ss = (ycorrm - oldYcorrm).squaredNorm() + (ycorrf - oldYcorrf).squaredNorm();
+//    float ss;
+//    MPI_Allreduce(&my_ss, &ss, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
     value = sqrt(ss);
 }
 
@@ -878,11 +904,14 @@ void BayesBXCI::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, con
         rhsMale = Z.col(i).head(nmale).dot(ycorr.head(nmale)) * invVare;
         rhsFemale[1] = Z.col(i).tail(nfemale).dot(ycorr.tail(nfemale)) * invVare;
         rhsFemale[0] = rhsFemale[1] * 0.5f;
+
+        rhs[1] = rhsMale + rhsFemale[1];
+        rhs[0] = rhsMale + rhsFemale[0];
         
-        my_rhs[1] = rhsMale + rhsFemale[1];
-        my_rhs[0] = rhsMale + rhsFemale[0];
-        
-        MPI_Allreduce(&my_rhs[0], &rhs[0], 2, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+//        my_rhs[1] = rhsMale + rhsFemale[1];
+//        my_rhs[0] = rhsMale + rhsFemale[0];
+//        
+//        MPI_Allreduce(&my_rhs[0], &rhs[0], 2, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
         
         invLhs[1] = 1.0f/((ZPZdiagMale[i] + ZPZdiagFemale[i]      )*invVare + 1.0f/sigmaSq[i]);
         invLhs[0] = 1.0f/((ZPZdiagMale[i] + ZPZdiagFemale[i]*0.25f)*invVare + 1.0f/sigmaSq[i]);

@@ -17,12 +17,12 @@
 #include <cstring>
 #include <string>
 #include <limits.h>
-#include <mpi.h>
+//#include <mpi.h>
 #include <omp.h>
 #include <boost/format.hpp>
 #include <Eigen/Core>
 #include <Eigen/Eigen>
-#include "mympi.hpp"
+//#include "mympi.hpp"
 #include "gadgets.hpp"
 
 using namespace std;
