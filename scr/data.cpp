@@ -2794,7 +2794,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
 //        }
         return;
     }
-    if (LDmatType == "shrunk") return;  // TMP; to be removed
+    // if (LDmatType == "shrunk") return;  // TMP; to be removed
     snp2pq.resize(numIncdSnps);
     for (unsigned i=0; i<numIncdSnps; ++i) {
         SnpInfo *snp = incdSnpInfoVec[i];
@@ -3078,6 +3078,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         float Ne = effpopNE;
         cout << "Using European effective population size Ne=" << Ne << " please alter with --ne if inappropriate. " << endl;
         float cutoff = cutOff;
+        cout << "Using shrinkage hard threshold of " << cutOff << ". Alter with --shrunk-cutoff if inappropriate." << endl;
         for (unsigned i=0; i<numIncdSnps; ++i) {
             if (!(i%1000)) cout << i << " SNPs processed\r";
             SnpInfo *snp = incdSnpInfoVec[i];
@@ -3521,6 +3522,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
     float Ne = effpopNE;
     cout << "\nUsing European effective population size Ne=" << Ne << " please alter with --ne if inappropriate." << endl;
     float cutoff = cutOff;
+    cout << "Using shrinkage hard threshold of " << cutOff << ". Alter with --shrunk-cutoff if inappropriate." << endl;
     for (unsigned i=0; i<numSnpInRange; ++i) {
         for (unsigned j=0; j<numIncdSnps; ++j) {
             mapdiffi = abs(gmapi[j] - gmapi[start+i]);
