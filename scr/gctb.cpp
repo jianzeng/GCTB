@@ -37,7 +37,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
     if (includeChr) data.includeChr(includeChr);
-    if (excludeAmbiguousSNP) data.excludeAmbiguousSNP();
+    if (excludeAmbiguousSNP) data.excludeAmbiguousSNP();ß
     if (!excludeRegionFile.empty()) data.excludeRegion(excludeRegionFile);
     if (excludeMHC) data.excludeMHC();
     if (!skeletonSnpFile.empty()) data.includeSkeletonSnp(skeletonSnpFile);
@@ -49,17 +49,17 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (!ldscoreFile.empty()) data.readLDscoreFile(ldscoreFile);
     if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, imputeN);
     data.includeMatchedSnp();
-    if (geneticMapFile.empty()) {
+ //   if (geneticMapFile.empty()) {
         if (multiLDmat)
             data.readMultiLDmatBinFile(ldmatrixFile);
         else
             data.readLDmatrixBinFile(ldmatrixFile + ".bin");
-    } else {
-        if (multiLDmat)
-            data.readMultiLDmatBinFileAndShrink(ldmatrixFile, genMapN);
-        else
-            data.readLDmatrixBinFileAndShrink(ldmatrixFile + ".bin");
-    }
+//    } else {
+//        if (multiLDmat)
+//            data.readMultiLDmatBinFileAndShrink(ldmatrixFile, genMapN);
+//        else
+//            data.readLDmatrixBinFileAndShrink(ldmatrixFile + ".bin");
+//    }
     if (!gwasSummaryFile.empty()) data.buildSparseMME(sampleOverlap, bayesType, noscale);
 }
 
