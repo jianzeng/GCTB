@@ -3249,7 +3249,7 @@ void Data::readGeneticMapFile(const string &geneticMapFile){
     for (unsigned i=0; i<numSnps; ++i) {
         snp = snpInfoVec[i];
         if (!snp->included) continue;
-        if (snp->genPos == -999 || snp->genPos == 0) {
+        if (snp->genPos == -999) {
             //cout << "Who went false snp " << i << endl;
             snp->included = false;
         }
