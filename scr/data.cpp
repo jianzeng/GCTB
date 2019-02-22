@@ -3082,10 +3082,12 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         for (unsigned i=0; i<numIncdSnps; ++i) {
             if (!(i%1000)) cout << i << " SNPs processed\r";
             SnpInfo *snp = incdSnpInfoVec[i];
-            for (unsigned j=i; j<=snp->windEnd; ++j) {
-                mapdiffi = abs(gmapi[j] - gmapi[i]);
-                rho = 4 * Ne * (mapdiffi / 100);
-                shrinkage = exp(-rho / (2 * m));
+            unsigned windEndi = windSizeOri[i];
+            windSize[i] = snp->windSize = windStartOri[i] + windEndi - windStart[i];
+            for (unsigned j=0; j<windSize[i]; ++j) {
+                mapdiffi = abs(gmapi[(windStart[i] + j)] - gmapi[i]);
+                rho = 4.0 * Ne * (mapdiffi / 100.0);
+                shrinkage = exp(-rho / (2.0 * m));
                 if (shrinkage <= cutoff)
                 {
                     shrinkage = 0.0;
