@@ -49,7 +49,9 @@ int main(int argc, const char * argv[]) {
         
         if (opt.seed) Stat::seedEngine(opt.seed);
         else          Stat::seedEngine(011415);  // fix the random seed if not given due to the use of MPI
-                
+        
+//        cout << "==========" << opt.seed << " " << Stat::ranf() << " " << Stat::snorm() << endl;
+        
         Data data;
         bool readGenotypes;
         
@@ -169,17 +171,16 @@ int main(int argc, const char * argv[]) {
             xci.inputIndInfo(data, opt.bedFile, opt.phenotypeFile, opt.keepIndFile, opt.keepIndMax,
                              opt.mphen, opt.covariateFile);
             xci.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.includeChr, readGenotypes);
-            if (opt.bayesType == "Simu") {
-                xci.simu(data, 1000, opt.heritability, opt.piNDC, false, opt.title);  // ad hoc simulation to test BayesXCI method
-                opt.bayesType = "C";
+            if (opt.simuMode) {
+                xci.simu(data, opt.pi, opt.heritability, opt.piNDC, opt.piGxE, false, opt.title, opt.seed);  // ad hoc simulation to test BayesXCI method
             }
-            Model *model = xci.buildModel(data, opt.bayesType, opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.piNDC);
+            Model *model = xci.buildModel(data, opt.bayesType, opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.piNDC, opt.piGxE);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
             gctb.saveMcmcSamples(mcmcSampleVec, opt.title);
             gctb.clearGenotypes(data);
             gctb.outputResults(data, mcmcSampleVec, opt.bayesType, opt.title);
-            xci.outputResults(data, mcmcSampleVec, opt.title);
+            xci.outputResults(data, mcmcSampleVec, opt.bayesType, opt.title);
         }
         else if (opt.analysisType == "VGMAF") {  // ad hoc method for cumulative Vg against MAF to detect selection
             readGenotypes = true;

@@ -309,6 +309,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             piNDC = atof(argv[++i]);
             ss << "--pi-ndc " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--pi-gxe")) {
+            piGxE = atof(argv[++i]);
+            ss << "--pi-gxe " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--write-ldm-txt")) {
             writeLdmTxt = true;
             ss << "--write-ldm-txt " << "\n";
@@ -393,6 +397,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--eqtl")) {
             eQTLFile = argv[++i];
             ss << "--eqtl " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--simu")) {
+            simuMode = true;
+            ss << "--simu " << "\n";
         }
         else {
             stringstream errmsg;
@@ -530,6 +538,8 @@ void Options::readFile(const string &file){  // input options from file
             outLDmatType = value;
         } else if (key == "piNDC") {
             piNDC = stof(value);
+        } else if (key == "piGxE") {
+            piGxE = stof(value);
         } else if (key == "writeLDmatTxt") {
             writeLdmTxt = true;
         } else if (key == "excludeMHC") {
@@ -542,6 +552,8 @@ void Options::readFile(const string &file){  // input options from file
             skeletonSnpFile = value;
         } else if (key == "directPrune") {
             directPrune = true;
+        } else if (key == "simu") {
+            simuMode = true;
         } else if (key.substr(0,2) == "//" ||
                    key.substr(0,1) == "#") {
             continue;
