@@ -64,7 +64,11 @@
       <CommandLineArguments>
          <CommandLineArgument
             argument = "--inp-file"
-            isEnabled = "NO">
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "/Users/j.zeng/Work/Projects/XCI/test/rep1.chip.inp"
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "/Users/j.zeng/XCode/gctb/test/res/test.inp"
@@ -92,39 +96,39 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--sbayes S"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--cont-annot /Users/j.zeng/Work/Projects/sbayes/test/rep1_pi0.05_hsq0.05_delta0.anno"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--ldm /Users/j.zeng/Work/Projects/sbayes/test/rep1_pi0.05_hsq0.05_delta0.ldm.full"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--gwas-summary /Users/j.zeng/Work/Projects/sbayes/test/rep1_pi0.05_hsq0.05_delta0.ma"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--chain-length 200"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--burn-in 0"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--out-freq 1"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--no-mcmc-bin"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--out /Users/j.zeng/Work/Projects/sbayes/slim/test"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--num-chains 2"
