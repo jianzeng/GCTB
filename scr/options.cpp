@@ -277,13 +277,21 @@ void Options::inputOptions(const int argc, const char* argv[]){
             LDthreshold = atof(argv[++i]);
             ss << "--ld " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--unscale-genotype")) {
+            noscale = true;
+            ss << "--unscale-genotype " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--snp")) {
             snpRange = argv[++i];
             ss << "--snp " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--ne")) {
             effpopNE = atof(argv[++i]);
-            ss << "--snp " << argv[i] << "\n";
+            ss << "--ne " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--genmap-n")) {
+            genMapN = atof(argv[++i]);
+            ss << "--genmap-n " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--shrunk-cutoff")) {
             cutOff = atof(argv[++i]);
@@ -300,6 +308,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--pi-ndc")) {
             piNDC = atof(argv[++i]);
             ss << "--pi-ndc " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--pi-gxe")) {
+            piGxE = atof(argv[++i]);
+            ss << "--pi-gxe " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--write-ldm-txt")) {
             writeLdmTxt = true;
@@ -385,6 +397,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--eqtl")) {
             eQTLFile = argv[++i];
             ss << "--eqtl " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--simu")) {
+            simuMode = true;
+            ss << "--simu " << "\n";
         }
         else {
             stringstream errmsg;
@@ -522,6 +538,8 @@ void Options::readFile(const string &file){  // input options from file
             outLDmatType = value;
         } else if (key == "piNDC") {
             piNDC = stof(value);
+        } else if (key == "piGxE") {
+            piGxE = stof(value);
         } else if (key == "writeLDmatTxt") {
             writeLdmTxt = true;
         } else if (key == "excludeMHC") {
@@ -534,6 +552,8 @@ void Options::readFile(const string &file){  // input options from file
             skeletonSnpFile = value;
         } else if (key == "directPrune") {
             directPrune = true;
+        } else if (key == "simu") {
+            simuMode = true;
         } else if (key.substr(0,2) == "//" ||
                    key.substr(0,1) == "#") {
             continue;
