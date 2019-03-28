@@ -389,6 +389,18 @@ void XCI::simu(Data &data, const float pi, const float heritability, const float
     }
     out.close();
     
+    string phenfilename = title + ".phen";
+    ofstream out2(phenfilename.c_str());
+    for (unsigned i=0; i<data.numKeptInds; ++i) {
+        IndInfo *ind = data.keptIndInfoVec[i];
+        unsigned idx = ind->index;
+        out2 << boost::format("%12s %12s %12.6f\n")
+        % ind->famID
+        % ind->indID
+        % data.y[idx];
+    }
+    out2.close();
+    
     if (!myMPI::rank) {
         cout << "\nSimulated " << numQTL << " QTL with " << probNDC*100 << "% escaped from XCI and " << probGxS/pi*100 << "% with genotype-by-sex effects." << endl;
         cout << "Simulated genotypic variance: " << genVar << " (male: " << genVarMale << "; female: " << genVarFemale << ")" <<  endl;
