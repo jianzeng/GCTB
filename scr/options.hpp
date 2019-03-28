@@ -59,10 +59,12 @@ public:
     float LDthreshold;  // used to define the two ends of per-SNP LD window in the banded LD matrix
     float chisqThreshold;  // significance threshold for nonzero LD chi-square test
     float piNDC;  // proportion of X-lined SNPs under no dosage compensation model (escape from X-chromosome inactivation)
+    float piGxE;  // pi for genotype-by-env effects
     float phi;   // a shrinkage parameter for the heritability estimate in sbayes
     float overdispersion;
     float kappa;     // for Luke's kappa model
     float effpopNE;  // for shrunk LDM
+    float genMapN;   // for shrunk LDM
     float cutOff;    // for shrunk LDM
     float icrsq;  // average inter-chromosome r^2 across SNPs
     float spouseCorrelation;
@@ -87,6 +89,8 @@ public:
     bool transpose;   // transpose the annotation file
     bool sampleOverlap;  // whether LD ref is the same as GWAS sample
     bool imputeN;  // impute per-SNP sample size
+    bool noscale;
+    bool simuMode; // simulation mode
 
     // Bayes R defauls
     VectorXf gamma;  // Default scaling parameters for Bayes R
@@ -144,6 +148,7 @@ public:
         LDthreshold             = 0.0;
         chisqThreshold          = 10;
         piNDC                   = 0.15;
+        piGxE                   = 0.05;
         phi                     = 0;
         overdispersion          = 0;
         // Shrunk matrix defaults
@@ -155,6 +160,7 @@ public:
         mafmin                  = 0;
         mafmax                  = 0;
         flank                   = 0;
+        genMapN                 = 183; // Sample size of CEU population
 
         // Bayes R defaults
         ndists                  = 4;
@@ -182,6 +188,8 @@ public:
         transpose               = false;
         sampleOverlap           = false;
         imputeN                 = false;
+        noscale                 = false; // Scale the genotypes or not. Default is scaling 0
+        simuMode                = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";
