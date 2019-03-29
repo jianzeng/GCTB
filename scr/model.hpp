@@ -550,23 +550,25 @@ public:
         float stepSize;     // for HMC
         unsigned numSteps;  // for HMC
         
-        enum {random_walk, hmc} algorithm;
+        enum {random_walk, hmc, reg} algorithm;
         
         AcceptanceRate ar;
         Parameter tuner;
         
         Sp(const unsigned m, const float var, const float start, const string &alg, const string &lab = "S"): Parameter(lab), mean(0), var(var), numSnps(m)
-        , tuner(alg=="RMH" ? "varProp" : "Stepsize"){
+        , tuner(alg=="RWMH" ? "varProp" : "Stepsize"){
             value = start;  // starting value
             varProp = 0.01;
             stepSize = 0.001;
             numSteps = 100;
-            if (alg=="RMH") algorithm = random_walk;
+            if (alg=="RWMH") algorithm = random_walk;
+            else if (alg=="Reg") algorithm = reg;
             else algorithm = hmc;
+            //else throw("Error: Invalid algorithm for sampling S: " + alg + " (the available are RWMH, HMC, Reg)!");
         }
         
         // note that the scale factor of sigmaSq will be simultaneously updated
-        void sampleFromFC(const float snpEffWtdSumSq, const unsigned numNonZeros, const float sigmaSq, const VectorXf &snpEffects,
+        void sampleFromFC(const float snpEffWtdSumSq, const unsigned numNonZeros, float &sigmaSq, const VectorXf &snpEffects,
                           const VectorXf &snp2pq, ArrayXf &snp2pqPowS, const ArrayXf &logSnp2pq,
                           const float vg, float &scale, float &sum2pqSplusOne);
         void sampleFromPrior(void);
@@ -578,6 +580,7 @@ public:
                         const float vg, float &scale, float &sum2pqSplusOne);
         float gradientU(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float sigmaSq, const float vg);
         float computeU(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float sigmaSq, const float vg, float &scale, float &U_chisq);
+        void regression(const VectorXf &snpEffects, const ArrayXf &logSnp2pq, ArrayXf &snp2pqPowS, float &sigmaSq);
     };
     
     class SnpEffects : public BayesC::SnpEffects {
@@ -629,7 +632,7 @@ public:
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &scale, &S, &vare, &varg, &hsq, &S.ar, &S.tuner, &rounding};
         if (message && myMPI::rank==0) {
             string alg = algorithm;
-            if (alg!="RMH") alg = "HMC (default)";
+            if (alg!="RWMH" && alg!="Reg") alg = "HMC";
             cout << "\nBayesS model fitted. Algorithm: " << alg << "." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
         }
@@ -711,7 +714,7 @@ public:
         paramToPrint = {&pi, &nnzWind, &nnzSnp, &sigmaSq, &scale, &S, &vare, &varg, &hsq, &S.ar, &S.tuner, &rounding};
         if (message && myMPI::rank==0) {
             string alg = algorithm;
-            if (alg!="RMH") alg = "HMC (default)";
+            if (alg!="RWMH" && alg!="Reg") alg = "HMC";
             cout << "\nBayesNS model fitted. Algorithm: " << alg << "." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
         }
@@ -1115,7 +1118,7 @@ public:
         }
         if (message && myMPI::rank==0) {
             string alg = algorithm;
-            if (alg!="RMH") alg = "HMC (default)";
+            if (alg!="RWMH" && alg!="Reg") alg = "HMC";
             cout << "\nApproximate BayesS model fitted. Algorithm: " << alg << "." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
         }

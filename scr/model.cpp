@@ -652,13 +652,15 @@ void BayesS::AcceptanceRate::count(const bool state, const float lower, const fl
 //    }
 }
 
-void BayesS::Sp::sampleFromFC(const float snpEffWtdSumSq, const unsigned numNonZeros, const float sigmaSq, const VectorXf &snpEffects,
+void BayesS::Sp::sampleFromFC(const float snpEffWtdSumSq, const unsigned numNonZeros, float &sigmaSq, const VectorXf &snpEffects,
                               const VectorXf &snp2pq, ArrayXf &snp2pqPowS, const ArrayXf &logSnp2pq,
                               const float vg, float &scale, float &sum2pqSplusOne){
     if (algorithm == random_walk) {
         randomWalkMHsampler(snpEffWtdSumSq, numNonZeros, sigmaSq, snpEffects, snp2pq, snp2pqPowS, logSnp2pq, vg, scale, sum2pqSplusOne);
     } else if (algorithm == hmc) {
         hmcSampler(numNonZeros, sigmaSq, snpEffects, snp2pq, snp2pqPowS, logSnp2pq, vg, scale, sum2pqSplusOne);
+    } else if (algorithm == reg) {
+        regression(snpEffects, logSnp2pq, snp2pqPowS, sigmaSq);
     }
 }
 
@@ -848,6 +850,29 @@ float BayesS::Sp::computeU(const float S, const ArrayXf &snpEffects, const float
     //cout << abs(ret) << " " << dchisq << endl;
     //if (abs(ret) > abs(dchisq)) ret += dchisq;
     return ret;
+}
+
+void BayesS::Sp::regression(const VectorXf &snpEffects, const ArrayXf &logSnp2pq, ArrayXf &snp2pqPowS, float &sigmaSq){
+    unsigned nnz = 0;
+    for (unsigned i=0; i<numSnps; ++i)
+        if (snpEffects[i]) ++nnz;
+    
+    VectorXf y(nnz);
+    MatrixXf X(nnz, 2);
+    X.col(0) = VectorXf::Ones(nnz);
+
+    for (unsigned i=0, j=0; i<numSnps; ++i) {
+        if (snpEffects[i]) {
+            y[j]  = snpEffects[i];
+            X(j,1) = logSnp2pq[i];
+            ++j;
+        }
+    }
+
+    VectorXf b = X.householderQr().solve(y);
+    value = b[1];
+    sigmaSq = expf(b[0]);
+    snp2pqPowS = (b[1]*logSnp2pq).exp();
 }
 
 void BayesS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,

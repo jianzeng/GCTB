@@ -3674,8 +3674,8 @@ void Data::buildSparseMME(const bool sampleOverlap, const string &bayesType, con
     VectorXf varpSrt = ypySrt.array()/n.array();
     std::sort(ypySrt.data(), ypySrt.data() + ypySrt.size());
     std::sort(varpSrt.data(), varpSrt.data() + varpSrt.size());
-//    ypy = ypySrt[ypySrt.size()/2];  // median
-    float varp = varpSrt[varpSrt.size()/2];
+    ypy = ypySrt[ypySrt.size()/2];  // median
+    varPhenotypic = varpSrt[varpSrt.size()/2];
     
     //numKeptInds = n.mean();
     
@@ -3683,29 +3683,39 @@ void Data::buildSparseMME(const bool sampleOverlap, const string &bayesType, con
     std::sort(nSrt.data(), nSrt.data() + nSrt.size());
     numKeptInds = nSrt[nSrt.size()/2]; // median
     
-    // NEW
-    // compute D and snp2pq based on n, se and b, assuming varp = 1
-    // these quantities are used in sbayes, as they are more reliable than input allele frequencies
-    for (unsigned i=0; i<numIncdSnps; ++i) {
-        snp = incdSnpInfoVec[i];
-        D[i] = 1.0/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
-        snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
-        tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
-        // Need to adjust R and C models X'X matrix depending scale of genotypes or not
-        if (bayesType == "S") {
-            // cout << "Bayes S no scale" << endl;
-            D[i] = snp2pq[i]*snp->gwas_n;
-        } else if (((bayesType == "R") || (bayesType == "C") || (bayesType == "Kap")) && noscale == true) {
-            // cout << "Bayes R, C, Kap no scale" << endl;
-            D[i] = snp2pq[i]*snp->gwas_n;
-        } else {
-            // cout << "Scaling" << endl;
-            // If the model is C, R, or Kappa the default is not to scale
-            D[i] = snp->gwas_n;
+    if (bayesType == "S") {
+        for (unsigned i=0; i<numIncdSnps; ++i) {
+            snp = incdSnpInfoVec[i];
+            D[i] = varPhenotypic/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
+            snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
+            tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
         }
-   }
-    ypy = numKeptInds;
-    // NEW END
+    } else {
+        // NEW
+        // compute D and snp2pq based on n, se and b, assuming varp = 1
+        // these quantities are used in sbayes, as they are more reliable than input allele frequencies
+        for (unsigned i=0; i<numIncdSnps; ++i) {
+            snp = incdSnpInfoVec[i];
+            D[i] = 1.0/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
+            snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
+            tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
+            // Need to adjust R and C models X'X matrix depending scale of genotypes or not
+//            if (bayesType == "S") {
+//                // cout << "Bayes S no scale" << endl;
+//                D[i] = snp2pq[i]*snp->gwas_n;
+//            } else
+                if (((bayesType == "R") || (bayesType == "C") || (bayesType == "Kap")) && noscale == true) {
+                // cout << "Bayes R, C, Kap no scale" << endl;
+                D[i] = snp2pq[i]*snp->gwas_n;
+            } else {
+                // cout << "Scaling" << endl;
+                // If the model is C, R, or Kappa the default is not to scale
+                D[i] = snp->gwas_n;
+            }
+        }
+        ypy = numKeptInds;
+        // NEW END
+    }
 
     if (ZPZ.size() || ZPZsp.size()) {
         if (sparseLDM == true) {

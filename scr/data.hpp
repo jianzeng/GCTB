@@ -201,6 +201,7 @@ public:
     float ypy;               // y'y the total sum of squares adjusted for the mean
     float varGenotypic;
     float varResidual;
+    float varPhenotypic;
     
     bool reindexed;
     bool sparseLDM;
