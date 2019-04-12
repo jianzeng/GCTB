@@ -13,6 +13,7 @@ void BayesC::FixedEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &X,
                                         const VectorXf &XPXdiag, const float vare){
     float rhs;
     for (unsigned i=0; i<size; ++i) {
+        if (!XPXdiag[i]) continue;
         float oldSample = values[i];
         float my_rhs = X.col(i).dot(ycorr);
         MPI_Allreduce(&my_rhs, &rhs, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
@@ -551,10 +552,10 @@ void BayesR::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
     // ----------------
     int ndist, indistflag;
     double v1,  b_ls, ssculm, r;
-    VectorXf gp, ll, ll2, pll, pll2, snpindist, var_b_ls;
+    VectorXf gp, ll, ll2, pll, snpindist, var_b_ls;
     ndist = pis.size();
     snpStore.setZero(pis.size());
-    pll2.setZero(pis.size());
+    pll.setZero(pis.size());
     // --------------------------------------------------------------------------------
     // Scale the variances in each of the normal distributions by the genetic variance
     // and initialise the class membership probabilities
@@ -2884,32 +2885,32 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
         nrnd[i] = Stat::snorm();
     }
 
-    // R specific parameters
-    int ndist, indistflag;
-    double rhs, v1,  b_ls, ssculm, r;
-    VectorXf gp, ll, pll, snpindist, var_b_ls;
-    snpStore.setZero(pis.size());
-    ll.setZero(pis.size());
-    pll.setZero(pis.size());
-    // --------------------------------------------------------------------------------
-    // Scale the variances in each of the normal distributions by the genetic variance
-    // and initialise the class membership probabilities
-    // --------------------------------------------------------------------------------
-    ndist = pis.size();
-    gp = gamma * sigmaSq;
-    // --------------------------------------------------------------------------------
-    // Cycle over all variants in the window and sample the genetics effects
-    // --------------------------------------------------------------------------------
-#pragma omp parallel for
+//#pragma omp parallel for  // openmp is not working for SBayesR
     for (unsigned chr=0; chr<numChr; ++chr) 
     {
         ChromInfo *chromInfo = chromInfoVec[chr];
         unsigned chrStart = chromInfo->startSnpIdx;
         unsigned chrEnd   = chromInfo->endSnpIdx;
         unsigned windEnd, j;
+        
+        // R specific parameters
+        int ndist, indistflag;
+        double rhs, v1,  b_ls, ssculm, r;
+        VectorXf gp, ll, pll, snpindist, var_b_ls;
+        snpStore.setZero(pis.size());
+        ll.setZero(pis.size());
+        pll.setZero(pis.size());
+        // --------------------------------------------------------------------------------
+        // Scale the variances in each of the normal distributions by the genetic variance
+        // and initialise the class membership probabilities
+        // --------------------------------------------------------------------------------
+        ndist = pis.size();
+        gp = gamma * sigmaSq;
+        // --------------------------------------------------------------------------------
+        // Cycle over all variants in the window and sample the genetics effects
+        // --------------------------------------------------------------------------------
 
         float oldSample, varei;
-        double rhs, invLhs, uhat;
         
         for (unsigned i=chrStart; i<=chrEnd; ++i) {
             oldSample = valuesPtr[i]; 
@@ -2960,13 +2961,14 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
             if (indistflag != 1)                                                                                                                                                    
             {                                                                                                                                                                       
                 v1 = ZPZdiag[i] + varei / gp((indistflag - 1));                                                                                                                     
-                valuesPtr[i] = normal.sample(rhs / v1, varei / v1);                                                                                                                 
-                float sampleDiff = oldSample - valuesPtr[i];                                                                                                                        
+//                valuesPtr[i] = normal.sample(rhs / v1, varei / v1);                                                                                                                 
+                valuesPtr[i] = rhs / v1 + nrnd[i]*sqrtf(varei / v1);
+                float sampleDiff = oldSample - valuesPtr[i];
                 for (SparseVector<float>::InnerIterator it(ZPZ[i]); it; ++it) {                                                                                                     
                     rcorr[it.index()] += it.value() * sampleDiff;                                                                                                                   
                 }                                                                                                                                                                   
-                ssq[chr]  += (valuesPtr[i]*valuesPtr[i]) / gamma[indistflag - 1];                                                                                                    
-                s2pq[chr] += snp2pq[i];                                                                                                                                             
+                ssq[chr]  += (valuesPtr[i]*valuesPtr[i]) / gamma[indistflag - 1];
+                s2pq[chr] += snp2pq[i];
                 ++nnz[chr];                                                                                                                                                         
             } else {                                                                                                                                                                
                 if (oldSample) {                                                                                                                                                    
@@ -2975,7 +2977,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
                     }                                                                                                                                                               
                 }                                                                                                                                                                   
                 valuesPtr[i] = 0.0;                                                                                                                                                 
-            }  
+            }
         }
     }
     // ---------------------------------------------------------------------
@@ -2985,8 +2987,8 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
     sum2pq = 0.0;                                                                                                                                                                   
     numNonZeros = 0;                                                                                                                                                                
     nnzPerChr.setZero(numChr);                                                                                                                                                      
-    for (unsigned i=0; i<numChr; ++i) {                                                                                                                                             
-        sumSq += ssq[i];                                                                                                                                                            
+    for (unsigned i=0; i<numChr; ++i) {
+        sumSq += ssq[i];
         sum2pq += s2pq[i];                                                                                                                                                          
         numNonZeros += nnz[i];                                                                                                                                                      
         nnzPerChr[i] = nnz[i];                                                                                                                                                      

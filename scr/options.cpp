@@ -279,7 +279,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
         }
         else if (!strcmp(argv[i], "--unscale-genotype")) {
             noscale = true;
-            ss << "--unscale-genotype " << argv[i] << "\n";
+            ss << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--snp")) {
             snpRange = argv[++i];
@@ -424,7 +424,12 @@ void Options::inputOptions(const int argc, const char* argv[]){
               "When using Bayes R option please specify starting mixing proportions and variance scaling factors." +
               "\n" + 
               "The flags for these are --pi and --gamma.");
-    }    
+    }
+    
+    // BayesS type of model do not allow scaled genotypes
+    if (bayesType == "S" || bayesType == "ST" || bayesType == "T" || bayesType == "SMix") {
+        noscale = true;
+    }
     
     MPI_Comm_rank(MPI_COMM_WORLD, &myMPI::rank);
     if(myMPI::rank==0) cout << ss.str() << endl;

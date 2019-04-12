@@ -184,7 +184,7 @@ void Data::readBimFile(const string &bimFile) {
     cout << "Genotype data for " << numKeptInds << " individuals and " << numIncdSnps << " SNPs are included from [" + bedFile + "]." << endl;
 }*/
 
-void Data::readBedFile(const string &bedFile){
+void Data::readBedFile(const bool noscale, const string &bedFile){
     unsigned i = 0, j = 0;
     
     if (numIncdSnps == 0) throw ("Error: No SNP is retained for analysis.");
@@ -267,6 +267,7 @@ void Data::readBedFile(const string &bedFile){
         //cout << "snp " << snp << "     " << Z.col(snp).sum() << endl;
         
         Z.col(snp).array() -= mean_all; // center column by 2p rather than the real mean
+        if (!noscale) Z.col(snp).array() /= sqrt(snp2pq[snp]);  // standardise to have variance one
 
         if (++snp == numIncdSnps) break;
     }
@@ -1032,15 +1033,17 @@ void Data::buildSparseMME(const string &bedFile, const unsigned windowWidth){
 }
 
 
-void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const string &filename) const {
+void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const bool noscale, const string &filename) const {
     if (myMPI::rank) return;
     ofstream out(filename.c_str());
-    out << boost::format("%6s %20s %6s %12s %8s %12s %12s %8s %8s\n")
+    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %8s %8s\n")
     % "Id"
     % "Name"
     % "Chrom"
     % "Position"
-    % "GeneFrq"
+    % "A1"
+    % "A2"
+    % "A2Frq"
     % "Effect"
     % "SE"
     % "PIP"
@@ -1048,15 +1051,20 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
     for (unsigned i=0, idx=0; i<numSnps; ++i) {
         SnpInfo *snp = snpInfoVec[i];
         if(!fullSnpFlag[i]) continue;
-        if(snp->isQTL) continue;
-        out << boost::format("%6s %20s %6s %12s %8.6f %12.6f %12.6f %8.3f %8s\n")
+//        if(snp->isQTL) continue;)
+        float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
+        float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
+        float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %8.3f %8s\n")
         % (idx+1)
         % snp->ID
         % snp->chrom
         % snp->physPos
-        % snp->af
-        % posteriorMean[idx]
-        % sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx])
+        % (snp->flipped ? snp->a2 : snp->a1)
+        % (snp->flipped ? snp->a1 : snp->a2)
+        % (snp->flipped ? 1.0-snp->af : snp->af)
+        % (noscale ? effect : effect/sqrt2pq)
+        % (noscale ? se : se/sqrt2pq)
         % pip[idx]
         % snp->window;
         ++idx;
@@ -1173,25 +1181,29 @@ void Data::summarizeSnpResults(const SparseMatrix<float> &snpEffects, const stri
     if (myMPI::rank) return;
     
     ofstream out(filename.c_str());
-    out << boost::format("%6s %20s %6s %12s %8s %12s %8s %8s\n")
+    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %8s %8s\n")
     % "Id"
     % "Name"
     % "Chrom"
     % "Position"
-    % "GeneFrq"
+    % "A1"
+    % "A2"
+    % "A2Frq"
     % "Effect"
     % "PIP"
     % "Window";
     for (unsigned i=0, idx=0; i<numSnps; ++i) {
         SnpInfo *snp = snpInfoVec[i];
         if(!fullSnpFlag[i]) continue;
-        out << boost::format("%6s %20s %6s %12s %8.3f %12.6f %8.3f %8s\n")
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %8.3f %8s\n")
         % (idx+1)
         % snp->ID
         % snp->chrom
         % snp->physPos
-        % snp->af
-        % effectMean[idx]
+        % (snp->flipped ? snp->a2 : snp->a1)
+        % (snp->flipped ? snp->a1 : snp->a2)
+        % (snp->flipped ? 1.0-snp->af : snp->af)
+        % (snp->flipped ? -effectMean[idx] : effectMean[idx])
         % pip[idx]
         % snp->window;
         ++idx;
@@ -1259,6 +1271,7 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
             snp->gwas_af = gwas_af != -1 ? 1.0 - gwas_af : 1.0 - snp->af;
             snp->gwas_se = atof(se.c_str());
             snp->gwas_n  = atof(n.c_str());
+            snp->flipped = true;
             ++numFlip;
         } else {
 //            cout << "WARNING: SNP " + id + " has inconsistent allele coding in between the reference and GWAS samples." << endl;
@@ -2026,7 +2039,8 @@ void Data::readLDmatrixInfoFile(const string &ldmatrixFile){
     string id, allele1, allele2;
     unsigned chr, physPos;
     float genPos, af, ldSamplVar, ldSum;
-    unsigned idx, windStart, windEnd, windSize, windWidth;
+    unsigned idx, windStart, windEnd, windSize;
+    int windWidth;
     long sampleSize;
     bool skeleton;
     getline(in, header);
@@ -3683,40 +3697,24 @@ void Data::buildSparseMME(const bool sampleOverlap, const string &bayesType, con
     std::sort(nSrt.data(), nSrt.data() + nSrt.size());
     numKeptInds = nSrt[nSrt.size()/2]; // median
     
-    if (bayesType == "S") {
-        for (unsigned i=0; i<numIncdSnps; ++i) {
-            snp = incdSnpInfoVec[i];
-            D[i] = varPhenotypic/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
-            snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
-            tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
-        }
-    } else {
         // NEW
         // compute D and snp2pq based on n, se and b, assuming varp = 1
         // these quantities are used in sbayes, as they are more reliable than input allele frequencies
         for (unsigned i=0; i<numIncdSnps; ++i) {
             snp = incdSnpInfoVec[i];
-            D[i] = 1.0/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
+            D[i] = varPhenotypic/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
             snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
             tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
             // Need to adjust R and C models X'X matrix depending scale of genotypes or not
-//            if (bayesType == "S") {
-//                // cout << "Bayes S no scale" << endl;
-//                D[i] = snp2pq[i]*snp->gwas_n;
-//            } else
-                if (((bayesType == "R") || (bayesType == "C") || (bayesType == "Kap")) && noscale == true) {
-                // cout << "Bayes R, C, Kap no scale" << endl;
+            if (noscale == true) {
                 D[i] = snp2pq[i]*snp->gwas_n;
             } else {
-                // cout << "Scaling" << endl;
-                // If the model is C, R, or Kappa the default is not to scale
                 D[i] = snp->gwas_n;
             }
         }
-        ypy = numKeptInds;
+        //ypy = numKeptInds;
         // NEW END
-    }
-
+    
     if (ZPZ.size() || ZPZsp.size()) {
         if (sparseLDM == true) {
             for (unsigned i=0; i<numIncdSnps; ++i) {
@@ -3765,7 +3763,7 @@ void Data::buildSparseMME(const bool sampleOverlap, const string &bayesType, con
     }
     
     
-    if (noscale || bayesType == "S") {
+    if (noscale) {
         ZPy = ZPZdiag.cwiseProduct(b);
     } else {
         ZPy = ZPZdiag.cwiseProduct(b).cwiseProduct(snp2pq.array().sqrt().matrix());
@@ -3830,7 +3828,7 @@ void Data::buildSparseMME(const bool sampleOverlap, const string &bayesType, con
     cout << "\nData summary:" << endl;
     cout << boost::format("%40s %8s %8s\n") %"" %"mean" %"sd";
     cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP Phenotypic variance" %Gadget::calcMean(varpSrt) %sqrt(Gadget::calcVariance(varpSrt));
-//    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP heterozygosity" %Gadget::calcMean(snp2pq) %sqrt(Gadget::calcVariance(snp2pq));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP heterozygosity" %Gadget::calcMean(snp2pq) %sqrt(Gadget::calcVariance(snp2pq));
     cout << boost::format("%40s %8.0f %8.0f\n") %"GWAS SNP sample size" %Gadget::calcMean(n) %sqrt(Gadget::calcVariance(n));
     cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP effect" %Gadget::calcMean(b) %sqrt(Gadget::calcVariance(b));
     cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP SE" %Gadget::calcMean(se) %sqrt(Gadget::calcVariance(se));

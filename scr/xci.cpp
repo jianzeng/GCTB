@@ -212,8 +212,13 @@ void XCI::readBedFile(Data &data, const string &bedFile){
         }
         
         // compute allele frequency
-        snpInfo->af = mean_male_all;
-        data.snp2pq[snp] = snpInfo->af*(1.0f-snpInfo->af);
+        if (numKeptMales_all) {
+            snpInfo->af = mean_male_all;
+            data.snp2pq[snp] = snpInfo->af*(1.0f-snpInfo->af);
+        } else {
+            snpInfo->af = mean_female_all;
+            data.snp2pq[snp] = snpInfo->af*(1.0f-snpInfo->af);
+        }
         
         //cout << "snp " << snp << "     " << Z.col(snp).sum() << endl;
         
@@ -365,31 +370,33 @@ void XCI::simu(Data &data, const float pi, const float heritability, const float
     }
     
     string filename = title + ".QTLinfo";
-    ofstream out(filename.c_str());
-    out << boost::format("%6s %20s %6s %12s %8s %12s %12s %6s\n")
-    % "Id"
-    % "Name"
-    % "Chrom"
-    % "Position"
-    % "GeneFrq"
-    % "EffectMale"
-    % "EffectFemale"
-    % "EscapeXCI";
-    for (unsigned j=0; j<numQTL; ++j) {
-        qtl = data.incdSnpInfoVec[indices[j]];
+    if (!myMPI::rank) {
+        ofstream out(filename.c_str());
         out << boost::format("%6s %20s %6s %12s %8s %12s %12s %6s\n")
-        % (j+1)
-        % qtl->ID
-        % qtl->chrom
-        % qtl->physPos
-        % qtl->af
-        % alphaMale[j]
-        % alphaFemale[j]
-        % isNDC[j];
+        % "Id"
+        % "Name"
+        % "Chrom"
+        % "Position"
+        % "GeneFrq"
+        % "EffectMale"
+        % "EffectFemale"
+        % "EscapeXCI";
+        for (unsigned j=0; j<numQTL; ++j) {
+            qtl = data.incdSnpInfoVec[indices[j]];
+            out << boost::format("%6s %20s %6s %12s %8s %12s %12s %6s\n")
+            % (j+1)
+            % qtl->ID
+            % qtl->chrom
+            % qtl->physPos
+            % qtl->af
+            % alphaMale[j]
+            % alphaFemale[j]
+            % isNDC[j];
+        }
+        out.close();
     }
-    out.close();
     
-    string phenfilename = title + ".phen";
+    string phenfilename = title + ".phen.thread" + to_string(static_cast<long long>(myMPI::rank));
     ofstream out2(phenfilename.c_str());
     for (unsigned i=0; i<data.numKeptInds; ++i) {
         IndInfo *ind = data.keptIndInfoVec[i];
@@ -442,7 +449,7 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
         for (unsigned i=0, idx=0; i<data.numSnps; ++i) {
             SnpInfo *snp = data.snpInfoVec[i];
             if(!data.fullSnpFlag[i]) continue;
-            if(snp->isQTL) continue;
+//            if(snp->isQTL) continue;
             out << boost::format("%6s %20s %6s %12s %8.3f %12.6f %12.6f %12.6f %12.6f %8.3f %8.3f %8.3f\n")
             % (idx+1)
             % snp->ID
@@ -484,7 +491,7 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
         for (unsigned i=0, idx=0; i<data.numSnps; ++i) {
             SnpInfo *snp = data.snpInfoVec[i];
             if(!data.fullSnpFlag[i]) continue;
-            if(snp->isQTL) continue;
+//            if(snp->isQTL) continue;
             out << boost::format("%6s %20s %6s %12s %8.3f %12.6f %12.6f %8.3f %8.3f\n")
             % (idx+1)
             % snp->ID
