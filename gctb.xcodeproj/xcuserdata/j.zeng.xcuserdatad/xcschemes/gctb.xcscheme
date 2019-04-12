@@ -95,24 +95,24 @@
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--bayes S"
+            argument = "--sbayes R"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--bfile /Users/j.zeng/Work/Projects/test_gctb/rep1.causal"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--ldm /Users/j.zeng/Work/Projects/test_gctb/rep1.causal.ldm.full"
-            isEnabled = "NO">
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--gwas-summary /Users/j.zeng/Work/Projects/test_gctb/rep1.s0.ma"
-            isEnabled = "NO">
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--pheno /Users/j.zeng/Work/Projects/test_gctb/rep1.s0.phen"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--out /Users/j.zeng/Work/Projects/test_gctb/rep1"

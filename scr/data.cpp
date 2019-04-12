@@ -1052,7 +1052,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         SnpInfo *snp = snpInfoVec[i];
         if(!fullSnpFlag[i]) continue;
 //        if(snp->isQTL) continue;)
-        float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
+        float sqrt2pq = sqrt(snp->twopq);
         float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
         float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
         out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %8.3f %8s\n")
