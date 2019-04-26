@@ -2049,7 +2049,8 @@ void Data::readLDmatrixInfoFile(const string &ldmatrixFile){
     string id, allele1, allele2;
     unsigned chr, physPos;
     float genPos, af, ldSamplVar, ldSum;
-    unsigned idx, windStart, windEnd, windSize, windWidth;
+    unsigned idx, windStart, windEnd, windSize;
+    int windWidth;
     long sampleSize;
     bool skeleton;
     getline(in, header);
