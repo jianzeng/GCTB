@@ -2884,6 +2884,20 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
         urnd[i] = Stat::ranf();
         nrnd[i] = Stat::snorm();
     }
+    
+    // R specific parameters
+    int ndist;
+    VectorXf gp;
+    snpStore.setZero(pis.size());
+    // --------------------------------------------------------------------------------
+    // Scale the variances in each of the normal distributions by the genetic variance
+    // and initialise the class membership probabilities
+    // --------------------------------------------------------------------------------
+    ndist = pis.size();
+    gp = gamma * sigmaSq;
+    // --------------------------------------------------------------------------------
+    // Cycle over all variants in the window and sample the genetics effects
+    // --------------------------------------------------------------------------------
 
 //#pragma omp parallel for  // openmp is not working for SBayesR
     for (unsigned chr=0; chr<numChr; ++chr) 
@@ -2894,21 +2908,11 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
         unsigned windEnd, j;
         
         // R specific parameters
-        int ndist, indistflag;
+        int indistflag;
         double rhs, v1,  b_ls, ssculm, r;
-        VectorXf gp, ll, pll, snpindist, var_b_ls;
-        snpStore.setZero(pis.size());
+        VectorXf ll, pll, snpindist, var_b_ls;
         ll.setZero(pis.size());
         pll.setZero(pis.size());
-        // --------------------------------------------------------------------------------
-        // Scale the variances in each of the normal distributions by the genetic variance
-        // and initialise the class membership probabilities
-        // --------------------------------------------------------------------------------
-        ndist = pis.size();
-        gp = gamma * sigmaSq;
-        // --------------------------------------------------------------------------------
-        // Cycle over all variants in the window and sample the genetics effects
-        // --------------------------------------------------------------------------------
 
         float oldSample, varei;
         
@@ -3025,15 +3029,11 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
         urnd[i] = Stat::ranf();                                                                                                                                                     
         nrnd[i] = Stat::snorm();                                                                                                                                                    
     }
-    // ----------------
-    // Bayes R specific
-    // ----------------
-    int ndist, indistflag;
-    double rhs, v1,  b_ls, ssculm, r;
-    VectorXf gp, ll, pll, snpindist, var_b_ls;
+
+    // R specific parameters
+    int ndist;
+    VectorXf gp;
     snpStore.setZero(pis.size());
-    ll.setZero(pis.size());
-    pll.setZero(pis.size());
     // --------------------------------------------------------------------------------
     // Scale the variances in each of the normal distributions by the genetic variance
     // and initialise the class membership probabilities
@@ -3043,7 +3043,8 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
     // --------------------------------------------------------------------------------
     // Cycle over all variants in the window and sample the genetics effects
     // --------------------------------------------------------------------------------
-#pragma omp parallel for        
+
+#pragma omp parallel for
     for (unsigned chr=0; chr<numChr; ++chr) 
     {
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -3053,6 +3054,12 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
         float oldSample, varei;
         double rhs, invLhs, uhat;
         
+        int indistflag;
+        double v1,  b_ls, ssculm, r;
+        VectorXf ll, pll, snpindist, var_b_ls;
+        ll.setZero(pis.size());
+        pll.setZero(pis.size());
+
         for (unsigned i=chrStart; i<=chrEnd; ++i) {
             oldSample = valuesPtr[i];
             // ---------------------------------------------
