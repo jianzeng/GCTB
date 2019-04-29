@@ -13,6 +13,7 @@ void BayesC::FixedEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &X,
                                         const VectorXf &XPXdiag, const float vare){
     float rhs;
     for (unsigned i=0; i<size; ++i) {
+        if (!XPXdiag[i]) continue;
         float oldSample = values[i];
         float rhs = X.col(i).dot(ycorr);
 //        float my_rhs = X.col(i).dot(ycorr);
