@@ -137,6 +137,7 @@ public:
             } else {
                 value = vg / (snp2pq.size() * pi);  // derived from prior knowledge on Vg and pi
             }
+            
             scale = 0.5f*value;  // due to df = 4
             
 //            cout << value << " " << snp2pq.sum() << " " << pi << endl;
