@@ -158,7 +158,7 @@
 		50E376771FC585380038770F /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
-				LastUpgradeCheck = 0730;
+				LastUpgradeCheck = 1010;
 				ORGANIZATIONNAME = "Jian Zeng";
 				TargetAttributes = {
 					50E3767E1FC585380038770F = {
@@ -217,13 +217,23 @@
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
 				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
 				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
 				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
 				CLANG_WARN_EMPTY_BODY = YES;
 				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
 				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_IDENTITY = "-";
@@ -261,13 +271,23 @@
 				CLANG_CXX_LIBRARY = "libc++";
 				CLANG_ENABLE_MODULES = YES;
 				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
 				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
 				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
 				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
 				CLANG_WARN_EMPTY_BODY = YES;
 				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
 				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				CODE_SIGN_IDENTITY = "-";
@@ -292,13 +312,12 @@
 		50E376871FC585380038770F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CC = "/usr/local/bin/clang-omp";
+				CC = "/usr/local/Cellar/llvm/8.0.0/bin/clang++ ";
 				CLANG_ENABLE_MODULES = NO;
 				HEADER_SEARCH_PATHS = (
-					..,
-					../Eigen3,
+					/usr/local/Cellar/boost/1.69.0_2/include/boost/,
 					/usr/local/include,
-					/usr/local/include/libiomp,
+					/usr/local/Cellar/eigen/3.3.7/include/eigen3/Eigen/,
 				);
 				LIBRARY_SEARCH_PATHS = (
 					/usr/local/lib,
@@ -318,13 +337,12 @@
 		50E376881FC585380038770F /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CC = "/usr/local/bin/clang-omp";
+				CC = "/usr/local/Cellar/llvm/8.0.0/bin/clang++ ";
 				CLANG_ENABLE_MODULES = NO;
 				HEADER_SEARCH_PATHS = (
-					..,
-					../Eigen3,
+					/usr/local/Cellar/boost/1.69.0_2/include/boost/,
 					/usr/local/include,
-					/usr/local/include/libiomp,
+					/usr/local/Cellar/eigen/3.3.7/include/eigen3/Eigen/,
 				);
 				LIBRARY_SEARCH_PATHS = (
 					/usr/local/lib,

@@ -1070,7 +1070,6 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         if(!fullSnpFlag[i]) continue;
         //        if(snp->isQTL) continue;)
         float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
-        float sqrt2pq = sqrt(snp->twopq);
         float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
         float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
         out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %8.3f %8s\n")
@@ -3718,8 +3717,8 @@ void Data::buildSparseMME(const bool sampleOverlap, const string &bayesType, con
     VectorXf varpSrt = ypySrt.array()/n.array();
     std::sort(ypySrt.data(), ypySrt.data() + ypySrt.size());
     std::sort(varpSrt.data(), varpSrt.data() + varpSrt.size());
-//    ypy = ypySrt[ypySrt.size()/2];  // median
-    float varp = varpSrt[varpSrt.size()/2];
+    ypy = ypySrt[ypySrt.size()/2];  // median
+    varPhenotypic = varpSrt[varpSrt.size()/2];
     
     //numKeptInds = n.mean();
     
