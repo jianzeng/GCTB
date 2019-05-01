@@ -30,7 +30,7 @@ public:
                       const unsigned includeChr, const bool readGenotypes);
     void readBedFile(Data &data, const string &bedFile);
 
-    Model* buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const float piNDC, const float piGxE);
+    Model* buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const float piNDC, const float piGxE, const unsigned windowWidth);
     void simu(Data &data, const float pi, const float heritability, const float probNDC, const float probGxS, const bool removeQTL, const string &title, const int seed);
     void outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &bayesType, const string &title);
 };
@@ -44,6 +44,15 @@ public:
     // p ~ U(0,1) or Beta(a,b) is the prob. of NDC model, in other word, the proportion of SNPs that escape from XCI
     // beta_j ~ N(0, sigma^2); sigma^2 ~ scaled-inverse chi-square
     // delta_j ~ Bernoulli(pi)
+    
+    class FixedEffects : public BayesC::FixedEffects {
+    public:
+        
+        FixedEffects(const vector<string> &header): BayesC::FixedEffects(header){}
+        
+        void sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, const MatrixXf &X, const unsigned nmale, const unsigned nfemale,
+                          const VectorXf &XPXdiagMale, const VectorXf &XPXdiagFemale, const float varem, const float varef);
+    };
     
     class ProbNDC : public Parameter, public Stat::Beta {
     public:
@@ -96,7 +105,9 @@ public:
     float genVarPrior;
     float piPrior;
     
-    ProbNDC piNDC;
+    FixedEffects fixedEffects;
+    ProbNDC piGamma;
+    Parameter piNDC;
     Gamma gamma;   // indicator variable with 1: NDC, 0: FDC
     SnpEffects snpEffects;
     ScaleVar scale;
@@ -114,14 +125,18 @@ public:
     Heritability hsqm;
     Heritability hsqf;
     
+    VectorXf XPXdiagMale;
     VectorXf ZPZdiagMale;
+    VectorXf XPXdiagFemale;
     VectorXf ZPZdiagFemale;
     
     BayesCXCI(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi, const float piNDCval, const unsigned nmale, const unsigned nfemale, const bool noscale, const bool message = true):
     BayesC(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, noscale, "Gibbs", false),
     ycorrm(data.y.head(nmale)),
     ycorrf(data.y.tail(nfemale)),
-    piNDC(piNDCval),
+    fixedEffects(data.fixedEffectNames),
+    piGamma(piNDCval),
+    piNDC("PiNDC"),
     gamma(data.snpEffectNames),
     snpEffects(data.snpEffectNames),
     scale(data.snp2pq.sum(), sigmaSq.scale),
@@ -135,14 +150,7 @@ public:
     hsqm("hsqM"),
     hsqf("hsqF") {
         
-        // MPI
-        ZPZdiagMale.setZero(data.numIncdSnps);
-        ZPZdiagFemale.setZero(data.numIncdSnps);
-        VectorXf my_ZPZdiagMale   = data.Z.block(0, 0, nmale, data.numIncdSnps).colwise().squaredNorm();
-        VectorXf my_ZPZdiagFemale = data.Z.block(nmale, 0, nfemale, data.numIncdSnps).colwise().squaredNorm();
-        MPI_Allreduce(&my_ZPZdiagMale[0], &ZPZdiagMale[0], data.numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-        MPI_Allreduce(&my_ZPZdiagFemale[0], &ZPZdiagFemale[0], data.numIncdSnps, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-        
+        getZPZdiag(data);
         gamma.values.setZero(data.numIncdSnps);
         paramSetVec = {&snpEffects, &gamma, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &piNDC, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf};
@@ -152,6 +160,7 @@ public:
     }
     
     void sampleUnknowns(void);
+    void getZPZdiag(const Data &data);
 };
 
 
@@ -264,16 +273,71 @@ public:
     pis(pival),
     piGxS(pival[2]),
     deltaGxS(data.snpEffectNames) {
-    
         paramSetVec = {&snpEffectsMale, &snpEffectsFemale, &gamma, &deltaGxS, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &piNDC, &piGxS, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf};
         paramToPrint = {&pi, &nnzSnp, &piNDC, &piGxS, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf, &rounding};
-        if (message && myMPI::rank==0)
+        if (message && myMPI::rank==0) {
             cout << "\nBayesCXCIgxs model fitted." << endl;
+            cout << "sigmaSq: " << sigmaSq.value << endl;
+        }
     }
     
     void sampleUnknowns(void);
 };
+
+class BayesNXCIgxs : public BayesCXCIgxs {
+public:
+    
+    class SnpEffects : public BayesCXCIgxs::SnpEffects {
+    public:
+        unsigned numWindows;
+        unsigned numNonZeroWind;
+        
+        const VectorXi &windStart;
+        const VectorXi &windSize;
+        
+        VectorXf windDeltaEff;
+        VectorXf windDeltaNDC;
+        VectorXf windDeltaGxS;
+        
+        
+        SnpEffects(const vector<string> &header, const VectorXi &windStart, const VectorXi &windSize):
+        BayesCXCIgxs::SnpEffects(header), windStart(windStart), windSize(windSize){
+            numWindows = (unsigned) windStart.size();
+            windDeltaEff.setZero(numWindows);
+            windDeltaNDC.setZero(numWindows);
+            windDeltaGxS.setZero(numWindows);
+        };
+        
+        void sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, const MatrixXf &Z, const vector<MatrixXf> &ZPZdiagMale,
+                          const vector<MatrixXf> &ZPZdiagFemale, const unsigned nmale, const unsigned nfemale, const float piNDC,
+                          const float sigmaSq, const Vector3f &pis, const float varem, const float varef,
+                          VectorXf &gamma, VectorXf &deltaGxS, VectorXf &ghatm, VectorXf &ghatf);
+    };
+    
+    SnpEffects snpEffects;
+    BayesN::NumNonZeroWind nnzWind;
+    
+    BayesNXCIgxs(const Data &data, const float varGenotypic, const float varResidual, const Vector3f &pival, const bool estimatePi, const float piNDCval, const unsigned nmale, const unsigned nfemale, const bool noscale, const bool message = true):
+    BayesCXCIgxs(data, varGenotypic, varResidual, pival, estimatePi, piNDCval, nmale, nfemale, noscale, false),
+    snpEffects(data.snpEffectNames, data.windStart, data.windSize)
+    {
+        getZPZblockDiag(data);
+        paramSetVec = {&snpEffectsMale, &snpEffectsFemale, &gamma, &deltaGxS, &fixedEffects};
+        paramVec = {&pi, &nnzWind, &nnzSnp, &piNDC, &piGxS, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf};
+        paramToPrint = {&pi, &nnzWind, &nnzSnp, &piNDC, &piGxS, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf, &rounding};
+        if (message && myMPI::rank==0)
+            cout << "\nBayesNXCIgxs model fitted." << endl;
+    }
+    
+    vector<MatrixXf> ZPZblockDiagMale;
+    vector<MatrixXf> ZPZblockDiagFemale;
+
+    void sampleUnknowns(void);
+    void getZPZblockDiag(const Data &data);
+};
+
+
 
 
 #endif /* xci_hpp */

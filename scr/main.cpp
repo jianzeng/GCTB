@@ -24,7 +24,7 @@ int main(int argc, const char * argv[]) {
     
     if (myMPI::rank==0) {
         cout << "***********************************************\n";
-        cout << "* GCTB 2.0 Beta                               *\n";
+        cout << "* GCTB 2.0 Beta MPI version                   *\n";
         cout << "* Genome-wide Complex Trait Bayesian analysis *\n";
         cout << "* Author: Jian Zeng, Luke Lloyd-Jones         *\n";
         cout << "* MIT License                                 *\n";
@@ -174,7 +174,7 @@ int main(int argc, const char * argv[]) {
             if (opt.simuMode) {
                 xci.simu(data, opt.pi, opt.heritability, opt.piNDC, opt.piGxE, false, opt.title, opt.seed);  // ad hoc simulation to test BayesXCI method
             }
-            Model *model = xci.buildModel(data, opt.bayesType, opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.piNDC, opt.piGxE);
+            Model *model = xci.buildModel(data, opt.bayesType, opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.piNDC, opt.piGxE, opt.windowWidth);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
             gctb.saveMcmcSamples(mcmcSampleVec, opt.title);

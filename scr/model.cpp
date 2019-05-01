@@ -3119,8 +3119,9 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
             if (indistflag != 1)                                                                                                                                                    
             {                                                                                                                                                                       
                 v1 = ZPZdiag[i] + varei / gp((indistflag - 1));                                                                                                                     
-                valuesPtr[i] = normal.sample(rhs / v1, varei / v1);                                                                                                                 
-                rcorr.segment(windStart[i], windSize[i]) += ZPZ[i] * (oldSample - valuesPtr[i]);                                                                                    
+//                valuesPtr[i] = normal.sample(rhs / v1, varei / v1);                                                                                                                 
+                valuesPtr[i] = rhs / v1 + nrnd[i]*sqrtf(varei / v1);
+                rcorr.segment(windStart[i], windSize[i]) += ZPZ[i] * (oldSample - valuesPtr[i]);
                 ssq[chr] += (valuesPtr[i] * valuesPtr[i]) / gamma[indistflag - 1];                                                                                                  
                 s2pq[chr] += snp2pq[i];                                                                                                                                             
                 ++nnz[chr];                                                                                                                                                         
