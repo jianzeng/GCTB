@@ -14,8 +14,7 @@ void GCTB::inputIndInfo(Data &data, const string &bedFile, const string &phenoty
     data.readCovariateFile(covariateFile);
     data.keepMatchedInd(keepIndFile, keepIndMax);
 }
-
-void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const float mafmin, const float mafmax, const bool readGenotypes){
+void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const float mafmin, const float mafmax, const bool noscale, const bool readGenotypes){
     data.readBimFile(bedFile + ".bim");
     if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
@@ -26,7 +25,7 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &include
     if (!skeletonSnpFile.empty()) data.includeSkeletonSnp(skeletonSnpFile);
     if (!geneticMapFile.empty()) data.readGeneticMapFile(geneticMapFile);
     data.includeMatchedSnp();
-    if (readGenotypes) data.readBedFile(bedFile + ".bed");
+    if (readGenotypes) data.readBedFile(noscale, bedFile + ".bed");
 }
 
 void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const float genMapN, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile, const bool multiLDmat, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap, const bool imputeN, const string &bayesType, const bool noscale){
@@ -49,17 +48,17 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (!ldscoreFile.empty()) data.readLDscoreFile(ldscoreFile);
     if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, imputeN);
     data.includeMatchedSnp();
-    if (geneticMapFile.empty()) {
+ //   if (geneticMapFile.empty()) {
         if (multiLDmat)
             data.readMultiLDmatBinFile(ldmatrixFile);
         else
             data.readLDmatrixBinFile(ldmatrixFile + ".bin");
-    } else {
-        if (multiLDmat)
-            data.readMultiLDmatBinFileAndShrink(ldmatrixFile, genMapN);
-        else
-            data.readLDmatrixBinFileAndShrink(ldmatrixFile + ".bin");
-    }
+//    } else {
+//        if (multiLDmat)
+//            data.readMultiLDmatBinFileAndShrink(ldmatrixFile, genMapN);
+//        else
+//            data.readLDmatrixBinFileAndShrink(ldmatrixFile + ".bin");
+//    }
     if (!gwasSummaryFile.empty()) data.buildSparseMME(sampleOverlap, bayesType, noscale);
 }
 
@@ -72,7 +71,7 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSum
     
     data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, imputeN);
     data.includeMatchedSnp();
-    data.readBedFile(bedFile + ".bed");
+    data.readBedFile(noscale, bedFile + ".bed");
     data.buildSparseMME(sampleOverlap, bayesType, noscale);
 }
 
@@ -109,32 +108,32 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
         }
     }
     if (bayesType == "B") {
-        data.readBedFile(bedFile + ".bed");
+        data.readBedFile(noscale, bedFile + ".bed");
         return new BayesB(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, noscale);
     }
     if (bayesType == "C") {
-        data.readBedFile(bedFile + ".bed");
+         data.readBedFile(noscale, bedFile + ".bed");
         return new BayesC(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, noscale, algorithm);
     } 
     if (bayesType == "R") {
-        data.readBedFile(bedFile + ".bed");
+        data.readBedFile(noscale, bedFile + ".bed");
         return new BayesR(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, noscale, algorithm);
     }
     else if (bayesType == "S") {
-        data.readBedFile(bedFile + ".bed");
+        data.readBedFile(noscale, bedFile + ".bed");
         return new BayesS(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm);
     }
     else if (bayesType == "SMix") {
-        data.readBedFile(bedFile + ".bed");
+        data.readBedFile(noscale, bedFile + ".bed");
         return new BayesSMix(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm);
     }
     else if (bayesType == "N") {
-        data.readBedFile(bedFile + ".bed");
+        data.readBedFile(noscale, bedFile + ".bed");
         data.getNonoverlapWindowInfo(windowWidth);
         return new BayesN(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, noscale, snpFittedPerWindow);
     }
     else if (bayesType == "NS") {
-        data.readBedFile(bedFile + ".bed");
+        data.readBedFile(noscale, bedFile + ".bed");
         data.getNonoverlapWindowInfo(windowWidth);
         return new BayesNS(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, snpFittedPerWindow, algorithm);
     }
@@ -214,13 +213,13 @@ void GCTB::saveMcmcSamples(const vector<McmcSamples*> &mcmcSampleVec, const stri
     }
 }
 
-void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &bayesType, const string &filename){
+void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &bayesType, const bool noscale, const string &filename){
     vector<McmcSamples*> mcmcSamplesPar;
     for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
         McmcSamples *mcmcSamples = mcmcSampleVec[i];
         if (mcmcSamples->label == "SnpEffects") {
             //mcmcSamples->readDataBin(mcmcSamples->filename);
-            data.outputSnpResults(mcmcSamples->posteriorMean, mcmcSamples->posteriorSqrMean, mcmcSamples->pip, filename + ".snpRes");
+            data.outputSnpResults(mcmcSamples->posteriorMean, mcmcSamples->posteriorSqrMean, mcmcSamples->pip, noscale, filename + ".snpRes");
         }
         else if (mcmcSamples->label == "CovEffects") {
             data.outputFixedEffects(mcmcSamples->datMat, filename + ".covRes");

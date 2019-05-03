@@ -49,6 +49,7 @@ public:
     bool isQTL;     // for simulation
     bool recoded;   // swap A1 and A2: use A2 as the reference allele and A1 as the coded allele
     bool skeleton;  // skeleton snp for sbayes
+    bool flipped;   // A1 A2 alleles are flipped in between gwas and LD ref samples
     long sampleSize;
     
     VectorXf genotypes; // temporary storage of genotypes of individuals used for building sparse Z'Z
@@ -85,6 +86,7 @@ public:
         isQTL = false;
         recoded = false;
         skeleton = false;
+        flipped = false;
         sampleSize = 0;
         effect = 0;
         gwas_b  = -999;
@@ -201,6 +203,7 @@ public:
     float ypy;               // y'y the total sum of squares adjusted for the mean
     float varGenotypic;
     float varResidual;
+    float varPhenotypic;
     
     bool reindexed;
     bool sparseLDM;
@@ -262,7 +265,7 @@ public:
     
     void readFamFile(const string &famFile);
     void readBimFile(const string &bimFile);
-    void readBedFile(const string &bedFile);
+    void readBedFile(const bool noscale, const string &bedFile);
     void readPhenotypeFile(const string &phenFile, const unsigned mphen);
     void readCovariateFile(const string &covarFile);
     void readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax, const bool imputeN);
@@ -297,7 +300,7 @@ public:
     void reindexSnp(vector<SnpInfo*> snpInfoVec);
     void initVariances(const float heritability);
     
-    void outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const string &filename) const;
+    void outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const bool noscale, const string &filename) const;
     void outputFixedEffects(const MatrixXf &fixedEffects, const string &filename) const;
     void outputWindowResults(const VectorXf &posteriorMean, const string &filename) const;
     void summarizeSnpResults(const SparseMatrix<float> &snpEffects, const string &filename) const;
