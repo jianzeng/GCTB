@@ -73,6 +73,7 @@ public:
     float mafmax;  // upper bound of maf
     
     bool estimatePi;
+    bool estimatePiNDC;  // for XCI
     bool estimateScale;
     bool writeBinPosterior;
     bool writeTxtPosterior;
@@ -172,6 +173,7 @@ public:
         kappa                   = 10;
 
         estimatePi              = true;
+        estimatePiNDC           = true;
         estimateScale           = false;
         writeBinPosterior       = true;
         writeTxtPosterior       = true;

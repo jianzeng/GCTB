@@ -516,6 +516,8 @@ void Options::readFile(const string &file){  // input options from file
             thin = stoi(value);
         } else if (key == "estimatePi" && value == "No") {
             estimatePi = false;
+        } else if (key == "estimatePiNDC" && value == "No") {
+            estimatePiNDC = false;
         } else if (key == "outputResults" && value == "No") {
             outputResults = false;
         } else if (key == "varS") {
