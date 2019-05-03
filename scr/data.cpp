@@ -184,7 +184,7 @@ void Data::readBimFile(const string &bimFile) {
     cout << "Genotype data for " << numKeptInds << " individuals and " << numIncdSnps << " SNPs are included from [" + bedFile + "]." << endl;
 }*/
 
-void Data::readBedFile(const string &bedFile){
+void Data::readBedFile(const bool noscale, const string &bedFile){
     unsigned i = 0, j = 0;
     
     if (numIncdSnps == 0) throw ("Error: No SNP is retained for analysis.");
@@ -272,7 +272,7 @@ void Data::readBedFile(const string &bedFile){
         
 //        Z.col(snp).array() -= mean_all; // center column by 2p rather than the real mean
         Z.col(snp).array() -= mean; // center column by 2p rather than the real mean
-
+        if (!noscale) Z.col(snp).array() /= sqrt(snp2pq[snp]);
         if (++snp == numIncdSnps) break;
     }
     fclose(in);
@@ -1050,15 +1050,17 @@ void Data::buildSparseMME(const string &bedFile, const unsigned windowWidth){
 }
 
 
-void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const string &filename) const {
-//    if (myMPI::rank) return;
+void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const bool noscale, const string &filename) const {
+    // if (myMPI::rank) return;
     ofstream out(filename.c_str());
-    out << boost::format("%6s %20s %6s %12s %8s %12s %12s %8s %8s\n")
+    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %8s %8s\n")
     % "Id"
     % "Name"
     % "Chrom"
     % "Position"
-    % "GeneFrq"
+    % "A1"
+    % "A2"
+    % "A2Frq"
     % "Effect"
     % "SE"
     % "PIP"
@@ -1066,15 +1068,20 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
     for (unsigned i=0, idx=0; i<numSnps; ++i) {
         SnpInfo *snp = snpInfoVec[i];
         if(!fullSnpFlag[i]) continue;
-        if(snp->isQTL) continue;
-        out << boost::format("%6s %20s %6s %12s %8.6f %12.6f %12.6f %8.3f %8s\n")
+        //        if(snp->isQTL) continue;)
+        float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
+        float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
+        float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %8.3f %8s\n")
         % (idx+1)
         % snp->ID
         % snp->chrom
         % snp->physPos
-        % snp->af
-        % posteriorMean[idx]
-        % sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx])
+        % (snp->flipped ? snp->a2 : snp->a1)
+        % (snp->flipped ? snp->a1 : snp->a2)
+        % (snp->flipped ? 1.0-snp->af : snp->af)
+        % (noscale ? effect : effect/sqrt2pq)
+        % (noscale ? se : se/sqrt2pq)
         % pip[idx]
         % snp->window;
         ++idx;
@@ -1194,25 +1201,29 @@ void Data::summarizeSnpResults(const SparseMatrix<float> &snpEffects, const stri
 //    if (myMPI::rank) return;
     
     ofstream out(filename.c_str());
-    out << boost::format("%6s %20s %6s %12s %8s %12s %8s %8s\n")
+   out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %8s %8s\n")
     % "Id"
     % "Name"
     % "Chrom"
     % "Position"
-    % "GeneFrq"
+    % "A1"
+    % "A2"
+    % "A2Frq"
     % "Effect"
     % "PIP"
     % "Window";
     for (unsigned i=0, idx=0; i<numSnps; ++i) {
         SnpInfo *snp = snpInfoVec[i];
         if(!fullSnpFlag[i]) continue;
-        out << boost::format("%6s %20s %6s %12s %8.3f %12.6f %8.3f %8s\n")
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %8.3f %8s\n")
         % (idx+1)
         % snp->ID
         % snp->chrom
         % snp->physPos
-        % snp->af
-        % effectMean[idx]
+        % (snp->flipped ? snp->a2 : snp->a1)
+        % (snp->flipped ? snp->a1 : snp->a2)
+        % (snp->flipped ? 1.0-snp->af : snp->af)
+        % (snp->flipped ? -effectMean[idx] : effectMean[idx])
         % pip[idx]
         % snp->window;
         ++idx;
@@ -1280,6 +1291,7 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
             snp->gwas_af = gwas_af != -1 ? 1.0 - gwas_af : 1.0 - snp->af;
             snp->gwas_se = atof(se.c_str());
             snp->gwas_n  = atof(n.c_str());
+            snp->flipped = true;
             ++numFlip;
         } else {
 //            cout << "WARNING: SNP " + id + " has inconsistent allele coding in between the reference and GWAS samples." << endl;
@@ -2795,7 +2807,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
 //        }
         return;
     }
-    if (LDmatType == "shrunk") return;  // TMP; to be removed
+    // if (LDmatType == "shrunk") return;  // TMP; to be removed
     snp2pq.resize(numIncdSnps);
     for (unsigned i=0; i<numIncdSnps; ++i) {
         SnpInfo *snp = incdSnpInfoVec[i];
@@ -3079,13 +3091,16 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
         float Ne = effpopNE;
         cout << "Using European effective population size Ne=" << Ne << " please alter with --ne if inappropriate. " << endl;
         float cutoff = cutOff;
+        cout << "Using shrinkage hard threshold of " << cutOff << ". Alter with --shrunk-cutoff if inappropriate." << endl;
         for (unsigned i=0; i<numIncdSnps; ++i) {
             if (!(i%1000)) cout << i << " SNPs processed\r";
             SnpInfo *snp = incdSnpInfoVec[i];
-            for (unsigned j=i; j<=snp->windEnd; ++j) {
-                mapdiffi = abs(gmapi[j] - gmapi[i]);
-                rho = 4 * Ne * (mapdiffi / 100);
-                shrinkage = exp(-rho / (2 * m));
+            unsigned windEndi = windSizeOri[i];
+            windSize[i] = snp->windSize = windStartOri[i] + windEndi - windStart[i];
+            for (unsigned j=0; j<windSize[i]; ++j) {
+                mapdiffi = abs(gmapi[(windStart[i] + j)] - gmapi[i]);
+                rho = 4.0 * Ne * (mapdiffi / 100.0);
+                shrinkage = exp(-rho / (2.0 * m));
                 if (shrinkage <= cutoff)
                 {
                     shrinkage = 0.0;
@@ -3247,7 +3262,7 @@ void Data::readGeneticMapFile(const string &geneticMapFile){
     for (unsigned i=0; i<numSnps; ++i) {
         snp = snpInfoVec[i];
         if (!snp->included) continue;
-        if (snp->genPos == -999 || snp->genPos == 0) {
+        if (snp->genPos == -999) {
             //cout << "Who went false snp " << i << endl;
             snp->included = false;
         }
@@ -3522,6 +3537,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
     float Ne = effpopNE;
     cout << "\nUsing European effective population size Ne=" << Ne << " please alter with --ne if inappropriate." << endl;
     float cutoff = cutOff;
+    cout << "Using shrinkage hard threshold of " << cutOff << ". Alter with --shrunk-cutoff if inappropriate." << endl;
     for (unsigned i=0; i<numSnpInRange; ++i) {
         for (unsigned j=0; j<numIncdSnps; ++j) {
             mapdiffi = abs(gmapi[j] - gmapi[start+i]);
@@ -3701,8 +3717,8 @@ void Data::buildSparseMME(const bool sampleOverlap, const string &bayesType, con
     VectorXf varpSrt = ypySrt.array()/n.array();
     std::sort(ypySrt.data(), ypySrt.data() + ypySrt.size());
     std::sort(varpSrt.data(), varpSrt.data() + varpSrt.size());
-//    ypy = ypySrt[ypySrt.size()/2];  // median
-    float varp = varpSrt[varpSrt.size()/2];
+    ypy = ypySrt[ypySrt.size()/2];  // median
+    varPhenotypic = varpSrt[varpSrt.size()/2];
     
     //numKeptInds = n.mean();
     
@@ -3715,23 +3731,19 @@ void Data::buildSparseMME(const bool sampleOverlap, const string &bayesType, con
     // these quantities are used in sbayes, as they are more reliable than input allele frequencies
     for (unsigned i=0; i<numIncdSnps; ++i) {
         snp = incdSnpInfoVec[i];
-        D[i] = 1.0/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
+        D[i] = varPhenotypic/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
         snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
         tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
         // Need to adjust R and C models X'X matrix depending scale of genotypes or not
-        if (bayesType == "S") {
-            // cout << "Bayes S no scale" << endl;
-            D[i] = snp2pq[i]*snp->gwas_n;
-        } else if (((bayesType == "R") || (bayesType == "C") || (bayesType == "Kap")) && noscale == true) {
-            // cout << "Bayes R, C, Kap no scale" << endl;
+    if (noscale == true) {
             D[i] = snp2pq[i]*snp->gwas_n;
         } else {
             // cout << "Scaling" << endl;
             // If the model is C, R, or Kappa the default is not to scale
             D[i] = snp->gwas_n;
         }
-   }
-    ypy = numKeptInds;
+    }
+    // ypy = numKeptInds;
     // NEW END
 
     if (ZPZ.size() || ZPZsp.size()) {
@@ -3782,7 +3794,7 @@ void Data::buildSparseMME(const bool sampleOverlap, const string &bayesType, con
     }
     
     
-    if (noscale || bayesType == "S") {
+    if (noscale) {
         ZPy = ZPZdiag.cwiseProduct(b);
     } else {
         ZPy = ZPZdiag.cwiseProduct(b).cwiseProduct(snp2pq.array().sqrt().matrix());
@@ -3847,7 +3859,7 @@ void Data::buildSparseMME(const bool sampleOverlap, const string &bayesType, con
     cout << "\nData summary:" << endl;
     cout << boost::format("%40s %8s %8s\n") %"" %"mean" %"sd";
     cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP Phenotypic variance" %Gadget::calcMean(varpSrt) %sqrt(Gadget::calcVariance(varpSrt));
-//    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP heterozygosity" %Gadget::calcMean(snp2pq) %sqrt(Gadget::calcVariance(snp2pq));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP heterozygosity" %Gadget::calcMean(snp2pq) %sqrt(Gadget::calcVariance(snp2pq));
     cout << boost::format("%40s %8.0f %8.0f\n") %"GWAS SNP sample size" %Gadget::calcMean(n) %sqrt(Gadget::calcVariance(n));
     cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP effect" %Gadget::calcMean(b) %sqrt(Gadget::calcVariance(b));
     cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP SE" %Gadget::calcMean(se) %sqrt(Gadget::calcVariance(se));
