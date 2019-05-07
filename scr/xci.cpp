@@ -1315,7 +1315,7 @@ void BayesCXCIgxs::SnpEffects::sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, 
                 values(i,0) = values(i,1) = sampleMale = sampleFemale = normal.sample(uhatSame[sampleGamma], invLhsSame[sampleGamma]);
 //                cout << sampleMale << " " << sampleFemale << endl;
             } else {  // different effect sizes in males and females
-//                gamma[i] = sampleGamma = bernoulli.sample(piNDC);
+                gamma[i] = sampleGamma = bernoulli.sample(piNDC);
                 values(i,0) = sampleMale = normal.sample(uhatMale, invLhsMale);
                 values(i,1) = sampleFemale = normal.sample(uhatFemale[sampleGamma], invLhsFemale[sampleGamma]);
                 deltaGxS[i] = 1;
@@ -1811,7 +1811,7 @@ void BayesXgxs::SnpEffects::sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, con
                 values(i,0) = values(i,1) = sampleMale = sampleFemale = normal.sample(uhatSame[sampleGamma], invLhsSame[sampleGamma]);
                 //                cout << sampleMale << " " << sampleFemale << endl;
             } else {  // different effect sizes in males and females
-//                gamma[i] = sampleGamma = bernoulli.sample(piDosage[1]);
+                gamma[i] = sampleGamma = bernoulli.sample(piDosage[1]);
                 values(i,0) = sampleMale = normal.sample(uhatMale, invLhsMale);
                 values(i,1) = sampleFemale = normal.sample(uhatFemale[sampleGamma], invLhsFemale[sampleGamma]);
                 deltaGxS[i] = 1;
