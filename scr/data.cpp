@@ -1043,8 +1043,8 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
     % "Position"
     % "A1"
     % "A2"
-    % "A2Frq"
-    % "Effect"
+    % "A1Frq"
+    % "A1Effect"
     % "SE"
     % "PIP"
     % "Window";
@@ -1188,8 +1188,8 @@ void Data::summarizeSnpResults(const SparseMatrix<float> &snpEffects, const stri
     % "Position"
     % "A1"
     % "A2"
-    % "A2Frq"
-    % "Effect"
+    % "A1Frq"
+    % "A1Effect"
     % "PIP"
     % "Window";
     for (unsigned i=0, idx=0; i<numSnps; ++i) {
