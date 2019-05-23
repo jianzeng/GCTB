@@ -312,18 +312,15 @@
 		50E376871FC585380038770F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CC = "/usr/local/Cellar/llvm/8.0.0/bin/clang++ ";
+				CC = "/usr/local/bin/clang-omp";
 				CLANG_ENABLE_MODULES = NO;
 				HEADER_SEARCH_PATHS = (
-					/usr/local/Cellar/boost/1.69.0_2/include/boost/,
-					/usr/local/include,
-					/usr/local/Cellar/eigen/3.3.7/include/eigen3/Eigen/,
+					..,
+					../Eigen3,
+					/usr/local/Cellar/libiomp/20150701/include/,
+					/usr/local/Cellar/libiomp/20150701/include/libiomp/,
 				);
-				LIBRARY_SEARCH_PATHS = (
-					/usr/local/lib,
-					/usr/local/Cellar/libiomp/20150701/lib,
-					"/usr/local/Cellar/open-mpi/1.10.3/lib",
-				);
+				LIBRARY_SEARCH_PATHS = /usr/local/lib;
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = "-fopenmp";
 				OTHER_LDFLAGS = (
@@ -337,18 +334,15 @@
 		50E376881FC585380038770F /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CC = "/usr/local/Cellar/llvm/8.0.0/bin/clang++ ";
+				CC = "/usr/local/bin/clang-omp";
 				CLANG_ENABLE_MODULES = NO;
 				HEADER_SEARCH_PATHS = (
-					/usr/local/Cellar/boost/1.69.0_2/include/boost/,
-					/usr/local/include,
-					/usr/local/Cellar/eigen/3.3.7/include/eigen3/Eigen/,
+					..,
+					../Eigen3,
+					/usr/local/Cellar/libiomp/20150701/include/,
+					/usr/local/Cellar/libiomp/20150701/include/libiomp/,
 				);
-				LIBRARY_SEARCH_PATHS = (
-					/usr/local/lib,
-					/usr/local/Cellar/libiomp/20150701/lib,
-					"/usr/local/Cellar/open-mpi/1.10.3/lib",
-				);
+				LIBRARY_SEARCH_PATHS = /usr/local/lib;
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = "-fopenmp";
 				OTHER_LDFLAGS = (
