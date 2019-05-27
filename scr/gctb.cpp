@@ -219,8 +219,8 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
         McmcSamples *mcmcSamples = mcmcSampleVec[i];
         if (mcmcSamples->label == "SnpEffects") {
             //mcmcSamples->readDataBin(mcmcSamples->filename);
-            data.outputSnpResults(mcmcSamples->posteriorMean, mcmcSamples->posteriorSqrMean, mcmcSamples->pip, noscale, filename + ".snpRes");
-//            data.outputSnpResults(mcmcSamples->posteriorMean, mcmcSamples->posteriorSqrMean, mcmcSamples->datMat, mcmcSamples->pip, noscale, filename + ".snpRes");
+//            data.outputSnpResults(mcmcSamples->posteriorMean, mcmcSamples->posteriorSqrMean, mcmcSamples->pip, noscale, filename + ".snpRes");
+            data.outputSnpResults(mcmcSamples->posteriorMean, mcmcSamples->posteriorSqrMean, mcmcSamples->lastSample, mcmcSamples->pip, noscale, filename + ".snpRes");
         }
         else if (mcmcSamples->label == "CovEffects") {
             data.outputFixedEffects(mcmcSamples->datMat, filename + ".covRes");

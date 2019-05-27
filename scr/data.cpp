@@ -1101,7 +1101,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
     % "A2"
     % "A1Frq"
     % "A1Effect"
-    % "A1LastSample"
+    % "LastSampleEff"
     % "SE"
     % "PIP"
     % "Window";
@@ -1113,7 +1113,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
         float lastBeta = (snp->flipped ? -lastSample[idx] : lastSample[idx]);
         float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
-        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %8.3f %8s\n")
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6f %8.3f %8s\n")
         % (idx+1)
         % snp->ID
         % snp->chrom
