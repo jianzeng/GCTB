@@ -64,11 +64,11 @@
       <CommandLineArguments>
          <CommandLineArgument
             argument = "--inp-file"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "/Users/j.zeng/Work/Projects/XCI/test/rep1.chip.inp"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "/Users/j.zeng/XCode/gctb/test/res/test.inp"
@@ -96,19 +96,19 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--sbayes R"
-            isEnabled = "NO">
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--bfile /Users/j.zeng/Work/Projects/test_gctb/rep1.causal"
-            isEnabled = "NO">
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--ldm /Users/j.zeng/Work/Projects/test_gctb/rep1.causal.ldm.full"
-            isEnabled = "NO">
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--gwas-summary /Users/j.zeng/Work/Projects/test_gctb/rep1.s0.ma"
-            isEnabled = "NO">
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--pheno /Users/j.zeng/Work/Projects/test_gctb/rep1.s0.phen"
@@ -116,7 +116,7 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--out /Users/j.zeng/Work/Projects/test_gctb/rep1"
-            isEnabled = "NO">
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--unscale-genotype"
@@ -136,15 +136,15 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--chain-length 50"
-            isEnabled = "NO">
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--burn-in 0"
-            isEnabled = "NO">
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--out-freq 1"
-            isEnabled = "NO">
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--no-mcmc-bin"

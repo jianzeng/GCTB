@@ -41,6 +41,7 @@ public:
     VectorXf posteriorMean;
     VectorXf posteriorSqrMean;
     VectorXf pip;  // for snp effects, will consider to remove
+    VectorXf lastSample; // save the last sample of MCMC
     
     FILE *bout;
     ofstream tout;
@@ -62,6 +63,7 @@ public:
         posteriorMean.setZero(ncol);
         posteriorSqrMean.setZero(ncol);
         pip.setZero(ncol);
+        lastSample.setZero(ncol);
     }
     
     McmcSamples(const string &label): label(label) {}

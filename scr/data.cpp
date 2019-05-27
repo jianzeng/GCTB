@@ -1072,6 +1072,48 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
     out.close();
 }
 
+void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &lastSample, const VectorXf &pip, const bool noscale, const string &filename) const {
+    if (myMPI::rank) return;
+    ofstream out(filename.c_str());
+    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s %8s %8s\n")
+    % "Id"
+    % "Name"
+    % "Chrom"
+    % "Position"
+    % "A1"
+    % "A2"
+    % "A1Frq"
+    % "A1Effect"
+    % "SE"
+    % "A1LastSample"
+    % "PIP"
+    % "Window";
+    for (unsigned i=0, idx=0; i<numSnps; ++i) {
+        SnpInfo *snp = snpInfoVec[i];
+        if(!fullSnpFlag[i]) continue;
+        //        if(snp->isQTL) continue;)
+        float sqrt2pq = sqrt(snp->twopq);
+        float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
+        float lastBeta = (snp->flipped ? -lastSample[idx] : lastSample[idx]);
+        float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6f %8.3f %8s\n")
+        % (idx+1)
+        % snp->ID
+        % snp->chrom
+        % snp->physPos
+        % (snp->flipped ? snp->a2 : snp->a1)
+        % (snp->flipped ? snp->a1 : snp->a2)
+        % (snp->flipped ? 1.0-snp->af : snp->af)
+        % (noscale ? effect : effect/sqrt2pq)
+        % (noscale ? se : se/sqrt2pq)
+        % (noscale ? lastBeta : lastBeta/sqrt2pq)
+        % pip[idx]
+        % snp->window;
+        ++idx;
+    }
+    out.close();
+}
+
 void Data::inputSnpResults(const string &snpResFile){
     ifstream in(snpResFile.c_str());
     if (!in) throw ("Error: can not open the SNP result file [" + snpResFile + "] to read.");

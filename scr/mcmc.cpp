@@ -23,6 +23,7 @@ void McmcSamples::getSample(const unsigned iter, const VectorXf &sample, const b
             posteriorSqrMean.array() += (sample.array().square() - posteriorSqrMean.array())/(thin_iter_post_burnin+1);
         }
     } else if (storageMode == sparse) {
+        lastSample = sample;
         //SparseVector<float>::InnerIterator it(sample.sparseView());
         SparseVector<float> spvec = sample.sparseView();
         if (writeBinPosterior) {
