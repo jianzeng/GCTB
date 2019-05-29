@@ -96,14 +96,14 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--cont-annot /Users/j.zeng/Work/Projects/sbayes/test/rep1_pi0.05_hsq0.05_delta0.anno"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--ldm /Users/j.zeng/Work/Projects/test_gctb/rep1.causal.ldm.full"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--ldm /Users/j.zeng/Work/Projects/sbayes/test/rep1_pi0.05_hsq0.05_delta0.ldm.full"
-            isEnabled = "YES">
-         </CommandLineArgument>
-         <CommandLineArgument
-            argument = "--gwas-summary /Users/j.zeng/Work/Projects/sbayes/test/rep1_pi0.05_hsq0.05_delta0.ma"
+            argument = "--gwas-summary /Users/j.zeng/Work/Projects/test_gctb/rep1.s0.ma"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
@@ -123,7 +123,15 @@
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--out /Users/j.zeng/Work/Projects/sbayes/slim/test"
+            argument = "--out /Users/j.zeng/Work/Projects/test_gctb/rep1"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--pi 0.01"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--fix-pi"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument

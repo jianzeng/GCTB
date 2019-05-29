@@ -1101,8 +1101,8 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
     % "A2"
     % "A1Frq"
     % "A1Effect"
-    % "LastSampleEff"
     % "SE"
+    % "LastSampleEff"
     % "PIP"
     % "Window";
     for (unsigned i=0, idx=0; i<numSnps; ++i) {
