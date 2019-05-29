@@ -209,6 +209,7 @@ public:
     bool sparseLDM;
     bool shrunkLDM;
     bool readLDscore;
+    bool makeWindows;
     
     vector<SnpInfo*> snpInfoVec;
     vector<IndInfo*> indInfoVec;
@@ -261,6 +262,7 @@ public:
         reindexed = false;
         sparseLDM = false;
         readLDscore = false;
+        makeWindows = false;
     }
     
     void readFamFile(const string &famFile);
