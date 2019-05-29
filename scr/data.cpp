@@ -874,6 +874,8 @@ void Data::getNonoverlapWindowInfo(const unsigned windowWidth){
     }
     
     long numberWindows = windStartVec.size();
+    
+    makeWindows = true;
 
     windStart = VectorXi::Map(&windStartVec[0], numberWindows);
     windSize.setZero(numberWindows);
@@ -1053,7 +1055,7 @@ void Data::buildSparseMME(const string &bedFile, const unsigned windowWidth){
 void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const bool noscale, const string &filename) const {
     // if (myMPI::rank) return;
     ofstream out(filename.c_str());
-    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %8s %8s\n")
+    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %8s")
     % "Id"
     % "Name"
     % "Chrom"
@@ -1063,8 +1065,9 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
     % "A1Frq"
     % "A1Effect"
     % "SE"
-    % "PIP"
-    % "Window";
+    % "PIP";
+    if (makeWindows) out << boost::format("%8s") % "Window";
+    out << endl;
     for (unsigned i=0, idx=0; i<numSnps; ++i) {
         SnpInfo *snp = snpInfoVec[i];
         if(!fullSnpFlag[i]) continue;
@@ -1072,7 +1075,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
         float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
         float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
-        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %8.3f %8s\n")
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %8.3f")
         % (idx+1)
         % snp->ID
         % snp->chrom
@@ -1082,8 +1085,9 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         % (snp->flipped ? 1.0-snp->af : snp->af)
         % (noscale ? effect : effect/sqrt2pq)
         % (noscale ? se : se/sqrt2pq)
-        % pip[idx]
-        % snp->window;
+        % pip[idx];
+        if (makeWindows) out << boost::format("%8s") % snp->window;
+        out << endl;
         ++idx;
     }
     out.close();
@@ -1092,7 +1096,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
 void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &lastSample, const VectorXf &pip, const bool noscale, const string &filename) const {
     // if (myMPI::rank) return;
     ofstream out(filename.c_str());
-    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %14s %8s %8s\n")
+    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %8s %14s")
     % "Id"
     % "Name"
     % "Chrom"
@@ -1102,9 +1106,10 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
     % "A1Frq"
     % "A1Effect"
     % "SE"
-    % "LastSampleEff"
     % "PIP"
-    % "Window";
+    % "LastSampleEff";
+    if (makeWindows) out << boost::format("%8s") % "Window";
+    out << endl;
     for (unsigned i=0, idx=0; i<numSnps; ++i) {
         SnpInfo *snp = snpInfoVec[i];
         if(!fullSnpFlag[i]) continue;
@@ -1113,7 +1118,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
         float lastBeta = (snp->flipped ? -lastSample[idx] : lastSample[idx]);
         float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
-        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %14.6f %8.3f %8s\n")
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %8.3f %14.6f")
         % (idx+1)
         % snp->ID
         % snp->chrom
@@ -1123,9 +1128,10 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         % (snp->flipped ? 1.0-snp->af : snp->af)
         % (noscale ? effect : effect/sqrt2pq)
         % (noscale ? se : se/sqrt2pq)
-        % (noscale ? lastBeta : lastBeta/sqrt2pq)
         % pip[idx]
-        % snp->window;
+        % (noscale ? lastBeta : lastBeta/sqrt2pq);
+        if (makeWindows) out << boost::format("%8s") % snp->window;
+        out << endl;
         ++idx;
     }
     out.close();
