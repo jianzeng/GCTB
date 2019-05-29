@@ -1092,7 +1092,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
 void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &lastSample, const VectorXf &pip, const bool noscale, const string &filename) const {
     // if (myMPI::rank) return;
     ofstream out(filename.c_str());
-    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s %8s %8s\n")
+    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %14s %8s %8s\n")
     % "Id"
     % "Name"
     % "Chrom"
@@ -1113,7 +1113,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
         float lastBeta = (snp->flipped ? -lastSample[idx] : lastSample[idx]);
         float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
-        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6f %8.3f %8s\n")
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %14.6f %8.3f %8s\n")
         % (idx+1)
         % snp->ID
         % snp->chrom
