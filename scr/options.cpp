@@ -402,6 +402,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             simuMode = true;
             ss << "--simu " << "\n";
         }
+        else if (!strcmp(argv[i], "--original-model")) {
+            originalModel = true;
+            ss << "--original-model " << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";
@@ -429,6 +433,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
     // BayesS type of model do not allow scaled genotypes
     if (bayesType == "S" || bayesType == "ST" || bayesType == "T" || bayesType == "SMix") {
         noscale = true;
+    }
+    
+    if (chainLength < burnin) {
+        throw("Error: Chain length is smaller than burn-in!");
     }
     
     MPI_Comm_rank(MPI_COMM_WORLD, &myMPI::rank);

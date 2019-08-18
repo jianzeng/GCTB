@@ -67,6 +67,10 @@
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
+            argument = "--original-model"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
             argument = "/Users/j.zeng/Work/Projects/XCI/test/rep1.chip.inp"
             isEnabled = "NO">
          </CommandLineArgument>
@@ -96,19 +100,19 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--sbayes R"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--bfile /Users/j.zeng/Work/Projects/test_gctb/rep1.causal"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--ldm /Users/j.zeng/Work/Projects/test_gctb/rep1.causal.ldm.full"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--gwas-summary /Users/j.zeng/Work/Projects/test_gctb/rep1.s0.ma"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--pheno /Users/j.zeng/Work/Projects/test_gctb/rep1.s0.phen"
@@ -116,7 +120,7 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--out /Users/j.zeng/Work/Projects/test_gctb/rep1"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--unscale-genotype"
@@ -135,11 +139,11 @@
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--chain-length 50"
+            argument = "--chain-length 1000"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--burn-in 0"
+            argument = "--burn-in 200"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
@@ -148,7 +152,7 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--no-mcmc-bin"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--pi 0.95,0.05"
@@ -169,6 +173,26 @@
          <CommandLineArgument
             argument = "--thread 2"
             isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--bfile /Users/j.zeng/XCode/gctb_tarball/gctb_2.0_tutorial/data/1000G_eur_chr22"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--pheno /Users/j.zeng/XCode/gctb_tarball/gctb_2.0_tutorial/pheno/phenos_ga1.txt "
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--ldm /Users/j.zeng/XCode/gctb_tarball/gctb_2.0_tutorial/ldm/shrunk/chr22/1000G_eur_chr22.ldm.sparse"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--gwas-summary /Users/j.zeng/XCode/gctb_tarball/gctb_2.0_tutorial/ma/sim_1.ma"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--bayes R"
+            isEnabled = "YES">
          </CommandLineArgument>
       </CommandLineArguments>
       <AdditionalOptions>

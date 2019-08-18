@@ -92,6 +92,7 @@ public:
     bool imputeN;  // impute per-SNP sample size
     bool noscale;
     bool simuMode; // simulation mode
+    bool originalModel; // original BayesR model
 
     // Bayes R defauls
     VectorXf gamma;  // Default scaling parameters for Bayes R
@@ -192,6 +193,7 @@ public:
         imputeN                 = false;
         noscale                 = false; // Scale the genotypes or not. Default is scaling 0
         simuMode                = false;
+        originalModel           = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";
