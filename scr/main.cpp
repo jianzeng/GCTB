@@ -24,7 +24,7 @@ int main(int argc, const char * argv[]) {
 //    
 //    if (myMPI::rank==0) {
         cout << "***********************************************\n";
-        cout << "* GCTB 2.0 Beta                               *\n";
+        cout << "* GCTB 2.01 Beta                              *\n";
         cout << "* Genome-wide Complex Trait Bayesian analysis *\n";
         cout << "* Author: Jian Zeng, Luke Lloyd-Jones         *\n";
         cout << "* MIT License                                 *\n";
@@ -65,9 +65,10 @@ int main(int argc, const char * argv[]) {
             gctb.inputIndInfo(data, opt.bedFile, opt.phenotypeFile, opt.keepIndFile, opt.keepIndMax,
                                opt.mphen, opt.covariateFile);
             gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.mafmin, opt.mafmax, opt.noscale, readGenotypes);
+            
             Model *model = gctb.buildModel(data, opt.bedFile, "", opt.bayesType, opt.windowWidth,
                                             opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.gamma, opt.phi, opt.kappa,
-                                            opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode);
+                                            opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.originalModel);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
             //gctb.saveMcmcSamples(mcmcSampleVec, opt.title);
@@ -127,7 +128,7 @@ int main(int argc, const char * argv[]) {
             } else {
                 Model *model = gctb.buildModel(data, "", opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
                                                opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.gamma, opt.phi, opt.kappa,
-                                               opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode);
+                                               opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.originalModel);
                 vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                   opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
                 if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.bayesType, opt.noscale, opt.title);
@@ -167,17 +168,17 @@ int main(int argc, const char * argv[]) {
             xci.inputIndInfo(data, opt.bedFile, opt.phenotypeFile, opt.keepIndFile, opt.keepIndMax,
                              opt.mphen, opt.covariateFile);
             xci.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.includeChr, readGenotypes);
-            if (opt.bayesType == "Simu") {
-                xci.simu(data, 1000, opt.heritability, opt.piNDC, false, opt.title);  // ad hoc simulation to test BayesXCI method
+            if (opt.simuMode) {
+                xci.simu(data, opt.pi, opt.heritability, opt.piNDC, opt.piGxE, false, opt.title, opt.seed);  // ad hoc simulation to test BayesXCI method
                 opt.bayesType = "C";
             }
-            Model *model = xci.buildModel(data, opt.bayesType, opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.piNDC);
+            Model *model = xci.buildModel(data, opt.bayesType, opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.piNDC, opt.estimatePiNDC, opt.piGxE, opt.windowWidth);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
             gctb.saveMcmcSamples(mcmcSampleVec, opt.title);
             gctb.clearGenotypes(data);
             gctb.outputResults(data, mcmcSampleVec, opt.bayesType, true, opt.title);
-            xci.outputResults(data, mcmcSampleVec, opt.title);
+            xci.outputResults(data, mcmcSampleVec, opt.bayesType, opt.title);
         }
         else if (opt.analysisType == "VGMAF") {  // ad hoc method for cumulative Vg against MAF to detect selection
             readGenotypes = true;

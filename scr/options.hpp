@@ -59,6 +59,7 @@ public:
     float LDthreshold;  // used to define the two ends of per-SNP LD window in the banded LD matrix
     float chisqThreshold;  // significance threshold for nonzero LD chi-square test
     float piNDC;  // proportion of X-lined SNPs under no dosage compensation model (escape from X-chromosome inactivation)
+    float piGxE;  // pi for genotype-by-env effects
     float phi;   // a shrinkage parameter for the heritability estimate in sbayes
     float overdispersion;
     float kappa;     // for Luke's kappa model
@@ -72,6 +73,7 @@ public:
     float mafmax;  // upper bound of maf
     
     bool estimatePi;
+    bool estimatePiNDC;  // for XCI
     bool estimateScale;
     bool writeBinPosterior;
     bool writeTxtPosterior;
@@ -89,6 +91,8 @@ public:
     bool sampleOverlap;  // whether LD ref is the same as GWAS sample
     bool imputeN;  // impute per-SNP sample size
     bool noscale;
+    bool simuMode; // simulation mode
+    bool originalModel; // original BayesR model
 
     // Bayes R defauls
     VectorXf gamma;  // Default scaling parameters for Bayes R
@@ -146,6 +150,7 @@ public:
         LDthreshold             = 0.0;
         chisqThreshold          = 10;
         piNDC                   = 0.15;
+        piGxE                   = 0.05;
         phi                     = 0;
         overdispersion          = 0;
         // Shrunk matrix defaults
@@ -169,6 +174,7 @@ public:
         kappa                   = 10;
 
         estimatePi              = true;
+        estimatePiNDC           = true;
         estimateScale           = false;
         writeBinPosterior       = true;
         writeTxtPosterior       = true;
@@ -186,6 +192,8 @@ public:
         sampleOverlap           = false;
         imputeN                 = false;
         noscale                 = false; // Scale the genotypes or not. Default is scaling 0
+        simuMode                = false;
+        originalModel           = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";

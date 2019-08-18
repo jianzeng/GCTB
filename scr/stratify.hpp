@@ -247,7 +247,7 @@ public:
 //        if (message && myMPI::rank==0) {
         if (message) {
 //            string alg = algorithm;
-//            if (alg!="RMH") alg = "HMC (default)";
+//            if (alg!="RWMH" && alg!="Reg") alg = "HMC";
             cout << "\nAnnotation-stratified summary-data-based BayesS model fitted." << endl;
         }
         if (randomStart) sampleStartVal();
