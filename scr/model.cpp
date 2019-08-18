@@ -524,7 +524,7 @@ void BayesN::sampleUnknowns(){
 // Bayes R
 // ----------------------------------------------------------------------------------------
 
-void BayesR::ProbMixComps::sampleFromFC(const VectorXf snpStore) {
+void BayesR::ProbMixComps::sampleFromFC(const VectorXf &snpStore) {
 	VectorXf dirx;
 	dirx = snpStore + alphaVec;
     values = Dirichlet::sample(ndist, dirx);
@@ -533,48 +533,12 @@ void BayesR::ProbMixComps::sampleFromFC(const VectorXf snpStore) {
     }
 }
 
-//void BayesR::NumSnpVg::compute(const VectorXf &snpEffects, const VectorXf &ZPZdiag, const float varg, const float nobs) {
-//    values.setZero(numComp);
-//    long numSnps = snpEffects.size();
-//    float vargi = 0.0;
-//    VectorXf cutoff = lowerB*varg*nobs;
-//    unsigned i, idx, k;
-//    for (k=0; k<numComp; ++k) {
-//        snpset[k].resize(0);
-//    }
-//    for (i=0; i<numSnps; ++i) {
-//        vargi = snpEffects[i]*snpEffects[i]*ZPZdiag[i];
-//        idx = 0;
-//        for (k=0; k<numComp; ++k) {
-//            if (vargi > cutoff[k]) idx = k;
-//        }
-//        snpset[idx].push_back(i);
-//        values[idx]++;
-//    }
-//    for (k=0; k<numComp; ++k) {
-//        (*this)[k]->value = values[k];
-//    }
-//}
-
-//void BayesR::PropVg::compute(const VectorXf &snpEffects, const MatrixXf &Z, const vector<vector<unsigned> > snpset, const float varg) {
-//    values.setZero(numComp);
-//    long nobs = Z.rows();
-//    for (unsigned k=0; k<numComp; ++k) {
-//        if (k!=zeroIdx && k!=minIdx) {
-//            long numSnps = snpset[k].size();
-//            unsigned idx;
-//            VectorXf ghat;
-//            ghat.setZero(nobs);
-//            for (unsigned i=0; i<numSnps; ++i) {
-//                idx = snpset[k][i];
-//                ghat += snpEffects[idx]*Z.col(idx);
-//            }
-//            (*this)[k]->value = values[k] = Gadget::calcVariance(ghat)/varg;
-//        }
-//    }
-//    float sum = values.sum();
-//    (*this)[minIdx]->value = values[minIdx] = 1.0 - sum;
-//}
+void BayesR::NumSnpMixComps::getValues(const VectorXf &snpStore) {
+    values = snpStore;
+    for (unsigned i=0; i<ndist; ++i) {
+        (*this)[i]->value=values[i];
+    }
+}
 
 void BayesR::VgMixComps::compute(const VectorXf &snpEffects, const MatrixXf &Z, const vector<vector<unsigned> > snpset, const float varg) {
     values.setZero(ndist);
@@ -707,11 +671,10 @@ void BayesR::sampleUnknowns(){
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     vare.sampleFromFC(ycorr);
     Pis.sampleFromFC(snpStore);
+    numSnps.getValues(snpStore);
     varg.compute(ghat);
     hsq.compute(varg.value, vare.value);
     if (originalModel) Vgs.compute(snpEffects.values, data.Z, snpEffects.snpset, varg.value);
-//    numSnpVg.compute(snpEffects.values, data.ZPZdiag, varg.value, vare.nobs);
-//    propVg.compute(snpEffects.values, data.Z, numSnpVg.snpset, varg.value);
     rounding.computeYcorr(data.y, data.X, data.Z, fixedEffects.values, snpEffects.values, ycorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
 }
@@ -2887,6 +2850,7 @@ void ApproxBayesR::sampleUnknowns(){
     if (diagnose) nro.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, snpEffects.header, snpEffects.leaveout, data.ZPZsp, data.ZPy);
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     if (estimatePi) Pis.sampleFromFC(snpStore);
+    numSnps.getValues(snpStore);
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
 
