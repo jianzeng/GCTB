@@ -14,6 +14,7 @@ void GCTB::inputIndInfo(Data &data, const string &bedFile, const string &phenoty
     data.readCovariateFile(covariateFile);
     data.keepMatchedInd(keepIndFile, keepIndMax);
 }
+
 void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const float mafmin, const float mafmax, const bool noscale, const bool readGenotypes){
     data.readBimFile(bedFile + ".bim");
     if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
@@ -48,17 +49,17 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (!ldscoreFile.empty()) data.readLDscoreFile(ldscoreFile);
     if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, imputeN);
     data.includeMatchedSnp();
- //   if (geneticMapFile.empty()) {
+    if (geneticMapFile.empty()) {
         if (multiLDmat)
             data.readMultiLDmatBinFile(ldmatrixFile);
         else
             data.readLDmatrixBinFile(ldmatrixFile + ".bin");
-//    } else {
-//        if (multiLDmat)
-//            data.readMultiLDmatBinFileAndShrink(ldmatrixFile, genMapN);
-//        else
-//            data.readLDmatrixBinFileAndShrink(ldmatrixFile + ".bin");
-//    }
+    } else {
+        if (multiLDmat)
+            data.readMultiLDmatBinFileAndShrink(ldmatrixFile, genMapN);
+        else
+            data.readLDmatrixBinFileAndShrink(ldmatrixFile + ".bin");
+    }
     if (!gwasSummaryFile.empty()) data.buildSparseMME(sampleOverlap, bayesType, noscale);
 }
 
@@ -79,7 +80,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
                         const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const bool noscale, const VectorXf &pis, const VectorXf &gamma,
                         const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow,
                         const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS,
-                        const float icrsq, const float spouseCorrelation, const bool diagnosticMode){
+                        const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool originalModel){
     data.initVariances(heritability);
     if (!gwasFile.empty()) {
         if (data.numAnnos) {
@@ -100,9 +101,9 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
             else if (bayesType == "SMix")
                 return new ApproxBayesSMix(data, data.varGenotypic, data.varResidual, pi, overdispersion, estimatePS, varS, S);
             else if (bayesType == "R")
-                return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, noscale, overdispersion, estimatePS, spouseCorrelation, diagnosticMode);
+                return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode);
             else if (bayesType == "Kap")
-                return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, noscale, icrsq, kappa);
+                return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, noscale, originalModel, icrsq, kappa);
             else
                 throw(" Error: Wrong bayes type: " + bayesType + " in the summary-data-based Bayesian analysis.");
         }
@@ -112,12 +113,12 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
         return new BayesB(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, noscale);
     }
     if (bayesType == "C") {
-         data.readBedFile(noscale, bedFile + ".bed");
+        data.readBedFile(noscale, bedFile + ".bed");
         return new BayesC(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, noscale, algorithm);
     } 
     if (bayesType == "R") {
         data.readBedFile(noscale, bedFile + ".bed");
-        return new BayesR(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, noscale, algorithm);
+        return new BayesR(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, noscale, originalModel, algorithm);
     }
     else if (bayesType == "S") {
         data.readBedFile(noscale, bedFile + ".bed");

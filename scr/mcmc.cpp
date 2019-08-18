@@ -243,7 +243,7 @@ vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned ch
     for (unsigned i=0; i<model.paramSetVec.size(); ++i) {
         ParamSet *parSet = model.paramSetVec[i];
         McmcSamples *mcmcSamples;
-        if (parSet->label == "SnpEffects") {
+        if (parSet->label.find("SnpEffects") != string::npos) {
 //            if (myMPI::partition=="bycol")
 //                mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, model.numSnps, "sparse");
 //            else

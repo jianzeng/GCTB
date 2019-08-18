@@ -279,7 +279,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
         }
         else if (!strcmp(argv[i], "--unscale-genotype")) {
             noscale = true;
-             ss << argv[i] << "\n";
+            ss << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--snp")) {
             snpRange = argv[++i];
@@ -308,6 +308,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--pi-ndc")) {
             piNDC = atof(argv[++i]);
             ss << "--pi-ndc " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--pi-gxe")) {
+            piGxE = atof(argv[++i]);
+            ss << "--pi-gxe " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--write-ldm-txt")) {
             writeLdmTxt = true;
@@ -394,6 +398,14 @@ void Options::inputOptions(const int argc, const char* argv[]){
             eQTLFile = argv[++i];
             ss << "--eqtl " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--simu")) {
+            simuMode = true;
+            ss << "--simu " << "\n";
+        }
+        else if (!strcmp(argv[i], "--original-model")) {
+            originalModel = true;
+            ss << "--original-model " << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";
@@ -423,6 +435,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
         noscale = true;
     }
     
+    if (chainLength < burnin) {
+        throw("Error: Chain length is smaller than burn-in!");
+    }
+
 //    MPI_Comm_rank(MPI_COMM_WORLD, &myMPI::rank);
 //    if(myMPI::rank==0)
         cout << ss.str() << endl;
@@ -509,6 +525,8 @@ void Options::readFile(const string &file){  // input options from file
             thin = stoi(value);
         } else if (key == "estimatePi" && value == "No") {
             estimatePi = false;
+        } else if (key == "estimatePiNDC" && value == "No") {
+            estimatePiNDC = false;
         } else if (key == "outputResults" && value == "No") {
             outputResults = false;
         } else if (key == "varS") {
@@ -536,6 +554,8 @@ void Options::readFile(const string &file){  // input options from file
             outLDmatType = value;
         } else if (key == "piNDC") {
             piNDC = stof(value);
+        } else if (key == "piGxE") {
+            piGxE = stof(value);
         } else if (key == "writeLDmatTxt") {
             writeLdmTxt = true;
         } else if (key == "excludeMHC") {
@@ -548,6 +568,8 @@ void Options::readFile(const string &file){  // input options from file
             skeletonSnpFile = value;
         } else if (key == "directPrune") {
             directPrune = true;
+        } else if (key == "simu") {
+            simuMode = true;
         } else if (key.substr(0,2) == "//" ||
                    key.substr(0,1) == "#") {
             continue;
