@@ -71,6 +71,7 @@ public:
     float afDiff; // filtering SNPs by the allele frequency difference in LD and GWAS samples
     float mafmin;  // lower bound of maf
     float mafmax;  // upper bound of maf
+    float lambda;  // for conjugate gradient
     
     bool estimatePi;
     bool estimatePiNDC;  // for XCI
@@ -163,6 +164,7 @@ public:
         mafmax                  = 0;
         flank                   = 0;
         genMapN                 = 183; // Sample size of CEU population
+        lambda                  = 1e6;
 
         // Bayes R defaults
         ndists                  = 4;

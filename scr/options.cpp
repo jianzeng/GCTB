@@ -29,6 +29,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             bayesType = argv[++i];
             ss << "--sbayes " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--cg")) {
+            analysisType = "ConjugateGradient";
+            ss << "--cg " << "\n";
+        }
 //        else if (!strcmp(argv[i], "--make-ldm")) {
 //            analysisType = "LDmatrix";
 //            ss << "--make-ldm " << "\n";
@@ -405,6 +409,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--original-model")) {
             originalModel = true;
             ss << "--original-model " << "\n";
+        }
+        else if (!strcmp(argv[i], "--lambda")) {
+            lambda = atof(argv[++i]);
+            ss << "--lambda " << argv[i] << "\n";
         }
         else {
             stringstream errmsg;

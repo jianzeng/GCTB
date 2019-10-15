@@ -344,3 +344,79 @@ void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDma
     runMcmc(*model, chainLength, burnin, thin, outputFreq, filename, false, false);
 }
 
+void GCTB::solveSnpEffectsByConjugateGradientMethod(Data &data, const float lambda, const string &filename) const {
+    cout << "\nSolving SNP effects by conjugate gradient method ..." << endl;
+    cout << "  Lambda = " << lambda << endl;
+    //SparseMatrix<float> L(data.numIncdSnps, data.numIncdSnps);
+    SparseMatrix<float> C(data.numIncdSnps, data.numIncdSnps);
+    //L.reserve(data.windSize);
+    
+    vector<Triplet<float> > tripletList;
+    tripletList.reserve(data.windSize.sum());
+    
+    float val = 0.0;
+    for (unsigned i=0; i<data.numIncdSnps; ++i) {
+        SnpInfo *snpi = data.incdSnpInfoVec[i];
+        if (!(i % 100000)) cout << "  making sparse LD matrix for SNP " << i << " " << data.windSize[i] << " " << snpi->windSize << " " << data.ZPZsp[i].size() << " " << data.ZPZsp[i].nonZeros() << endl;
+        for (SparseVector<float>::InnerIterator it(data.ZPZsp[i]); it; ++it) {
+            //if (it.index() > i) break;
+            //L.insert(i, it.index()) = it.value();
+            val = it.value();
+            if (it.index() == i) val += lambda;  // adding lambda to diagonals
+            tripletList.push_back(Triplet<float>(i, it.index(), val));
+        }
+    }
+    //C = L.transpose().triangularView<Upper>();
+    C.setFromTriplets(tripletList.begin(), tripletList.end());
+    C.makeCompressed();
+    tripletList.clear();
+    
+    cout << "Running conjugate gradient algorithm ..." << endl;
+    
+    Gadget::Timer timer;
+    timer.setTime();
+
+    ConjugateGradient<SparseMatrix<float>, Lower|Upper> cg;
+    
+    cout << "  preconditioning ..." << endl;
+    
+    cg.compute(C);
+    
+    cout << "  solving ..." << endl;
+    
+    VectorXf sol(data.numIncdSnps);
+    sol = cg.solve(data.ZPy);
+    
+    timer.getTime();
+    
+    cout << "#iterations:     " << cg.iterations() << endl;
+    cout << "estimated error: " << cg.error()      << endl;
+    cout << "time used:       " << timer.format(timer.getElapse()) << endl;
+    
+    ofstream out(filename.c_str());
+    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s\n")
+    % "Id"
+    % "Name"
+    % "Chrom"
+    % "Position"
+    % "A1"
+    % "A2"
+    % "A1Frq"
+    % "A1Sol";
+    for (unsigned i=0, idx=0; i<data.numSnps; ++i) {
+        SnpInfo *snp = data.snpInfoVec[i];
+        if(!data.fullSnpFlag[i]) continue;
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f\n")
+        % (idx+1)
+        % snp->ID
+        % snp->chrom
+        % snp->physPos
+        % (snp->flipped ? snp->a2 : snp->a1)
+        % (snp->flipped ? snp->a1 : snp->a2)
+        % (snp->flipped ? 1.0-snp->af : snp->af)
+        % (snp->flipped ? -sol[idx] : sol[idx]);
+        ++idx;
+    }
+    out.close();
+}
+

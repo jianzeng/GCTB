@@ -288,6 +288,26 @@ public:
     void sampleUnknowns(void);
 };
 
+class SBayesCXCIgxs : public BayesCXCIgxs {
+public:
+    // Same as BayesCXCIgxs but make use of LD matrix for RHS updating scheme
+    class SnpEffects : public BayesCXCI::SnpEffects {
+    public:
+        MatrixXf values;   // 1st column: male effects; 2nd column: female effects
+        Vector3f numSnpMixComp;
+        
+        SnpEffects(const vector<string> &header): BayesCXCI::SnpEffects(header){
+            values.setZero(header.size(), 2);
+        };
+        
+        void sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &ZPZdiagMale,
+                          const VectorXf &ZPZdiagFemale, const unsigned nmale, const unsigned nfemale, const float piNDC,
+                          const float sigmaSq, const Vector3f &pis, const float varem, const float varef,
+                          VectorXf &gamma, VectorXf &deltaGxS, VectorXf &ghatm, VectorXf &ghatf);
+    };
+
+};
+
 class BayesNXCIgxs : public BayesCXCIgxs {
 public:
     

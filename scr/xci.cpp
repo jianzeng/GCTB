@@ -216,8 +216,8 @@ void XCI::readBedFile(Data &data, const string &bedFile){
             snpInfo->af = mean_male_all;
             data.snp2pq[snp] = snpInfo->af*(1.0f-snpInfo->af);
         } else {
-            snpInfo->af = mean_female_all;
-            data.snp2pq[snp] = snpInfo->af*(1.0f-snpInfo->af);
+            snpInfo->af = 0.5f*mean_female_all;
+            data.snp2pq[snp] = 2.0f*snpInfo->af*(1.0f-snpInfo->af);
         }
         
         //cout << "snp " << snp << "     " << Z.col(snp).sum() << endl;
@@ -1340,6 +1340,187 @@ void BayesCXCIgxs::SnpEffects::sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, 
         }
     }
 }
+
+
+void SBayesCXCIgxs::SnpEffects::sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, const MatrixXf &Z, const VectorXf &ZPZdiag,
+                                            const VectorXf &ZPZdiagMale, const VectorXf &ZPZdiagFemale,
+                                            const unsigned nmale, const unsigned nfemale, const float piNDC,
+                                            const float sigmaSq, const Vector3f &pis, const float varem, const float varef,
+                                            VectorXf &gamma, VectorXf &deltaGxS, VectorXf &ghatm, VectorXf &ghatf){
+    // sample beta, delta, gamma jointly
+    // f(beta, delta, gamma) propto f(beta | delta, gamma) f(delta | gamma) f(gamma)
+    
+    //cout << "check pi " << pi << " p " << p << " sigmaSq " << sigmaSq << endl;
+    
+    sumSq = 0.0;
+    numNonZeros = 0;
+    numSnpMixComp.setZero(3);
+    deltaGxS.setZero(size);
+    
+    ghatm.setZero(ycorrm.size());
+    ghatf.setZero(ycorrf.size());
+    
+    Array2f my_rhs, rhs;   // 0: male, 1: female under NDC
+    Array2f rhsFemale;     // 0: FDC, 1: NDC, corresponding to gamma
+    Array2f rhsSame;       // 0: FDC, 1: NDC, corresponding to gamma; same effect in males and females
+    Array2f invLhsFemale;  // 0: FDC, 1: NDC, corresponding to gamma
+    Array2f invLhsSame;    // 0: FDC, 1: NDC, corresponding to gamma
+    Array2f uhatFemale;    // 0: FDC, 1: NDC, corresponding to gamma
+    Array2f uhatSame;      // 0: FDC, 1: NDC, corresponding to gamma
+    Array2f logGamma;      // 0: FDC, 1: NDC, corresponding to gamma
+    Array2f quadGxE;       // 0: FDC, 1: NDC, corresponding to gamma
+    Array2f quadSame;      // 0: FDC, 1: NDC, corresponding to gamma
+    
+    Array3f logPis = pis.array().log();  // 0: null effect, 1: same effect, 2: sex-specific effect
+    Array3f logDelta;
+    Array3f probDelta;
+    
+    float oldSampleMale, oldSampleFemale;
+    float sampleMale, sampleFemale;
+    float logSigmaSq = log(sigmaSq);
+    float invVarem = 1.0f/varem;
+    float invVaref = 1.0f/varef;
+    float invSigmaSq = 1.0f/sigmaSq;
+    float logPiNDC = log(piNDC);
+    float logPiNDCcomp = log(1.0f-piNDC);
+    float rhsMale;
+    float invLhsMale;
+    float uhatMale;
+    float probGamma1;
+    float sampleGamma;
+    float logLikeNDCSame;
+    float logLikeFDCGxE;
+    
+    unsigned delta;
+    
+    for (unsigned i=0; i<size; ++i) {
+        oldSampleMale   = values(i,0);
+        oldSampleFemale = values(i,1);
+        ycorrm += Z.col(i).head(nmale) * oldSampleMale;
+        if (gamma[i])
+            ycorrf += Z.col(i).tail(nfemale) * oldSampleFemale;
+        else
+            ycorrf += Z.col(i).tail(nfemale) * oldSampleFemale * 0.5f;
+        
+        my_rhs[0] = Z.col(i).head(nmale).dot(ycorrm) * invVarem;
+        my_rhs[1] = Z.col(i).tail(nfemale).dot(ycorrf) * invVaref;
+        
+        MPI_Allreduce(&my_rhs[0], &rhs[0], 2, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+        
+        rhsMale        = rhs[0];
+        rhsFemale[0]   = rhs[1]*0.5f;
+        rhsFemale[1]   = rhs[1];
+        rhsSame        = rhsMale + rhsFemale;
+        
+        invLhsMale      = 1.0f/(ZPZdiagMale[i]*invVarem + invSigmaSq);
+        invLhsFemale[0] = 1.0f/(ZPZdiagFemale[i]*0.25f*invVaref + invSigmaSq);
+        invLhsFemale[1] = 1.0f/(ZPZdiagFemale[i]*invVaref       + invSigmaSq);
+        invLhsSame[0]   = 1.0f/(ZPZdiagMale[i]*invVarem + ZPZdiagFemale[i]*0.25f*invVaref + invSigmaSq);
+        invLhsSame[1]   = 1.0f/(ZPZdiagMale[i]*invVarem + ZPZdiagFemale[i]*invVaref       + invSigmaSq);
+        
+        //        cout << ZPZdiagMale[i] << " " << ZPZdiagFemale[i] << " " << invLhsMale << " " << invLhsFemale.transpose() << " " << invVarem << " " << invVaref << endl;
+        
+        uhatMale   = invLhsMale  *rhsMale;
+        uhatFemale = invLhsFemale*rhsFemale;
+        uhatSame   = invLhsSame  *rhsSame;
+        
+        quadGxE  = uhatMale*rhsMale + uhatFemale*rhsFemale;
+        quadSame = uhatSame*rhsSame;
+        
+        if (uhatFemale[1]/uhatMale > 0.45 && uhatFemale[1]/uhatMale < 0.55) {
+            quadGxE.setZero(2);
+        }
+        else if (uhatFemale[0]/uhatMale > 1.95 && uhatFemale[0]/uhatMale < 2.05) {
+            quadGxE.setZero(2);
+        }
+        
+        //        cout << "uhatMale " << uhatMale << " uhatFemale " << uhatFemale.transpose() << " uhatSame " << uhatSame.transpose() << endl;
+        //        cout << "rhsSame " << rhsSame.transpose() << " invLhsSame " << invLhsSame.transpose() << " invVarem " << invVarem << " invVaref " << invVaref << endl;
+        
+        //        logLikeNDCSame = -0.5f*logSigmaSq + 0.5f*quadSame[1] + 0.5f*logf(invLhsSame[1]);
+        //        logLikeFDCGxE  = -logSigmaSq + 0.5f*quadGxE[0] + 0.5f*logf(invLhsMale*invLhsFemale[0]);
+        //
+        //        if (abs(logLikeNDCSame - logLikeFDCGxE) < 1e-3) {  // when 'NDC + Same effect' and 'FDC + GxE effect' models are not distinguishable, 'NDC + Same effect' model is preferred to avoid identifiability problem.
+        //            //sample gamma
+        //            logGamma[1] = 0.5f*quadSame[1] + logf(sqrt(invLhsSame[1])*(pis[1]+pis[2]) + expf(0.5f*(logSigmaSq-quadSame[1]))*pis[0]) + logPiNDC;
+        //            logGamma[0] = 0.5f*quadSame[0] + logf(sqrt(invLhsSame[0])*(pis[1]+pis[2]) + expf(0.5f*(logSigmaSq-quadSame[0]))*pis[0]) + logPiNDCcomp;
+        //
+        //            probGamma1 = 1.0f/(1.0f + expf(logGamma[0] - logGamma[1]));
+        //            sampleGamma = bernoulli.sample(probGamma1);
+        //            gamma[i] = sampleGamma;
+        //
+        //            // sample delta
+        //            logDelta[0] = logPis[0];
+        //            logDelta[1] = 0.5f*(logf(invLhsSame[sampleGamma]) - logSigmaSq + quadSame[sampleGamma]) + logPis[1];
+        //            logDelta[2] = logPis[2];
+        //
+        //        }
+        //        else {
+        //sample gamma
+        logGamma[1] = 0.5f*quadSame[1] + logf(sqrt(invLhsSame[1])*pis[1] + expf(0.5f*(quadGxE[1]-quadSame[1]))*sqrt(invLhsMale*invLhsFemale[1]*invSigmaSq)*pis[2] + expf(0.5f*(logSigmaSq-quadSame[1]))*pis[0]) + logPiNDC;
+        logGamma[0] = 0.5f*quadSame[0] + logf(sqrt(invLhsSame[0])*pis[1] + expf(0.5f*(quadGxE[0]-quadSame[0]))*sqrt(invLhsMale*invLhsFemale[0]*invSigmaSq)*pis[2] + expf(0.5f*(logSigmaSq-quadSame[0]))*pis[0]) + logPiNDCcomp;
+        
+        probGamma1 = 1.0f/(1.0f + expf(logGamma[0] - logGamma[1]));
+        sampleGamma = bernoulli.sample(probGamma1);
+        //        cout << quadSame.transpose() <<  " " << invLhsSame.transpose() << " " << quadGxE.transpose() << " " << invLhsMale << " " << invLhsFemale.transpose() << endl;
+        //        sampleGamma = 1;
+        gamma[i] = sampleGamma;
+        //        cout << "logGamma " << logGamma.transpose() << endl;
+        //        cout << sqrt(invLhsSame[1])*pis[1] << " " << (0.5f*(quadGxE[1]-quadSame[1])) << " " << sqrt(invLhsMale*invLhsFemale[1]*invSigmaSq)*pis[2] << " " << expf(0.5f*(logSigmaSq-quadSame[1]))*pis[0] << endl;
+        //        cout << "probGamma1 " << probGamma1 << " sampleGamma " << sampleGamma << endl;
+        //        cout << "quadGxE " << quadGxE.transpose() << " quadSame " << quadSame.transpose() << endl;
+        
+        // sample delta
+        logDelta[0] = logPis[0];
+        logDelta[1] = 0.5f*(logf(invLhsSame[sampleGamma]) - logSigmaSq + quadSame[sampleGamma]) + logPis[1];
+        logDelta[2] = 0.5f*(logf(invLhsMale)+logf(invLhsFemale[sampleGamma]) - 2.0f*logSigmaSq + quadGxE[sampleGamma]) + logPis[2];
+        //        }
+        
+        for (unsigned j=0; j<3; ++j) {
+            probDelta[j] = 1.0f/(logDelta-logDelta[j]).exp().sum();
+        }
+        
+        delta = bernoulli.sample(probDelta);
+        //        cout << logDelta.transpose() << endl;
+        //        cout << "probDelta " << probDelta.transpose() << " delta " << delta << endl;
+        //        delta = 1;
+        ++numSnpMixComp[delta];
+        
+        //        cout << logLikeNDCSame << " " << logLikeFDCGxE << " " << gamma[i] << " " << delta << endl;
+        
+        if (delta) {
+            // sample effect
+            
+            if (delta == 1) {  // same effect size in males and females
+                values(i,0) = values(i,1) = sampleMale = sampleFemale = normal.sample(uhatSame[sampleGamma], invLhsSame[sampleGamma]);
+                //                cout << sampleMale << " " << sampleFemale << endl;
+            } else {  // different effect sizes in males and females
+                gamma[i] = sampleGamma = bernoulli.sample(piNDC);
+                values(i,0) = sampleMale = normal.sample(uhatMale, invLhsMale);
+                values(i,1) = sampleFemale = normal.sample(uhatFemale[sampleGamma], invLhsFemale[sampleGamma]);
+                deltaGxS[i] = 1;
+            }
+            
+            sumSq += sampleMale * sampleMale + sampleFemale * sampleFemale;
+            ++numNonZeros;
+            
+            ycorrm -= Z.col(i).head(nmale) * sampleMale;
+            ghatm += Z.col(i).head(nmale) * sampleMale;
+            
+            if (gamma[i]) {
+                ycorrf -= Z.col(i).tail(nfemale) * sampleFemale;
+                ghatf += Z.col(i).tail(nfemale) * sampleFemale;
+            } else {
+                ycorrf -= Z.col(i).tail(nfemale) * sampleFemale * 0.5f;
+                ghatf += Z.col(i).tail(nfemale) * sampleFemale * 0.5f;
+            }
+        }
+        else {
+            values(i,0) = values(i,1) = 0.0;
+        }
+    }
+}
+
 
 void BayesCXCIgxs::Rounding::computeYcorr(const VectorXf &y, const MatrixXf &X, const MatrixXf &Z,
                                        const VectorXf &gamma, const unsigned int nmale, const unsigned int nfemale,

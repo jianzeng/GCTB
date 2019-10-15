@@ -1546,7 +1546,8 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
         if (snp2pq[incj]==0) throw ("Error: " + snpj->ID + " is a fixed SNP!");
         
         // standardize genotypes
-        D[incj] = snp2pq[incj]*snpj->sampleSize;
+        //D[incj] = snp2pq[incj]*snpj->sampleSize;
+        D[incj] = Gadget::calcVariance(ZP.row(incj))*snpj->sampleSize;
         
         ZP.row(incj) = (ZP.row(incj).array() - mean)/sqrt(D[incj]);
         
@@ -1647,8 +1648,9 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
             if (snp2pq[inck]==0) throw ("Error: " + snpk->ID + " is a fixed SNP!");
             
             // standardize genotypes
-            D[inck] = snp2pq[inck]*snpk->sampleSize;
-            
+            //D[inck] = snp2pq[inck]*snpk->sampleSize;
+            D[inck] = Gadget::calcVariance(Zk.row(inck))*snpk->sampleSize;
+
             Zk = (Zk.array() - mean)/sqrt(D[inck]);
             
             denseZPZ.col(inck) = ZP * Zk;
@@ -1711,8 +1713,9 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
             if (snp2pq[inck]==0) throw ("Error: " + snpk->ID + " is a fixed SNP!");
             
             // standardize genotypes
-            D[inck] = snp2pq[inck]*snpk->sampleSize;
-            
+            //D[inck] = snp2pq[inck]*snpk->sampleSize;
+            D[inck] = Gadget::calcVariance(Zk)*snpk->sampleSize;
+
             Zk = (Zk.array() - mean)/sqrt(D[inck]);
             
             denseZPZ.col(inck) = ZP * Zk;
@@ -1733,7 +1736,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
 
     fclose(in2);
     
-//    cout << denseZPZ.block(0, 0, 10, 10) << endl;
+    cout << denseZPZ.block(0, 0, 10, 10) << endl;
     
 
     // find out per-SNP window position
