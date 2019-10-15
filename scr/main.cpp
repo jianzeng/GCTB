@@ -178,7 +178,7 @@ int main(int argc, const char * argv[]) {
             if (opt.simuMode) {
                 xci.simu(data, opt.pi, opt.heritability, opt.piNDC, opt.piGxE, false, opt.title, opt.seed);  // ad hoc simulation to test BayesXCI method
             }
-            Model *model = xci.buildModel(data, opt.bayesType, opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.piNDC, opt.estimatePiNDC, opt.piGxE, opt.windowWidth);
+            Model *model = xci.buildModel(data, opt.bayesType, opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.piNDC, opt.estimatePiNDC, opt.piGxE, opt.estimatePiGxE, opt.windowWidth);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
             gctb.saveMcmcSamples(mcmcSampleVec, opt.title);

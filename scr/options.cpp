@@ -62,6 +62,11 @@ void Options::inputOptions(const int argc, const char* argv[]){
             outLDmatType = "sparseshrunk";
             ss << "--make-sparse-shrunk-ldm " << "\n";
         }
+        else if (!strcmp(argv[i], "--xci")) {
+            analysisType = "XCI";
+            bayesType = argv[++i];
+            ss << "--xci " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--alg")) {
             algorithm = argv[++i];
             ss << "--alg " << argv[i] << "\n";
@@ -233,6 +238,14 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--fix-pi")) {
             estimatePi = false;
             ss << "--fix-pi " << "\n";
+        }
+        else if (!strcmp(argv[i], "--fix-pi-ndc")) {
+            estimatePiNDC = false;
+            ss << "--fix-pi-ndc " << "\n";
+        }
+        else if (!strcmp(argv[i], "--fix-pi-gxe")) {
+            estimatePiGxE = false;
+            ss << "--fix-pi-gxe " << "\n";
         }
         else if (!strcmp(argv[i], "--varS")) {
             varS = atof(argv[++i]);
@@ -534,6 +547,8 @@ void Options::readFile(const string &file){  // input options from file
             estimatePi = false;
         } else if (key == "estimatePiNDC" && value == "No") {
             estimatePiNDC = false;
+        } else if (key == "estimatePiGxE" && value == "No") {
+            estimatePiGxE = false;
         } else if (key == "outputResults" && value == "No") {
             outputResults = false;
         } else if (key == "varS") {

@@ -75,6 +75,7 @@ public:
     
     bool estimatePi;
     bool estimatePiNDC;  // for XCI
+    bool estimatePiGxE;  // for XCI
     bool estimateScale;
     bool writeBinPosterior;
     bool writeTxtPosterior;
@@ -177,6 +178,7 @@ public:
 
         estimatePi              = true;
         estimatePiNDC           = true;
+        estimatePiGxE           = true;
         estimateScale           = false;
         writeBinPosterior       = true;
         writeTxtPosterior       = true;

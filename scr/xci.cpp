@@ -241,7 +241,7 @@ void XCI::readBedFile(Data &data, const string &bedFile){
 }
 
 
-Model* XCI::buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const float piNDC, const bool estimatePiNDC, const float piGxE, const unsigned windowWidth){
+Model* XCI::buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const float piNDC, const bool estimatePiNDC, const float piGxE, const bool estimatePiGxE, const unsigned windowWidth){
     data.initVariances(heritability);
     bool noscale = true;
     if (bayesType == "B") {
@@ -253,20 +253,20 @@ Model* XCI::buildModel(Data &data, const string &bayesType, const float heritabi
     if (bayesType == "Cgxs") {
         Vector3f pis;
         pis << 1.0-pi, pi*(1.0-piGxE), pi*piGxE;  // prob of zero effect, sex-shared effect, sex-specific effect
-        return new BayesCXCIgxs(data, data.varGenotypic, data.varResidual, pis, estimatePi, piNDC, estimatePiNDC, numKeptMales, numKeptFemales, noscale);
+        return new BayesCXCIgxs(data, data.varGenotypic, data.varResidual, pis, estimatePi, piNDC, estimatePiNDC, estimatePiGxE, numKeptMales, numKeptFemales, noscale);
     }
     if (bayesType == "Ngxs") {
         Vector3f pis;
         pis << 1.0-pi, pi*(1.0-piGxE), pi*piGxE;  // prob of zero effect, sex-shared effect, sex-specific effect
         data.getNonoverlapWindowInfo(windowWidth);
-        return new BayesNXCIgxs(data, data.varGenotypic, data.varResidual, pis, estimatePi, piNDC, estimatePiNDC, numKeptMales, numKeptFemales, noscale);
+        return new BayesNXCIgxs(data, data.varGenotypic, data.varResidual, pis, estimatePi, piNDC, estimatePiNDC, estimatePiGxE, numKeptMales, numKeptFemales, noscale);
     }
     if (bayesType == "Xgxs") {
         Vector3f piBeta, piDosage;
         piBeta << 1.0-pi, pi*(1.0-piGxE), pi*piGxE;  // prob of zero effect, sex-shared effect, sex-specific effect
 //        piDosage << 1.0-pi, pi*piNDC, pi*(1.0-piNDC);
         piDosage << 0.33,0.33,0.33;
-        return new BayesXgxs(data, data.varGenotypic, data.varResidual, piBeta, piDosage, estimatePi, numKeptMales, numKeptFemales, noscale);
+        return new BayesXgxs(data, data.varGenotypic, data.varResidual, piBeta, piDosage, estimatePi, estimatePiGxE, numKeptMales, numKeptFemales, noscale);
     }
     else {
         throw(" Error: Wrong bayes type: " + bayesType);
@@ -1547,6 +1547,13 @@ void BayesCXCIgxs::Rounding::computeYcorr(const VectorXf &y, const MatrixXf &X, 
     value = sqrt(ss);
 }
 
+void BayesCXCIgxs::ProbMixComps::getValues(VectorXf &pis){
+    values = pis;
+    for (unsigned i=0; i<ndist; ++i) {
+        (*this)[i]->value=values[i];
+    }
+}
+
 void BayesCXCIgxs::sampleUnknowns(){
     
     fixedEffects.sampleFromFC(ycorrm, ycorrf, data.X, nmale, nfemale, XPXdiagMale, XPXdiagFemale, varem.value, varef.value);
@@ -1559,11 +1566,20 @@ void BayesCXCIgxs::sampleUnknowns(){
 //        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
 //    } while (snpEffects.numNonZeros == 0);
     
-    if(estimatePiNDC) piGamma.sampleFromFC(snpEffects.size, gamma.values.sum());
+    if (estimatePiNDC) piGamma.sampleFromFC(snpEffects.size, gamma.values.sum());
 //    piGamma.sampleFromFC(snpEffects.numNonZeros, gamma.values.sum());
     piNDC.value = gamma.values.sum()/(float)snpEffects.size;
     sigmaSq.sampleFromFC(snpEffects.sumSq, 2.0*snpEffects.numNonZeros);  // both male and female effects contribute to sigmaSq
-    if(estimatePi) pis.sampleFromFC(snpEffects.numSnpMixComp);
+    if (estimatePi) {
+        if (estimatePiGxS) {
+            pis.sampleFromFC(snpEffects.numSnpMixComp);
+        } else {
+            pi.sampleFromFC(snpEffects.size, snpEffects.numNonZeros);
+            VectorXf vec;
+            vec << 1.0-pi.value, pi.value*(1.0-piGxSgiven), pi.value*piGxSgiven;
+            pis.getValues(vec);
+        }
+    }
     pi.value = snpEffects.numNonZeros/(float)snpEffects.size;
     piGxS.value = snpEffects.numSnpMixComp[2]/(float)snpEffects.numNonZeros;
     
@@ -1800,7 +1816,16 @@ void BayesNXCIgxs::sampleUnknowns(){
     if(estimatePiNDC) piGamma.sampleFromFC(snpEffects.numWindows, snpEffects.windDeltaNDC.sum());
     piNDC.value = snpEffects.windDeltaNDC.sum()/(float)snpEffects.numWindows;
     sigmaSq.sampleFromFC(snpEffects.sumSq, 2.0*snpEffects.numNonZeros);  // both male and female effects contribute to sigmaSq
-    if(estimatePi) pis.sampleFromFC(snpEffects.numSnpMixComp);
+    if (estimatePi) {
+        if (estimatePiGxS) {
+            pis.sampleFromFC(snpEffects.numSnpMixComp);
+        } else {
+            pi.sampleFromFC(snpEffects.size, snpEffects.numNonZeros);
+            VectorXf vec;
+            vec << 1.0-pi.value, pi.value*(1.0-piGxSgiven), pi.value*piGxSgiven;
+            pis.getValues(vec);
+        }
+    }
     pi.value = snpEffects.numNonZeroWind/(float)snpEffects.numWindows;
     piGxS.value = snpEffects.numSnpMixComp[2]/(float)snpEffects.numNonZeroWind;
     

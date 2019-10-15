@@ -30,7 +30,7 @@ public:
                       const unsigned includeChr, const bool readGenotypes);
     void readBedFile(Data &data, const string &bedFile);
 
-    Model* buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const float piNDC, const bool estimatePiNDC, const float piGxE, const unsigned windowWidth);
+    Model* buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const float piNDC, const bool estimatePiNDC, const float piGxE, const bool estimatePiGxE, const unsigned windowWidth);
     void simu(Data &data, const float pi, const float heritability, const float probNDC, const float probGxS, const bool removeQTL, const string &title, const int seed);
     void outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &bayesType, const string &title);
 };
@@ -229,6 +229,8 @@ public:
     class ProbMixComps : public BayesR::ProbMixComps {
     public:
         ProbMixComps(const VectorXf &pis): BayesR::ProbMixComps(pis){}
+        
+        void getValues(VectorXf &pis);
     };
     
     class ProbGxS : public Parameter {
@@ -267,14 +269,19 @@ public:
     ProbGxS piGxS;
     DeltaGxS deltaGxS;
     Rounding rounding;
-    
-    BayesCXCIgxs(const Data &data, const float varGenotypic, const float varResidual, const Vector3f &pival, const bool estimatePi, const float piNDCval, const bool estimatePiNDC, const unsigned nmale, const unsigned nfemale, const bool noscale, const bool message = true):
+
+    bool estimatePiGxS;
+    float piGxSgiven;
+
+    BayesCXCIgxs(const Data &data, const float varGenotypic, const float varResidual, const Vector3f &pival, const bool estimatePi, const float piNDCval, const bool estimatePiNDC, const bool estimatePiGxE, const unsigned nmale, const unsigned nfemale, const bool noscale, const bool message = true):
     BayesCXCI(data, varGenotypic, varResidual, pival[1]+pival[2], 1, 1, estimatePi, piNDCval, estimatePiNDC, nmale, nfemale, noscale, false),
     snpEffects(data.snpEffectNames),
     snpEffectsMale(data.snpEffectNames),
     snpEffectsFemale(data.snpEffectNames),
     pis(pival),
     piGxS(pival[2]),
+    estimatePiGxS(estimatePiGxE),
+    piGxSgiven(pival[2]/(1.0-pival[0])),
     deltaGxS(data.snpEffectNames) {
         paramSetVec = {&snpEffectsMale, &snpEffectsFemale, &gamma, &deltaGxS, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &piNDC, &piGxS, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf};
@@ -341,8 +348,8 @@ public:
     SnpEffects snpEffects;
     BayesN::NumNonZeroWind nnzWind;
     
-    BayesNXCIgxs(const Data &data, const float varGenotypic, const float varResidual, const Vector3f &pival, const bool estimatePi, const float piNDCval, const bool estimatePiNDC, const unsigned nmale, const unsigned nfemale, const bool noscale, const bool message = true):
-    BayesCXCIgxs(data, varGenotypic, varResidual, pival, estimatePi, piNDCval, estimatePiNDC, nmale, nfemale, noscale, false),
+    BayesNXCIgxs(const Data &data, const float varGenotypic, const float varResidual, const Vector3f &pival, const bool estimatePi, const float piNDCval, const bool estimatePiNDC, const bool estimatePiGxE, const unsigned nmale, const unsigned nfemale, const bool noscale, const bool message = true):
+    BayesCXCIgxs(data, varGenotypic, varResidual, pival, estimatePi, piNDCval, estimatePiNDC, estimatePiGxE, nmale, nfemale, noscale, false),
     snpEffects(data.snpEffectNames, data.windStart, data.windSize)
     {
         getZPZblockDiag(data);
@@ -397,8 +404,8 @@ public:
     Delta deltaFDC;
     Delta deltaGxS;
     
-    BayesXgxs(const Data &data, const float varGenotypic, const float varResidual, const Vector3f &piBetaVal, const Vector3f &piDosageVal, const bool estimatePi, const unsigned nmale, const unsigned nfemale, const bool noscale, const bool message = true):
-    BayesCXCIgxs(data, varGenotypic, varResidual, piBetaVal, estimatePi, piDosageVal[1], nmale, nfemale, noscale, false),
+    BayesXgxs(const Data &data, const float varGenotypic, const float varResidual, const Vector3f &piBetaVal, const Vector3f &piDosageVal, const bool estimatePi, const bool estimatePiGxE, const unsigned nmale, const unsigned nfemale, const bool noscale, const bool message = true):
+    BayesCXCIgxs(data, varGenotypic, varResidual, piBetaVal, estimatePi, piDosageVal[1], estimatePiGxE, nmale, nfemale, noscale, false),
     snpEffects(data.snpEffectNames),
     piDosage(piDosageVal),
     piBeta(piBetaVal),
