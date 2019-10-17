@@ -64,15 +64,15 @@
       <CommandLineArguments>
          <CommandLineArgument
             argument = "--inp-file"
-            isEnabled = "NO">
-         </CommandLineArgument>
-         <CommandLineArgument
-            argument = "--original-model"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "/Users/j.zeng/Work/Projects/XCI/test/rep1.chip.inp"
+            argument = "--original-model"
             isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "/Users/j.zeng/Work/Projects/XCI/test/rep1.chip.inp"
+            isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "/Users/j.zeng/XCode/gctb/test/res/test.inp"
@@ -140,15 +140,15 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--chain-length 1000"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--burn-in 200"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--out-freq 1"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--no-mcmc-bin"
@@ -176,11 +176,11 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--bfile /Users/j.zeng/XCode/gctb_tarball/gctb_2.0_tutorial/data/1000G_eur_chr22"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--pheno /Users/j.zeng/XCode/gctb_tarball/gctb_2.0_tutorial/pheno/phenos_ga1.txt "
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--ldm /Users/j.zeng/XCode/gctb_tarball/gctb_2.0_tutorial/ldm/shrunk/chr22/1000G_eur_chr22.ldm.sparse"
@@ -192,7 +192,7 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--bayes R"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
       </CommandLineArguments>
       <AdditionalOptions>

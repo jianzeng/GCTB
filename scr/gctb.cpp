@@ -77,7 +77,8 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSum
 }
 
 Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
-                        const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const bool noscale, const VectorXf &pis, const VectorXf &gamma,
+                        const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const bool noscale,
+                        const VectorXf &pis, const VectorXf &piPar, const VectorXf &gamma,
                         const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow,
                         const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS,
                         const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool originalModel){
@@ -101,9 +102,9 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
             else if (bayesType == "SMix")
                 return new ApproxBayesSMix(data, data.varGenotypic, data.varResidual, pi, overdispersion, estimatePS, varS, S);
             else if (bayesType == "R")
-                return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode);
+                return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode);
             else if (bayesType == "Kap")
-                return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, noscale, originalModel, icrsq, kappa);
+                return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, icrsq, kappa);
             else
                 throw(" Error: Wrong bayes type: " + bayesType + " in the summary-data-based Bayesian analysis.");
         }
@@ -118,7 +119,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
     } 
     if (bayesType == "R") {
         data.readBedFile(noscale, bedFile + ".bed");
-        return new BayesR(data, data.varGenotypic, data.varResidual, pis, piAlpha, piBeta, gamma, estimatePi, noscale, originalModel, algorithm);
+        return new BayesR(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, algorithm);
     }
     else if (bayesType == "S") {
         data.readBedFile(noscale, bedFile + ".bed");

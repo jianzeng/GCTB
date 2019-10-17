@@ -212,13 +212,13 @@ void XCI::readBedFile(Data &data, const string &bedFile){
         }
         
         // compute allele frequency
-        if (numKeptMales_all) {
-            snpInfo->af = mean_male_all;
-            data.snp2pq[snp] = snpInfo->af*(1.0f-snpInfo->af);
-        } else {
+//        if (numKeptMales_all) {
+//            snpInfo->af = mean_male_all;
+//            data.snp2pq[snp] = snpInfo->af*(1.0f-snpInfo->af);
+//        } else {
             snpInfo->af = 0.5f*mean_female_all;
             data.snp2pq[snp] = 2.0f*snpInfo->af*(1.0f-snpInfo->af);
-        }
+//        }
         
         //cout << "snp " << snp << "     " << Z.col(snp).sum() << endl;
         
@@ -230,7 +230,6 @@ void XCI::readBedFile(Data &data, const string &bedFile){
     }
     fclose(in);
     
-    
     // standardize genotypes
 //    VectorXf my_ZPZdiag = data.Z.colwise().squaredNorm();
 //    
@@ -241,32 +240,32 @@ void XCI::readBedFile(Data &data, const string &bedFile){
 }
 
 
-Model* XCI::buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const float piNDC, const bool estimatePiNDC, const float piGxE, const bool estimatePiGxE, const unsigned windowWidth){
+Model* XCI::buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const VectorXf &piPar, const bool estimatePi, const float piNDC, const Vector2f &piNDCpar, const bool estimatePiNDC, const float piGxE, const bool estimatePiGxE, const unsigned windowWidth){
     data.initVariances(heritability);
     bool noscale = true;
     if (bayesType == "B") {
-        return new BayesBXCI(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, piNDC, estimatePiNDC, numKeptMales, numKeptFemales, noscale);
+        return new BayesBXCI(data, data.varGenotypic, data.varResidual, pi, piPar[0], piPar[1], estimatePi, piNDC, piNDCpar, estimatePiNDC, numKeptMales, numKeptFemales, noscale);
     }
     if (bayesType == "C") {
-        return new BayesCXCI(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, piNDC, estimatePiNDC, numKeptMales, numKeptFemales, noscale);
+        return new BayesCXCI(data, data.varGenotypic, data.varResidual, pi, piPar[0], piPar[1], estimatePi, piNDC, piNDCpar, estimatePiNDC, numKeptMales, numKeptFemales, noscale);
     }
     if (bayesType == "Cgxs") {
         Vector3f pis;
         pis << 1.0-pi, pi*(1.0-piGxE), pi*piGxE;  // prob of zero effect, sex-shared effect, sex-specific effect
-        return new BayesCXCIgxs(data, data.varGenotypic, data.varResidual, pis, estimatePi, piNDC, estimatePiNDC, estimatePiGxE, numKeptMales, numKeptFemales, noscale);
+        return new BayesCXCIgxs(data, data.varGenotypic, data.varResidual, pis, piPar, estimatePi, piNDC, piNDCpar, estimatePiNDC, estimatePiGxE, numKeptMales, numKeptFemales, noscale);
     }
     if (bayesType == "Ngxs") {
         Vector3f pis;
         pis << 1.0-pi, pi*(1.0-piGxE), pi*piGxE;  // prob of zero effect, sex-shared effect, sex-specific effect
         data.getNonoverlapWindowInfo(windowWidth);
-        return new BayesNXCIgxs(data, data.varGenotypic, data.varResidual, pis, estimatePi, piNDC, estimatePiNDC, estimatePiGxE, numKeptMales, numKeptFemales, noscale);
+        return new BayesNXCIgxs(data, data.varGenotypic, data.varResidual, pis, piPar, estimatePi, piNDC, piNDCpar, estimatePiNDC, estimatePiGxE, numKeptMales, numKeptFemales, noscale);
     }
     if (bayesType == "Xgxs") {
         Vector3f piBeta, piDosage;
         piBeta << 1.0-pi, pi*(1.0-piGxE), pi*piGxE;  // prob of zero effect, sex-shared effect, sex-specific effect
 //        piDosage << 1.0-pi, pi*piNDC, pi*(1.0-piNDC);
         piDosage << 0.33,0.33,0.33;
-        return new BayesXgxs(data, data.varGenotypic, data.varResidual, piBeta, piDosage, estimatePi, estimatePiGxE, numKeptMales, numKeptFemales, noscale);
+        return new BayesXgxs(data, data.varGenotypic, data.varResidual, piBeta, piPar, piDosage, piNDCpar, estimatePi, estimatePiGxE, numKeptMales, numKeptFemales, noscale);
     }
     else {
         throw(" Error: Wrong bayes type: " + bayesType);
@@ -324,31 +323,32 @@ void XCI::simu(Data &data, const float pi, const float heritability, const float
 //    cout << g.head(10) << endl;
     
     // calculate genetic variance with MPI
-    float my_sumg = g.sum();
-    float my_ssg  = g.squaredNorm();
-    float sumg, ssg;
-    unsigned ng;
-    MPI_Allreduce(&my_sumg, &sumg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&my_ssg, &ssg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&data.numKeptInds, &ng, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+    // set heritability based on the genetic variance in females
+    float my_sum, my_ss, sum, ss;
+    unsigned n;
+    my_sum = g.head(numKeptMales).sum();
+    my_ss  = g.head(numKeptMales).squaredNorm();
+    MPI_Allreduce(&my_sum, &sum, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&my_ss, &ss, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&numKeptMales, &n, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+    float genVarMale = ss/float(n) - sum*sum/float(n*n);
     
-    float genVar = ssg/float(ng) - sumg*sumg/float(ng*ng);
-    float resVar = genVar*(1.0-heritability)/heritability;
-    float resSD  = sqrt(resVar);
-    
-    my_sumg = g.head(numKeptMales).sum();
-    my_ssg  = g.head(numKeptMales).squaredNorm();
-    MPI_Allreduce(&my_sumg, &sumg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&my_ssg, &ssg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&numKeptMales, &ng, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
-    float genVarMale = ssg/float(ng) - sumg*sumg/float(ng*ng);
+    my_sum = g.tail(numKeptFemales).sum();
+    my_ss  = g.tail(numKeptFemales).squaredNorm();
+    MPI_Allreduce(&my_sum, &sum, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&my_ss, &ss, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&numKeptFemales, &n, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+    float genVarFemale = ss/float(n) - sum*sum/float(n*n);
 
-    my_sumg = g.tail(numKeptFemales).sum();
-    my_ssg  = g.tail(numKeptFemales).squaredNorm();
-    MPI_Allreduce(&my_sumg, &sumg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&my_ssg, &ssg, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-    MPI_Allreduce(&numKeptFemales, &ng, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
-    float genVarFemale = ssg/float(ng) - sumg*sumg/float(ng*ng);
+    my_sum = g.sum();
+    my_ss  = g.squaredNorm();
+    MPI_Allreduce(&my_sum, &sum, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&my_ss, &ss, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&data.numKeptInds, &n, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+    float genVarAll = ss/float(n) - sum*sum/float(n*n);
+    
+    float resVar = genVarFemale*(1.0-heritability)/heritability;
+    float resSD  = sqrt(resVar);
 
     for (unsigned i=0; i<data.numKeptInds; ++i) {
         data.y[i] = g[i] + Stat::snorm()*resSD;
@@ -357,7 +357,28 @@ void XCI::simu(Data &data, const float pi, const float heritability, const float
     
     MPI_Allreduce(&my_ypy, &data.ypy, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
     
-    data.varGenotypic = genVar;
+    my_sum = data.y.head(numKeptMales).sum();
+    my_ss  = data.y.head(numKeptMales).squaredNorm();
+    MPI_Allreduce(&my_sum, &sum, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&my_ss, &ss, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&numKeptMales, &n, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+    float phenVarMale = ss/float(n) - sum*sum/float(n*n);
+    
+    my_sum = data.y.tail(numKeptFemales).sum();
+    my_ss  = data.y.tail(numKeptFemales).squaredNorm();
+    MPI_Allreduce(&my_sum, &sum, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&my_ss, &ss, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&numKeptFemales, &n, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+    float phenVarFemale = ss/float(n) - sum*sum/float(n*n);
+    
+    my_sum = data.y.sum();
+    my_ss  = data.y.squaredNorm();
+    MPI_Allreduce(&my_sum, &sum, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&my_ss, &ss, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+    MPI_Allreduce(&data.numKeptInds, &n, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
+    float phenVarAll = ss/float(n) - sum*sum/float(n*n);
+    
+    data.varGenotypic = genVarFemale;
     data.varResidual  = resVar;
     
     if (removeQTL) {
@@ -421,8 +442,9 @@ void XCI::simu(Data &data, const float pi, const float heritability, const float
     
     if (!myMPI::rank) {
         cout << "\nSimulated " << numQTL << " QTL with " << probNDC*100 << "% escaped from XCI and " << probGxS*100 << "% with genotype-by-sex effects." << endl;
-        cout << "Simulated genotypic variance: " << genVar << " (male: " << genVarMale << "; female: " << genVarFemale << ")" <<  endl;
+        cout << "Simulated genotypic variance: " << genVarAll << " (male: " << genVarMale << "; female: " << genVarFemale << ")" <<  endl;
         cout << "Simulated residual  variance: " << resVar << endl;
+        cout << "Simulated heritability: " << genVarAll/phenVarAll << " (male: " << genVarMale/phenVarMale << "; female: " << genVarFemale/phenVarFemale << ")" <<  endl;
         if (removeQTL) cout << "QTL removed from the analysis." << endl;
         cout << "Saved simulated QTL info to [" << filename << "]." << endl;
     }
@@ -1555,9 +1577,8 @@ void BayesCXCIgxs::ProbMixComps::getValues(VectorXf &pis){
 }
 
 void BayesCXCIgxs::sampleUnknowns(){
-    
     fixedEffects.sampleFromFC(ycorrm, ycorrf, data.X, nmale, nfemale, XPXdiagMale, XPXdiagFemale, varem.value, varef.value);
-    
+
 //    unsigned cnt=0;
 //    do {
         snpEffects.sampleFromFC(ycorrm, ycorrf, data.Z, data.ZPZdiag, ZPZdiagMale, ZPZdiagFemale,
@@ -1575,7 +1596,7 @@ void BayesCXCIgxs::sampleUnknowns(){
             pis.sampleFromFC(snpEffects.numSnpMixComp);
         } else {
             pi.sampleFromFC(snpEffects.size, snpEffects.numNonZeros);
-            VectorXf vec;
+            VectorXf vec(3);
             vec << 1.0-pi.value, pi.value*(1.0-piGxSgiven), pi.value*piGxSgiven;
             pis.getValues(vec);
         }

@@ -39,7 +39,8 @@ public:
     void inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap, const bool imputeN, const string &bayesType, const bool noscale);
 
     Model* buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
-                      const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const bool noscale, const VectorXf &pis, const VectorXf &gamma,
+                      const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const bool noscale,
+                      const VectorXf &pis, const VectorXf &piPar, const VectorXf &gamma,
                       const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow,
                       const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS,
                       const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool originalModel);

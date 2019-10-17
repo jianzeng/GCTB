@@ -100,6 +100,10 @@ public:
     VectorXf gamma;  // Default scaling parameters for Bayes R
     VectorXf pis;    // Default pis for Bayes R
     
+    // hyperparameters for the prior distributions
+    VectorXf piPar;
+    Vector2f piNDCpar;
+    
     string title;
     string analysisType;
     string bayesType;
@@ -175,6 +179,9 @@ public:
         pis                     << 0.95, 0.03, 0.01, 0.01;
         // Kappa defaults
         kappa                   = 10;
+        
+        piPar.setOnes(ndists);
+        piNDCpar.setOnes(2);
 
         estimatePi              = true;
         estimatePiNDC           = true;

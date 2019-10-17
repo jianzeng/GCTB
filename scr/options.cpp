@@ -247,6 +247,24 @@ void Options::inputOptions(const int argc, const char* argv[]){
             estimatePiGxE = false;
             ss << "--fix-pi-gxe " << "\n";
         }
+        else if (!strcmp(argv[i], "--pi-par")) {
+            Gadget::Tokenizer strvec;
+            strvec.getTokens(argv[++i], " ,");
+            piPar.resize(strvec.size());
+            for (unsigned j=0; j<strvec.size(); ++j) {
+                piPar[j] = stof(strvec[j]);
+            }
+            ss << "--pi-par " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--pi-ndc-par")) {
+            Gadget::Tokenizer strvec;
+            strvec.getTokens(argv[++i], " ,");
+            if (strvec.size()>2) throw("Error: --pi-ndc-par only allow two parameters!");
+            for (unsigned j=0; j<strvec.size(); ++j) {
+                piNDCpar[j] = stof(strvec[j]);
+            }
+            ss << "--pi-ndc-par " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--varS")) {
             varS = atof(argv[++i]);
             ss << "--varS " << argv[i] << "\n";

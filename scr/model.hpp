@@ -139,7 +139,7 @@ public:
             
             scale = 0.5f*value;  // due to df = 4
             
-//            cout << value << " " << vg << " " << snp2pq.sum() << " " << pi << endl;
+            //cout << value << " " << vg << " " << snp2pq.sum() << " " << pi << " " << noscale << endl;
         }
         
         void sampleFromFC(const float snpEffSumSq, const unsigned numSnpEff);
@@ -464,12 +464,12 @@ public:
         VectorXf values;
         const unsigned ndist;
 
-        ProbMixComps(const VectorXf &pis): ndist(pis.size()){  
+        ProbMixComps(const VectorXf &pis, const VectorXf &alphas): ndist(pis.size()){
             for (unsigned i = 0; i<ndist; ++i) {
                  //Parameter * pi = new Parameter("Pi");
                  this->push_back(new Parameter("Pi" + to_string(static_cast<long long>(i + 1))));
             }
-            alphaVec.setOnes(pis.size());
+            alphaVec = alphas;
             values = pis;
         }
         
@@ -532,10 +532,10 @@ public:
     
     bool originalModel;
 
-    BayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const float piAlpha, const float piBeta, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool originalModel,
+    BayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool originalModel,
            const string &algorithm, const bool message = true):
-    BayesC(data, varGenotypic, varResidual, pis[0], piAlpha, piBeta, estimatePi, noscale, "Gibbs", false),
-    Pis(pis),
+    BayesC(data, varGenotypic, varResidual, pis[0], piPar[0], piPar[1], estimatePi, noscale, "Gibbs", false),
+    Pis(pis, piPar),
     numSnps(pis),
     Vgs(gamma),
     gamma(gamma, vector<string>(gamma.size())),
@@ -1363,10 +1363,10 @@ public:
     const float overdispersion;
 
     
-    ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const float piAlpha, const float piBeta, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool originalModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode,
+    ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool originalModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode,
                  const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, (1-pis[0]), piAlpha, piBeta, estimatePi, noscale, 0, overdispersion, estimatePS, 0, spouseCorrelation, false, false, false),
-    Pis(pis),
+    ApproxBayesC(data, varGenotypic, varResidual, (1-pis[0]), piPar[0], piPar[1], estimatePi, noscale, 0, overdispersion, estimatePS, 0, spouseCorrelation, false, false, false),
+    Pis(pis,piPar),
     numSnps(pis),
     Vgs(gamma),
     gamma(gamma, vector<string>(gamma.size())),
@@ -1502,10 +1502,10 @@ public:
     bool noscale;
     bool originalModel;
     
-    ApproxBayesKappa(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const float piAlpha, const float piBeta, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool originalModel, const float icrsq,
+    ApproxBayesKappa(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool originalModel, const float icrsq,
                      const float kappa, const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, (1-pis[(gamma.size()-1)]), piAlpha, piBeta, estimatePi, noscale, 0, 0, false, icrsq, 0, false, false, false),
-    Pis(pis),
+    ApproxBayesC(data, varGenotypic, varResidual, (1-pis[(gamma.size()-1)]), piPar[0], piPar[1], estimatePi, noscale, 0, 0, false, icrsq, 0, false, false, false),
+    Pis(pis, piPar),
     gamma(gamma, vector<string>(gamma.size())),
     kappa(kappa),
     vare(varResidual, data.numKeptInds, 0),
