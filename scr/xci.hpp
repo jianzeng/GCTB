@@ -66,18 +66,18 @@ public:
         void sampleFromFC(const unsigned numSnps, const unsigned numNDC);
     };
         
-    class Gamma : public ParamSet {
+    class DeltaNDC : public ParamSet {
     public:
-        Gamma(const vector<string> &header): ParamSet("Gamma", header){};
+        DeltaNDC(const vector<string> &header): ParamSet("DeltaNDC", header){};
     };
     
     class SnpEffects : public BayesC::SnpEffects {
     public:
         SnpEffects(const vector<string> &header): BayesC::SnpEffects(header, "Gibbs"){};
         
-        void sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &ZPZdiagMale,
-                          const VectorXf &ZPZdiagFemale, const unsigned nmale, const unsigned nfemale, const float p,
-                          const float sigmaSq, const float pi, const float varem, const float varef, VectorXf &gamma, VectorXf &ghatm, VectorXf &ghatf);
+        void sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &ZPZdiagMale, const VectorXf &ZPZdiagFemale,
+                          const VectorXf &ZPZdiagMaleRank, const VectorXf &ZPZdiagFemaleRank, const unsigned nmale, const unsigned nfemale, const float p,
+                          const float sigmaSq, const float pi, const float varem, const float varef, VectorXf &deltaNDC, VectorXf &ghatm, VectorXf &ghatf);
     };
     
     class VarEffects : public BayesC::VarEffects {
@@ -117,7 +117,7 @@ public:
     public:
         Rounding(): BayesC::Rounding(){}
         void computeYcorr(const VectorXf &y, const MatrixXf &X, const MatrixXf &Z,
-                          const VectorXf &gamma, const unsigned nmale, const unsigned nfemale,
+                          const VectorXf &deltaNDC, const unsigned nmale, const unsigned nfemale,
                           const VectorXf &fixedEffects, const VectorXf &snpEffects,
                           VectorXf &ycorrm, VectorXf &ycorrf);
     };
@@ -128,9 +128,9 @@ public:
     bool estimatePiNDC;
     
     FixedEffects fixedEffects;
-    ProbNDC piGamma;
+    ProbNDC piDeltaNDC;
     Parameter piNDC;
-    Gamma gamma;   // indicator variable with 1: NDC, 0: FDC
+    DeltaNDC deltaNDC;   // indicator variable with 1: NDC, 0: FDC
     SnpEffects snpEffects;
     VarEffects sigmaSq;
     ScaleVar scale;
@@ -150,18 +150,20 @@ public:
     
     VectorXf XPXdiagMale;
     VectorXf ZPZdiagMale;
+    VectorXf ZPZdiagMaleRank;   // for MPI
     VectorXf XPXdiagFemale;
     VectorXf ZPZdiagFemale;
+    VectorXf ZPZdiagFemaleRank; // for MPI
     
     BayesCXCI(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi, const float piNDCval, const Vector2f &piNDCpar, const bool estimatePiNDC, const unsigned nmale, const unsigned nfemale, const bool noscale, const bool message = true):
     BayesC(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, noscale, "Gibbs", false),
     ycorrm(data.y.head(nmale)),
     ycorrf(data.y.tail(nfemale)),
     fixedEffects(data.fixedEffectNames),
-    piGamma(piNDCval, piNDCpar),
+    piDeltaNDC(piNDCval, piNDCpar),
     piNDC("PiNDC"),
     estimatePiNDC(estimatePiNDC),
-    gamma(data.snpEffectNames),
+    deltaNDC(data.snpEffectNames),
     snpEffects(data.snpEffectNames),
     sigmaSq(varGenotypic, data.snp2pq, pival, piNDCval, noscale),
     scale(data.snp2pq.sum(), sigmaSq.scale),
@@ -174,10 +176,9 @@ public:
     vargf(varGenotypic, "GenVarF"),
     hsqm("hsqM"),
     hsqf("hsqF") {
-        if (!estimatePiNDC) piGamma.value = 0.5;
         getZPZdiag(data);
-        gamma.values.setZero(data.numIncdSnps);
-        paramSetVec = {&snpEffects, &gamma, &fixedEffects};
+        deltaNDC.values.setZero(data.numIncdSnps);
+        paramSetVec = {&snpEffects, &deltaNDC, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &piNDC, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf};
         paramToPrint = {&pi, &nnzSnp, &piNDC, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf, &rounding};
         if (message && myMPI::rank==0)
@@ -199,7 +200,7 @@ public:
         
         void sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &ZPZdiagMale,
                           const VectorXf &ZPZdiagFemale, const unsigned nmale, const unsigned nfemale, const float p,
-                          const VectorXf &sigmaSq, const float pi, const float vare, VectorXf &gamma, VectorXf &ghat);
+                          const VectorXf &sigmaSq, const float pi, const float vare, VectorXf &deltaNDC, VectorXf &ghat);
     };
 
     SnpEffects snpEffects;
@@ -210,7 +211,7 @@ public:
     snpEffects(data.snpEffectNames),
     sigmaSq(varGenotypic, data.snp2pq, pival)
     {
-        paramSetVec = {&snpEffects, &gamma, &fixedEffects};
+        paramSetVec = {&snpEffects, &deltaNDC, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &piNDC, &scale, &vare, &varg, &hsq};
         paramToPrint = {&pi, &nnzSnp, &piNDC, &scale, &vare, &varg, &hsq, &rounding};
         if (message && myMPI::rank==0)
@@ -219,6 +220,37 @@ public:
     
     void sampleUnknowns(void);
 
+};
+
+
+class SBayesCXCI : public BayesCXCI {
+    // efficient BayesCXCI using right-hand-side updating strategy
+public:
+    class SnpEffects : public BayesCXCI::SnpEffects {
+    public:
+        SnpEffects(const vector<string> &header): BayesCXCI::SnpEffects(header){};
+        
+        void sampleFromFC(VectorXf &rcorrm, VectorXf &rcorrf, const MatrixXf &ZPZ, const MatrixXf &ZPZmale, const MatrixXf &ZPZfemale, const float piNDC,
+                          const float sigmaSq, const float pi, const float varem, const float varef, VectorXf &deltaNDC, VectorXf &ghatm, VectorXf &ghatf);
+    };
+    
+    void sampleUnknowns(void);
+
+    VectorXf rcorrm;
+    VectorXf rcorrf;
+    
+    SnpEffects snpEffects;
+
+    SBayesCXCI(const Data &data, const float varGenotypic, const float varResidual, const float pival, const VectorXf &piPar, const bool estimatePi, const float piNDCval, const Vector2f &piNDCpar, const bool estimatePiNDC, const unsigned nmale, const unsigned nfemale, const bool noscale, const bool message = true):
+    BayesCXCI(data, varGenotypic, varResidual, pival, piPar[0], piPar[1], estimatePi, piNDCval, piNDCpar, estimatePiNDC, nmale, nfemale, noscale, false),
+    snpEffects(data.snpEffectNames) {
+        paramSetVec = {&snpEffects, &deltaNDC, &fixedEffects};
+        paramVec = {&pi, &nnzSnp, &piNDC, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf};
+        paramToPrint = {&pi, &nnzSnp, &piNDC, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf, &rounding};
+        if (message && myMPI::rank==0)
+            cout << "\nSBayesCXCI model fitted." << endl;
+
+    }
 };
 
 
@@ -242,10 +274,10 @@ public:
             values.setZero(header.size(), 2);
         };
         
-        void sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &ZPZdiagMale,
-                          const VectorXf &ZPZdiagFemale, const unsigned nmale, const unsigned nfemale, const float piNDC,
+        void sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &ZPZdiagMale, const VectorXf &ZPZdiagFemale,
+                          const VectorXf &ZPZdiagMaleRank, const VectorXf &ZPZdiagFemaleRank, const unsigned nmale, const unsigned nfemale, const float piNDC,
                           const float sigmaSq, const Vector3f &pis, const float varem, const float varef,
-                          VectorXf &gamma, VectorXf &deltaGxS, VectorXf &ghatm, VectorXf &ghatf);
+                          VectorXf &deltaNDC, VectorXf &deltaGxS, VectorXf &ghatm, VectorXf &ghatf);
     };
     
     class ProbMixComps : public BayesR::ProbMixComps {
@@ -281,7 +313,7 @@ public:
     public:
         Rounding(): BayesCXCI::Rounding(){}
         void computeYcorr(const VectorXf &y, const MatrixXf &X, const MatrixXf &Z,
-                          const VectorXf &gamma, const unsigned nmale, const unsigned nfemale,
+                          const VectorXf &deltaNDC, const unsigned nmale, const unsigned nfemale,
                           const VectorXf &fixedEffects, const MatrixXf &snpEffects,
                           VectorXf &ycorrm, VectorXf &ycorrf);
     };
@@ -307,7 +339,7 @@ public:
     estimatePiGxS(estimatePiGxE),
     piGxSgiven(pival[2]/(1.0-pival[0])),
     deltaGxS(data.snpEffectNames) {
-        paramSetVec = {&snpEffectsMale, &snpEffectsFemale, &gamma, &deltaGxS, &fixedEffects};
+        paramSetVec = {&snpEffectsMale, &snpEffectsFemale, &deltaNDC, &deltaGxS, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &piNDC, &piGxS, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf};
         paramToPrint = {&pi, &nnzSnp, &piNDC, &piGxS, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf, &rounding};
         if (message && myMPI::rank==0) {
@@ -334,7 +366,7 @@ public:
         void sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &ZPZdiagMale,
                           const VectorXf &ZPZdiagFemale, const unsigned nmale, const unsigned nfemale, const float piNDC,
                           const float sigmaSq, const Vector3f &pis, const float varem, const float varef,
-                          VectorXf &gamma, VectorXf &deltaGxS, VectorXf &ghatm, VectorXf &ghatf);
+                          VectorXf &deltaNDC, VectorXf &deltaGxS, VectorXf &ghatm, VectorXf &ghatf);
     };
 
 };
@@ -366,7 +398,7 @@ public:
         void sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, const MatrixXf &Z, const vector<MatrixXf> &ZPZdiagMale,
                           const vector<MatrixXf> &ZPZdiagFemale, const unsigned nmale, const unsigned nfemale, const float piNDC,
                           const float sigmaSq, const Vector3f &pis, const float varem, const float varef,
-                          VectorXf &gamma, VectorXf &deltaGxS, VectorXf &ghatm, VectorXf &ghatf);
+                          VectorXf &deltaNDC, VectorXf &deltaGxS, VectorXf &ghatm, VectorXf &ghatf);
     };
     
     SnpEffects snpEffects;
@@ -377,7 +409,7 @@ public:
     snpEffects(data.snpEffectNames, data.windStart, data.windSize)
     {
         getZPZblockDiag(data);
-        paramSetVec = {&snpEffectsMale, &snpEffectsFemale, &gamma, &deltaGxS, &fixedEffects};
+        paramSetVec = {&snpEffectsMale, &snpEffectsFemale, &deltaNDC, &deltaGxS, &fixedEffects};
         paramVec = {&pi, &nnzWind, &nnzSnp, &piNDC, &piGxS, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf};
         paramToPrint = {&pi, &nnzWind, &nnzSnp, &piNDC, &piGxS, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf, &rounding};
         if (message && myMPI::rank==0)
@@ -405,7 +437,7 @@ public:
         void sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, const MatrixXf &Z, const VectorXf &ZPZdiagMale,
                           const VectorXf &ZPZdiagFemale, const unsigned nmale, const unsigned nfemale,
                           const float sigmaSq, const Vector3f &piDosage, const Vector3f &piBeta, const float varem, const float varef,
-                          VectorXf &gamma, VectorXf &deltaNDC, VectorXf &deltaFDC, VectorXf &deltaGxS, VectorXf &ghatm, VectorXf &ghatf);
+                          VectorXf &deltaNDC, VectorXf &deltaFDC, VectorXf &deltaGxS, VectorXf &ghatm, VectorXf &ghatf);
     };
 
     class Prob : public Parameter {

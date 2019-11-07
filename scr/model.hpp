@@ -1395,6 +1395,10 @@ public:
         paramToPrint = {&sigmaSq, &vare, &varg, &hsq, &rounding};
         if (originalModel) paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
         paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
+        if (modelPS) {
+            paramVec.push_back(&ps);
+            paramToPrint.push_back(&ps);
+        }
         if (message && myMPI::rank==0) {
             cout << "\nApproximate BayesR model fitted." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
