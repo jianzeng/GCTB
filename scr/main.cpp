@@ -179,13 +179,33 @@ int main(int argc, const char * argv[]) {
                 xci.simu(data, opt.pi, opt.heritability, opt.piNDC, opt.piGxE, false, opt.title, opt.seed);  // ad hoc simulation to test BayesXCI method
             }
             else {
-                Model *model = xci.buildModel(data, opt.bayesType, opt.heritability, opt.pi, opt.piPar, opt.estimatePi, opt.piNDC, opt.piNDCpar, opt.estimatePiNDC, opt.piGxE, opt.estimatePiGxE, opt.windowWidth);
-                vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
-                                                                  opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
-                gctb.saveMcmcSamples(mcmcSampleVec, opt.title);
-                gctb.clearGenotypes(data);
-                gctb.outputResults(data, mcmcSampleVec, opt.bayesType, true, opt.title);
-                xci.outputResults(data, mcmcSampleVec, opt.bayesType, opt.title);
+                if (opt.twoStageModel) {
+                    // Stage 1: estimate NDC using female data only
+                    Model *model = xci.buildModelStageOne(data, "C", opt.heritability, opt.pi, opt.piPar, opt.estimatePi, opt.piNDC, opt.piNDCpar, opt.estimatePiNDC);
+                    vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
+                                                                      opt.outputFreq, opt.title + ".stage1", opt.writeBinPosterior, opt.writeTxtPosterior);
+                    gctb.saveMcmcSamples(mcmcSampleVec, opt.title + ".stage1");
+                    gctb.outputResults(data, mcmcSampleVec, "C", true, opt.title + ".stage1");
+                    xci.outputResults(data, mcmcSampleVec, "C", opt.title + ".stage1");
+                    // Stage 2: estimate GxS using both male and female data
+                    model = xci.buildModelStageTwo(data, "Cgxs", opt.heritability, opt.pi, opt.piPar, opt.estimatePi, opt.piNDC, opt.piNDCpar, opt.estimatePiNDC, opt.title + ".stage1.snpRes", opt.piGxE, opt.estimatePiGxE);
+                    mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
+                                                                      opt.outputFreq, opt.title + ".stage2", opt.writeBinPosterior, opt.writeTxtPosterior);
+                    gctb.saveMcmcSamples(mcmcSampleVec, opt.title + ".stage2");
+                    gctb.clearGenotypes(data);
+                    gctb.outputResults(data, mcmcSampleVec, "Cgxs", true, opt.title + ".stage2");
+                    xci.outputResults(data, mcmcSampleVec, "Cgxs", opt.title + ".stage2");
+                    
+                }
+                else {
+                    Model *model = xci.buildModel(data, opt.bayesType, opt.heritability, opt.pi, opt.piPar, opt.estimatePi, opt.piNDC, opt.piNDCpar, opt.estimatePiNDC, opt.piGxE, opt.estimatePiGxE, opt.windowWidth);
+                    vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
+                                                                      opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
+                    gctb.saveMcmcSamples(mcmcSampleVec, opt.title);
+                    gctb.clearGenotypes(data);
+                    gctb.outputResults(data, mcmcSampleVec, opt.bayesType, true, opt.title);
+                    xci.outputResults(data, mcmcSampleVec, opt.bayesType, opt.title);
+                }
             }
         }
         else if (opt.analysisType == "VGMAF") {  // ad hoc method for cumulative Vg against MAF to detect selection

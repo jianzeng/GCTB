@@ -23,7 +23,7 @@ public:
     }
     
     void inputIndInfo(Data &data, const string &bedFile, const string &phenotypeFile, const string &keepIndFile,
-                      const unsigned keepIndMax, const unsigned mphen, const string &covariateFile);
+                      const unsigned keepIndMax, const unsigned mphen, const string &covariateFile, const bool femaleOnly = false);
     void sortIndBySex(vector<IndInfo*> &indInfoVec);
     void restoreFamFileOrder(vector<IndInfo*> &indInfoVec);
     void inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile,
@@ -31,8 +31,13 @@ public:
     void readBedFile(Data &data, const string &bedFile);
 
     Model* buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const VectorXf &piPar, const bool estimatePi, const float piNDC, const Vector2f &piNDCpar, const bool estimatePiNDC, const float piGxE, const bool estimatePiGxE, const unsigned windowWidth);
+    
+    Model* buildModelStageOne(Data &data, const string &bayesType, const float heritability, const float pi, const VectorXf &piPar, const bool estimatePi, const float piNDC, const Vector2f &piNDCpar, const bool estimatePiNDC);
+    Model* buildModelStageTwo(Data &data, const string &bayesType, const float heritability, const float pi, const VectorXf &piPar, const bool estimatePi, const float piNDC, const Vector2f &piNDCpar, const bool estimatePiNDC, const string &snpResFile, const float piGxE, const bool estimatePiGxE);
+    
     void simu(Data &data, const float pi, const float heritability, const float probNDC, const float probGxS, const bool removeQTL, const string &title, const int seed);
     void outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &bayesType, const string &title);
+    void readSnpPiNDC(VectorXf &snpPiNDC, const Data &data, const string &snpResFile);
 };
 
 
@@ -278,6 +283,12 @@ public:
                           const VectorXf &ZPZdiagMaleRank, const VectorXf &ZPZdiagFemaleRank, const unsigned nmale, const unsigned nfemale, const float piNDC,
                           const float sigmaSq, const Vector3f &pis, const float varem, const float varef,
                           VectorXf &deltaNDC, VectorXf &deltaGxS, VectorXf &ghatm, VectorXf &ghatf);
+        
+        void sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &ZPZdiagMale, const VectorXf &ZPZdiagFemale,
+                          const VectorXf &ZPZdiagMaleRank, const VectorXf &ZPZdiagFemaleRank, const unsigned nmale, const unsigned nfemale,
+                          const VectorXf &snpPiNDC, const VectorXf &logSnpPiNDC, const VectorXf &logSnpPiNDCcomp,
+                          const float sigmaSq, const Vector3f &pis, const float varem, const float varef,
+                          VectorXf &deltaNDC, VectorXf &deltaGxS, VectorXf &ghatm, VectorXf &ghatf);
     };
     
     class ProbMixComps : public BayesR::ProbMixComps {
@@ -328,6 +339,11 @@ public:
 
     bool estimatePiGxS;
     float piGxSgiven;
+    float snpPiNDCgiven;
+    
+    VectorXf snpPiNDC;
+    VectorXf logSnpPiNDC;
+    VectorXf logSnpPiNDCcomp;
 
     BayesCXCIgxs(const Data &data, const float varGenotypic, const float varResidual, const Vector3f &pival, const VectorXf &piPar, const bool estimatePi, const float piNDCval, const Vector2f &piNDCpar, const bool estimatePiNDC, const bool estimatePiGxE, const unsigned nmale, const unsigned nfemale, const bool noscale, const bool message = true):
     BayesCXCI(data, varGenotypic, varResidual, pival[1]+pival[2], 1, 1, estimatePi, piNDCval, piNDCpar, estimatePiNDC, nmale, nfemale, noscale, false),
@@ -339,6 +355,7 @@ public:
     estimatePiGxS(estimatePiGxE),
     piGxSgiven(pival[2]/(1.0-pival[0])),
     deltaGxS(data.snpEffectNames) {
+        snpPiNDCgiven = false;
         paramSetVec = {&snpEffectsMale, &snpEffectsFemale, &deltaNDC, &deltaGxS, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &piNDC, &piGxS, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf};
         paramToPrint = {&pi, &nnzSnp, &piNDC, &piGxS, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf, &rounding};
@@ -347,6 +364,30 @@ public:
             cout << "sigmaSq: " << sigmaSq.value << endl;
         }
     }
+    
+    BayesCXCIgxs(const Data &data, const float varGenotypic, const float varResidual, const Vector3f &pival, const VectorXf &piPar, const bool estimatePi, const float piNDCval, const Vector2f &piNDCpar, const bool estimatePiNDC, const VectorXf &snpPiNDC, const bool estimatePiGxE, const unsigned nmale, const unsigned nfemale, const bool noscale, const bool message = true):
+    BayesCXCI(data, varGenotypic, varResidual, pival[1]+pival[2], 1, 1, estimatePi, piNDCval, piNDCpar, estimatePiNDC, nmale, nfemale, noscale, false),
+    snpEffects(data.snpEffectNames),
+    snpEffectsMale(data.snpEffectNames),
+    snpEffectsFemale(data.snpEffectNames),
+    pis(pival, piPar.head(3)),
+    piGxS(pival[2]),
+    estimatePiGxS(estimatePiGxE),
+    piGxSgiven(pival[2]/(1.0-pival[0])),
+    deltaGxS(data.snpEffectNames),
+    snpPiNDC(snpPiNDC){
+        snpPiNDCgiven = true;
+        logSnpPiNDC = snpPiNDC.array().log();
+        logSnpPiNDCcomp = (1.0f - snpPiNDC.array()).log();
+        paramSetVec = {&snpEffectsMale, &snpEffectsFemale, &deltaNDC, &deltaGxS, &fixedEffects};
+        paramVec = {&pi, &nnzSnp, &piNDC, &piGxS, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf};
+        paramToPrint = {&pi, &nnzSnp, &piNDC, &piGxS, &sigmaSq, &vargm, &vargf, &varem, &varef, &hsqm, &hsqf, &rounding};
+        if (message && myMPI::rank==0) {
+            cout << "\nBayesCXCIgxs model fitted." << endl;
+            cout << "sigmaSq: " << sigmaSq.value << endl;
+        }
+    }
+
     
     void sampleUnknowns(void);
 };

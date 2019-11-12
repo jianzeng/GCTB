@@ -95,6 +95,7 @@ public:
     bool noscale;
     bool simuMode; // simulation mode
     bool originalModel; // original BayesR model
+    bool twoStageModel;  // two-step approach for estimating X-chr dosage model and G by sex
 
     // Bayes R defauls
     VectorXf gamma;  // Default scaling parameters for Bayes R
@@ -205,6 +206,7 @@ public:
         noscale                 = false; // Scale the genotypes or not. Default is scaling 0
         simuMode                = false;
         originalModel           = false;
+        twoStageModel           = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";

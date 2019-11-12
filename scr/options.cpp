@@ -445,6 +445,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             lambda = atof(argv[++i]);
             ss << "--lambda " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--two-stage-model")) {
+            twoStageModel = true;
+            ss << "--two-stage-model " << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";

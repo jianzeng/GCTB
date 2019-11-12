@@ -40,7 +40,7 @@ void XCI::restoreFamFileOrder(vector<IndInfo*> &indInfoVec){
 }
 
 void XCI::inputIndInfo(Data &data, const string &bedFile, const string &phenotypeFile, const string &keepIndFile,
-                       const unsigned keepIndMax, const unsigned mphen, const string &covariateFile){
+                       const unsigned keepIndMax, const unsigned mphen, const string &covariateFile, const bool femaleOnly){
     data.readFamFile(bedFile + ".fam");
     data.readPhenotypeFile(phenotypeFile, mphen);
     data.readCovariateFile(covariateFile);
@@ -271,6 +271,29 @@ Model* XCI::buildModel(Data &data, const string &bayesType, const float heritabi
         throw(" Error: Wrong bayes type: " + bayesType);
     }
 }
+
+Model* XCI::buildModelStageOne(Data &data, const string &bayesType, const float heritability, const float pi, const VectorXf &piPar, const bool estimatePi, const float piNDC, const Vector2f &piNDCpar, const bool estimatePiNDC){
+    if (!myMPI::rank) {
+        cout << "Running a two-stage model: " << endl;
+        cout << "  Stage One: estimating dosage compensation model with females only data." << endl;
+    }
+    data.initVariances(heritability);
+    bool noscale = true;
+    return new BayesCXCI(data, data.varGenotypic, data.varResidual, pi, piPar[0], piPar[1], estimatePi, piNDC, piNDCpar, estimatePiNDC, 0, numKeptFemales, noscale);
+}
+
+Model* XCI::buildModelStageTwo(Data &data, const string &bayesType, const float heritability, const float pi, const VectorXf &piPar, const bool estimatePi, const float piNDC, const Vector2f &piNDCpar, const bool estimatePiNDC, const string &snpResFile, const float piGxE, const bool estimatePiGxE){
+    if (!myMPI::rank) {
+        cout << "  State Two: estimating genotype-by-sex effects given the estimated dosage compensation probabilities." << endl;
+    }
+    bool noscale = true;
+    VectorXf snpPiNDC(data.numIncdSnps);
+    readSnpPiNDC(snpPiNDC, data, snpResFile);
+    Vector3f pis;
+    pis << 1.0-pi, pi*(1.0-piGxE), pi*piGxE;  // prob of zero effect, sex-shared effect, sex-specific effect
+    return new BayesCXCIgxs(data, data.varGenotypic, data.varResidual, pis, piPar, estimatePi, piNDC, piNDCpar, estimatePiNDC, snpPiNDC, estimatePiGxE, numKeptMales, numKeptFemales, noscale);
+}
+
 
 void XCI::simu(Data &data, const float pi, const float heritability, const float probNDC, const float probGxS, const bool removeQTL, const string &title, const int seed){
     if (myMPI::rank==0) cout << "Simulation start ..." << endl;
@@ -593,6 +616,40 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
         }
         out.close();
     }
+}
+
+void XCI::readSnpPiNDC(VectorXf &snpPiNDC, const Data &data, const string &snpResFile) {
+    ifstream in(snpResFile.c_str());
+    if (!in) throw ("Error: can not open the SNP result file [" + snpResFile + "] to read.");
+    if (myMPI::rank==0)
+    cout << "Reading estimated SNP NDC probabilities from [" + snpResFile + "]." << endl;
+
+    Gadget::Tokenizer colData;
+    string inputStr;
+    string sep(" \t");
+    unsigned line=0;
+    unsigned idx = 999;
+    
+    while (getline(in,inputStr)) {
+        colData.getTokens(inputStr, sep);
+        if (!line) {
+            for (unsigned i=0; i<colData.size(); ++i) {
+                if (colData[i] == "PrNDC") {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx == 999 && myMPI::rank==0) {
+                cout << "Error: No column in [" + snpResFile + "] called PrNDC!" << endl;
+            }
+        } else {
+            snpPiNDC[line-1] = atof(colData[idx].c_str());
+        }
+        ++line;
+    }
+    in.close();
+    if (myMPI::rank==0)
+    cout << "The mean of the estimated PrNDC across " << data.numIncdSnps << " SNPs: " << snpPiNDC.mean() << endl;
 }
 
 
@@ -1218,7 +1275,6 @@ void BayesCXCIgxs::SnpEffects::sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, 
                 values(i,0) = values(i,1) = sampleMale = sampleFemale = normal.sample(uhatSame[sampleDeltaNDC], invLhsSame[sampleDeltaNDC]);
 //                cout << sampleMale << " " << sampleFemale << endl;
             } else {  // different effect sizes in males and females
-                deltaNDC[i] = sampleDeltaNDC = bernoulli.sample(piNDC);
                 values(i,0) = sampleMale = normal.sample(uhatMale, invLhsMale);
                 values(i,1) = sampleFemale = normal.sample(uhatFemale[sampleDeltaNDC], invLhsFemale[sampleDeltaNDC]);
                 deltaGxS[i] = 1;
@@ -1243,6 +1299,172 @@ void BayesCXCIgxs::SnpEffects::sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, 
 //                ycorrf -= Z.col(i).tail(nfemale) * sampleFemale * 0.5f;
 //                ghatf += Z.col(i).tail(nfemale) * sampleFemale * 0.5f;
 //            }
+        }
+        else {
+            if (oldSampleMale)   ycorrm += Z.col(i).head(nmale)*oldSampleMale;
+            if (oldSampleFemale) ycorrf += Z.col(i).tail(nfemale)*(dmcoef[oldSampleDeltaNDC]*oldSampleFemale);
+            values(i,0) = values(i,1) = 0.0;
+        }
+    }
+}
+
+void BayesCXCIgxs::SnpEffects::sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, const MatrixXf &Z, const VectorXf &ZPZdiag,
+                                            const VectorXf &ZPZdiagMale, const VectorXf &ZPZdiagFemale,
+                                            const VectorXf &ZPZdiagMaleRank, const VectorXf &ZPZdiagFemaleRank,
+                                            const unsigned nmale, const unsigned nfemale,
+                                            const VectorXf &snpPiNDC, const VectorXf &logSnpPiNDC, const VectorXf &logSnpPiNDCcomp,
+                                            const float sigmaSq, const Vector3f &pis, const float varem, const float varef,
+                                            VectorXf &deltaNDC, VectorXf &deltaGxS, VectorXf &ghatm, VectorXf &ghatf){
+    // sample beta, delta, deltaNDC jointly
+    // f(beta, delta, deltaNDC) propto f(beta | delta, deltaNDC) f(delta | deltaNDC) f(deltaNDC)
+    
+    //////////////////////////////////////////////
+    ////// Given per-snp piNDC ///////////////////
+    //////////////////////////////////////////////
+    
+    //cout << "check pi " << pi << " p " << p << " sigmaSq " << sigmaSq << endl;
+    
+    sumSq = 0.0;
+    numNonZeros = 0;
+    numSnpMixComp.setZero(3);
+    deltaGxS.setZero(size);
+    
+    ghatm.setZero(ycorrm.size());
+    ghatf.setZero(ycorrf.size());
+    
+    Array2f my_rhs, rhs;   // 0: male, 1: female under NDC
+    Array2f rhsFemale;     // 0: FDC, 1: NDC, corresponding to deltaNDC
+    Array2f rhsSame;       // 0: FDC, 1: NDC, corresponding to deltaNDC; same effect in males and females
+    Array2f invLhsFemale;  // 0: FDC, 1: NDC, corresponding to deltaNDC
+    Array2f invLhsSame;    // 0: FDC, 1: NDC, corresponding to deltaNDC
+    Array2f uhatFemale;    // 0: FDC, 1: NDC, corresponding to deltaNDC
+    Array2f uhatSame;      // 0: FDC, 1: NDC, corresponding to deltaNDC
+    Array2f logDeltaNDC;      // 0: FDC, 1: NDC, corresponding to deltaNDC
+    Array2f quadGxE;       // 0: FDC, 1: NDC, corresponding to deltaNDC
+    Array2f quadSame;      // 0: FDC, 1: NDC, corresponding to deltaNDC
+    Array2f SEuhatFoverM;
+    
+    Array2f dmcoef;
+    dmcoef << 0.5, 1.0;
+    
+    Array3f logPis = pis.array().log();  // 0: null effect, 1: same effect, 2: sex-specific effect
+    Array3f logDelta;
+    Array3f probDelta;
+    
+    float oldSampleMale, oldSampleFemale;
+    float sampleMale, sampleFemale;
+    float logSigmaSq = log(sigmaSq);
+    float invVarem = 1.0f/varem;
+    float invVaref = 1.0f/varef;
+    float invSigmaSq = 1.0f/sigmaSq;
+    float rhsMale;
+    float invLhsMale;
+    float uhatMale;
+    float probDeltaNDC1;
+    float oldSampleDeltaNDC, sampleDeltaNDC;
+    
+    unsigned delta;
+    
+    for (unsigned i=0; i<size; ++i) {
+        oldSampleMale   = values(i,0);
+        oldSampleFemale = values(i,1);
+        oldSampleDeltaNDC = deltaNDC[i];
+        
+        my_rhs[0] = Z.col(i).head(nmale).dot(ycorrm) + ZPZdiagMaleRank[i]*oldSampleMale;
+        my_rhs[1] = Z.col(i).tail(nfemale).dot(ycorrf) + dmcoef[deltaNDC[i]]*ZPZdiagFemaleRank[i]*oldSampleFemale;
+        my_rhs[0] *= invVarem;
+        my_rhs[1] *= invVaref;
+        
+        MPI_Allreduce(&my_rhs[0], &rhs[0], 2, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
+        
+        //cout << "snp " << i << " rhs " << rhs.transpose() << " " << deltaNDC[i] << " " << oldSampleMale << " " << oldSampleFemale << " ycorrm " << ycorrm.squaredNorm() << " ycorrf " << ycorrf.squaredNorm() << " dmcoef[deltaNDC[i]] " << dmcoef[deltaNDC[i]] << " ZPZdiagFemale[i] " << ZPZdiagFemale[i] << " invVarem " << invVarem << " invVaref " << invVaref << endl;
+        //        cout << myMPI::rank << " snp " << i << " rhs " << rhs.transpose() << " " << Z.col(i).head(nmale).squaredNorm() << " " << Z.col(i).tail(nfemale).squaredNorm() << " nmale " << nmale << " nfemale " << nfemale << " ZPZdiagMale[i] " << ZPZdiagMale[i] << " ZPZdiagFemale[i] " << ZPZdiagFemale[i] << endl;
+        
+        //float tmp;
+        //cin >> tmp;
+        
+        rhsMale        = rhs[0];
+        rhsFemale[0]   = rhs[1]*0.5f;
+        rhsFemale[1]   = rhs[1];
+        rhsSame        = rhsMale + rhsFemale;
+        
+        invLhsMale      = 1.0f/(ZPZdiagMale[i]*invVarem + invSigmaSq);
+        invLhsFemale[0] = 1.0f/(ZPZdiagFemale[i]*0.25f*invVaref + invSigmaSq);
+        invLhsFemale[1] = 1.0f/(ZPZdiagFemale[i]*invVaref       + invSigmaSq);
+        invLhsSame[0]   = 1.0f/(ZPZdiagMale[i]*invVarem + ZPZdiagFemale[i]*0.25f*invVaref + invSigmaSq);
+        invLhsSame[1]   = 1.0f/(ZPZdiagMale[i]*invVarem + ZPZdiagFemale[i]*invVaref       + invSigmaSq);
+        
+        //        cout << ZPZdiagMale[i] << " " << ZPZdiagFemale[i] << " " << invLhsMale << " " << invLhsFemale.transpose() << " " << invVarem << " " << invVaref << endl;
+        
+        uhatMale   = invLhsMale  *rhsMale;
+        uhatFemale = invLhsFemale*rhsFemale;
+        uhatSame   = invLhsSame  *rhsSame;
+        
+        quadGxE  = uhatMale*rhsMale + uhatFemale*rhsFemale;
+        quadSame = uhatSame*rhsSame;
+        
+        
+//        SEuhatFoverM[1] = sqrt(invLhsFemale[1]/(uhatMale*uhatMale) + invLhsMale*uhatFemale[1]*uhatFemale[1]/(uhatMale*uhatMale*uhatMale*uhatMale));
+//        SEuhatFoverM[0] = sqrt(invLhsFemale[0]/(uhatMale*uhatMale) + invLhsMale*uhatFemale[0]*uhatFemale[0]/(uhatMale*uhatMale*uhatMale*uhatMale));
+//        if ((uhatFemale[1]/uhatMale - 0.001*SEuhatFoverM[1]) < 0.5 && (uhatFemale[1]/uhatMale + 0.001*SEuhatFoverM[1]) > 0.5) {
+//            quadGxE.setZero(2);
+//        } else if ((uhatFemale[0]/uhatMale - 0.001*SEuhatFoverM[0]) < 2.0 && (uhatFemale[0]/uhatMale + 0.001*SEuhatFoverM[0]) > 2.0) {
+//            quadGxE.setZero(2);
+//        }
+        
+        //sample deltaNDC
+        logDeltaNDC[1] = 0.5f*quadSame[1] + logf(sqrt(invLhsSame[1])*pis[1] + expf(0.5f*(quadGxE[1]-quadSame[1]))*sqrt(invLhsMale*invLhsFemale[1]*invSigmaSq)*pis[2] + expf(0.5f*(logSigmaSq-quadSame[1]))*pis[0]) + logSnpPiNDC[i];
+        logDeltaNDC[0] = 0.5f*quadSame[0] + logf(sqrt(invLhsSame[0])*pis[1] + expf(0.5f*(quadGxE[0]-quadSame[0]))*sqrt(invLhsMale*invLhsFemale[0]*invSigmaSq)*pis[2] + expf(0.5f*(logSigmaSq-quadSame[0]))*pis[0]) + logSnpPiNDCcomp[i];
+        
+        probDeltaNDC1 = 1.0f/(1.0f + expf(logDeltaNDC[0] - logDeltaNDC[1]));
+        sampleDeltaNDC = bernoulli.sample(probDeltaNDC1);
+        //        cout << quadSame.transpose() <<  " " << invLhsSame.transpose() << " " << quadGxE.transpose() << " " << invLhsMale << " " << invLhsFemale.transpose() << endl;
+        //        sampleDeltaNDC = 1;
+        deltaNDC[i] = sampleDeltaNDC;
+        //        cout << "logDeltaNDC " << logDeltaNDC.transpose() << endl;
+        //        cout << sqrt(invLhsSame[1])*pis[1] << " " << (0.5f*(quadGxE[1]-quadSame[1])) << " " << sqrt(invLhsMale*invLhsFemale[1]*invSigmaSq)*pis[2] << " " << expf(0.5f*(logSigmaSq-quadSame[1]))*pis[0] << endl;
+        //        cout << "probDeltaNDC1 " << probDeltaNDC1 << " sampleDeltaNDC " << sampleDeltaNDC << endl;
+        //        cout << "quadGxE " << quadGxE.transpose() << " quadSame " << quadSame.transpose() << endl;
+        
+        // sample delta
+        logDelta[0] = logPis[0];
+        logDelta[1] = 0.5f*(logf(invLhsSame[sampleDeltaNDC]) - logSigmaSq + quadSame[sampleDeltaNDC]) + logPis[1];
+        logDelta[2] = 0.5f*(logf(invLhsMale)+logf(invLhsFemale[sampleDeltaNDC]) - 2.0f*logSigmaSq + quadGxE[sampleDeltaNDC]) + logPis[2];
+        //        }
+        
+        for (unsigned j=0; j<3; ++j) {
+            probDelta[j] = 1.0f/(logDelta-logDelta[j]).exp().sum();
+        }
+        
+        delta = bernoulli.sample(probDelta);
+        //        cout << logDelta.transpose() << endl;
+        //        cout << "probDelta " << probDelta.transpose() << " delta " << delta << endl;
+        //        delta = 1;
+        ++numSnpMixComp[delta];
+        
+        //        cout << logLikeNDCSame << " " << logLikeFDCGxE << " " << deltaNDC[i] << " " << delta << endl;
+        
+        if (delta) {
+            // sample effect
+            
+            if (delta == 1) {  // same effect size in males and females
+                values(i,0) = values(i,1) = sampleMale = sampleFemale = normal.sample(uhatSame[sampleDeltaNDC], invLhsSame[sampleDeltaNDC]);
+                //                cout << sampleMale << " " << sampleFemale << endl;
+            } else {  // different effect sizes in males and females
+                values(i,0) = sampleMale = normal.sample(uhatMale, invLhsMale);
+                values(i,1) = sampleFemale = normal.sample(uhatFemale[sampleDeltaNDC], invLhsFemale[sampleDeltaNDC]);
+                deltaGxS[i] = 1;
+            }
+            
+            sumSq += sampleMale * sampleMale + sampleFemale * sampleFemale;
+            ++numNonZeros;
+            
+            ycorrm += Z.col(i).head(nmale)*(oldSampleMale - sampleMale);
+            ycorrf += Z.col(i).tail(nfemale)*(dmcoef[oldSampleDeltaNDC]*oldSampleFemale - dmcoef[sampleDeltaNDC]*sampleFemale);
+            
+            ghatm += Z.col(i).head(nmale) * sampleMale;
+            ghatf += Z.col(i).tail(nfemale) * (dmcoef[sampleDeltaNDC]*sampleFemale);
+            
         }
         else {
             if (oldSampleMale)   ycorrm += Z.col(i).head(nmale)*oldSampleMale;
@@ -1408,7 +1630,6 @@ void SBayesCXCIgxs::SnpEffects::sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf,
                 values(i,0) = values(i,1) = sampleMale = sampleFemale = normal.sample(uhatSame[sampleDeltaNDC], invLhsSame[sampleDeltaNDC]);
                 //                cout << sampleMale << " " << sampleFemale << endl;
             } else {  // different effect sizes in males and females
-                deltaNDC[i] = sampleDeltaNDC = bernoulli.sample(piNDC);
                 values(i,0) = sampleMale = normal.sample(uhatMale, invLhsMale);
                 values(i,1) = sampleFemale = normal.sample(uhatFemale[sampleDeltaNDC], invLhsFemale[sampleDeltaNDC]);
                 deltaGxS[i] = 1;
@@ -1472,9 +1693,16 @@ void BayesCXCIgxs::sampleUnknowns(){
 
 //    unsigned cnt=0;
 //    do {
+    if (snpPiNDCgiven) { // two-stage model
+        snpEffects.sampleFromFC(ycorrm, ycorrf, data.Z, data.ZPZdiag, ZPZdiagMale, ZPZdiagFemale, ZPZdiagMaleRank, ZPZdiagFemaleRank,
+                                nmale, nfemale, snpPiNDC, logSnpPiNDC, logSnpPiNDCcomp,
+                                sigmaSq.value, pis.values, varem.value, varef.value,
+                                deltaNDC.values, deltaGxS.values, ghatm, ghatf);
+    } else {
         snpEffects.sampleFromFC(ycorrm, ycorrf, data.Z, data.ZPZdiag, ZPZdiagMale, ZPZdiagFemale, ZPZdiagMaleRank, ZPZdiagFemaleRank,
                                 nmale, nfemale, piDeltaNDC.value, sigmaSq.value, pis.values, varem.value, varef.value,
                                 deltaNDC.values, deltaGxS.values, ghatm, ghatf);
+    }
 //        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
 //    } while (snpEffects.numNonZeros == 0);
     
@@ -1929,7 +2157,6 @@ void BayesXgxs::SnpEffects::sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, con
                 values(i,0) = values(i,1) = sampleMale = sampleFemale = normal.sample(uhatSame[sampleDeltaNDC], invLhsSame[sampleDeltaNDC]);
                 //                cout << sampleMale << " " << sampleFemale << endl;
             } else {  // different effect sizes in males and females
-                deltaNDC[i] = sampleDeltaNDC = bernoulli.sample(piDosage[1]);
                 values(i,0) = sampleMale = normal.sample(uhatMale, invLhsMale);
                 values(i,1) = sampleFemale = normal.sample(uhatFemale[sampleDeltaNDC], invLhsFemale[sampleDeltaNDC]);
                 deltaGxS[i] = 1;
