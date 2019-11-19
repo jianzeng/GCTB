@@ -187,6 +187,8 @@ int main(int argc, const char * argv[]) {
                     gctb.saveMcmcSamples(mcmcSampleVec, opt.title + ".stage1");
                     gctb.outputResults(data, mcmcSampleVec, "C", true, opt.title + ".stage1");
                     xci.outputResults(data, mcmcSampleVec, "C", opt.title + ".stage1");
+                    MPI_Barrier(MPI_COMM_WORLD);
+                    delete model;
                     // Stage 2: estimate GxS using both male and female data
                     model = xci.buildModelStageTwo(data, "Cgxs", opt.heritability, opt.pi, opt.piPar, opt.estimatePi, opt.piNDC, opt.piNDCpar, opt.estimatePiNDC, opt.title + ".stage1.snpRes", opt.piGxE, opt.estimatePiGxE);
                     mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,

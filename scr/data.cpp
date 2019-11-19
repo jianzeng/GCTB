@@ -1986,7 +1986,7 @@ void Data::outputLDmatrix(const string &LDmatType, const string &filename, const
         if (LDmatType == "sparse") {
             fwrite(ZPZsp[i].innerIndexPtr(), sizeof(unsigned), ZPZsp[i].nonZeros(), out2);
             fwrite(ZPZsp[i].valuePtr(), sizeof(float), ZPZsp[i].nonZeros(), out2);
-            if (writeLdmTxt) out3 << ZPZsp[i].transpose() << endl;
+            if (writeLdmTxt) out3 << ZPZsp[i].transpose();
         } else {
             fwrite(&ZPZ[i][0], sizeof(float), snp->windSize, out2);
             if (writeLdmTxt) out3 << ZPZ[i].transpose() << endl;
@@ -3730,7 +3730,7 @@ void Data::buildSparseMME(const bool sampleOverlap, const string &bayesType, con
 //        D[i] = 1.0/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
 //        snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
     }
-    b.array() -= b.mean();
+    //b.array() -= b.mean();  // DO NOT CENTER b
     
     // estimate phenotypic variance based on the input allele frequencies in GWAS
     //ypy = (D.array()*(n.array()*se.array().square()+b.array().square())).mean();
@@ -3820,6 +3820,8 @@ void Data::buildSparseMME(const bool sampleOverlap, const string &bayesType, con
     }
     chisq = ZPy.cwiseProduct(b);
     
+//    cout << "!!!!!!!!" << endl << ZPZdiag.transpose() << endl << endl;
+    
 //        ofstream out("ldsc.txt");
 //        for (unsigned i=0; i<numIncdSnps; ++i) {
 //            snp = incdSnpInfoVec[i];
@@ -3873,6 +3875,25 @@ void Data::buildSparseMME(const bool sampleOverlap, const string &bayesType, con
     XPXdiag << XPX(0,0);
     XPy.resize(1,1);
     XPy << ZPy.sum();
+    
+//    cout << "ZPZ" << endl;
+//    for (unsigned i=0; i<numIncdSnps; ++i) {
+//        cout << ZPZ[i].transpose() << endl;
+//    }
+//    
+//    cout << "ZPZdiag" << endl;
+//    cout << ZPZdiag.transpose() << endl;
+//    
+//    cout << "D" << endl << D.transpose() << endl << endl;
+//    
+//    cout << "n" << endl << n.transpose() << endl << endl;
+//    
+//    cout << "2pq" << endl << snp2pq.transpose() << endl << endl;
+//    
+//    cout << "b" << endl << b.transpose() << endl << endl;
+//
+//    cout << "ZPy" << endl;
+//    cout << ZPy.transpose() << endl;
     
     // data summary
     cout << "\nData summary:" << endl;

@@ -275,7 +275,7 @@ Model* XCI::buildModel(Data &data, const string &bayesType, const float heritabi
 Model* XCI::buildModelStageOne(Data &data, const string &bayesType, const float heritability, const float pi, const VectorXf &piPar, const bool estimatePi, const float piNDC, const Vector2f &piNDCpar, const bool estimatePiNDC){
     if (!myMPI::rank) {
         cout << "Running a two-stage model: " << endl;
-        cout << "  Stage One: estimating dosage compensation model with females only data." << endl;
+        cout << "Stage One: estimating dosage compensation model with females only data." << endl;
     }
     data.initVariances(heritability);
     bool noscale = true;
@@ -284,7 +284,7 @@ Model* XCI::buildModelStageOne(Data &data, const string &bayesType, const float 
 
 Model* XCI::buildModelStageTwo(Data &data, const string &bayesType, const float heritability, const float pi, const VectorXf &piPar, const bool estimatePi, const float piNDC, const Vector2f &piNDCpar, const bool estimatePiNDC, const string &snpResFile, const float piGxE, const bool estimatePiGxE){
     if (!myMPI::rank) {
-        cout << "  State Two: estimating genotype-by-sex effects given the estimated dosage compensation probabilities." << endl;
+        cout << endl << "State Two: estimating genotype-by-sex effects given the estimated dosage compensation probabilities." << endl;
     }
     bool noscale = true;
     VectorXf snpPiNDC(data.numIncdSnps);
@@ -474,6 +474,7 @@ void XCI::simu(Data &data, const float pi, const float heritability, const float
 }
 
 void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &bayesType, const string &title){
+    if (myMPI::rank) return;
     if (bayesType == "Xgxs") {
         McmcSamples *snpEffectsMale = NULL;
         McmcSamples *snpEffectsFemale = NULL;
@@ -487,7 +488,7 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
             if (mcmcSampleVec[i]->label == "DeltaFDC") deltaFDC = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label == "DeltaGxS") deltaGxS = mcmcSampleVec[i];
         }
-        if (myMPI::rank) return;
+        
         string filename = title + ".snpRes";
         ofstream out(filename.c_str());
         out << boost::format("%6s %20s %6s %12s %8s %12s %12s %12s %12s %8s %8s %8s %8s\n")
@@ -537,7 +538,7 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
             if (mcmcSampleVec[i]->label == "DeltaNDC") deltaNDC = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label == "DeltaGxS") deltaGxS = mcmcSampleVec[i];
         }
-        if (myMPI::rank) return;
+
         string filename = title + ".snpRes";
         ofstream out(filename.c_str());
         out << boost::format("%6s %20s %6s %12s %8s %12s %12s %12s %12s %8s %8s %8s")
@@ -585,7 +586,6 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
             if (mcmcSampleVec[i]->label == "SnpEffects") snpEffects = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label == "DeltaNDC") deltaNDC = mcmcSampleVec[i];
         }
-        if (myMPI::rank) return;
         string filename = title + ".snpRes";
         ofstream out(filename.c_str());
         out << boost::format("%6s %20s %6s %12s %8s %12s %12s %8s %8s\n")
