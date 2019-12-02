@@ -3706,7 +3706,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
 // =============================================================================================
 
 
-void Data::buildSparseMME(const bool sampleOverlap, const string &bayesType, const bool noscale){
+void Data::buildSparseMME(const bool sampleOverlap, const bool noscale){
     VectorXf Dref = snp2pq*numKeptInds;
     snp2pq.resize(numIncdSnps);
     D.resize(numIncdSnps);

@@ -214,7 +214,7 @@ public:
     BayesBXCI(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi, const float piNDCval, const Vector2f &piNDCpar, const bool estimatePiNDC, const unsigned nmale, const unsigned nfemale, const bool noscale, const bool message = true):
     BayesCXCI(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, piNDCval, piNDCpar, estimatePiNDC, nmale, nfemale, false),
     snpEffects(data.snpEffectNames),
-    sigmaSq(varGenotypic, data.snp2pq, pival)
+    sigmaSq(varGenotypic, data.snp2pq, pival, false)
     {
         paramSetVec = {&snpEffects, &deltaNDC, &fixedEffects};
         paramVec = {&pi, &nnzSnp, &piNDC, &scale, &vare, &varg, &hsq};

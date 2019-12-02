@@ -155,7 +155,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--pi")) {
             Gadget::Tokenizer strvec;
             strvec.getTokens(argv[++i], " ,");
-            if (strvec.size() != 1 && (bayesType != "R" && bayesType != "Kap")) 
+            if (strvec.size() != 1 && (bayesType != "R" && bayesType != "Kap" && bayesType != "RS"))
             {
                 throw("Error: When NOT using Bayes R or Kap option you can only specify one mixture proportion parameter.");
             } 
@@ -474,7 +474,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
     }
     
     // BayesS type of model do not allow scaled genotypes
-    if (bayesType == "S" || bayesType == "ST" || bayesType == "T" || bayesType == "SMix") {
+    if (bayesType == "S" || bayesType == "ST" || bayesType == "T" || bayesType == "SMix" || bayesType == "RS") {
         noscale = true;
     }
     
