@@ -538,7 +538,7 @@ public:
 
     BayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const float piAlpha, const float piBeta, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool originalModel,
            const string &algorithm, const bool message = true):
-    BayesC(data, varGenotypic, varResidual, pis[0], piAlpha, piBeta, estimatePi, noscale, "Gibbs", false),
+    BayesC(data, varGenotypic, varResidual, 1-pis[0], piAlpha, piBeta, estimatePi, noscale, "Gibbs", false),
     Pis(pis),
     numSnps(pis),
     Vgs(gamma),
