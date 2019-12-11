@@ -104,11 +104,11 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
             else if (bayesType == "SMix")
                 return new ApproxBayesSMix(data, data.varGenotypic, data.varResidual, pi, overdispersion, estimatePS, varS, S);
             else if (bayesType == "R")
-                return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode);
+                return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, algorithm);
             else if (bayesType == "Kap")
                 return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, icrsq, kappa);
             else if (bayesType == "RS")
-                return new ApproxBayesRS(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, varS, S, algorithm, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode);
+                return new ApproxBayesRS(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, varS, S, algorithm, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, algorithm);
             else
                 throw(" Error: Wrong bayes type: " + bayesType + " in the summary-data-based Bayesian analysis.");
         }

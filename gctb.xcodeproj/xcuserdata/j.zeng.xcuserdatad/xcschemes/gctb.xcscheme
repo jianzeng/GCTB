@@ -64,7 +64,11 @@
       <CommandLineArguments>
          <CommandLineArgument
             argument = "--inp-file"
-            isEnabled = "YES">
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--thin 1"
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--original-model"
@@ -72,6 +76,70 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "/Users/j.zeng/Work/Projects/XCI/test/rep1.chip.inp"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--sbayes R"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--overlap"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--overdispersion 250"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--bfile /Users/j.zeng/XCode/gctb_tarball/gctb_1.0_Linux/data/1000G_eur_chr22"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--pheno /Users/j.zeng/XCode/gctb_tarball/gctb_1.0_Linux/data/test.phen"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--gamma 0,1"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--pi 0.001,0.999"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--fix-pi"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--ldm /Users/j.zeng/Work/Projects/gctb_examine/ld.ldm.sparse"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--gwas-summary /Users/j.zeng/Work/Projects/gctb_examine/gwas.ma"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--chain-length 100"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--burn-in 0"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--out-freq 1"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--seed 123"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--out /Users/j.zeng/Work/Projects/gctb_examine/SbayesR"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--alg cg"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument

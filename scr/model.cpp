@@ -1701,7 +1701,7 @@ void ApproxBayesC::ResidualVar::sampleFromFC(const float ypy, const VectorXf &ef
 
 void ApproxBayesC::GenotypicVar::compute(const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float covg){
     float modelSS = effects.dot(ZPy) - effects.dot(rcorr) + nobs*covg;
-//    if (modelSS < 0) modelSS = 0;
+    if (modelSS < 0) modelSS = 0;
     value = modelSS/nobs;
 }
 
@@ -3110,6 +3110,11 @@ void ApproxBayesR::sampleUnknowns(){
                 varg.value, ps.value, overdispersion, originalModel);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
+    
+    if (algorithm == cg) {
+        snpEffects.adjustByCG(data.ZPy, data.ZPZsp, rcorr);
+    }
+    
     if (diagnose) nro.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, snpEffects.header, snpEffects.leaveout, data.ZPZsp, data.ZPy);
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     if (estimatePi) Pis.sampleFromFC(snpStore);
@@ -3247,6 +3252,18 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
     for (unsigned k=0; k<ndist; ++k) {
         snpset[k].resize(0);
     }
+    
+    VectorXf invGamma = gamma.array().inverse();
+    invGamma[0] = 0.0;
+    
+    lambdaVec.setZero(size);
+    uhatVec.setZero(size);
+    invGammaVec.setZero(size);
+    deltaNZ.setZero(size);
+    
+    deltaNzIdx.clear();
+    deltaNzIdx.reserve(size);
+    
     // --------------------------------------------------------------------------------
     // Cycle over all variants in the window and sample the genetics effects
     // --------------------------------------------------------------------------------
@@ -3271,6 +3288,16 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
         for (unsigned i=chrStart; i<=chrEnd; ++i) {
             oldSample = valuesPtr[i]; 
             varei = LDsamplVar[i]*varg + vare + ps + overdispersion;
+//            varei = (tss[i] + oldSample*oldSample*ZPZdiag[i])/n[i];
+//            float ssei = rcorr[i]*rcorr[i]/ZPZdiag[i];
+
+//            float dfTilde = 10 + 1;
+//            float scaleTilde = ssei + 10*(LDsamplVar[i]*varg + vare + ps + overdispersion);
+//            Stat::InvChiSq invchisq;
+//            varei = invchisq.sample(dfTilde, scaleTilde);
+//
+//            cout << i << " " << varei << endl;
+            
             // ------------------------------
             // Derived Bayes R implementation
             // ------------------------------
@@ -3326,7 +3353,9 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
                 }                                                                                                                                                                   
                 ssq[chr]  += (valuesPtr[i]*valuesPtr[i]) / gamma[indistflag - 1];
                 s2pq[chr] += snp2pq[i];
-                ++nnz[chr];                                                                                                                                                         
+                deltaNZ[i] = 1;
+                ++nnz[chr];
+                deltaNzIdx.push_back(i);
             } else {                                                                                                                                                                
                 if (oldSample) {                                                                                                                                                    
                     for (SparseVector<float>::InnerIterator it(ZPZ[i]); it; ++it) {                                                                                                 
@@ -3335,6 +3364,10 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
                 }                                                                                                                                                                   
                 valuesPtr[i] = 0.0;                                                                                                                                                 
             }
+            
+            uhatVec[i] = rhs/v1;
+            lambdaVec[i] = vare/gp[indistflag-1];
+            invGammaVec[i] = invGamma[indistflag-1];
         }
     }
     // ---------------------------------------------------------------------
@@ -3511,6 +3544,196 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
     values = VectorXf::Map(valuesPtr, size); 
 }
 
+void ApproxBayesR::SnpEffects::adjustByCG(const VectorXf &ZPy, const vector<SparseVector<float> > &ZPZsp, VectorXf &rcorr) {
+    // construct mixed model equations for those SNPs with nonzero effects and solve the equations using conjugate gradient method
+    // then adjust the Gibbs samples with the CG solutions
+    
+    VectorXf ZPyNZ(numNonZeros);
+
+    vector<Triplet<float> > tripletList;
+    tripletList.reserve(numNonZeros);
+    
+    for (unsigned i=0; i<numNonZeros; ++i) {
+        unsigned row = deltaNzIdx[i];
+        VectorXf val;
+        val.setZero(size);
+        for (SparseVector<float>::InnerIterator it(ZPZsp[row]); it; ++it) {
+            val[it.index()] = it.value();
+        }
+        val[row] += lambdaVec[row];
+//        cout << "val " << val.transpose() << endl;
+        for (unsigned j=0; j<numNonZeros; ++j) {
+            unsigned col = deltaNzIdx[j];
+//            cout << i << " " << j << " " << row << " " << col << endl;
+            tripletList.push_back(Triplet<float>(i, j, val[col]));
+//            cout << i << " " << j << " " << val[col] << endl;
+        }
+        ZPyNZ[i] = ZPy[row];
+    }
+    
+    SparseMatrix<float> C(numNonZeros, numNonZeros);
+    C.setFromTriplets(tripletList.begin(), tripletList.end());
+    C.makeCompressed();
+    tripletList.clear();
+
+//    cout << "C \n" << C.block(0,0,10,10) << endl;
+    
+    SimplicialLLT<SparseMatrix<float> > solverC;
+    solverC.compute(C);
+    
+    if(solverC.info()!=Success) {
+        cout << "Oh: Very bad" << endl;
+    }
+    
+    SparseMatrix<float> eye(numNonZeros, numNonZeros);
+    eye.setIdentity();
+    
+    SparseMatrix<float> Cinv = solverC.solve(eye);
+    
+    LLT<MatrixXf> llt;
+    llt.compute(Cinv); // cholesky decomposition
+    VectorXf nrnd(numNonZeros);
+    for (unsigned i=0; i<numNonZeros; ++i) {
+        nrnd[i] = Stat::snorm();
+    }
+
+//    ConjugateGradient<SparseMatrix<float>, Lower|Upper> cg;
+//    cg.compute(C);
+    VectorXf sol(numNonZeros);
+//    sol = cg.solve(ZPyNZ + llt.matrixL()*nrnd);
+    
+    sol = Cinv * ZPyNZ + llt.matrixL()*nrnd;
+
+//    cout << "numNonZeros " << numNonZeros << endl;
+//    cout << "size C " << C.size() << endl;
+////
+//    cout << "ZPyNZ " << ZPyNZ << endl;
+//        cout << "sol " << sol << endl;
+//    cout << "uhatVec " << uhatVec << endl;
+//
+//    cout << "#nonZero:        " << numNonZeros << endl;
+//    cout << "#iterations:     " << cg.iterations() << endl;
+//    cout << "estimated error: " << cg.error()      << endl;
+
+    float oldSample;
+    for (unsigned i=0, j=0; i<size; ++i) {
+        if (deltaNZ[i]) {
+            oldSample = values[i];
+            values[i] = sol[j];
+            //values[i] *= sol[j]/uhatVec[i];
+//            cout << i << " " << sol[j]/uhatVec[i] << endl;
+            for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
+                rcorr[it.index()] += it.value() * (oldSample - values[i]);
+            }
+            ++j;
+        }
+    }
+    
+//    cout << "old sumsq " << sumSq << endl;
+    sumSq = values.cwiseProduct(invGammaVec).dot(values);
+//    cout << "new sumsq " << sumSq << endl;
+
+}
+
+void ApproxBayesR::SnpEffects::sampleFromFC(const VectorXf &ZPy, const SparseMatrix<float> &ZPZsp, const VectorXf &ZPZdiag,
+                                            VectorXf &rcorr, const VectorXf &LDsamplVar,
+                                            const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore,
+                                            const float varg, const float vare, const float ps, const float overdispersion, const bool originalModel) {
+    // CG-accelerated Gibbs sampling algorithm
+    // first sample delta conditional on beta for all SNPs
+    // then construct mixed model equations for which the solutions are samples from the Gibbs sampling
+    // and solve the equations by conjugate gradient method
+    
+    VectorXf lambdaVec(size);
+    VectorXf invGammaVec(size);
+    
+    unsigned ndist = gamma.size();
+    snpStore.setZero(ndist);
+    
+    float varei;
+    float rhs;
+    
+    ArrayXf wtdSigmaSq(ndist);
+    ArrayXf invWtdSigmaSq(ndist);
+    ArrayXf logWtdSigmaSq(ndist);
+    ArrayXf logPis = pis.array().log();
+    ArrayXf invLhs(ndist);
+    ArrayXf uhat(ndist);
+    ArrayXf logDelta(ndist);
+    ArrayXf probDelta(ndist);
+    
+    unsigned delta;
+    
+    if (originalModel) {
+        wtdSigmaSq = gamma * 0.01 * varg;
+    } else {
+        wtdSigmaSq = gamma * sigmaSq;
+    }
+    
+    invWtdSigmaSq = wtdSigmaSq.inverse();
+    logWtdSigmaSq = wtdSigmaSq.log();
+    
+    VectorXf invGamma = gamma.inverse();
+    invGamma[0] = 0;
+
+
+    for (unsigned i=0; i<size; ++i) {
+        
+        varei = LDsamplVar[i]*varg + vare + ps + overdispersion;
+        
+        rhs  = rcorr[i] + ZPZdiag[i]*values[i];
+        
+        invLhs = (ZPZdiag[i] + varei*invWtdSigmaSq).inverse();
+        uhat = invLhs*rhs;
+        
+        logDelta = 0.5*(invLhs.log() - logWtdSigmaSq + uhat*rhs) + logPis;
+        logDelta[0] = logPis[0];
+        
+        for (unsigned k=0; k<ndist; ++k) {
+            probDelta[k] = 1.0f/(logDelta-logDelta[k]).exp().sum();
+        }
+        
+        delta = bernoulli.sample(probDelta);
+        
+        deltaNZ[i] = delta ? 1:0;
+        
+        snpset[delta].push_back(i);
+        snpStore[delta]++;
+
+        lambdaVec[i] = varei*invWtdSigmaSq[delta];
+        invGammaVec[i] = invGamma[delta];
+    }
+    
+    numNonZeros = deltaNZ.sum();
+    
+    VectorXf lambdaNZ(numNonZeros);
+    VectorXf RHS(numNonZeros);
+    SparseMatrix<float> eye(numNonZeros, numNonZeros);
+    vector<Triplet<float> > tripletList;
+    tripletList.reserve(numNonZeros);
+    for (unsigned i=0, j=0; i<size; ++i) {
+        if (deltaNZ[i]) {
+            tripletList.push_back(Triplet<float>(i,i,1));
+            lambdaNZ[j] = lambdaVec[i];
+            RHS[j] = ZPy[i] + normal.sample(0.0, ZPZdiag[i] + lambdaVec[i]);
+            ++j;
+        }
+    }
+    eye.setFromTriplets(tripletList.begin(), tripletList.end());
+    eye.makeCompressed();
+    tripletList.clear();
+
+    SparseMatrix<float> LHS = eye * ZPZsp * eye;
+    LHS.diagonal() += lambdaNZ;
+    
+    ConjugateGradient<SparseMatrix<float>, Lower|Upper> cg;
+    cg.compute(LHS);
+    values = cg.solve(RHS);
+    
+    sumSq = values.cwiseProduct(invGamma).dot(values);
+    
+    rcorr = ZPy - ZPZsp * values;
+}
 
 
 // *******************************************************
