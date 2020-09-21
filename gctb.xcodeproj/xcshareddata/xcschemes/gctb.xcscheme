@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Scheme
+   LastUpgradeVersion = "1130"
+   version = "1.3">
+   <BuildAction
+      parallelizeBuildables = "YES"
+      buildImplicitDependencies = "YES">
+      <BuildActionEntries>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "505CDBA423CEDF10007A3DB1"
+               BuildableName = "gctb"
+               BlueprintName = "gctb"
+               ReferencedContainer = "container:gctb.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
+      </BuildActionEntries>
+   </BuildAction>
+   <TestAction
+      buildConfiguration = "Debug"
+      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
+      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
+      shouldUseLaunchSchemeArgsEnv = "YES">
+      <Testables>
+      </Testables>
+   </TestAction>
+   <LaunchAction
+      buildConfiguration = "Release"
+      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
+      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
+      launchStyle = "0"
+      useCustomWorkingDirectory = "NO"
+      ignoresPersistentStateOnLaunch = "NO"
+      debugDocumentVersioning = "YES"
+      debugServiceExtension = "internal"
+      allowLocationSimulation = "YES">
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "505CDBA423CEDF10007A3DB1"
+            BuildableName = "gctb"
+            BlueprintName = "gctb"
+            ReferencedContainer = "container:gctb.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
+      <CommandLineArguments>
+         <CommandLineArgument
+            argument = "--bayes R"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--bfile /Users/uqjzeng1/Desktop/test/test"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--pheno /Users/uqjzeng1/Desktop/test/pheno.rint_25OHD.20kEURu2"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--out /Users/uqjzeng1/Desktop/test/test"
+            isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--write-ldm-txt"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--estimate-pi"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--chain-length 1000"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--burn-in 0"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--thin 1"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--out-freq 1"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--bfile /Users/uqjzeng1/Work/Projects/sbayes/res/forward_simulation/test/rep1.pop1.qtl"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--pheno /Users/uqjzeng1/Work/Projects/sbayes/res/forward_simulation/test/rep1.pop1.EyreWalker.tau0.5.vare0.1.phen"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--extract /Users/uqjzeng1/Work/Projects/sbayes/res/forward_simulation/test/rep1.pop1.common.qtllist"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--original-model"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--out /Users/uqjzeng1/Work/Projects/sbayes/res/forward_simulation/test/rep1.pop1"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--mcmc-samples /Users/uqjzeng1/Work/Projects/sbayes/res/forward_simulation/test/rep1.pop1.cqtl.mcmcsamples"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--mcmc-samples /Users/uqjzeng1/Work/Projects/sbayes/res/forward_simulation/test/rep1.pop1.cqtl.SBayesS.mcmcsamples"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--ldm /Users/uqjzeng1/Work/Projects/sbayes/res/forward_simulation/test/rep1.pop1.cqtl.ldm.full"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--gwas-summary /Users/uqjzeng1/Work/Projects/sbayes/res/forward_simulation/test/rep1.pop1.cqtl.ma"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--make-full-ldm"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--out /Users/uqjzeng1/Work/Projects/sbayes/res/forward_simulation/test/rep1.pop1.cqtl"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--ldm /Users/uqjzeng1/Work/Projects/sbayes/test/esthsq/ukbEURu_imp_v3_HM3_n50k.chisq6.ldm.sparse"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--gwas-summary /Users/uqjzeng1/Work/Projects/sbayes/test/esthsq/tr1.Hand_grip_strength_left.ma"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--mcmc-samples /Users/uqjzeng1/Work/Projects/sbayes/test/esthsq/tr1.Hand_grip_strength_left.mcmcsamples"
+            isEnabled = "NO">
+         </CommandLineArgument>
+      </CommandLineArguments>
+   </LaunchAction>
+   <ProfileAction
+      buildConfiguration = "Release"
+      shouldUseLaunchSchemeArgsEnv = "YES"
+      savedToolIdentifier = ""
+      useCustomWorkingDirectory = "NO"
+      debugDocumentVersioning = "YES">
+      <BuildableProductRunnable
+         runnableDebuggingMode = "0">
+         <BuildableReference
+            BuildableIdentifier = "primary"
+            BlueprintIdentifier = "505CDBA423CEDF10007A3DB1"
+            BuildableName = "gctb"
+            BlueprintName = "gctb"
+            ReferencedContainer = "container:gctb.xcodeproj">
+         </BuildableReference>
+      </BuildableProductRunnable>
+   </ProfileAction>
+   <AnalyzeAction
+      buildConfiguration = "Debug">
+   </AnalyzeAction>
+   <ArchiveAction
+      buildConfiguration = "Release"
+      revealArchiveInOrganizer = "YES">
+   </ArchiveAction>
+</Scheme>
