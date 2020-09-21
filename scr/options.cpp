@@ -29,6 +29,18 @@ void Options::inputOptions(const int argc, const char* argv[]){
             bayesType = argv[++i];
             ss << "--sbayes " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--cg")) {
+            analysisType = "ConjugateGradient";
+            ss << "--cg " << "\n";
+        }
+        else if (!strcmp(argv[i], "--estimate-hsq")) {
+            analysisType = "hsq";
+            ss << "--estimate-hsq " << "\n";
+        }
+        else if (!strcmp(argv[i], "--estimate-pi")) {
+            analysisType = "Pi";
+            ss << "--estimate-pi " << "\n";
+        }
 //        else if (!strcmp(argv[i], "--make-ldm")) {
 //            analysisType = "LDmatrix";
 //            ss << "--make-ldm " << "\n";
@@ -57,6 +69,11 @@ void Options::inputOptions(const int argc, const char* argv[]){
             analysisType = "LDmatrix";
             outLDmatType = "sparseshrunk";
             ss << "--make-sparse-shrunk-ldm " << "\n";
+        }
+        else if (!strcmp(argv[i], "--xci")) {
+            analysisType = "XCI";
+            bayesType = argv[++i];
+            ss << "--xci " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--alg")) {
             algorithm = argv[++i];
@@ -143,26 +160,20 @@ void Options::inputOptions(const int argc, const char* argv[]){
             windowWidth = unsigned(atof(argv[++i]) * Megabase);
             ss << "--wind " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--wind-file")) {
+            windowFile = argv[++i];
+            ss << "--wind-file " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--pi")) {
             Gadget::Tokenizer strvec;
             strvec.getTokens(argv[++i], " ,");
-            if (strvec.size() != 1 && (bayesType != "R" && bayesType != "Kap")) 
-            {
-                throw("Error: When NOT using Bayes R or Kap option you can only specify one mixture proportion parameter.");
-            } 
-            if (strvec.size() == 1)
-            {
-                for (unsigned j=0; j<strvec.size(); ++j) 
-                {
-                    pi = stof(strvec[j]);
-                }
-            } else 
-            {
+            if (strvec.size() != 1 && (bayesType != "R" && bayesType != "Kap" && bayesType != "RS"))
+                throw("Error: When NOT using Bayes R or RS option you can only specify one mixture proportion parameter.");
+            if (strvec.size() == 1) {
+                for (unsigned j=0; j<strvec.size(); ++j) pi = stof(strvec[j]);
+            } else {
                 pis.resize(strvec.size());
-                for (unsigned j=0; j<strvec.size(); ++j) 
-                {
-                    pis[j] = stof(strvec[j]);
-                }
+                for (unsigned j=0; j<strvec.size(); ++j) pis[j] = stof(strvec[j]);
             }
             ss << "--pi " << argv[i] << "\n";
         }
@@ -226,9 +237,39 @@ void Options::inputOptions(const int argc, const char* argv[]){
             thin = atoi(argv[++i]);
             ss << "--thin " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--fix-sigma2")) {
+            estimateSigmaSq = false;
+            ss << "--fix-sigma2 " << "\n";
+        }
         else if (!strcmp(argv[i], "--fix-pi")) {
             estimatePi = false;
             ss << "--fix-pi " << "\n";
+        }
+        else if (!strcmp(argv[i], "--fix-pi-ndc")) {
+            estimatePiNDC = false;
+            ss << "--fix-pi-ndc " << "\n";
+        }
+        else if (!strcmp(argv[i], "--fix-pi-gxe")) {
+            estimatePiGxE = false;
+            ss << "--fix-pi-gxe " << "\n";
+        }
+        else if (!strcmp(argv[i], "--pi-par")) {
+            Gadget::Tokenizer strvec;
+            strvec.getTokens(argv[++i], " ,");
+            piPar.resize(strvec.size());
+            for (unsigned j=0; j<strvec.size(); ++j) {
+                piPar[j] = stof(strvec[j]);
+            }
+            ss << "--pi-par " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--pi-ndc-par")) {
+            Gadget::Tokenizer strvec;
+            strvec.getTokens(argv[++i], " ,");
+            if (strvec.size()>2) throw("Error: --pi-ndc-par only allow two parameters!");
+            for (unsigned j=0; j<strvec.size(); ++j) {
+                piNDCpar[j] = stof(strvec[j]);
+            }
+            ss << "--pi-ndc-par " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--varS")) {
             varS = atof(argv[++i]);
@@ -277,6 +318,19 @@ void Options::inputOptions(const int argc, const char* argv[]){
             LDthreshold = atof(argv[++i]);
             ss << "--ld " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--rsq")) {
+            rsqThreshold = atof(argv[++i]);
+            ss << "--rsq " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--p-value")) {
+            pValueThreshold = atof(argv[++i]);
+            ss << "--p-value " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--bin-snp")) {
+            analysisType = "LDmatrix";
+            binSnp = true;
+            ss << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--unscale-genotype")) {
             noscale = true;
             ss << argv[i] << "\n";
@@ -316,6 +370,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--write-ldm-txt")) {
             writeLdmTxt = true;
             ss << "--write-ldm-txt " << "\n";
+        }
+        else if (!strcmp(argv[i], "--read-ldm-txt")) {
+            readLdmTxt = true;
+            ss << "--read-ldm-txt " << "\n";
         }
         else if (!strcmp(argv[i], "--exclude-mhc")) {
             excludeMHC = true;
@@ -406,6 +464,14 @@ void Options::inputOptions(const int argc, const char* argv[]){
             originalModel = true;
             ss << "--original-model " << "\n";
         }
+        else if (!strcmp(argv[i], "--lambda")) {
+            lambda = atof(argv[++i]);
+            ss << "--lambda " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--two-stage-model")) {
+            twoStageModel = true;
+            ss << "--two-stage-model " << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";
@@ -431,18 +497,18 @@ void Options::inputOptions(const int argc, const char* argv[]){
     }
     
     // BayesS type of model do not allow scaled genotypes
-    if (bayesType == "S" || bayesType == "ST" || bayesType == "T" || bayesType == "SMix") {
+    if (bayesType == "S" || bayesType == "ST" || bayesType == "T" || bayesType == "SMix" || bayesType == "RS") {
         noscale = true;
     }
+    
+    if (analysisType == "hsq") noscale = true;
     
     if (chainLength < burnin) {
         throw("Error: Chain length is smaller than burn-in!");
     }
-
-//    MPI_Comm_rank(MPI_COMM_WORLD, &myMPI::rank);
-//    if(myMPI::rank==0)
-        cout << ss.str() << endl;
-
+    
+    cout << ss.str() << endl;
+    
     setThread();
 }
 
@@ -527,6 +593,8 @@ void Options::readFile(const string &file){  // input options from file
             estimatePi = false;
         } else if (key == "estimatePiNDC" && value == "No") {
             estimatePiNDC = false;
+        } else if (key == "estimatePiGxE" && value == "No") {
+            estimatePiGxE = false;
         } else if (key == "outputResults" && value == "No") {
             outputResults = false;
         } else if (key == "varS") {
@@ -580,10 +648,8 @@ void Options::readFile(const string &file){  // input options from file
     }
     in.close();
     
-//    MPI_Comm_rank(MPI_COMM_WORLD, &myMPI::rank);
-//    if(myMPI::rank==0)
-        cout << ss.str() << endl;
-        
+    cout << ss.str() << endl;
+
     setThread();
 }
 
