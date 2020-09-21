@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "0730"
+   LastUpgradeVersion = "1130"
    version = "1.3">
    <BuildAction
       parallelizeBuildables = "YES"
@@ -14,7 +14,7 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "50E3767E1FC585380038770F"
+               BlueprintIdentifier = "505CDBA423CEDF10007A3DB1"
                BuildableName = "gctb"
                BlueprintName = "gctb"
                ReferencedContainer = "container:gctb.xcodeproj">
@@ -29,17 +29,6 @@
       shouldUseLaunchSchemeArgsEnv = "YES">
       <Testables>
       </Testables>
-      <MacroExpansion>
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "50E3767E1FC585380038770F"
-            BuildableName = "gctb"
-            BlueprintName = "gctb"
-            ReferencedContainer = "container:gctb.xcodeproj">
-         </BuildableReference>
-      </MacroExpansion>
-      <AdditionalOptions>
-      </AdditionalOptions>
    </TestAction>
    <LaunchAction
       buildConfiguration = "Release"
@@ -55,7 +44,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "50E3767E1FC585380038770F"
+            BlueprintIdentifier = "505CDBA423CEDF10007A3DB1"
             BuildableName = "gctb"
             BlueprintName = "gctb"
             ReferencedContainer = "container:gctb.xcodeproj">
@@ -63,80 +52,102 @@
       </BuildableProductRunnable>
       <CommandLineArguments>
          <CommandLineArgument
-            argument = "--inp-file"
-            isEnabled = "NO">
-         </CommandLineArgument>
-         <CommandLineArgument
-            argument = "/Users/j.zeng/XCode/gctb/test/res/test.inp"
-            isEnabled = "NO">
-         </CommandLineArgument>
-         <CommandLineArgument
-            argument = "/Users/j.zeng/Work/Projects/test_amber/data2/test.inp"
-            isEnabled = "NO">
-         </CommandLineArgument>
-         <CommandLineArgument
-            argument = "/Users/j.zeng/Work/Projects/test_amber/height/height.inp"
-            isEnabled = "NO">
-         </CommandLineArgument>
-         <CommandLineArgument
-            argument = "/Users/j.zeng/Work/Projects/test_gctb/ukb/ukb.inp"
-            isEnabled = "NO">
-         </CommandLineArgument>
-         <CommandLineArgument
-            argument = "/Users/j.zeng/Work/Projects/test_gctb/xci/testXCI.inp"
-            isEnabled = "NO">
-         </CommandLineArgument>
-         <CommandLineArgument
-            argument = "/Users/j.zeng/Work/Projects/sbayes/test/bayes.inp"
-            isEnabled = "NO">
-         </CommandLineArgument>
-         <CommandLineArgument
-            argument = "--sbayes S"
+            argument = "--bayes R"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--cont-annot /Users/j.zeng/Work/Projects/sbayes/test/rep1_pi0.05_hsq0.05_delta0.anno"
+            argument = "--bfile /Users/uqjzeng1/Desktop/test/test"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--ldm /Users/j.zeng/Work/Projects/sbayes/test/rep1_pi0.05_hsq0.05_delta0.ldm.full"
+            argument = "--pheno /Users/uqjzeng1/Desktop/test/pheno.rint_25OHD.20kEURu2"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--gwas-summary /Users/j.zeng/Work/Projects/sbayes/test/rep1_pi0.05_hsq0.05_delta0.ma"
+            argument = "--out /Users/uqjzeng1/Desktop/test/test"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--chain-length 200"
-            isEnabled = "YES">
+            argument = "--write-ldm-txt"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--estimate-pi"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--chain-length 1000"
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--burn-in 0"
-            isEnabled = "YES">
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--thin 1"
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--out-freq 1"
-            isEnabled = "YES">
-         </CommandLineArgument>
-         <CommandLineArgument
-            argument = "--no-mcmc-bin"
-            isEnabled = "YES">
-         </CommandLineArgument>
-         <CommandLineArgument
-            argument = "--out /Users/j.zeng/Work/Projects/sbayes/slim/test"
-            isEnabled = "YES">
-         </CommandLineArgument>
-         <CommandLineArgument
-            argument = "--num-chains 2"
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--thread 2"
+            argument = "--bfile /Users/uqjzeng1/Work/Projects/sbayes/res/forward_simulation/test/rep1.pop1.qtl"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--pheno /Users/uqjzeng1/Work/Projects/sbayes/res/forward_simulation/test/rep1.pop1.EyreWalker.tau0.5.vare0.1.phen"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--extract /Users/uqjzeng1/Work/Projects/sbayes/res/forward_simulation/test/rep1.pop1.common.qtllist"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--original-model"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--out /Users/uqjzeng1/Work/Projects/sbayes/res/forward_simulation/test/rep1.pop1"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--mcmc-samples /Users/uqjzeng1/Work/Projects/sbayes/res/forward_simulation/test/rep1.pop1.cqtl.mcmcsamples"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--mcmc-samples /Users/uqjzeng1/Work/Projects/sbayes/res/forward_simulation/test/rep1.pop1.cqtl.SBayesS.mcmcsamples"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--ldm /Users/uqjzeng1/Work/Projects/sbayes/res/forward_simulation/test/rep1.pop1.cqtl.ldm.full"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--gwas-summary /Users/uqjzeng1/Work/Projects/sbayes/res/forward_simulation/test/rep1.pop1.cqtl.ma"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--make-full-ldm"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--out /Users/uqjzeng1/Work/Projects/sbayes/res/forward_simulation/test/rep1.pop1.cqtl"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--ldm /Users/uqjzeng1/Work/Projects/sbayes/test/esthsq/ukbEURu_imp_v3_HM3_n50k.chisq6.ldm.sparse"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--gwas-summary /Users/uqjzeng1/Work/Projects/sbayes/test/esthsq/tr1.Hand_grip_strength_left.ma"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--mcmc-samples /Users/uqjzeng1/Work/Projects/sbayes/test/esthsq/tr1.Hand_grip_strength_left.mcmcsamples"
             isEnabled = "NO">
          </CommandLineArgument>
       </CommandLineArguments>
-      <AdditionalOptions>
-      </AdditionalOptions>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
@@ -148,7 +159,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "50E3767E1FC585380038770F"
+            BlueprintIdentifier = "505CDBA423CEDF10007A3DB1"
             BuildableName = "gctb"
             BlueprintName = "gctb"
             ReferencedContainer = "container:gctb.xcodeproj">
