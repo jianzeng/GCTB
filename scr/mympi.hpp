@@ -12,18 +12,18 @@
 #include <stdio.h>
 #include <vector>
 #include <string>
-//#include <mpi.h>
+#include <mpi.h>
 
-//namespace myMPI {
-//    extern int clusterSize;
-//    extern int rank;
-//    extern char processorName[MPI_MAX_PROCESSOR_NAME];
-//    extern int processorNameLength;
-//    extern std::string partition;
-//    extern int iSize;
-//    extern int iStart;
-//    extern std::vector<int> srcounts;
-//    extern std::vector<int> displs;
-//}
+namespace myMPI {
+    extern int clusterSize;
+    extern int rank;
+    extern char processorName[MPI_MAX_PROCESSOR_NAME];
+    extern int processorNameLength;
+    extern std::string partition;
+    extern int iSize;
+    extern int iStart;
+    extern std::vector<int> srcounts;
+    extern std::vector<int> displs;
+}
 
 #endif /* mympi_hpp */

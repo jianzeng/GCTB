@@ -172,49 +172,22 @@ public:
         void getValues(const VectorXf &snpAnnoVec);
     };
     
-    class PerSnpPi : public ParamSet, public Stat::Normal {
-    public:
-        VectorXf beta;  // intercept + annotations
-        
-        float varProp;  // proposal variance
-        float sigmaSq;  // prior variance of betas
-
-        AcceptanceRate ar;
-
-        PerSnpPi(const vector<string> &header, const unsigned numAnnos, const float pival, const string &lab = "PerSnpPi"): ParamSet(lab, header){
-            varProp = 0.01;
-            sigmaSq = 10;
-//            beta.setZero(numAnnos+1);
-            beta.setZero(numAnnos);
-            beta[0] = log(pival/(1.0f-pival)); // intercept
-            values.setConstant(size, pival);
-        }
-        
-        void sampleFromFC(const MatrixXf &annoMat, const MatrixXf &APA, const VectorXf &snpEffects);
-        void computeFromAnnoPi(const MatrixXf &annoMat, const VectorXf &piStrat);
-    };
-    
     class SnpEffects : public ApproxBayesS::SnpEffects {
     public:
         vector<VectorXf> valuesPerAnno;
-        
-        float sum2pqBetaSq;
         
         VectorXf wtdSumSqPerAnno;
         VectorXf numNonZeroPerAnno;
         VectorXf sum2pqSplusOnePerAnno;
         VectorXf snpAnnoVec;
-        VectorXf sum2pqBetaSqAnno;
 
         SnpEffects(const vector<string> &header, const VectorXf &snp2pq, const float pi, const vector<AnnoInfo*> &annoVec):
         ApproxBayesS::SnpEffects(header, snp2pq, pi) {
-            sum2pqBetaSq = 0.0;
             long numAnnos = annoVec.size();
             valuesPerAnno.resize(numAnnos);
             wtdSumSqPerAnno.setZero(numAnnos);
             numNonZeroPerAnno.setZero(numAnnos);
             sum2pqSplusOnePerAnno.setZero(numAnnos);
-            sum2pqBetaSqAnno.setZero(numAnnos);
             for (unsigned i=0; i<numAnnos; ++i) {
                 valuesPerAnno[i].setZero(annoVec[i]->size);
                 sum2pqSplusOnePerAnno[i] = annoVec[i]->snp2pq.sum()*pi;
@@ -222,26 +195,12 @@ public:
             snpAnnoVec.setZero(size);
         }
         
-        // assuming a mixture distribution in light of overlapping annotations
-        void sampleFromFCMixture(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag,
+        void sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag,
                           const vector<ChromInfo*> &chromInfoVec, const vector<SnpInfo*> &incdSnpInfoVec,
                           const VectorXf &snp2pq, const VectorXf &LDsamplVar, const unsigned numAnnos,
                           const VectorXf &sigmaSq, const VectorXf &pi, const VectorXf &S, const float Sgw,
                           const float varg, const float vare, const float ps, const float overdispersion);
-        void sampleFromFCMixture(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag,
-                          const VectorXi &windStart, const VectorXi &windSize,
-                          const vector<ChromInfo*> &chromInfoVec, const vector<SnpInfo*> &incdSnpInfoVec,
-                          const VectorXf &snp2pq, const VectorXf &LDsamplVar, const unsigned numAnnos,
-                          const VectorXf &sigmaSq, const VectorXf &pi, const VectorXf &S, const float Sgw,
-                          const float varg, const float vare, const float ps, const float overdispersion);
-
-        // assuming a linear model for overlapping annotations
-        void sampleFromFCLinear(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag,
-                          const vector<ChromInfo*> &chromInfoVec, const vector<SnpInfo*> &incdSnpInfoVec,
-                          const VectorXf &snp2pq, const VectorXf &LDsamplVar, const unsigned numAnnos,
-                          const VectorXf &sigmaSq, const VectorXf &pi, const VectorXf &S, const float Sgw,
-                          const float varg, const float vare, const float ps, const float overdispersion);
-        void sampleFromFCLinear(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag,
+        void sampleFromFC(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag,
                           const VectorXi &windStart, const VectorXi &windSize,
                           const vector<ChromInfo*> &chromInfoVec, const vector<SnpInfo*> &incdSnpInfoVec,
                           const VectorXf &snp2pq, const VectorXf &LDsamplVar, const unsigned numAnnos,
@@ -265,15 +224,12 @@ public:
     SpEnrichment Senrich;
     
     ScaleVarStratified scaleStrat;
-    PerSnpPi perSnpPi;
-    
-    enum {linear, mixture} model;
     
     StratApproxBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi,
                       const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation,
                       const float varS, const vector<float> &svalue,
                       const string &algorithm, const bool randomStart = false, const bool message = true):
-    ApproxBayesS(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, svalue, "HMC", false, randomStart, false),
+    ApproxBayesS(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, svalue, algorithm, false, randomStart, false),
     snpEffects(data.snpEffectNames, data.snp2pq, pival, data.annoInfoVec),
     snpAnnoMembership(data.snpAnnoPairNames, data.numAnnoPerSnpVec),
     sigmaSqStrat(data.annoNames, data.annoInfoVec, varGenotypic, pival),
@@ -288,11 +244,8 @@ public:
     perNzHsqEnrich(data.annoNames),
     Sstrat(data.annoNames, data.annoInfoVec, varS),
     Senrich(data.annoNames),
-    scaleStrat(data.annoNames),
-    perSnpPi(data.snpEffectNames, data.numAnnos, pival)
+    scaleStrat(data.annoNames)
     {
-        if (algorithm == "linear") model = linear;
-        else model = mixture;
         paramSetVec = {&snpEffects, &piStrat, &piEnrich, &sigmaSqStrat, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &Sstrat, &Senrich, &snpAnnoMembership};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
         paramSetToPrint = {&piStrat, &piEnrich, &sigmaSqStrat, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &Sstrat, &Senrich, &snpAnnoMembership};
@@ -305,12 +258,10 @@ public:
             paramVec.push_back(&covg);
             paramToPrint.push_back(&covg);
         }
-        if (message) {
+        if (message && myMPI::rank==0) {
 //            string alg = algorithm;
 //            if (alg!="RWMH" && alg!="Reg") alg = "HMC";
             cout << "\nAnnotation-stratified summary-data-based BayesS model fitted." << endl;
-            if (model == linear) cout << "  Linear model" << endl;
-            if (model == mixture) cout << "  Mixture model" << endl;
         }
         if (randomStart) sampleStartVal();
     }
@@ -380,7 +331,7 @@ public:
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &hsq};
         paramSetVec = {&piStrat, &piEnrich, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &Sstrat, &Senrich};
         paramSetToPrint = {&piStrat, &piEnrich, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &Sstrat, &Senrich};
-        if (message) {
+        if (message && myMPI::rank==0) {
             cout << "\nPost hoc Annotation-stratified summary-data-based BayesS analysis: " << endl;
         }
     }
@@ -439,7 +390,7 @@ public:
         paramToPrint = {&pi, &piS, &hsq};
         paramSetVec = {&piStrat, &piEnrich, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &piSstrat, &piSenrich};
         paramSetToPrint = {&piStrat, &piEnrich, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &piSstrat, &piSenrich};
-        if (message) {
+        if (message && myMPI::rank==0) {
             cout << "\nPost hoc Annotation-stratified summary-data-based BayesSMix analysis: " << endl;
         }
 

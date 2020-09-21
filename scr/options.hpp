@@ -17,12 +17,10 @@
 #include <cstring>
 #include <string>
 #include <limits.h>
-//#include <mpi.h>
 #include <omp.h>
 #include <boost/format.hpp>
 #include <Eigen/Core>
 #include <Eigen/Eigen>
-//#include "mympi.hpp"
 #include "gadgets.hpp"
 
 using namespace std;
@@ -71,9 +69,14 @@ public:
     float afDiff; // filtering SNPs by the allele frequency difference in LD and GWAS samples
     float mafmin;  // lower bound of maf
     float mafmax;  // upper bound of maf
+    float lambda;  // for conjugate gradient
+    float rsqThreshold;
+    float pValueThreshold;
     
     bool estimatePi;
+    bool estimateSigmaSq; // variance of SNP effects
     bool estimatePiNDC;  // for XCI
+    bool estimatePiGxE;  // for XCI
     bool estimateScale;
     bool writeBinPosterior;
     bool writeTxtPosterior;
@@ -81,6 +84,7 @@ public:
     bool multiLDmat;
     bool multiThreadEigen;
     bool writeLdmTxt;      // write ldm to txt file
+    bool readLdmTxt;      // read ldm from a txt file
     bool excludeMHC;  // exclude SNPs in the MHC region
     bool directPrune; // direct prune ldm
     bool estimatePS;  // estimate population stratification in sbayes
@@ -93,10 +97,16 @@ public:
     bool noscale;
     bool simuMode; // simulation mode
     bool originalModel; // original BayesR model
+    bool twoStageModel;  // two-step approach for estimating X-chr dosage model and G by sex
+    bool binSnp;  // bin SNPs
 
     // Bayes R defauls
     VectorXf gamma;  // Default scaling parameters for Bayes R
     VectorXf pis;    // Default pis for Bayes R
+    
+    // hyperparameters for the prior distributions
+    VectorXf piPar;
+    Vector2f piNDCpar;
     
     string title;
     string analysisType;
@@ -123,6 +133,7 @@ public:
     string eQTLFile;
     string snpRange;
     string outLDmatType;
+    string windowFile;
     
     Options(){
         numChains               = 1;
@@ -163,6 +174,9 @@ public:
         mafmax                  = 0;
         flank                   = 0;
         genMapN                 = 183; // Sample size of CEU population
+        lambda                  = 1e6;
+        rsqThreshold            = 1.0;
+        pValueThreshold         = 1.0;
 
         // Bayes R defaults
         ndists                  = 4;
@@ -172,9 +186,14 @@ public:
         pis                     << 0.95, 0.03, 0.01, 0.01;
         // Kappa defaults
         kappa                   = 10;
+        
+        piPar.setOnes(ndists);
+        piNDCpar.setOnes(2);
 
         estimatePi              = true;
+        estimateSigmaSq         = true;
         estimatePiNDC           = true;
+        estimatePiGxE           = true;
         estimateScale           = false;
         writeBinPosterior       = true;
         writeTxtPosterior       = true;
@@ -182,6 +201,7 @@ public:
         multiLDmat              = false;
         multiThreadEigen        = false;
         writeLdmTxt             = false;
+        readLdmTxt              = false;
         excludeMHC              = false;
         directPrune             = false;
         estimatePS              = false;
@@ -194,6 +214,8 @@ public:
         noscale                 = false; // Scale the genotypes or not. Default is scaling 0
         simuMode                = false;
         originalModel           = false;
+        twoStageModel           = false;
+        binSnp                  = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";
@@ -219,6 +241,7 @@ public:
         ldscoreFile             = "";
         eQTLFile                = "";
         snpRange                = "";
+        windowFile              = "";
         outLDmatType            = "sparse";
     }
     

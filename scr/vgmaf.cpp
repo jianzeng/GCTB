@@ -71,14 +71,6 @@ void VGMAF::calcCumVarGen(const MatrixXf &Z, const vector<SnpInfo*> &snpVec, con
             float sum = ghat.sum();
             float ssq = ghat.squaredNorm();
             unsigned size = (unsigned)ghat.size();
-//            float my_sum = ghat.sum();
-//            float my_ssq = ghat.squaredNorm();
-//            unsigned my_size = (unsigned)ghat.size();
-//            float sum, ssq;
-//            unsigned size;
-//            MPI_Allreduce(&my_sum, &sum, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-//            MPI_Allreduce(&my_ssq, &ssq, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-//            MPI_Allreduce(&my_size, &size, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
             float mean = sum/size;
             cumVarGen(iterPostburnin, i) = ssq/size - mean*mean;
             float area = 0.01*cumVarGen(iterPostburnin, i);
@@ -107,7 +99,6 @@ void VGMAF::calcCumVarGen(const MatrixXf &Z, const vector<SnpInfo*> &snpVec, con
 }
 
 void VGMAF::outputRes(const string &title){
-//    if (myMPI::rank) return;
     string filename = title + ".vgmaf";
     ofstream out(filename);
     out << boost::format("%8s %8s %8s %6s %6s %8s %8s %8s %8s %8s %8s\n")
@@ -137,16 +128,14 @@ void VGMAF::outputRes(const string &title){
 }
 
 void VGMAF::compute(const Data &data, const McmcSamples &snpEffects, const unsigned burnin, const unsigned thin, const string &title){
-//    if (myMPI::rank==0)
-        cout << "Calculating cumulative genetic variances for MAF bins ..." << endl;
+    cout << "Calculating cumulative genetic variances for MAF bins ..." << endl;
     makeMafBin(data, mafbin, snpIndex);
     calcCumVarGen(data.Z, data.incdSnpInfoVec, snpEffects, burnin, thin, snpIndex, cumVarGen, cumVarGenMean);
     outputRes(title);
 }
 
 void VGMAF::simulate(const Data &data, const string &title){
-//    if (myMPI::rank==0)
-        cout << "Simulating data and calculating cumulative genetic variances for MAF bins ..." << endl;
+    cout << "Simulating data and calculating cumulative genetic variances for MAF bins ..." << endl;
     makeMafBin(data, mafbin, snpIndex);
     vector<float> svalue = {-1.0, -0.5, 0.0, 0.5, 1.0};
     //vector<float> svalue = {0};
@@ -178,14 +167,6 @@ void VGMAF::simulate(const Data &data, const string &title){
             float sum = ghat.sum();
             float ssq = ghat.squaredNorm();
             unsigned size = (unsigned)ghat.size();
-//            float my_sum = ghat.sum();
-//            float my_ssq = ghat.squaredNorm();
-//            unsigned my_size = (unsigned)ghat.size();
-//            float sum, ssq;
-//            unsigned size;
-//            MPI_Allreduce(&my_sum, &sum, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-//            MPI_Allreduce(&my_ssq, &ssq, 1, MPI_FLOAT, MPI_SUM, MPI_COMM_WORLD);
-//            MPI_Allreduce(&my_size, &size, 1, MPI_UNSIGNED, MPI_SUM, MPI_COMM_WORLD);
             float mean = sum/size;
             cumVarGen(i, col) = ssq/size - mean*mean;
             
@@ -195,7 +176,6 @@ void VGMAF::simulate(const Data &data, const string &title){
         //cout << endl << cumVarGen.col(col).transpose() << endl;
     }
     
-//    if (myMPI::rank) return;
     string filename = title + ".sim.vgmaf";
     ofstream out(filename);
     out << boost::format("%8s %8s %6s %8s\n") %"MAF" %"NumSNPs" %"S" %"CumVar";
