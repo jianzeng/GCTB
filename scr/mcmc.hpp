@@ -36,11 +36,12 @@ public:
     unsigned nnz;  // number of non-zeros for sparse matrix
     
     MatrixXf datMat;
-    SparseMatrix<float> datMatSp; // most of the snp effects will be zero if pi value is high
+    SpMat datMatSp; // most of the snp effects will be zero if pi value is high
     
     VectorXf posteriorMean;
     VectorXf posteriorSqrMean;
     VectorXf pip;  // for snp effects, will consider to remove
+    VectorXf lastSample; // save the last sample of MCMC
     
     FILE *bout;
     ofstream tout;
@@ -52,7 +53,7 @@ public:
         ncol = npar;
         if (storage_mode == "dense") {
             storageMode = dense;
-            if (myMPI::rank==0) datMat.resize(nrow, ncol);
+            datMat.resize(nrow, ncol);
         } else if (storage_mode == "sparse") {
             storageMode = sparse;
             //if (myMPI::rank==0) datMatSp.reserve(VectorXi::Constant(ncol,nrow));  // for faster filling the matrix
@@ -62,6 +63,7 @@ public:
         posteriorMean.setZero(ncol);
         posteriorSqrMean.setZero(ncol);
         pip.setZero(ncol);
+        lastSample.setZero(ncol);
     }
     
     McmcSamples(const string &label): label(label) {}
@@ -95,7 +97,8 @@ private:
     void printStatusR(const vector<float*> &paramToPrintR, const unsigned thisIter, const unsigned outputFreq, const string &timeLeft);
     void printSummary(const vector<Parameter*> &paramToPrint, const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
     void printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
-    
+    void printSnpAnnoMembership(const vector<ParamSet*> &paramSetToPrint, const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
+
 public:
     vector<McmcSamples*> run(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const bool print,
                              const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior);
