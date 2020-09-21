@@ -72,8 +72,11 @@ public:
     float mafmin;  // lower bound of maf
     float mafmax;  // upper bound of maf
     float lambda;  // for conjugate gradient
+    float rsqThreshold;
+    float pValueThreshold;
     
     bool estimatePi;
+    bool estimateSigmaSq; // variance of SNP effects
     bool estimatePiNDC;  // for XCI
     bool estimatePiGxE;  // for XCI
     bool estimateScale;
@@ -96,6 +99,7 @@ public:
     bool simuMode; // simulation mode
     bool originalModel; // original BayesR model
     bool twoStageModel;  // two-step approach for estimating X-chr dosage model and G by sex
+    bool binSnp;  // bin SNPs
 
     // Bayes R defauls
     VectorXf gamma;  // Default scaling parameters for Bayes R
@@ -130,6 +134,7 @@ public:
     string eQTLFile;
     string snpRange;
     string outLDmatType;
+    string windowFile;
     
     Options(){
         numChains               = 1;
@@ -171,6 +176,8 @@ public:
         flank                   = 0;
         genMapN                 = 183; // Sample size of CEU population
         lambda                  = 1e6;
+        rsqThreshold            = 1.0;
+        pValueThreshold         = 1.0;
 
         // Bayes R defaults
         ndists                  = 4;
@@ -185,6 +192,7 @@ public:
         piNDCpar.setOnes(2);
 
         estimatePi              = true;
+        estimateSigmaSq         = true;
         estimatePiNDC           = true;
         estimatePiGxE           = true;
         estimateScale           = false;
@@ -207,6 +215,7 @@ public:
         simuMode                = false;
         originalModel           = false;
         twoStageModel           = false;
+        binSnp                  = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";
@@ -232,6 +241,7 @@ public:
         ldscoreFile             = "";
         eQTLFile                = "";
         snpRange                = "";
+        windowFile              = "";
         outLDmatType            = "sparse";
     }
     

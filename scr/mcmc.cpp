@@ -34,6 +34,7 @@ void McmcSamples::getSample(const unsigned iter, const VectorXf &sample, const b
                 fwrite(&val, sizeof(float), 1, bout);
                 //cout << it.index() << " " << it.value() << endl;
             }
+            //cout << MatrixXf(spvec).transpose() << endl;
         }
         //nnz += sample.sparseView().nonZeros();
         //cout << nnz << " " << sample.sparseView().nonZeros() <<endl;
@@ -116,7 +117,7 @@ void McmcSamples::writeDataBin(const string &title){
     fwrite(xyn, sizeof(unsigned), 3, out);
     
     for (int i=0; i < datMatSp.outerSize(); ++i) {
-        SparseMatrix<float>::InnerIterator it(datMatSp, i);
+        SpMat::InnerIterator it(datMatSp, i);
         for (; it; ++it) {
             unsigned rc[2] = {(unsigned)it.row(), (unsigned)it.col()};
             fwrite(rc, sizeof(unsigned), 2, out);
@@ -169,7 +170,8 @@ void McmcSamples::readDataBin(const string &filename){
     datMatSp.setFromTriplets(trips.begin(), trips.end());
     datMatSp.makeCompressed();
     
-    //cout << datMatSp.nonZeros() << " " << nnz << endl;
+    //cout << "nrow: " << nrow << " ncol: " << ncol << " nonzeros: " << datMatSp.nonZeros() << " " << nnz << endl;
+    //cout << MatrixXf(datMatSp) << endl;
     
     storageMode = sparse;
 }
@@ -200,6 +202,8 @@ void McmcSamples::readDataTxt(const string &filename, const string &label){
     std::getline(in, inputStr);
     header.getTokens(inputStr, sep);
     int idx = header.getIndex(label);
+    
+    if (idx==-1) throw("Error: Cannot find " + label + " in file [" + filename + "].");
     
     while (getline(in, inputStr)) {
         ++line;
@@ -350,6 +354,7 @@ void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vecto
 //    out << boost::format("%13s %-15s %-15s\n") %"" % "Mean" % "SD ";
     for (unsigned i=0; i<paramSetToPrint.size(); ++i) {
         ParamSet *parset = paramSetToPrint[i];
+        if (parset->label == "SnpAnnoMembershipDelta") continue;
         for (unsigned j=0; j<mcmcSampleVec.size(); ++j) {
             McmcSamples *mcmcSamples = mcmcSampleVec[j];
             if (mcmcSamples->label == parset->label) {
@@ -380,7 +385,7 @@ void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vecto
                     }
                     postprob /= float(mcmcSamples->nrow);
                     out << boost::format("%-15.6f\n") % postprob;
-               }
+                }
                 break;
             }
         }
@@ -388,6 +393,32 @@ void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vecto
     out.close();
 }
 
+void MCMC::printSnpAnnoMembership(const vector<ParamSet *> &paramSetToPrint, const vector<McmcSamples *> &mcmcSampleVec, const string &filename) {
+    if (!paramSetToPrint.size()) return;
+    int idx = -9;
+    for (unsigned i=0; i<paramSetToPrint.size(); ++i) {
+        ParamSet *parset = paramSetToPrint[i];
+        if (parset->label == "SnpAnnoMembershipDelta") idx = i;
+    }
+    if (idx == -9) return;
+    ofstream out;
+    out.open(filename.c_str());
+    if (!out) {
+        throw("Error: cannot open file " + filename);
+    }
+    ParamSet *parset = paramSetToPrint[idx];
+    for (unsigned j=0; j<mcmcSampleVec.size(); ++j) {
+        McmcSamples *mcmcSamples = mcmcSampleVec[j];
+        if (mcmcSamples->label == parset->label) {
+            for (unsigned col=0; col<parset->size; ++col) {
+                out << boost::format("%-40s %-15.6f\n")
+                % parset->header[col]
+                % mcmcSamples->posteriorMean[col];
+            }
+            break;
+        }
+    }
+}
 
 vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const bool print,
                                const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
@@ -426,6 +457,7 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const u
         cout << "\nMCMC cycles completed." << endl;
         printSummary(model.paramToPrint, mcmcSampleVec, title + ".parRes");
         printSetSummary(model.paramSetToPrint, mcmcSampleVec, title + ".parSetRes");
+        printSnpAnnoMembership(model.paramSetToPrint, mcmcSampleVec, title + ".snpAnnoMembership");
     }
 
     ///TMP
@@ -447,6 +479,7 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const u
 //}
 
 void MCMC::convergeDiagGelmanRubin(const Model &model, vector<vector<McmcSamples *> > &mcmcSampleVecChain, const string &filename){
+    if (myMPI::rank) return;
     if (!model.paramToPrint.size()) return;
     ofstream out;
     out.open((filename + ".parRes").c_str());

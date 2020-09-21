@@ -33,6 +33,14 @@ void Options::inputOptions(const int argc, const char* argv[]){
             analysisType = "ConjugateGradient";
             ss << "--cg " << "\n";
         }
+        else if (!strcmp(argv[i], "--estimate-hsq")) {
+            analysisType = "hsq";
+            ss << "--estimate-hsq " << "\n";
+        }
+        else if (!strcmp(argv[i], "--estimate-pi")) {
+            analysisType = "Pi";
+            ss << "--estimate-pi " << "\n";
+        }
 //        else if (!strcmp(argv[i], "--make-ldm")) {
 //            analysisType = "LDmatrix";
 //            ss << "--make-ldm " << "\n";
@@ -152,26 +160,20 @@ void Options::inputOptions(const int argc, const char* argv[]){
             windowWidth = unsigned(atof(argv[++i]) * Megabase);
             ss << "--wind " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--wind-file")) {
+            windowFile = argv[++i];
+            ss << "--wind-file " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--pi")) {
             Gadget::Tokenizer strvec;
             strvec.getTokens(argv[++i], " ,");
             if (strvec.size() != 1 && (bayesType != "R" && bayesType != "Kap" && bayesType != "RS"))
-            {
-                throw("Error: When NOT using Bayes R or Kap option you can only specify one mixture proportion parameter.");
-            } 
-            if (strvec.size() == 1)
-            {
-                for (unsigned j=0; j<strvec.size(); ++j) 
-                {
-                    pi = stof(strvec[j]);
-                }
-            } else 
-            {
+                throw("Error: When NOT using Bayes R or RS option you can only specify one mixture proportion parameter.");
+            if (strvec.size() == 1) {
+                for (unsigned j=0; j<strvec.size(); ++j) pi = stof(strvec[j]);
+            } else {
                 pis.resize(strvec.size());
-                for (unsigned j=0; j<strvec.size(); ++j) 
-                {
-                    pis[j] = stof(strvec[j]);
-                }
+                for (unsigned j=0; j<strvec.size(); ++j) pis[j] = stof(strvec[j]);
             }
             ss << "--pi " << argv[i] << "\n";
         }
@@ -234,6 +236,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--thin")) {
             thin = atoi(argv[++i]);
             ss << "--thin " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--fix-sigma2")) {
+            estimateSigmaSq = false;
+            ss << "--fix-sigma2 " << "\n";
         }
         else if (!strcmp(argv[i], "--fix-pi")) {
             estimatePi = false;
@@ -311,6 +317,19 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--ld")) {
             LDthreshold = atof(argv[++i]);
             ss << "--ld " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--rsq")) {
+            rsqThreshold = atof(argv[++i]);
+            ss << "--rsq " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--p-value")) {
+            pValueThreshold = atof(argv[++i]);
+            ss << "--p-value " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--bin-snp")) {
+            analysisType = "LDmatrix";
+            binSnp = true;
+            ss << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--unscale-genotype")) {
             noscale = true;
@@ -477,6 +496,8 @@ void Options::inputOptions(const int argc, const char* argv[]){
     if (bayesType == "S" || bayesType == "ST" || bayesType == "T" || bayesType == "SMix" || bayesType == "RS") {
         noscale = true;
     }
+    
+    if (analysisType == "hsq") noscale = true;
     
     if (chainLength < burnin) {
         throw("Error: Chain length is smaller than burn-in!");

@@ -27,6 +27,8 @@
 using namespace std;
 using namespace Eigen;
 
+typedef SparseMatrix<float, Eigen::ColMajor, long long> SpMat;
+
 class AnnoInfo;
 
 class SnpInfo {
@@ -43,6 +45,9 @@ public:
     int windStart;  // for window surrounding the SNP
     int windSize;   // for window surrounding the SNP
     int windEnd;
+    int windStartOri;  // original value from .info file
+    int windSizeOri;
+    int windEndOri;
     float af;       // allele frequency
     float twopq;
     bool included;  // flag for inclusion in panel
@@ -65,6 +70,7 @@ public:
     float gwas_se;
     float gwas_n;
     float gwas_af;
+    float gwas_pvalue;
 
     float ldSamplVar;    // sum of sampling variance of LD with other SNPs for summary-bayes method
     float ldSum;         // sum of LD with other SNPs
@@ -80,6 +86,9 @@ public:
         windStart = -1;
         windSize  = 0;
         windEnd   = -1;
+        windStartOri = -1;
+        windSizeOri = 0;
+        windEndOri = -1;
         af = -1;
         twopq = -1;
         included = true;
@@ -93,6 +102,7 @@ public:
         gwas_se = -999;
         gwas_n  = -999;
         gwas_af = -1;
+        gwas_pvalue = 1.0;
         ldSamplVar = 0.0;
         ldSum = 0.0;
         ldsc = 0.0;
@@ -173,10 +183,15 @@ public:
     VectorXf D;              // 2pqn
     VectorXf y;              // phenotypes
     
-    //SparseMatrix<float> ZPZ; // sparse Z'Z because LE is assumed for distant SNPs
+    //SpMat ZPZ; // sparse Z'Z because LE is assumed for distant SNPs
     vector<VectorXf> ZPZ;
+    MatrixXf ZPZmat;
     vector<SparseVector<float> > ZPZsp;
-    SparseMatrix<float> ZPZinv;
+    SpMat ZPZspmat;
+    SpMat ZPZinv;
+    
+    MatrixXf annoMat;        // annotation coefficient matrix
+    MatrixXf APA;            // annotation X'X matrix
 
     MatrixXf XPX;            // X'X the MME lhs
     MatrixXf ZPX;            // Z'X the covariance matrix of SNPs and fixed effects
@@ -216,10 +231,10 @@ public:
 
     vector<AnnoInfo*> annoInfoVec;
     vector<string> annoNames;
+    vector<string> snpAnnoPairNames;
     
     map<string, SnpInfo*> snpInfoMap;
     map<string, IndInfo*> indInfoMap;
-
 
     vector<SnpInfo*> incdSnpInfoVec;
     vector<IndInfo*> keptIndInfoVec;
@@ -234,9 +249,12 @@ public:
     
     vector<unsigned> numSnpMldVec;
     vector<unsigned> numSnpAnnoVec;
+    VectorXf numAnnoPerSnpVec;
     
-    vector<SparseMatrix<float> > annowiseZPZsp;
+    vector<SpMat> annowiseZPZsp;
     vector<VectorXf> annowiseZPZdiag;
+    
+    vector<vector<unsigned> > windowSnpIdxVec;
     
     unsigned numFixedEffects;
     unsigned numSnps;
@@ -246,6 +264,7 @@ public:
     unsigned numChroms;
     unsigned numSkeletonSnps;
     unsigned numAnnos;
+    unsigned numWindows;
     
     string label;
     
@@ -258,6 +277,7 @@ public:
         numChroms = 0;
         numSkeletonSnps = 0;
         numAnnos = 0;
+        numWindows= 0;
         
         reindexed = false;
         sparseLDM = false;
@@ -270,7 +290,7 @@ public:
     void readBedFile(const bool noscale, const string &bedFile);
     void readPhenotypeFile(const string &phenFile, const unsigned mphen);
     void readCovariateFile(const string &covarFile);
-    void readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax, const bool imputeN);
+    void readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool imputeN);
     void readLDmatrixInfoFileOld(const string &ldmatrixFile);
     void readLDmatrixInfoFile(const string &ldmatrixFile);
     void readLDmatrixBinFile(const string &ldmatrixFile);
@@ -306,11 +326,11 @@ public:
     void outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &lastSample, const VectorXf &pip, const bool noscale, const string &filename) const;
     void outputFixedEffects(const MatrixXf &fixedEffects, const string &filename) const;
     void outputWindowResults(const VectorXf &posteriorMean, const string &filename) const;
-    void summarizeSnpResults(const SparseMatrix<float> &snpEffects, const string &filename) const;
+    void summarizeSnpResults(const SpMat &snpEffects, const string &filename) const;
     void buildSparseMME(const bool sampleOverlap, const bool noscale);
     void readMultiLDmatInfoFile(const string &mldmatFile);
     void readMultiLDmatBinFile(const string &mldmatFile);
-    void outputSnpEffectSamples(const SparseMatrix<float> &snpEffects, const unsigned burnin, const unsigned outputFreq, const string &snpResFile, const string &filename) const;
+    void outputSnpEffectSamples(const SpMat &snpEffects, const unsigned burnin, const unsigned outputFreq, const string &snpResFile, const string &filename) const;
     void resizeLDmatrix(const string &LDmatType, const float chisqThreshold, const unsigned windowWidth, const float LDthreshold, const float effpopNE, const float cutOff, const float genMapN);
     void outputLDmatrix(const string &LDmatType, const string &filename, const bool writeLdmTxt) const;
     void displayAverageWindowSize(const VectorXi &windSize);
@@ -329,6 +349,12 @@ public:
     void readLDscoreFile(const string &ldscFile);
     void makeAnnowiseSparseLDM(const vector<SparseVector<float> > &ZPZsp, const vector<AnnoInfo *> &annoInfoVec, const vector<SnpInfo*> &snpInfoVec);
     void imputePerSnpSampleSize(vector<SnpInfo*> &snpInfoVec, unsigned &numIncdSnps, float sd);
+    void getZPZspmat(void);
+    void getZPZmat(void);
+    void binSnpByLDrsq(const float rsqThreshold, const string &title);
+    void readWindowFile(const string &windowFile);
+    void binSnpByWindowID(void);
+    void filterSnpByLDrsq(const float rsqThreshold);
 };
 
 #endif /* data_hpp */

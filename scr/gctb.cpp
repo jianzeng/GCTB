@@ -29,7 +29,7 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &include
     if (readGenotypes) data.readBedFile(noscale, bedFile + ".bed");
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const float genMapN, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile, const bool multiLDmat, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap, const bool imputeN, const bool noscale){
+void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const float genMapN, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile, const string &windowFile, const bool multiLDmat, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const float rsqThreshold, const bool sampleOverlap, const bool imputeN, const bool noscale, const bool binSnp){
     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
@@ -47,7 +47,8 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     else if (!continuousAnnoFile.empty())
         data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000, eQTLFile);
     if (!ldscoreFile.empty()) data.readLDscoreFile(ldscoreFile);
-    if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, imputeN);
+    if (!windowFile.empty()) data.readWindowFile(windowFile);
+    if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, pValueThreshold, imputeN);
     data.includeMatchedSnp();
     if (geneticMapFile.empty()) {
         if (multiLDmat)
@@ -60,17 +61,35 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
         else
             data.readLDmatrixBinFileAndShrink(ldmatrixFile + ".bin");
     }
+    
+    if (rsqThreshold < 1.0 && !binSnp) {
+        data.filterSnpByLDrsq(rsqThreshold);
+        data.includeMatchedSnp();
+        if (geneticMapFile.empty()) {  // need to read LD data again after LD filtering
+            if (multiLDmat)
+                data.readMultiLDmatBinFile(ldmatrixFile);
+            else
+                data.readLDmatrixBinFile(ldmatrixFile + ".bin");
+        } else {
+            if (multiLDmat)
+                data.readMultiLDmatBinFileAndShrink(ldmatrixFile, genMapN);
+            else
+                data.readLDmatrixBinFileAndShrink(ldmatrixFile + ".bin");
+        }
+    }
+    
     if (!gwasSummaryFile.empty()) data.buildSparseMME(sampleOverlap, noscale);
+    if (!windowFile.empty()) data.binSnpByWindowID();
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile, const float afDiff, const float mafmin, const float mafmax, const bool sampleOverlap, const bool imputeN, const bool noscale){
+void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool sampleOverlap, const bool imputeN, const bool noscale){
     data.readFamFile(bedFile + ".fam");
     data.readBimFile(bedFile + ".bim");
 
     data.keptIndInfoVec = data.makeKeptIndInfoVec(data.indInfoVec);
     data.numKeptInds =  (unsigned) data.keptIndInfoVec.size();
     
-    data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, imputeN);
+    data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, pValueThreshold, imputeN);
     data.includeMatchedSnp();
     data.readBedFile(noscale, bedFile + ".bed");
     data.buildSparseMME(sampleOverlap, noscale);
@@ -78,11 +97,18 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSum
 
 Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
                         const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const bool noscale,
-                        const VectorXf &pis, const VectorXf &piPar, const VectorXf &gamma,
+                        const VectorXf &pis, const VectorXf &piPar, const VectorXf &gamma, const bool estimateSigmaSq,
                         const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow,
                         const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS,
                         const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool originalModel){
     data.initVariances(heritability);
+//    if (!bedFile.empty()) {   // TMP_JZ
+//        unsigned n_gwas = data.numKeptInds;
+//        data.readFamFile(bedFile + ".fam");
+//        data.numKeptInds = data.numInds;
+//        data.readBedFile(noscale, bedFile + ".bed");
+//        data.numKeptInds = n_gwas;
+//    }
     if (!gwasFile.empty()) {
         if (data.numAnnos) {
             if (bayesType == "S")
@@ -104,7 +130,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
             else if (bayesType == "SMix")
                 return new ApproxBayesSMix(data, data.varGenotypic, data.varResidual, pi, overdispersion, estimatePS, varS, S);
             else if (bayesType == "R")
-                return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, algorithm);
+                return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, algorithm);
             else if (bayesType == "Kap")
                 return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, icrsq, kappa);
             else if (bayesType == "RS")
@@ -142,6 +168,10 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
         data.readBedFile(noscale, bedFile + ".bed");
         data.getNonoverlapWindowInfo(windowWidth);
         return new BayesNS(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, snpFittedPerWindow, algorithm);
+    }
+    else if (bayesType == "RS") {
+        data.readBedFile(noscale, bedFile + ".bed");
+        return new BayesRS(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, varS, S, noscale, originalModel, algorithm);
     }
     else if (bayesType == "Cap") {
         //data.readBedFile(bedFile + ".bed");
@@ -185,7 +215,7 @@ vector<McmcSamples*> GCTB::multi_chain_mcmc(Data &data, const string &bayesType,
             else if (bayesType == "T")
                 modelVec[i] = new ApproxBayesST(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, overdispersion, estimatePS, varS, S, false, true, !i);
             else
-                throw(" Error: " + bayesType + " is not available in the multi-chain Bayesian analysis.");
+                throw(" Error: " + bayesType + " is not currently available in the multi-chain Bayesian analysis.");
         }
     }
     
@@ -283,12 +313,19 @@ McmcSamples* GCTB::inputMcmcSamples(const string &mcmcSampleFile, const string &
     return mcmcSamples;
 }
 
-void GCTB::estimateHsq(const Data &data, const McmcSamples &snpEffects, const string &filename){
-    Heritability hsq;
-    float phenVar = Gadget::calcVariance(data.y);
-    hsq.getEstimate(data, snpEffects, phenVar);
+void GCTB::estimateHsq(const Data &data, const McmcSamples &snpEffects, const McmcSamples &resVar, const string &filename, const unsigned outputFreq){
+    Heritability hsq(snpEffects.nrow);
+    //float phenVar = Gadget::calcVariance(data.y);
+    hsq.getEstimate(data, snpEffects, resVar, outputFreq);
     hsq.writeRes(filename);
     hsq.writeMcmcSamples(filename);
+}
+
+void GCTB::estimatePi(const Data &data, const McmcSamples &snpEffects, const McmcSamples &genVar, const string &filename, const unsigned outputFreq){
+    Polygenicity pi(snpEffects.nrow);
+    pi.getEstimate(data, snpEffects, genVar, outputFreq);
+    pi.writeRes(filename);
+    //pi.writeMcmcSamples(filename);
 }
 
 void GCTB::predict(const Data &data, const string &filename){
@@ -301,7 +338,7 @@ void GCTB::clearGenotypes(Data &data){
     data.X.resize(0,0);
 }
 
-void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDmat, const string &geneticMapFile, const float genMapN, const string &snpResFile, const string &mcmcSampleFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &gwasSummaryFile, const bool imputeN, const string &filename, const string &bayesType, unsigned chainLength, unsigned burnin, const unsigned thin, const unsigned outputFreq){
+void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDmat, const string &geneticMapFile, const float genMapN, const string &snpResFile, const string &mcmcSampleFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &gwasSummaryFile, const float pValueThreshold, const bool imputeN, const string &filename, const string &bayesType, unsigned chainLength, unsigned burnin, const unsigned thin, const unsigned outputFreq){
     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
@@ -311,7 +348,7 @@ void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDma
         data.readAnnotationFile(annotationFile, transpose, true);
     else
         data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000, eQTLFile);
-    data.readGwasSummaryFile(gwasSummaryFile, 1, 0, 0, imputeN);
+    data.readGwasSummaryFile(gwasSummaryFile, 1, 0, 0, pValueThreshold, imputeN);
     data.includeMatchedSnp();
     if (geneticMapFile.empty()) {
         if (multiLDmat)
@@ -352,12 +389,13 @@ void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDma
 void GCTB::solveSnpEffectsByConjugateGradientMethod(Data &data, const float lambda, const string &filename) const {
     cout << "\nSolving SNP effects by conjugate gradient method ..." << endl;
     cout << "  Lambda = " << lambda << endl;
-    //SparseMatrix<float> L(data.numIncdSnps, data.numIncdSnps);
-    SparseMatrix<float> C(data.numIncdSnps, data.numIncdSnps);
+    //SpMat L(data.numIncdSnps, data.numIncdSnps);
+    //SpMat C(data.numIncdSnps, data.numIncdSnps);
+    SpMat C(data.numIncdSnps, data.numIncdSnps);
     //L.reserve(data.windSize);
     
     vector<Triplet<float> > tripletList;
-    tripletList.reserve(data.windSize.sum());
+    tripletList.reserve(data.windSize.cast<double>().sum());
     
     float val = 0.0;
     for (unsigned i=0; i<data.numIncdSnps; ++i) {
@@ -381,7 +419,7 @@ void GCTB::solveSnpEffectsByConjugateGradientMethod(Data &data, const float lamb
     Gadget::Timer timer;
     timer.setTime();
 
-    ConjugateGradient<SparseMatrix<float>, Lower|Upper> cg;
+    ConjugateGradient<SparseMatrix<float, Eigen::ColMajor, long long>, Lower|Upper> cg;
     
     cout << "  preconditioning ..." << endl;
     

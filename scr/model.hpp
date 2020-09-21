@@ -774,6 +774,83 @@ public:
     void sampleUnknowns(void);
 };
 
+class BayesRS : public BayesR {
+public:
+    
+    class SnpEffects : public BayesS::SnpEffects {
+    public:
+        unsigned ndist;
+        ArrayXf numSnpMix;
+        vector<vector<unsigned> > snpset;
+        
+        SnpEffects(const vector<string> &header, const VectorXf &snp2pq, const VectorXf &pis): BayesS::SnpEffects(header, snp2pq, 1.0-pis[0]) {
+            ndist = pis.size();
+            numSnpMix.setZero(ndist);
+        }
+        
+        void sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
+                          const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare,
+                          const ArrayXf &snp2pqPowS, const VectorXf &snp2pq,
+                          const float varg, float &scale, VectorXf &ghat, const bool originalModel);
+    };
+    
+    class Sp : public BayesS::Sp {
+    public:
+        Sp(const unsigned m, const float var, const float start): BayesS::Sp(m, var, start, "HMC"){}
+        
+        void sampleFromFC(vector<vector<unsigned> > &snpset, const VectorXf &snpEffects,
+                          float &sigmaSq, const VectorXf &gamma,
+                          const VectorXf &snp2pq, ArrayXf &snp2pqPowS, const ArrayXf &logSnp2pq,
+                          const float vg, float &scale, float &sum2pqSplusOne);
+        float gradientU(const float S, const unsigned nnzMix, const vector<ArrayXf> &snpEffectMix, const float snp2pqLogSum, const vector<ArrayXf> &snp2pqMix, const vector<ArrayXf> &logSnp2pqMix, const float sigmaSq, const VectorXf &gamma, const float vg);
+        float computeU(const float S, const unsigned nnzMix, const vector<ArrayXf> &snpEffectMix, const float snp2pqLogSum, const vector<ArrayXf> &snp2pqMix, const vector<ArrayXf> &logSnp2pqMix, const float sigmaSq, const VectorXf &gamma, const float vg, float &scale);
+    };
+    
+    SnpEffects snpEffects;
+    Sp S;
+    
+    ArrayXf logSnp2pq;
+    ArrayXf snp2pqPowS;
+
+    float genVarPrior;
+    float scalePrior;
+
+    BayesRS(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const float varS, const vector<float> &svalue, const bool noscale, const bool originalModel, const string &algorithm, const bool message = true):
+    BayesR(data, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, algorithm, false),
+    snpEffects(data.snpEffectNames, data.snp2pq, pis),
+    S(data.numIncdSnps, varS, svalue[0]),
+    genVarPrior(varGenotypic),
+    scalePrior(sigmaSq.scale)
+    {
+        logSnp2pq = data.snp2pq.array().log();
+        snp2pqPowS = data.snp2pq.array().pow(S.value);
+        paramSetVec = {&snpEffects, &fixedEffects};
+        sigmaSq.value = varGenotypic/((snp2pqPowS*data.snp2pq.array()).sum()*(1.0-pis[0]));
+        scale.value = sigmaSq.scale = 0.5*sigmaSq.value;
+        for (unsigned i=0; i<Pis.size(); ++i) {
+            Pis[i]->value=Pis.values[i];
+        }
+        paramVec     = {&nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
+        if (originalModel) paramVec.insert(paramVec.begin(), Vgs.begin(), Vgs.end());
+        paramVec.insert(paramVec.begin(), numSnps.begin(), numSnps.end());
+        paramToPrint = {&sigmaSq, &S, &vare, &varg, &hsq, &rounding};
+        if (originalModel) paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
+        paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
+        if (message && myMPI::rank==0) {
+            cout << "\nBayesRS model fitted." << endl;
+            cout << "scale factor: " << sigmaSq.scale << endl;
+            cout << "Gamma: " << gamma.transpose() << endl;
+            if (noscale)
+            {
+                cout << "Fitting model assuming unscaled genotypes " << endl;
+            } else
+            {
+                cout << "Fitting model assuming scaled genotypes "  << endl;
+            }
+        }
+    }
+    void sampleUnknowns(void);
+};
 
 class ApproxBayesC : public BayesC {
 public:
@@ -823,7 +900,7 @@ public:
         
         ResidualVar(const float vare, const unsigned nobs, const float icrsq): BayesC::ResidualVar(vare, nobs), icrsq(icrsq) {}
         
-        //void sampleFromFC(VectorXf &rcorr, const SparseMatrix<float> &ZPZinv);
+        //void sampleFromFC(VectorXf &rcorr, const SpMat &ZPZinv);
 //        void sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float varg, const float nnz);
         void sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float covg);
 //        void sampleFromFCshrink(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float hsq, const float phi);
@@ -884,7 +961,7 @@ public:
             iter = 0;
         }
         
-        void compute(const VectorXf &rcorr, const VectorXf &ZPZdiag, const VectorXf &LDsamplVar, const float varg, const float vare, const vector<string> &snpName, VectorXi &leaveout, const vector<SparseVector<float> > &ZPZ, const VectorXf &ZPy);
+        void compute(const VectorXf &rcorr, const VectorXf &ZPZdiag, const VectorXf &LDsamplVar, const float varg, const float vare, const vector<string> &snpName, VectorXi &leaveout, const vector<SparseVector<float> > &ZPZ, const VectorXf &ZPy, const VectorXf &snpEffects);
     };
     
     class InterChrGenetCov : public Parameter {
@@ -1383,10 +1460,15 @@ public:
                           const float varg, const float ps, const float overdispersion,
                           const bool originalModel);
         
-        void sampleFromFC(const VectorXf &ZPy, const SparseMatrix<float> &ZPZsp, const VectorXf &ZPZdiag,
+        void sampleFromFC(const VectorXf &ZPy, const SpMat &ZPZsp, const VectorXf &ZPZdiag,
                           VectorXf &rcorr, const VectorXf &LDsamplVar,
                           const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore,
                           const float varg, const float vare, const float ps, const float overdispersion, const bool originalModel);
+        
+        void sampleFromFC(const VectorXf &ZPy, const VectorXf &ZPZdiag, const MatrixXf &Z, const float n_ref, const float n_gwas,
+                          const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare,
+                          VectorXf &snpStore, VectorXf &ghat, const float varg, const bool originalModel);
+
         
         void adjustByCG(const VectorXf &ZPy, const vector<SparseVector<float> > &ZPZsp, VectorXf &rcorr);
     };
@@ -1435,13 +1517,14 @@ public:
     float scalePrior;
     bool noscale;
     bool originalModel;
+    bool estimateSigmaSq;
 
     const float overdispersion;
     
     enum {gibbs, cg} algorithm;
     
-    ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool originalModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const string &alg, const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, (1-pis[0]), piPar[0], piPar[1], estimatePi, noscale, 0, overdispersion, estimatePS, 0, spouseCorrelation, false, false, false),
+    ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool originalModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const string &alg, const bool message = true):
+    ApproxBayesC(data, varGenotypic, varResidual, (1-pis[0]), piPar[0], piPar[1], estimatePi, noscale, 0, overdispersion, estimatePS, 0, spouseCorrelation, diagnosticMode, false, false),
     Pis(pis,piPar),
     numSnps(pis),
     Vgs(gamma),
@@ -1455,7 +1538,8 @@ public:
     overdispersion(overdispersion),
     covg(spouseCorrelation, data.numKeptInds),
     scalePrior(sigmaSq.scale),
-    originalModel(originalModel)
+    originalModel(originalModel),
+    estimateSigmaSq(estimateSigmaSq)
     {
         if (alg == "cg") algorithm = cg;
         else algorithm = gibbs;
@@ -1477,6 +1561,21 @@ public:
             paramVec.push_back(&ps);
             paramToPrint.push_back(&ps);
         }
+        if (diagnose) {
+            nro.out.open((data.label+".diagnostics").c_str());
+            paramVec.push_back(&nro);
+            paramToPrint.push_back(&nro);
+        }
+
+        if (data.Z.size()) ghat.setZero(data.Z.rows());   // TMP_JZ
+        else ghat.resize(0);                              // TMP_JZ
+        
+        if (!estimateSigmaSq) {
+            sigmaSq.value = varg.value/(data.numIncdSnps*pis.dot(gamma));
+            sigmaSq.scale = 0.5*sigmaSq.value;
+            cout << "fixing sigmaSq to be " << sigmaSq.value << endl;
+        }
+        
         if (message && myMPI::rank==0) {
             cout << "\nApproximate BayesR model fitted." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
@@ -1521,6 +1620,12 @@ public:
                           const VectorXf &LDsamplVar, const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n,
                           const float varg, const float ps, const float overdispersion, const bool originalModel);
         
+        void sampleFromFC(VectorXf &rcorr,const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
+                          const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
+                          const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare,
+                          const ArrayXf &snp2pqPowS, const VectorXf &snp2pq,
+                          const VectorXf &LDsamplVar, const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n,
+                          const float varg, const float ps, const float overdispersion, const bool originalModel);
     };
     
     class Sp : public BayesS::Sp {
@@ -1531,9 +1636,9 @@ public:
         void sampleFromFC(vector<vector<unsigned> > &snpset, const VectorXf &snpEffects,
                           float &sigmaSq, const VectorXf &gamma,
                           const VectorXf &snp2pq, ArrayXf &snp2pqPowS, const ArrayXf &logSnp2pq,
-                          const float vg, float &scale, float &sum2pqSplusOne);
+                          const float vg, float &scale, float &sum2pqSplusOne, const bool originalModel);
         float gradientU(const float S, const unsigned nnzMix, const vector<ArrayXf> &snpEffectMix, const float snp2pqLogSum, const vector<ArrayXf> &snp2pqMix, const vector<ArrayXf> &logSnp2pqMix, const float sigmaSq, const VectorXf &gamma, const float vg);
-        float computeU(const float S, const unsigned nnzMix, const vector<ArrayXf> &snpEffectMix, const float snp2pqLogSum, const vector<ArrayXf> &snp2pqMix, const vector<ArrayXf> &logSnp2pqMix, const float sigmaSq, const VectorXf &gamma, const float vg, float &scale);
+        float computeU(const float S, const unsigned nnzMix, const vector<ArrayXf> &snpEffectMix, const float snp2pqLogSum, const vector<ArrayXf> &snp2pqMix, const vector<ArrayXf> &logSnp2pqMix, const float sigmaSq, const VectorXf &gamma, const float vg, float &scale, const bool originalModel);
 
     };
     
@@ -1544,7 +1649,7 @@ public:
     ArrayXf snp2pqPowS;
     
     ApproxBayesRS(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const float varS, const vector<float> &svalue, const string &algorithm, const bool noscale, const bool originalModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const string &alg, const bool randomStart = false, const bool message = true):
-    ApproxBayesR(data, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, false, alg, false),
+    ApproxBayesR(data, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, false, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, false, alg, false),
     snpEffects(data.snpEffectNames, data.snp2pq, pis),
     S(data.numIncdSnps, varS, svalue[0])
     {
