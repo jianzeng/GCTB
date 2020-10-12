@@ -1264,7 +1264,7 @@ public:
         
         paramSetVec = {&snpEffects};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &sigmaSqG, &hsq};
-        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &sigmaSqG, &hsq, &rounding};
+        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &sigmaSqG, &hsq, &S.ar, &S.tuner, &rounding};
 //        if (sparse) {
 //            paramVec.push_back(&pigwas);
 //            paramVec.push_back(&nnzgwas);
@@ -1577,6 +1577,92 @@ public:
     void sampleUnknowns(void);
 };
 
+
+////////////////////
+// SBayesR with SVD
+////////////////////
+
+class ApproxBayesReigen : public ApproxBayesR {
+public:
+    class SnpEffects : public ApproxBayesR::SnpEffects {
+    public:
+        
+        SnpEffects(const vector<string> &header): ApproxBayesR::SnpEffects(header){
+
+        }
+
+        void sampleFromFC(VectorXf &wcorr, const vector<VectorXf> &Q,
+                          const VectorXi &windStart, const VectorXi &windSize,
+                          const VectorXf &vare, const VectorXf &n,
+                          const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore,
+                          const float varg, const bool originalModel, VectorXf &what);
+
+    };
+    
+    class GenotypicVar : public BayesC::GenotypicVar {
+    public:
+        GenotypicVar(const float varg, const unsigned n): BayesC::GenotypicVar(varg){}
+        
+        void compute(const VectorXf &what);
+    };
+    
+    class ResidualVar : public ParamSet , public BayesC::ResidualVar {
+    public:
+        
+        ResidualVar(const float vare, const unsigned nobs, const float icrsq): BayesC::ResidualVar(vare, nobs) {}
+        
+        void sampleFromFC(const VectorXf &wcorr, const VectorXi &windStart, const VectorXi &windSize, const float &n, const vector<VectorXf> &Q);
+    };
+    
+    
+    SnpEffects snpEffects;
+    ResidualVar vare;
+    GenotypicVar varg;
+    
+    VectorXf wcorr;
+    VectorXf what;
+    vector<VectorXf> Q;
+    
+    ApproxBayesReigen(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const string &algorithm, const bool noscale, const bool originalModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const string &alg, const bool randomStart = false, const bool message = true):
+    ApproxBayesR(data, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, false, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, false, alg, false),
+    snpEffects(data.snpEffectNames)
+    {
+        //wcorr = data.eigenvalues.sqrt().inverse
+        //Q =
+        
+        paramSetVec = {&snpEffects, &fixedEffects};
+        scale.value = sigmaSq.scale = 0.5*sigmaSq.value;
+        for (unsigned i=0; i<Pis.size(); ++i) {
+            Pis[i]->value=Pis.values[i];
+        }
+        paramVec     = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq};
+        if (originalModel) paramVec.insert(paramVec.begin(), Vgs.begin(), Vgs.end());
+        paramVec.insert(paramVec.begin(), numSnps.begin(), numSnps.end());
+        paramToPrint = {&sigmaSq, &vare, &varg, &hsq, &rounding};
+        if (originalModel) paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
+        paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
+        if (modelPS) {
+            paramVec.push_back(&ps);
+            paramToPrint.push_back(&ps);
+        }
+        if (message) {
+            cout << "\nApproximate BayesR Eigen model fitted." << endl;
+            cout << "scale factor: " << sigmaSq.scale << endl;
+            cout << "Gamma: " << gamma.transpose() << endl;
+            if (noscale)
+            {
+                cout << "Fitting model assuming unscaled genotypes " << endl;
+            } else
+            {
+                cout << "Fitting model assuming scaled genotypes "  << endl;
+            }
+        }
+    }
+
+    
+    void sampleUnknowns(void);
+
+};
 
 // -----------------------------------------------------------------------------------------------
 // Approximate Bayes RS
