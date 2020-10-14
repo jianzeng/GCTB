@@ -41,7 +41,7 @@ float Stat::Beta::sample(const float a, const float b){
 }
 
 unsigned Stat::Bernoulli::sample(const float p){
-    if (isnan(p)) return ranf() < 0.5 ? 1:0;
+    if (std::isnan(p)) return ranf() < 0.5 ? 1:0;
     else return ranf() < p ? 1:0;
 }
 
@@ -51,7 +51,7 @@ unsigned Stat::Bernoulli::sample(const VectorXf &p){
     long size = p.size();
     unsigned ret = 0;
     for (unsigned i=0; i<size; ++i) {
-        if (!isnan(p[i])) cum += p[i];
+        if (!std::isnan(p[i])) cum += p[i];
         if (rnd < cum) {
             ret = i;
             break;
