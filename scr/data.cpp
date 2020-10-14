@@ -3040,7 +3040,8 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
             nmsumi[i] = log(n) + 0.5772156649 + 1.0 / (2.0 * n) - 1.0 / (12.0 * pow(n, 2)) + 1.0 / (120.0 * pow(n, 4));
             //cout << nmsumi[i] << endl;
             // Calculate theta
-            thetai[i] = (1.0 / nmsumi[i]) / (2.0 * (snp->sampleSize) + 1 / nmsumi[i]);
+//            thetai[i] = (1.0 / nmsumi[i]) / (2.0 * (snp->sampleSize) + 1 / nmsumi[i]);
+            thetai[i] = (1.0 / nmsumi[i]) / (2.0 * m + 1 / nmsumi[i]);
             //cout <<  thetai[i] << endl;
             // Pull out the standard deviation for each variant
             sdss[i] = sqrt(2.0 * (snp->af) * (1.0 - (snp->af)));

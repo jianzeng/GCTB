@@ -53,17 +53,17 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (readLDMfromTxtFile) {
         data.readLDmatrixTxtFile(ldmatrixFile + ".txt");
     } else {
-        if (geneticMapFile.empty()) {
+//        if (geneticMapFile.empty()) {
             if (multiLDmat)
                 data.readMultiLDmatBinFile(ldmatrixFile);
             else
                 data.readLDmatrixBinFile(ldmatrixFile + ".bin");
-        } else {
-            if (multiLDmat)
-                data.readMultiLDmatBinFileAndShrink(ldmatrixFile, genMapN);
-            else
-                data.readLDmatrixBinFileAndShrink(ldmatrixFile + ".bin");
-        }
+//        } else {
+//            if (multiLDmat)
+//                data.readMultiLDmatBinFileAndShrink(ldmatrixFile, genMapN);
+//            else
+//                data.readLDmatrixBinFileAndShrink(ldmatrixFile + ".bin");
+//        }
     }
     
     if (rsqThreshold < 1.0 && !binSnp) {
