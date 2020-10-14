@@ -1601,17 +1601,20 @@ public:
     
     class GenotypicVar : public BayesC::GenotypicVar {
     public:
-        GenotypicVar(const float varg, const unsigned n): BayesC::GenotypicVar(varg){}
+        GenotypicVar(const float varg): BayesC::GenotypicVar(varg){}
         
         void compute(const VectorXf &what);
     };
     
-    class ResidualVar : public ParamSet , public BayesC::ResidualVar {
+    class ResidualVar : public BayesC::ResidualVar {
     public:
+        VectorXf values;
         
-        ResidualVar(const float vare, const unsigned nobs, const float icrsq): BayesC::ResidualVar(vare, nobs) {}
+        ResidualVar(const float vare, const unsigned nobs, const long nblk): BayesC::ResidualVar(vare, nobs) {
+            values.setConstant(nblk, vare);
+        }
         
-        void sampleFromFC(const VectorXf &wcorr, const VectorXi &windStart, const VectorXi &windSize, const float &n, const vector<VectorXf> &Q);
+        void sampleFromFC(const VectorXf &wcorr, const VectorXi &windStart, const VectorXi &windSize, const VectorXf &n, const vector<VectorXf> &Q);
     };
     
     
@@ -1623,12 +1626,14 @@ public:
     VectorXf what;
     vector<VectorXf> Q;
     
-    ApproxBayesReigen(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const string &algorithm, const bool noscale, const bool originalModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const string &alg, const bool randomStart = false, const bool message = true):
-    ApproxBayesR(data, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, false, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, false, alg, false),
-    snpEffects(data.snpEffectNames)
+    ApproxBayesReigen(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool originalModel, const string &alg, const bool randomStart = false, const bool message = true):
+    ApproxBayesR(data, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, false, noscale, originalModel, 0, false, 0, false, alg, false),
+    snpEffects(data.snpEffectNames),
+    vare(varResidual, data.numKeptInds, data.numWindows),
+    varg(varGenotypic)
     {
-        //wcorr = data.eigenvalues.sqrt().inverse
-        //Q =
+        //wcorr = data.eigenvalues.sqrt().inverse.asDiagonal() * data.eigenvectors.transpose() * data.bhat  // TODO
+        //Q = data.eigenvalues.sqrt().asDiagonal() * data.eigenvectors.transpose()                          // TODO
         
         paramSetVec = {&snpEffects, &fixedEffects};
         scale.value = sigmaSq.scale = 0.5*sigmaSq.value;
