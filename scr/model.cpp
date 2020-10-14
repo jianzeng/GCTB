@@ -4193,11 +4193,12 @@ void ApproxBayesReigen::ResidualVar::sampleFromFC(const VectorXf &wcorr, const V
         unsigned q = Q[i].size();
         unsigned blockStart = windStart[i];
         unsigned blockSize  = windSize[i];
-        float sse = wcorr.segment(blockStart, blockSize).squaredNorm()*n[i];
+        float sse = wcorr.segment(blockStart, blockSize).dot(n.segment(blockStart, blockSize).cwiseProduct(wcorr.segment(blockStart, blockSize)));
         float dfTilde = df + q;
         float scaleTilde = sse + df*scale;
         values[i] = InvChiSq::sample(dfTilde, scaleTilde);
     }
+    value = values.mean();
 }
 
 void ApproxBayesReigen::GenotypicVar::compute(const VectorXf &what){
@@ -4220,21 +4221,21 @@ void ApproxBayesReigen::sampleUnknowns(){
 
     varg.compute(what);
     vare.sampleFromFC(wcorr, data.windStart, data.windSize, data.n, Q);
-    hsq.compute(varg.value, data.vary);
+    hsq.compute(varg.value, data.varPhenotypic);
     
     if (iter >= 2000) sigmaSq.scale = scalePrior;
     scale.getValue(sigmaSq.scale);
     // cout << "iter " << iter << " scalePrior " << scalePrior << "sigmaSq.scale " << sigmaSq.scale << endl;
 
-        rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
+//    rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
 
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
 
 //    numSnpVg.compute(snpEffects.values, data.ZPZdiag, varg.value, vare.nobs);
-    if (originalModel) {
-            Vgs.compute(snpEffects.values, data.ZPZ, snpEffects.snpset, varg.value, vare.nobs);
-    }
+//    if (originalModel) {
+//            Vgs.compute(snpEffects.values, data.ZPZ, snpEffects.snpset, varg.value, vare.nobs);
+//    }
 
     if (++iter < 2000) {
         if (noscale)
