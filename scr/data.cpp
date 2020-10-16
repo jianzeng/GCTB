@@ -2995,14 +2995,16 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                     shrinkage = 0.0;
                 }
                 // // Multiple each covariance matrix element with the shrinkage value
-                ZPZ[i][j] = ZPZ[i][j] * shrinkage;
+                float value = ZPZ[i][j];
+                value = value * shrinkage;
                 // // Complete as SigHAat from Li and Stephens 2003
-                ZPZ[i][j] =  ZPZ[i][j] * ((1.0 - thetai[i]) * (1.0 - thetai[(windStart[i] + j)]));
+                value =  value * ((1.0 - thetai[i]) * (1.0 - thetai[(windStart[i] + j)]));
                 // If it's the diagonal element add the extra term
                 if (i == (windStart[i] + j))
                 {
-                    ZPZ[i][j] = ZPZ[i][j] + 0.5f * thetai[i] * (1.0 - 0.5f * thetai[i]);
+                    value = value + 0.5f * thetai[i] * (1.0 - 0.5f * thetai[i]);
                 }  
+                ZPZ[j][i] = ZPZ[i][j] = value;
             }
             if(!(i%1000)) cout << " Completed snp " << i << "\r" << flush;
         }
