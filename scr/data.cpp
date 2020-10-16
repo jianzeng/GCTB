@@ -3303,7 +3303,8 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
         if (snp2pq[incj]==0) throw ("Error: " + snpj->ID + " is a fixed SNP!");
         
         // standardize genotypes
-        D[incj] = snp2pq[incj]*snpj->sampleSize;
+        //D[incj] = snp2pq[incj]*snpj->sampleSize;
+        D[incj] = Gadget::calcVariance(ZP.row(incj))*snpj->sampleSize;
         
         ZP.row(incj) = (ZP.row(incj).array() - mean)/sqrt(D[incj]);
         
@@ -3369,7 +3370,8 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
         if (snp2pq[inck]==0) throw ("Error: " + snpk->ID + " is a fixed SNP!");
         
         // standardize genotypes
-        D[inck] = snp2pq[inck]*snpk->sampleSize;
+        //D[inck] = snp2pq[inck]*snpk->sampleSize;
+        D[inck] = Gadget::calcVariance(Zk)*snpk->sampleSize;
         
         Zk = (Zk.array() - mean)/sqrt(D[inck]);
         
