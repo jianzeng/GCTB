@@ -81,7 +81,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
                 data.readLDmatrixBinFileAndShrink(ldmatrixFile + ".bin");
         }
     }
-    
+    if(opt.bLDMeigen) data.truncBlockEigen(); 
     if (!gwasSummaryFile.empty()) data.buildSparseMME(sampleOverlap, noscale);
     if (!windowFile.empty()) data.binSnpByWindowID();
 }
@@ -135,6 +135,8 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
                 return new ApproxBayesSMix(data, data.varGenotypic, data.varResidual, pi, overdispersion, estimatePS, varS, S);
             else if (bayesType == "R")
                 return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, algorithm);
+            else if(bayesType == "Reigen")
+                return new ApproxBayesReigen(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, algorithm, false, true);
             else if (bayesType == "Kap")
                 return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, icrsq, kappa);
             else if (bayesType == "RS")

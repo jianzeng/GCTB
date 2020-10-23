@@ -1629,11 +1629,44 @@ public:
     ApproxBayesReigen(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool originalModel, const string &alg, const bool randomStart = false, const bool message = true):
     ApproxBayesR(data, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, false, noscale, originalModel, 0, false, 0, false, alg, false),
     snpEffects(data.snpEffectNames),
-    vare(varResidual, data.numKeptInds, data.numWindows),
+    //vare(varResidual, data.numKeptInds, data.numWindows),
+    vare(varResidual, data.numKeptInds, data.numIncdSnps),
     varg(varGenotypic)
     {
         //wcorr = data.eigenvalues.sqrt().inverse.asDiagonal() * data.eigenvectors.transpose() * data.bhat  // TODO
         //Q = data.eigenvalues.sqrt().asDiagonal() * data.eigenvectors.transpose()                          // TODO
+        long numBlocks = data.blockStarts.size();
+            
+        int numIncSnps = data.numIncdSnps;
+        Q.resize(numIncSnps);
+        wcorr.resize(numIncSnps);
+        wcorr.setZero();
+ 
+        cout << "Number of blocks: " << numBlocks << std::endl;
+        for(int i = 0; i < numBlocks; i++){
+            int blockStart = data.blockStarts[i];
+            int blockSize = data.blockSizes[i];
+            int blockEnd = blockStart + blockSize;
+            VectorXf truncEigenValues = data.truncBlockEigenValues[i];
+            MatrixXf truncEigenVectors = data.truncBlockEigenVectors[i];
+
+            int k = truncEigenValues.size();
+
+            SparseMatrix<float> eig(k, k);
+            eig.setIdentity();
+            eig.diagonal() = truncEigenValues;
+
+            MatrixXf curQ = eig * truncEigenVectors.transpose(); // k*k  k*m = k*m
+            for(int j = blockStart; j < blockEnd; j++){
+                Q[j] = curQ.col(j - blockStart);
+            }
+
+            // wcorr
+            eig.diagonal() = 1.0 / truncEigenValues.array();
+            VectorXf curBhat = data.b.segment(blockStart, blockSize);
+            wcorr.segment(blockStart, k) = eig * truncEigenVectors.transpose() * curBhat; // k*k  k*m m*1 = k * 1
+
+        }
         
         paramSetVec = {&snpEffects, &fixedEffects};
         scale.value = sigmaSq.scale = 0.5*sigmaSq.value;
