@@ -4063,6 +4063,7 @@ void ApproxBayesReigen::SnpEffects::sampleFromFC(VectorXf &wcorr, const vector<V
     // -----------------------------------------
     static unsigned iter = 0;
     long numBlocks = windStart.size();
+    //cout << "Blocks sample: " << numBlocks << std::endl;
 //    long numChr = chromInfoVec.size();
     
     what.setZero(wcorr.size());
@@ -4136,9 +4137,10 @@ void ApproxBayesReigen::SnpEffects::sampleFromFC(VectorXf &wcorr, const vector<V
         
         unsigned delta;
 
+        unsigned k = Q[blockStart].size();
         for (unsigned i=blockStart; i<blockEnd; ++i) {
             oldSample = valuesPtr[i];
-            rhs = wcorr.dot(Q[i]) + oldSample;
+            rhs = wcorr.segment(blockStart, k).dot(Q[i]) + oldSample;
             rhs /= vare[i]/n[i];
                         
             invLhs = (n[i]/vare[i] + invWtdSigmaSq).inverse();
@@ -4158,13 +4160,13 @@ void ApproxBayesReigen::SnpEffects::sampleFromFC(VectorXf &wcorr, const vector<V
             
             if (delta) {
                 valuesPtr[i] = uhat[delta] + nrnd[i]*sqrtf(invLhs[delta]);
-                wcorr.segment(blockStart, blockSize) += Q[i] * (oldSample - valuesPtr[i]);
-                what += Q[i] * valuesPtr[i];
+                wcorr.segment(blockStart, k) += Q[i] * (oldSample - valuesPtr[i]);
+                what.segment(blockStart, k) += Q[i] * valuesPtr[i];
                 ssq[blk] += (valuesPtr[i] * valuesPtr[i]) / (gamma[delta]);
                 ++nnz[blk];
             }
             else {
-                if (oldSample) wcorr.segment(blockStart, blockSize) += Q[i] * oldSample;
+                if (oldSample) wcorr.segment(blockStart, k) += Q[i] * oldSample;
                 valuesPtr[i] = 0.0;
             }
         }
@@ -4209,7 +4211,8 @@ void ApproxBayesReigen::sampleUnknowns(){
     static int iter = 0;
     unsigned cnt=0;
     do {
-        snpEffects.sampleFromFC(wcorr, Q, data.windStart, data.windSize, vare.values, data.n, sigmaSq.value, Pis.values, gamma.values, snpStore, varg.value, originalModel, what);
+        //snpEffects.sampleFromFC(wcorr, Q, data.windStart, data.windSize, vare.values, data.n, sigmaSq.value, Pis.values, gamma.values, snpStore, varg.value, originalModel, what);
+        snpEffects.sampleFromFC(wcorr, Q, data.blockStarts, data.blockSizes, vare.values, data.n, sigmaSq.value, Pis.values, gamma.values, snpStore, varg.value, originalModel, what);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
     
@@ -4220,7 +4223,8 @@ void ApproxBayesReigen::sampleUnknowns(){
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
 
     varg.compute(what);
-    vare.sampleFromFC(wcorr, data.windStart, data.windSize, data.n, Q);
+    //vare.sampleFromFC(wcorr, data.windStart, data.windSize, data.n, Q);
+    vare.sampleFromFC(wcorr, data.blockStarts, data.blockSizes, data.n, Q);
     hsq.compute(varg.value, data.varPhenotypic);
     
     if (iter >= 2000) sigmaSq.scale = scalePrior;

@@ -3578,6 +3578,67 @@ cout << "Genotype data for " << numKeptInds << " individuals and " << numSnpInRa
 // Make shrunk matrix end
 // =============================================================================================
 
+void Data::truncBlockEigen(float eigThresh){
+    cout << "Performing eigen decomposition on LD matrix and truncating with threshold " << eigThresh << "..." << std::endl;
+    long numBlocks = windStart.size();
+    cout << "Number of SNPs: " << numBlocks << std::endl;
+    int preBlockStart = -1;
+    blockStarts.resize(numBlocks);
+    blockSizes.resize(numBlocks);
+    int numK = 0;
+    for(int i = 0; i < numBlocks; i++){
+        int curStart = windStart[i];
+        if(preBlockStart != curStart){
+            blockStarts[numK] = curStart;
+            blockSizes[numK] = windSize[i];
+            numK++;
+            preBlockStart = curStart;
+        }
+    }
+    blockStarts.conservativeResize(numK);
+    blockSizes.conservativeResize(numK);
+    numBlocks = blockStarts.size();
+    cout << "Number of blocks: " << numBlocks << std::endl;
+    truncBlockEigenValues.resize(numBlocks);
+    truncBlockEigenVectors.resize(numBlocks);
+
+    for(int i = 0; i < numBlocks; i++){
+        int blockStart = blockStarts[i];
+        int blockSize = blockSizes[i];
+        int blockEnd = blockStart + blockSize;
+        //cout << " block start: " << blockStart << ", blocksize: " << blockSize << ", blockEnd: " << blockEnd << std::endl;
+        MatrixXf LDm(blockSize, blockSize);
+        int curCol = 0;
+        for(int j = blockStart; j < blockEnd; j++){
+            VectorXf curZPZ = ZPZ[j]; 
+            if(blockSize != curZPZ.size()){
+                throw("dimension error in prepared LD matrix.");
+            }
+            LDm.col(curCol) = curZPZ;
+            curCol++;
+        }
+        SelfAdjointEigenSolver<MatrixXf> eigensolver(LDm);
+        MatrixXf evec = eigensolver.eigenvectors();
+        VectorXf eval = eigensolver.eigenvalues();
+        vector<int> keepIdx;
+        for(int j = 0; j < blockSize; j++){
+            if(eval[j] >= eigThresh){
+                keepIdx.push_back(j);
+            }
+        }
+
+        int k = keepIdx.size();
+        truncBlockEigenValues[i].resize(k);
+        truncBlockEigenVectors[i].resize(blockSize, k);
+        for(int j = 0; j < k; j++){
+            int curIdx = keepIdx[j];
+            truncBlockEigenValues[i][j] = eval[curIdx];
+            truncBlockEigenVectors[i].col(j) = evec.col(curIdx);
+        }
+        cout << "Block " << i+1 << ", start: " << blockStart << ", window: " << blockSize << ", dimension: " << k << std::endl;
+    }
+
+}
 
 void Data::buildSparseMME(const bool sampleOverlap, const bool noscale){
     VectorXf Dref = snp2pq*numKeptInds;
