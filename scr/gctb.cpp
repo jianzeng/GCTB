@@ -81,7 +81,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
                 data.readLDmatrixBinFileAndShrink(ldmatrixFile + ".bin");
         }
     }
-    if(opt.bLDMeigen) data.truncBlockEigen(); 
+    if(opt.bLDMeigen) data.truncBlockEigen(1e-3); 
     if (!gwasSummaryFile.empty()) data.buildSparseMME(sampleOverlap, noscale);
     if (!windowFile.empty()) data.binSnpByWindowID();
 }

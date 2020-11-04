@@ -1647,7 +1647,7 @@ public:
             int blockStart = data.blockStarts[i];
             int blockSize = data.blockSizes[i];
             int blockEnd = blockStart + blockSize;
-            VectorXf truncEigenValues = data.truncBlockEigenValues[i];
+            VectorXf truncEigenValues = data.truncBlockEigenValues[i].array().sqrt();
             MatrixXf truncEigenVectors = data.truncBlockEigenVectors[i];
 
             int k = truncEigenValues.size();
@@ -1663,7 +1663,7 @@ public:
 
             // wcorr
             eig.diagonal() = 1.0 / truncEigenValues.array();
-            VectorXf curBhat = data.b.segment(blockStart, blockSize);
+            VectorXf curBhat = data.b.segment(blockStart, blockSize).array() * data.snp2pq.segment(blockStart, blockSize).array().sqrt();
             wcorr.segment(blockStart, k) = eig * truncEigenVectors.transpose() * curBhat; // k*k  k*m m*1 = k * 1
 
         }
