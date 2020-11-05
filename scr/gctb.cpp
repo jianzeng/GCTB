@@ -136,7 +136,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
             else if (bayesType == "R")
                 return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, algorithm);
             else if(bayesType == "Reigen")
-                return new ApproxBayesReigen(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, algorithm, false, true);
+                return new ApproxBayesReigen(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, algorithm, false, true);
             else if (bayesType == "Kap")
                 return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, icrsq, kappa);
             else if (bayesType == "RS")
