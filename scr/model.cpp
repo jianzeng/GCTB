@@ -4074,7 +4074,6 @@ void ApproxBayesReigen::SnpEffects::sampleFromFC(VectorXf &wcorr, const vector<V
     memset(s2pq,0,sizeof(float)*numBlocks);
     
     float *valuesPtr = values.data(); // for openmp, otherwise when one thread writes to the vector, the vector locking precents the writing from other threads
-    
     vector<float> urnd(size), nrnd(size);
     for (unsigned i=0; i<size; ++i) { // need this for openmp to work
         urnd[i] = Stat::ranf();
@@ -4156,6 +4155,7 @@ void ApproxBayesReigen::SnpEffects::sampleFromFC(VectorXf &wcorr, const vector<V
             delta = bernoulli.sample(probDelta);
             
             snpset[delta].push_back(i);
+            snpStore(delta) += 1;
 //            numSnpMix[delta]++;
             
             if (delta) {
@@ -4225,7 +4225,7 @@ void ApproxBayesReigen::sampleUnknowns(){
     varg.compute(what);
     //vare.sampleFromFC(wcorr, data.windStart, data.windSize, data.n, Q);
     vare.sampleFromFC(wcorr, data.blockStarts, data.blockSizes, data.n, Q);
-    hsq.compute(varg.value, data.varPhenotypic);
+    hsq.compute(varg.value, data.varPhenotypic - varg.value);
     
     if (iter >= 2000) sigmaSq.scale = scalePrior;
     scale.getValue(sigmaSq.scale);

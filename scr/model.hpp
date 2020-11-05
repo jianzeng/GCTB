@@ -1524,6 +1524,8 @@ public:
     originalModel(originalModel),
     estimateSigmaSq(estimateSigmaSq)
     {
+        cout << "pis: " << pis << std::endl;
+        cout << "gamma: " << gamma << std::endl;
         if (alg == "cg") algorithm = cg;
         else algorithm = gibbs;
         sparse = data.sparseLDM;
@@ -1554,6 +1556,8 @@ public:
         else ghat.resize(0);                              // TMP_JZ
         
         if (!estimateSigmaSq) {
+            cout << "pis2: " << pis << std::endl;
+            cout << "gamma: " << gamma << std::endl;
             sigmaSq.value = varg.value/(data.numIncdSnps*pis.dot(gamma));
             sigmaSq.scale = 0.5*sigmaSq.value;
             cout << "fixing sigmaSq to be " << sigmaSq.value << endl;
@@ -1626,8 +1630,8 @@ public:
     VectorXf what;
     vector<VectorXf> Q;
     
-    ApproxBayesReigen(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool originalModel, const string &alg, const bool randomStart = false, const bool message = true):
-    ApproxBayesR(data, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, false, noscale, originalModel, 0, false, 0, false, alg, false),
+    ApproxBayesReigen(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, bool estimateSigmaSq, const bool noscale, const bool originalModel, const string &alg, const bool randomStart = false, const bool message = true):
+    ApproxBayesR(data, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, 0, false, 0, false, alg, false),
     snpEffects(data.snpEffectNames),
     //vare(varResidual, data.numKeptInds, data.numWindows),
     vare(varResidual, data.numKeptInds, data.numIncdSnps),
