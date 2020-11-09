@@ -4140,9 +4140,9 @@ void ApproxBayesReigen::SnpEffects::sampleFromFC(VectorXf &wcorr, const vector<V
         for (unsigned i=blockStart; i<blockEnd; ++i) {
             oldSample = valuesPtr[i];
             rhs = wcorr.segment(blockStart, k).dot(Q[i]) + oldSample;
-            rhs /= vare[i]/n[i];
+            rhs /= vare[blk]/n[i];
                         
-            invLhs = (n[i]/vare[i] + invWtdSigmaSq).inverse();
+            invLhs = (n[i]/vare[blk] + invWtdSigmaSq).inverse();
             uhat = invLhs*rhs;
             
             logDelta = 0.5*(invLhs.log() - logWtdSigmaSq + uhat*rhs) + logPis;
