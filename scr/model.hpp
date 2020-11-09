@@ -1524,8 +1524,6 @@ public:
     originalModel(originalModel),
     estimateSigmaSq(estimateSigmaSq)
     {
-        cout << "pis: " << pis << std::endl;
-        cout << "gamma: " << gamma << std::endl;
         if (alg == "cg") algorithm = cg;
         else algorithm = gibbs;
         sparse = data.sparseLDM;
@@ -1556,9 +1554,8 @@ public:
         else ghat.resize(0);                              // TMP_JZ
         
         if (!estimateSigmaSq) {
-            cout << "pis2: " << pis << std::endl;
-            cout << "gamma: " << gamma << std::endl;
             sigmaSq.value = varg.value/(data.numIncdSnps*pis.dot(gamma));
+            //sigmaSq.value = 0.1369346;
             sigmaSq.scale = 0.5*sigmaSq.value;
             cout << "fixing sigmaSq to be " << sigmaSq.value << endl;
         }
@@ -1633,8 +1630,7 @@ public:
     ApproxBayesReigen(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, bool estimateSigmaSq, const bool noscale, const bool originalModel, const string &alg, const bool randomStart = false, const bool message = true):
     ApproxBayesR(data, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, 0, false, 0, false, alg, false),
     snpEffects(data.snpEffectNames),
-    //vare(varResidual, data.numKeptInds, data.numWindows),
-    vare(varResidual, data.numKeptInds, data.numIncdSnps),
+    vare(varResidual, data.numKeptInds, data.blockStarts.size()),
     varg(varGenotypic)
     {
         //wcorr = data.eigenvalues.sqrt().inverse.asDiagonal() * data.eigenvectors.transpose() * data.bhat  // TODO
@@ -1669,6 +1665,21 @@ public:
             eig.diagonal() = 1.0 / truncEigenValues.array();
             VectorXf curBhat = data.b.segment(blockStart, blockSize).array() * data.snp2pq.segment(blockStart, blockSize).array().sqrt();
             wcorr.segment(blockStart, k) = eig * truncEigenVectors.transpose() * curBhat; // k*k  k*m m*1 = k * 1
+
+            /* output for debug
+            FILE* pbhat = fopen((string("bhat.bin.") + to_string(i)).c_str(), "wb");
+            fwrite(curBhat.data(), curBhat.size(), sizeof(float), pbhat);
+            fclose(pbhat);
+
+            FILE* pEigv = fopen((string("bhat.eigv.") + to_string(i)).c_str(), "wb");
+            fwrite(truncEigenValues.data(), truncEigenValues.size(), sizeof(float), pEigv);
+            fclose(pEigv);
+
+            FILE* pEigvec = fopen((string("bhat.eigvec.") + to_string(i)).c_str(), "wb");
+            fwrite(truncEigenVectors.data(), truncEigenVectors.rows() * truncEigenVectors.cols(), sizeof(float), pEigvec);
+            cout << "bhat size: " << curBhat.size() << ", eigeval: " <<  truncEigenValues.size() << ", eigenvector: " << truncEigenVectors.rows() << " * " <<  truncEigenVectors.cols() << std::endl;
+            fclose(pEigvec);
+            */
 
         }
         
