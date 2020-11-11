@@ -3578,8 +3578,8 @@ cout << "Genotype data for " << numKeptInds << " individuals and " << numSnpInRa
 // Make shrunk matrix end
 // =============================================================================================
 
-void Data::truncBlockEigen(float eigThresh){
-    cout << "Performing eigen decomposition on LD matrix and truncating with threshold " << eigThresh << "..." << std::endl;
+void Data::truncBlockEigen(string method, float eigThresh){
+    cout << "Performing eigen decomposition on LD matrix and truncating with \"" << method << "\" and threshold " << eigThresh << "..." << std::endl;
     long numBlocks = windStart.size();
     cout << "Number of SNPs: " << numBlocks << std::endl;
     int preBlockStart = -1;
@@ -3621,10 +3621,69 @@ void Data::truncBlockEigen(float eigThresh){
         MatrixXf evec = eigensolver.eigenvectors();
         VectorXf eval = eigensolver.eigenvalues();
         vector<int> keepIdx;
-        for(int j = 0; j < blockSize; j++){
-            if(eval[j] >= eigThresh){
+        if(method == "value"){
+            for(int j = 0; j < blockSize; j++){
+                if(eval[j] >= eigThresh){
+                    keepIdx.push_back(j);
+                }
+            }
+        }else if(method == "count"){
+            if(eigThresh > blockSize){
+                throw(("Number to cutoff on count in block " + to_string(i) + " is too large " + to_string(blockSize)).c_str());
+            }
+            int start = 0, end = 0;
+            if(eval[0] > eval[blockSize-1]){
+                start = 0;
+                end = start + eigThresh;
+            }else{
+                start = blockSize - eigThresh;
+                end = blockSize;
+            }
+
+            for(int j = start; j < end; j++){
                 keepIdx.push_back(j);
             }
+        }else if(method == "percent"){
+            float *cumSum = new float[blockSize];
+
+            // get the cum sum
+            if(eval[0] >= 0){
+                cumSum[0] = eval[0];
+            }
+            for(int j = 1; j < blockSize; j++){
+                float curVal = eval[j];
+                if(curVal >= 0){
+                    cumSum[j] = cumSum[j-1] + curVal;
+                }else{
+                    cumSum[j] = cumSum[j-1];
+                }
+            }
+
+            if(cumSum[0] > cumSum[blockSize - 1]){
+                float totalVal = cumSum[0];
+                float cutOff = totalVal * eigThresh;
+                for(int j = 0; j < blockSize; j++){
+                    if(cumSum[j] >= cutOff){
+                        keepIdx.push_back(j);
+                    }else{
+                        break;
+                    }
+                }
+            }else{
+                float totalVal = cumSum[blockSize - 1];
+                float cutOff = totalVal - totalVal * eigThresh;
+                for(int j = 0; j < blockSize; j++){
+                    if(cumSum[j] < cutOff){
+                        continue;
+                    }else{
+                        keepIdx.push_back(j);
+                    }
+                }
+            }
+
+            delete[] cumSum;
+        }else{
+            throw(("Unknown cutoff method " + method + "!").c_str());
         }
 
         int k = keepIdx.size();
@@ -3635,7 +3694,7 @@ void Data::truncBlockEigen(float eigThresh){
             truncBlockEigenValues[i][j] = eval[curIdx];
             truncBlockEigenVectors[i].col(j) = evec.col(curIdx);
         }
-        cout << "Block " << i+1 << ", start: " << blockStart << ", window: " << blockSize << ", dimension: " << k << std::endl;
+        cout << "Block " << i+1 << ", start: " << blockStart << ", window: " << blockSize << ", threshold: " << eval[keepIdx[0]] << ", dimension: " << k << std::endl;
     }
 
 }
