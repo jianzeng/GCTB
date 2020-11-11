@@ -4074,6 +4074,7 @@ void ApproxBayesReigen::SnpEffects::sampleFromFC(VectorXf &wcorr, const vector<V
     memset(s2pq,0,sizeof(float)*numBlocks);
     
     float *valuesPtr = values.data(); // for openmp, otherwise when one thread writes to the vector, the vector locking precents the writing from other threads
+
     vector<float> urnd(size), nrnd(size);
     for (unsigned i=0; i<size; ++i) { // need this for openmp to work
         urnd[i] = Stat::ranf();
@@ -4210,11 +4211,11 @@ void ApproxBayesReigen::GenotypicVar::compute(const VectorXf &what){
 void ApproxBayesReigen::sampleUnknowns(){
     static int iter = 0;
     unsigned cnt=0;
-    do {
+    //do {
         //snpEffects.sampleFromFC(wcorr, Q, data.windStart, data.windSize, vare.values, data.n, sigmaSq.value, Pis.values, gamma.values, snpStore, varg.value, originalModel, what);
         snpEffects.sampleFromFC(wcorr, Q, data.blockStarts, data.blockSizes, vare.values, data.n, sigmaSq.value, Pis.values, gamma.values, snpStore, varg.value, originalModel, what);
-        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-    } while (snpEffects.numNonZeros == 0);
+    //    if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+    //} while (snpEffects.numNonZeros == 0);
     
     if (estimateSigmaSq) sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     if (estimatePi) Pis.sampleFromFC(snpStore);

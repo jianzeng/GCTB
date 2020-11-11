@@ -100,6 +100,8 @@ public:
     bool twoStageModel;  // two-step approach for estimating X-chr dosage model and G by sex
     bool binSnp;  // bin SNPs
     bool bLDMeigen; // flag to set the eigen decomposition to LD matrix or not
+    string eigCutMethod = "value";
+    float eigThreshold = 0.001;
 
     // Bayes R defauls
     VectorXf gamma;  // Default scaling parameters for Bayes R
