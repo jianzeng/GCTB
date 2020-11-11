@@ -28,8 +28,15 @@ void Options::inputOptions(const int argc, const char* argv[]){
             analysisType = "SBayes";
             bayesType = argv[++i];
             ss << "--sbayes " << argv[i] << "\n";
-        }
-        else if (!strcmp(argv[i], "--cg")) {
+        }else if(!strcmp(argv[i], "--eig-cutoff")){
+            eigCutMethod = argv[++i];
+            eigThreshold = stof(argv[++i]);
+            cout << eigCutMethod << " " << argv[i] << std::endl;
+            if(!strncmp(argv[i], "--", 2)){
+                throw("--eig-cutoff need two paramters: method (value, count, percent) threshold");
+            }
+            ss << "--eig-cutoff " << eigCutMethod << " " << eigThreshold << std::endl;
+        }else if (!strcmp(argv[i], "--cg")) {
             analysisType = "ConjugateGradient";
             ss << "--cg " << "\n";
         }

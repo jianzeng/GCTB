@@ -316,7 +316,7 @@ public:
     vector<IndInfo*> makeKeptIndInfoVec(const vector<IndInfo*> &indInfoVec);
     void getWindowInfo(const vector<SnpInfo*> &incdSnpInfoVec, const unsigned windowWidth, VectorXi &windStart, VectorXi &windSize);
     void getNonoverlapWindowInfo(const unsigned windowWidth);
-    void truncBlockEigen(float eigThresh=1e-6);
+    void truncBlockEigen(string method, float eigThresh);
     void buildSparseMME(const string &bedFile, const unsigned windowWidth);
 //    void makeLDmatrix(const string &bedFile, const unsigned windowWidth, const string &filename);
     void makeLDmatrix(const string &bedFile, const string &LDmatType, const float chisqThreshold, const float LDthreshold, const unsigned windowWidth,
