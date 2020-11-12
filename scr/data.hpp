@@ -8,6 +8,9 @@
 
 #ifndef data_hpp
 #define data_hpp
+#include <complex>
+#define lapack_complex_float std::complex<float>
+#define lapack_complex_double std::complex<double>
 
 #include <iostream>
 #include <stdio.h>
