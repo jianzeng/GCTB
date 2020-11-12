@@ -20,13 +20,14 @@ CXX_UNIX = g++
 CXX_MAC = g++
 
 # Any other compiler flags here ( -Wall, -g, etc)
-CXXFLAGS = -fopenmp -w -O3 -m64 -DEIGEN_NO_DEBUG -msse2 -std=c++0x -I.
+#CXXFLAGS = -fopenmp -w -O3 -m64 -DEIGEN_NO_DEBUG -msse2 -std=c++0x -I.
+CXXFLAGS = -fopenmp -w -O3 -m64 -DEIGEN_NO_DEBUG -msse2 -DEIGEN_USE_BLAS -DEIGEN_USE_LAPACKE -std=gnu++11 -I.
 
 # Some system specific flags
 ifeq ($(SYS),LINUX)
  CXXFLAGS += -I $(EIGEN) -I $(BOOST) -DUNIX -m64 -ldl
  #LIB += -static-libgcc -static-libstdc++
- LIB += -static
+ LIB += -static -lopenblas
 # LIB += -static -Wl,--start-group -Wl,--end-group -lpthread -lm
  CXX = $(CXX_UNIX)
 endif
