@@ -8,6 +8,9 @@
 
 #ifndef options_hpp
 #define options_hpp
+#include <complex>
+#define lapack_complex_float std::complex<float>
+#define lapack_complex_double std::complex<double>
 
 #include <iostream>
 #include <sstream>
@@ -18,9 +21,9 @@
 #include <string>
 #include <limits.h>
 #include <omp.h>
-#include <boost/format.hpp>
 #include <Eigen/Core>
 #include <Eigen/Eigen>
+#include <boost/format.hpp>
 #include "gadgets.hpp"
 
 using namespace std;
