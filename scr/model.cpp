@@ -2121,7 +2121,7 @@ void ApproxBayesC::sampleUnknowns(){
     static int iter = 0;
 //    fixedEffects.sampleFromFC(data.XPX, data.XPXdiag, data.ZPX, data.XPy, snpEffects.values, vare.value, rcorr);
     unsigned cnt=0;
-    do {
+    //do {
         //snpEffects.sampleFromFC(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, tss, data.n, data.snp2pq, sigmaSq.value, pi.value, vare.value);
         //snpEffects.hmcSampler(rcorr, data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, sigmaSq.value, pi.value, vare.value);
         if (sparse)
@@ -2130,8 +2130,8 @@ void ApproxBayesC::sampleUnknowns(){
         else
             snpEffects.sampleFromFC(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, data.tss, varei,
                                     data.n, data.snp2pq, data.LDsamplVar, sigmaSq.value, pi.value, vare.value, varg.value, ps.value, overdispersion);
-        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-    } while (snpEffects.numNonZeros == 0);
+    //    if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+    //} while (snpEffects.numNonZeros == 0);
     if (diagnose) nro.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, snpEffects.header, snpEffects.leaveout, data.ZPZsp, data.ZPy, snpEffects.values);
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     if (estimatePi) pi.sampleFromFC(data.numIncdSnps, snpEffects.numNonZeros);
