@@ -2144,9 +2144,9 @@ void ApproxBayesC::sampleUnknowns(){
     vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value);
     hsq.compute(varg.value, vare.value);
 
-    if (iter >= 2000) sigmaSq.scale = scalePrior;
+    //if (iter >= 2000) sigmaSq.scale = scalePrior;
+    //sigmaSq.scale = scalePrior;
     scale.getValue(sigmaSq.scale);
-    // cout << "iter " << iter << " scalePrior " << scalePrior << "sigmaSq.scale " << sigmaSq.scale << endl;
 
 
     if (sparse)
@@ -2160,17 +2160,23 @@ void ApproxBayesC::sampleUnknowns(){
 //        nnzgwas.compute(snpEffects.values, data.ZPZsp, data.ZPZdiag);
 //        pigwas.compute(nnzgwas.value, data.numIncdSnps);
 //    }
+    /*
+    float scaleIteri = 0;
     if (++iter < 2000) {
         if (noscale)
         {
-            scalePrior  = 0.5f * varg.value / (data.snp2pq.array().sum()*(pi.value));
+            scaleIteri = 0.5f * varg.value / (data.snp2pq.array().sum()*(pi.value));
         } else
         {
-            scalePrior  = 0.5f * varg.value / (data.snp2pq.size()*(pi.value));
+            scaleIteri = 0.5f * varg.value / (data.snp2pq.size()*(pi.value));
         }
         genVarPrior += (varg.value - genVarPrior)/iter;
-        scalePrior  += (sigmaSq.scale - scalePrior)/iter;
+        scalePrior += (scaleIteri - scalePrior)/iter;
     }
+    if(iter>1990 && iter < 2010){
+        cout << "iter " << iter << " , scalePrior " << scalePrior << " , sigmaSq.scale " << sigmaSq.scale << " , genVarPrior " << genVarPrior << " , varg " << varg.value << " , pi " << pi.value << endl;
+    }
+    */
 }
 
 
@@ -4214,6 +4220,7 @@ void ApproxBayesReigen::sampleUnknowns(){
     //do {
         //snpEffects.sampleFromFC(wcorr, Q, data.windStart, data.windSize, vare.values, data.n, sigmaSq.value, Pis.values, gamma.values, snpStore, varg.value, originalModel, what);
         snpEffects.sampleFromFC(wcorr, Q, data.blockStarts, data.blockSizes, vare.values, data.n, sigmaSq.value, Pis.values, gamma.values, snpStore, varg.value, originalModel, what);
+        //snpEffects.sampleFromFC(wcorr, Q, data.blockStarts, data.blockSizes, vare.values, data.n, 1.0, Pis.values, gamma.values, snpStore, varg.value, originalModel, what);
     //    if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     //} while (snpEffects.numNonZeros == 0);
     
@@ -4228,7 +4235,7 @@ void ApproxBayesReigen::sampleUnknowns(){
     vare.sampleFromFC(wcorr, data.blockStarts, data.blockSizes, data.n, Q);
     hsq.compute(varg.value, data.varPhenotypic - varg.value);
     
-    if (iter >= 2000) sigmaSq.scale = scalePrior;
+    //if (iter >= 2000) sigmaSq.scale = scalePrior;
     scale.getValue(sigmaSq.scale);
     // cout << "iter " << iter << " scalePrior " << scalePrior << "sigmaSq.scale " << sigmaSq.scale << endl;
 
@@ -4241,7 +4248,7 @@ void ApproxBayesReigen::sampleUnknowns(){
 //    if (originalModel) {
 //            Vgs.compute(snpEffects.values, data.ZPZ, snpEffects.snpset, varg.value, vare.nobs);
 //    }
-
+    /*
     if (++iter < 2000) {
         if (noscale)
         {
@@ -4253,6 +4260,7 @@ void ApproxBayesReigen::sampleUnknowns(){
         genVarPrior += (varg.value - genVarPrior)/iter;
         scalePrior  += (sigmaSq.scale - scalePrior)/iter;
     }
+    */
 }
 
 
