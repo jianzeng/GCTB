@@ -3645,10 +3645,11 @@ void Data::truncBlockEigen(string method, float eigThresh){
             }
         }else if(method == "percent"){
             float *cumSum = new float[blockSize];
-
             // get the cum sum
             if(eval[0] >= 0){
                 cumSum[0] = eval[0];
+            }else{
+                cumSum[0] = 0;
             }
             for(int j = 1; j < blockSize; j++){
                 float curVal = eval[j];
@@ -3658,6 +3659,8 @@ void Data::truncBlockEigen(string method, float eigThresh){
                     cumSum[j] = cumSum[j-1];
                 }
             }
+
+            
 
             if(cumSum[0] > cumSum[blockSize - 1]){
                 float totalVal = cumSum[0];
@@ -3685,7 +3688,7 @@ void Data::truncBlockEigen(string method, float eigThresh){
         }else{
             throw(("Unknown cutoff method " + method + "!").c_str());
         }
-
+        
         int k = keepIdx.size();
         truncBlockEigenValues[i].resize(k);
         truncBlockEigenVectors[i].resize(blockSize, k);
