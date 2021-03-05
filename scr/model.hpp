@@ -45,7 +45,7 @@ public:
 class Model {
 public:
     unsigned numSnps;
-    
+        
     vector<ParamSet*> paramSetVec;
     vector<Parameter*> paramVec;
     vector<Parameter*> paramToPrint;
@@ -615,6 +615,14 @@ public:
         float gradientU(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float sigmaSq, const float vg);
         float computeU(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float sigmaSq, const float vg, float &scale, float &U_chisq);
         void regression(const VectorXf &snpEffects, const ArrayXf &logSnp2pq, ArrayXf &snp2pqPowS, float &sigmaSq);
+        
+        // for the robust parameterisation
+        void sampleFromFC2(const unsigned numNonZeros, const VectorXf &snpEffects,
+                          const VectorXf &snp2pq, ArrayXf &snp2pqPowS, const ArrayXf &logSnp2pq,
+                          const float varg, float &sum2pqSplusOne);
+        float gradientU2(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float varg);
+        float computeU2(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float varg);
+
     };
     
     class SnpEffects : public BayesC::SnpEffects {
@@ -989,6 +997,7 @@ public:
     bool sparse;
     bool modelPS;
     bool diagnose;
+    bool robustMode;
     
     FixedEffects fixedEffects;
     SnpEffects snpEffects;
@@ -1011,7 +1020,7 @@ public:
    
     ApproxBayesC(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi, const bool noscale,
                  const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation,
-                 const bool diagnosticMode, const bool randomStart = false, const bool message = true)
+                 const bool diagnosticMode, const bool robustMode, const bool randomStart = false, const bool message = true)
     : BayesC(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, noscale, "Gibbs", false)
     , data(data)
     , rcorr(data.ZPy)
@@ -1029,6 +1038,7 @@ public:
     , phi(phi)
     , overdispersion(overdispersion)
     , covg(spouseCorrelation, data.numKeptInds)
+    , robustMode(robustMode)
     {
         sparse = data.sparseLDM;
         modelPS = estimatePS;
@@ -1065,6 +1075,7 @@ public:
             {
                cout << "Fitting model assuming scaled genotypes "  << endl;
             }
+            if (robustMode) cout << "Using a more robust parameterisation " << endl;
         }
         if (randomStart) sampleStartVal();
     }
@@ -1101,8 +1112,8 @@ public:
 
     ApproxBayesB(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi, const bool noscale,
                  const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation,
-                 const bool diagnosticMode, const bool randomStart = false, const bool message = true)
-    : ApproxBayesC(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, noscale, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, diagnosticMode, randomStart, false),
+                 const bool diagnosticMode, const bool robustMode, const bool randomStart = false, const bool message = true)
+    : ApproxBayesC(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, noscale, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, diagnosticMode, robustMode, randomStart, false),
     snpEffects(data.snpEffectNames),
     sigmaSq(varGenotypic, data.snp2pq, pival, noscale){
         if (message) {
@@ -1131,6 +1142,7 @@ public:
             {
                 cout << "Fitting model assuming scaled genotypes "  << endl;
             }
+            if (robustMode) cout << "Using a more robust parameterisation " << endl;
         }
     }
     
@@ -1219,6 +1231,7 @@ public:
     bool sparse;
     bool modelPS;
     bool diagnose;
+    bool robustMode;
     bool estimateEffectMean;
 
     SnpEffects snpEffects;
@@ -1241,7 +1254,7 @@ public:
     ApproxBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi,
                  const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation,
                  const float varS, const vector<float> &svalue,
-                 const string &algorithm, const bool diagnosticMode, const bool randomStart = false, const bool message = true)
+                 const string &algorithm, const bool diagnosticMode, const bool robustMode, const bool randomStart = false, const bool message = true)
     : BayesS(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, varS, svalue, algorithm, false)
     , rcorr(data.ZPy)
     , varei(data.tss.array()/data.n.array())
@@ -1254,6 +1267,7 @@ public:
     , overdispersion(overdispersion)
     , covg(spouseCorrelation, data.numKeptInds)
     , mu(data.numIncdSnps)
+    , robustMode(robustMode)
     {
         ghat.setZero(data.Z.rows());
         sparse = data.sparseLDM;
@@ -1295,6 +1309,7 @@ public:
             if (alg!="RWMH" && alg!="Reg") alg = "HMC";
             cout << "\nApproximate BayesS model fitted. Algorithm: " << alg << "." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
+            if (robustMode) cout << "Using a more robust parameterisation " << endl;
         }
 
         if (randomStart) sampleStartVal();
@@ -1375,7 +1390,7 @@ public:
                   const float piAlpha, const float piBeta, const bool estimatePi, const float overdispersion,
                   const bool estimatePS, const float varS, const vector<float> &svalue, const bool estimateS,
                   const bool randomStart = false, const bool message = true):
-    ApproxBayesS(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, 0, overdispersion, estimatePS, 0, 0, varS, svalue, "HMC", false, false),
+    ApproxBayesS(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, 0, overdispersion, estimatePS, 0, 0, varS, svalue, "HMC", false, false, false),
     estimateS(estimateS),
     logLdsc(data.LDscore.array().log()),
     hSlT(snp2pqPowS),
@@ -1506,8 +1521,8 @@ public:
     
     enum {gibbs, cg} algorithm;
     
-    ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool originalModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const string &alg, const bool message = true):
-    ApproxBayesC(data, varGenotypic, varResidual, (1-pis[0]), piPar[0], piPar[1], estimatePi, noscale, 0, overdispersion, estimatePS, 0, spouseCorrelation, diagnosticMode, false, false),
+    ApproxBayesR(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool originalModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool message = true):
+    ApproxBayesC(data, varGenotypic, varResidual, (1-pis[0]), piPar[0], piPar[1], estimatePi, noscale, 0, overdispersion, estimatePS, 0, spouseCorrelation, diagnosticMode, robustMode, false, false),
     Pis(pis,piPar),
     numSnps(pis),
     Vgs(gamma),
@@ -1571,6 +1586,7 @@ public:
             {
                cout << "Fitting model assuming scaled genotypes "  << endl;
             }
+            if (robustMode) cout << "Using a more robust parameterisation " << endl;
             if (algorithm == cg) cout << "Conjugate gradient-adjusted Gibbs sampling" << endl;
         }
     }
@@ -1628,7 +1644,7 @@ public:
     vector<VectorXf> Q;
     
     ApproxBayesReigen(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, bool estimateSigmaSq, const bool noscale, const bool originalModel, const string &alg, const bool randomStart = false, const bool message = true):
-    ApproxBayesR(data, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, 0, false, 0, false, alg, false),
+    ApproxBayesR(data, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, 0, false, 0, false, false, alg, false),
     snpEffects(data.snpEffectNames),
     vare(varResidual, data.numKeptInds, data.blockStarts.size()),
     varg(varGenotypic)
@@ -1770,8 +1786,8 @@ public:
     ArrayXf logSnp2pq;
     ArrayXf snp2pqPowS;
     
-    ApproxBayesRS(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const float varS, const vector<float> &svalue, const string &algorithm, const bool noscale, const bool originalModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const string &alg, const bool randomStart = false, const bool message = true):
-    ApproxBayesR(data, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, false, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, false, alg, false),
+    ApproxBayesRS(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const float varS, const vector<float> &svalue, const string &algorithm, const bool noscale, const bool originalModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool randomStart = false, const bool message = true):
+    ApproxBayesR(data, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, false, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, false, robustMode, alg, false),
     snpEffects(data.snpEffectNames, data.snp2pq, pis),
     S(data.numIncdSnps, varS, svalue[0])
     {

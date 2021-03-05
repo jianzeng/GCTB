@@ -103,6 +103,7 @@ public:
     bool twoStageModel;  // two-step approach for estimating X-chr dosage model and G by sex
     bool binSnp;  // bin SNPs
     bool bLDMeigen; // flag to set the eigen decomposition to LD matrix or not
+    bool robustMode;  // use the robust parameterisation in SBayes models
     string eigCutMethod = "value";
     float eigThreshold = 0.001;
 
@@ -222,6 +223,7 @@ public:
         originalModel           = false;
         twoStageModel           = false;
         binSnp                  = false;
+        robustMode              = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";
