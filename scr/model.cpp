@@ -894,6 +894,116 @@ void BayesS::Sp::regression(const VectorXf &snpEffects, const ArrayXf &logSnp2pq
     snp2pqPowS = (b[1]*logSnp2pq).exp();
 }
 
+void BayesS::Sp::sampleFromFC2(const unsigned numNonZeros, const VectorXf &snpEffects,
+                               const VectorXf &snp2pq, ArrayXf &snp2pqPowS, const ArrayXf &logSnp2pq,
+                               const float varg, float &sum2pqSplusOne) {
+    // Hamiltonian Monte Carlo
+    // This is for the robust parameterisation where sigmaSq is determined by heritability and sum of 2pq to the power of (S+1)
+    
+    // Cautious:
+    // The sampled value of SNP effect can be exactly zero even it is in the model. In this case, the numNonZeros will be inflated and cause zero element at the end of snp2pqDelta1 vector.
+    // To get around this, recalculate numNonZeros here.
+    
+    unsigned nnz = 0;
+    for (unsigned i=0; i<numSnps; ++i)
+        if (snpEffects[i]) ++nnz;
+    
+    // Prepare
+    ArrayXf snpEffectDelta1(nnz);
+    ArrayXf snp2pqDelta1(nnz);
+    ArrayXf logSnp2pqDelta1(nnz);
+    
+    for (unsigned i=0, j=0; i<numSnps; ++i) {
+        if (snpEffects[i]) {
+            snpEffectDelta1[j] = snpEffects[i];
+            snp2pqDelta1[j] = snp2pq[i];
+            logSnp2pqDelta1[j] = logSnp2pq[i];
+            ++j;
+        }
+    }
+    
+    float snp2pqLogSumDelta1 = logSnp2pqDelta1.sum();
+    
+    float curr = value;
+    float curr_p = Stat::snorm();
+    
+    float cand = curr;
+    // Make a half step for momentum at the beginning
+    float cand_p = curr_p - 0.5*stepSize * gradientU2(curr, snpEffectDelta1, snp2pqLogSumDelta1, snp2pqDelta1, logSnp2pqDelta1, varg);
+    
+    for (unsigned i=0; i<numSteps; ++i) {
+        // Make a full step for the position
+        cand += stepSize * cand_p;
+        if (i < numSteps-1) {
+            // Make a full step for the momentum, except at end of trajectory
+            cand_p -= stepSize * gradientU2(cand, snpEffectDelta1, snp2pqLogSumDelta1, snp2pqDelta1, logSnp2pqDelta1, varg);
+        } else {
+            // Make a half step for momentum at the end
+            cand_p -= 0.5*stepSize * gradientU2(cand, snpEffectDelta1, snp2pqLogSumDelta1, snp2pqDelta1, logSnp2pqDelta1, varg);
+        }
+        //cout << i << " " << cand << endl;
+    }
+
+    // Evaluate potential (negative log posterior) and kinetic energies at start and end of trajectory
+    float scaleCurr, scaleCand;
+    float curr_U_chisq, cand_U_chisq;
+    float curr_H = computeU2(curr, snpEffectDelta1, snp2pqLogSumDelta1, snp2pqDelta1, logSnp2pqDelta1, varg) + 0.5*curr_p*curr_p;
+    float cand_H = computeU2(cand, snpEffectDelta1, snp2pqLogSumDelta1, snp2pqDelta1, logSnp2pqDelta1, varg) + 0.5*cand_p*cand_p;
+    
+    if (Stat::ranf() < exp(curr_H-cand_H)) {  // accept
+        value = cand;
+        snp2pqPowS = snp2pq.array().pow(cand);
+        sum2pqSplusOne = snp2pqDelta1.pow(1.0+value).sum();
+        ar.count(1, 0.5, 0.9);
+    } else {
+        ar.count(0, 0.5, 0.9);
+    }
+    
+    if (!(ar.cnt % 10)) {
+        if      (ar.value < 0.6) stepSize *= 0.8;
+        else if (ar.value > 0.8) stepSize *= 1.2;
+    }
+
+    if (ar.consecRej > 20) stepSize *= 0.8;
+
+    tuner.value = stepSize;
+}
+
+float BayesS::Sp::gradientU2(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float varg){
+    // compute the first derivative of the negative log posterior
+    long size = snp2pq.size();
+    long chunkSize = size/omp_get_max_threads();
+    ArrayXf snp2pqPowS(size);
+#pragma omp parallel for schedule(dynamic, chunkSize)
+    for (unsigned i=0; i<size; ++i) {
+        snp2pqPowS[i] = powf(snp2pq[i], S);
+    }
+    ArrayXf snp2pqPowSplusOne = snp2pqPowS*snp2pq;
+    ArrayXf snpEffectSqOverSnp2pqPowS = snpEffects.square()/snp2pqPowS;
+    float constantA = snp2pqLogSum;
+    float constantB = snp2pqPowSplusOne.sum();
+    float constantC = (logSnp2pq*snp2pqPowSplusOne).sum();
+    float constantD = snpEffectSqOverSnp2pqPowS.sum();
+    float constantE = (snpEffectSqOverSnp2pqPowS*logSnp2pq).sum();
+    float ret = 0.5*constantA - 0.5*float(size)*constantC/constantB + 0.5*constantC*constantD/varg - 0.5*constantB*constantE/varg + S/var;
+    return ret;
+}
+
+float BayesS::Sp::computeU2(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float varg){
+    // compute negative log posterior
+    ArrayXf snp2pqPowS = snp2pq.pow(S);
+    ArrayXf snp2pqPowSplusOne = snp2pqPowS*snp2pq;
+    float m = snp2pq.size();
+    float constantA = snp2pqLogSum;
+    float constantB = snp2pqPowSplusOne.sum();
+    float constantC = (snpEffects.square()/snp2pqPowS).sum();
+    // cout << "Hello I'm in computeU" << endl;
+    float ret = 0.5*S*constantA - 0.5*m*log(constantB) + 0.5*constantB*constantC/varg + 0.5*S*S/var;
+    return ret;
+}
+
+
+
 void BayesS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
                                       const float sigmaSq, const float pi, const float vare,
                                       const ArrayXf &snp2pqPowS, const VectorXf &snp2pq,
@@ -1812,7 +1922,7 @@ void ApproxBayesC::ResidualVar::sampleFromFC(const float ypy, const VectorXf &ef
     float sse = ypy - effects.dot(ZPy) - effects.dot(rcorr) + nobs*covg;
     if (sse < 0) {
         string vare_str = to_string(static_cast<long double>(sse/nobs));
-        throw("Error: Residual variance is negative (" + vare_str + "). This may indicate that effect sizes are \"blowing up\" likely due to a convergence problem. If SigmaSq variable is increasing with MCMC iterations, then this further indicates MCMC may not converge. Please refer to our website (https://cnsgenomics.com/software/gctb) for further information on this problem.");
+        throw("\nError: Residual variance is negative (" + vare_str + "). This may indicate that effect sizes are \"blowing up\" likely due to a convergence problem. If SigmaSq variable is increasing with MCMC iterations, then this further indicates MCMC may not converge.");
     }
 //    if (sse < 0) sse = 0; //-sse;
 //    if (sse > ypy) sse = ypy;
@@ -2134,11 +2244,14 @@ void ApproxBayesC::sampleUnknowns(){
     //} while (snpEffects.numNonZeros == 0);
     if (diagnose) nro.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, snpEffects.header, snpEffects.leaveout, data.ZPZsp, data.ZPy, snpEffects.values);
     
-    //sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
-    if (noscale) {
-        sigmaSq.value = varg.value/(data.snp2pq.array().sum()*pi.value);
+    if (robustMode) {
+        if (noscale) {
+            sigmaSq.value = varg.value/(data.snp2pq.array().sum()*pi.value);
+        } else {
+            sigmaSq.value = varg.value/(data.numIncdSnps*pi.value);  // LDpred2's parameterisation
+        }
     } else {
-        sigmaSq.value = varg.value/(data.numIncdSnps*pi.value);  // LDpred2's parameterisation
+        sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     }
 
     if (estimatePi) pi.sampleFromFC(data.numIncdSnps, snpEffects.numNonZeros);
@@ -2426,11 +2539,14 @@ void ApproxBayesB::sampleUnknowns() {
     } while (snpEffects.numNonZeros == 0);
     if (diagnose) nro.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, snpEffects.header, snpEffects.leaveout, data.ZPZsp, data.ZPy, snpEffects.values);
 
-    //sigmaSq.sampleFromFC(snpEffects.betaSq);
-    if (noscale) {
-        sigmaSq.value = varg.value/(data.snp2pq.array().sum()*pi.value);
+    if (robustMode) {
+        if (noscale) {
+            sigmaSq.value = varg.value/(data.snp2pq.array().sum()*pi.value);
+        } else {
+            sigmaSq.value = varg.value/(data.numIncdSnps*pi.value);  // LDpred2's parameterisation
+        }
     } else {
-        sigmaSq.value = varg.value/(data.numIncdSnps*pi.value);  // LDpred2's parameterisation
+        sigmaSq.sampleFromFC(snpEffects.betaSq);
     }
 
     if (estimatePi) pi.sampleFromFC(data.numIncdSnps, snpEffects.numNonZeros);
@@ -2940,20 +3056,24 @@ void ApproxBayesS::sampleUnknowns(){
         Su.sampleFromFC(data.ZPZsp, snpEffects.values, data.snp2pq, vare.value, mu.snp2pqPowSmu, rcorr);
     }
     
-    sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
-    //sigmaSq.value = varg.value/(data.snp2pq.dot(snp2pqPowS.matrix())*pi.value);   // LDpred2's parameterisation
-
     nnzSnp.getValue(snpEffects.numNonZeros);
-    sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pqSplusOne);
 
     covg.compute(data.ypy, snpEffects.values, data.ZPy, rcorr);
     varg.compute(snpEffects.values, data.ZPy, rcorr, covg.value);
 //    varg.value = sigmaSqG.value;
     vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value);
-    //vare.value = data.ypy/data.numKeptInds - sigmaSqG.value;
+    //vare.value = data.ypy/data.numKeptInds;
     hsq.compute(varg.value, vare.value);
-
-    S.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros, sigmaSq.value, snpEffects.values, data.snp2pq, snp2pqPowS, logSnp2pq, genVarPrior, sigmaSq.scale, snpEffects.sum2pqSplusOne);
+    
+    if (robustMode) {
+        S.sampleFromFC2(snpEffects.numNonZeros, snpEffects.values, data.snp2pq, snp2pqPowS, logSnp2pq, varg.value, snpEffects.sum2pqSplusOne);
+        sigmaSq.value = varg.value/snpEffects.sum2pqSplusOne;
+    } else {
+        sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
+        S.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros, sigmaSq.value, snpEffects.values, data.snp2pq, snp2pqPowS, logSnp2pq, genVarPrior, sigmaSq.scale, snpEffects.sum2pqSplusOne);
+    }
+    
+    sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pqSplusOne);
 
     if (iter >= 2000) sigmaSq.scale = scalePrior;
     scale.getValue(sigmaSq.scale);
@@ -3336,13 +3456,16 @@ void ApproxBayesR::sampleUnknowns(){
     
     if (diagnose) nro.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, snpEffects.header, snpEffects.leaveout, data.ZPZsp, data.ZPy, snpEffects.values);
     
-    //if (estimateSigmaSq) sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
-    if (noscale) {
-        sigmaSq.value = varg.value/(data.snp2pq.array().sum()*gamma.values.dot(Pis.values));
+    if (robustMode) {
+        if (noscale) {
+            sigmaSq.value = varg.value/(data.snp2pq.array().sum()*gamma.values.dot(Pis.values));
+        } else {
+            sigmaSq.value = varg.value/(data.numIncdSnps*gamma.values.dot(Pis.values));  // LDpred2's parameterisation
+        }
     } else {
-        sigmaSq.value = varg.value/(data.numIncdSnps*gamma.values.dot(Pis.values));  // LDpred2's parameterisation
+        if (estimateSigmaSq) sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     }
-
+    
     if (estimatePi) Pis.sampleFromFC(snpStore);
     numSnps.getValues(snpStore);
     nnzSnp.getValue(snpEffects.numNonZeros);
@@ -3357,8 +3480,8 @@ void ApproxBayesR::sampleUnknowns(){
         float n_ref = data.Z.rows();
         float n_ratio = n_ref/float(data.numKeptInds);
         vare.value = (data.ypy*n_ratio - 2.0f*snpEffects.values.dot(data.ZPy)*n_ratio + ghat.dot(ghat))/n_ref;
-        cout << "varg " << varg.value << " vare " << vare.value << endl;
-        cout << "n_ratio " << n_ratio << " ypy " << data.ypy*n_ratio << " ypg " << 2.0f*snpEffects.values.dot(data.ZPy)*n_ratio << " gpg " << ghat.dot(ghat) << " n_ref " << n_ref << endl;
+        //cout << "varg " << varg.value << " vare " << vare.value << endl;
+        //cout << "n_ratio " << n_ratio << " ypy " << data.ypy*n_ratio << " ypg " << 2.0f*snpEffects.values.dot(data.ZPy)*n_ratio << " gpg " << ghat.dot(ghat) << " n_ref " << n_ref << endl;
     }
     else {
     covg.compute(data.ypy, snpEffects.values, data.ZPy, rcorr);
