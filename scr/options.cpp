@@ -479,6 +479,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             twoStageModel = true;
             ss << "--two-stage-model " << "\n";
         }
+        else if (!strcmp(argv[i], "--robust")) {
+            robustMode = true;
+            ss << "--robust " << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";

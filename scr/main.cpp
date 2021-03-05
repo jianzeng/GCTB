@@ -59,7 +59,7 @@ int main(int argc, const char * argv[]) {
             
             Model *model = gctb.buildModel(data, opt.bedFile, "", opt.bayesType, opt.windowWidth,
                                             opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
-                                            opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.originalModel);
+                                            opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.originalModel, opt.robustMode);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
             //gctb.saveMcmcSamples(mcmcSampleVec, opt.title);
@@ -118,14 +118,53 @@ int main(int argc, const char * argv[]) {
             
             data.label = opt.title;
             if (opt.numChains > 1) {
-                vector<McmcSamples*> mcmcSampleVec = gctb.multi_chain_mcmc(data, opt.bayesType, opt.windowWidth, opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.pis, opt.gamma, opt.phi, opt.kappa, opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.numChains, opt.chainLength, opt.burnin, opt.thin, opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
+                vector<McmcSamples*> mcmcSampleVec = gctb.multi_chain_mcmc(data, opt.bayesType, opt.windowWidth, opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.pis, opt.gamma, opt.phi, opt.kappa, opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.numChains, opt.chainLength, opt.burnin, opt.thin, opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
                 if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.bayesType, opt.noscale, opt.title);
             } else {
                 Model *model = gctb.buildModel(data, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
                                                opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
-                                               opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.originalModel);
-                vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
+                                               opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.originalModel, opt.robustMode);
+                vector<McmcSamples*> mcmcSampleVec;
+                
+                try{
+                    mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                   opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
+                }
+                catch(const string &err_msg) {
+                    cout << err_msg << endl;
+                    if (opt.robustMode) {
+                        cout << "Please refer to our website (https://cnsgenomics.com/software/gctb) for further information on this problem." << endl;
+                        exit(1);
+                    } else {
+                        cout << "\nRestarting MCMC with a more robust parameterisation for SBayes" << opt.bayesType << " ..." << endl;
+                        cout << "Please refer to our website (https://cnsgenomics.com/software/gctb) for more information." << endl;
+                       opt.robustMode = true;
+                        Model *model = gctb.buildModel(data, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
+                                                       opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
+                                                       opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.originalModel, opt.robustMode);
+
+                        mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
+                                                     opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
+                    }
+                }
+                catch (const char *err_msg) {
+                    cout << err_msg << endl;
+                    if (opt.robustMode) {
+                        cout << "Please refer to our website (https://cnsgenomics.com/software/gctb) for further information on this problem." << endl;
+                        exit(1);
+                    } else {
+                        cout << "\nRestarting MCMC with a more robust parameterisation for SBayes" << opt.bayesType << " ..." << endl;
+                        cout << "Please refer to our website (https://cnsgenomics.com/software/gctb) for more information." << endl;
+                        opt.robustMode = true;
+                        Model *model = gctb.buildModel(data, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
+                                                       opt.heritability, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
+                                                       opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.originalModel, opt.robustMode);
+
+                        mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
+                                                     opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
+                    }
+                }
+
                 if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.bayesType, opt.noscale, opt.title);
             }
         }

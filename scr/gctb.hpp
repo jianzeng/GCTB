@@ -43,7 +43,7 @@ public:
                       const VectorXf &pis, const VectorXf &piPar, const VectorXf &gamma, const bool estimateSigmaSq,
                       const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow,
                       const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS,
-                      const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool originalModel);
+                      const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool originalModel, const bool robustMode);
     vector<McmcSamples*> runMcmc(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior);
     void saveMcmcSamples(const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
     void outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &bayesType, const bool noscale, const string &filename);
@@ -56,7 +56,7 @@ public:
     void clearGenotypes(Data &data);
     void stratify(Data &data, const string &ldmatrixFile, const bool multiLDmat, const string &geneticMapFile, const float genMapN, const string &snpResFile, const string &mcmcSampleFile, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &gwasSummaryFile, const float pValueThreshold, const bool imputeN, const string &filename, const string &bayesType, unsigned chainLength, unsigned burnin, const unsigned thin, const unsigned outputFreq);
     
-    vector<McmcSamples*> multi_chain_mcmc(Data &data, const string &bayesType, const unsigned windowWidth, const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior);
+    vector<McmcSamples*> multi_chain_mcmc(Data &data, const string &bayesType, const unsigned windowWidth, const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior);
     
     void solveSnpEffectsByConjugateGradientMethod(Data &data, const float lambda, const string &filename) const;
     
