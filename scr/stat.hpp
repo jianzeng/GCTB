@@ -40,7 +40,19 @@ namespace Stat {
     
     class Normal {
     public:
+        boost::math::normal_distribution <> d;
+        float SQRT_2;
+        float Inv_SQRT_2;
+        
+        Normal(){
+            d = boost::math::normal_distribution <> (0 ,1);
+            SQRT_2 = sqrt(2);
+            Inv_SQRT_2 = 1.0/SQRT_2;
+        }
+        
         float sample(const float mean, const float variance);
+        float cdf_01(const double value);
+        float quantile_01(const double value);
     };
     
     class Flat : public Normal {
@@ -86,6 +98,14 @@ namespace Stat {
     class MixtureNormals {
     public:
         
+    };
+
+    class TruncatedNormal : public Normal {
+    public:
+        
+        float sample_tail_01_rejection(const float a);
+        float sample_lower_truncated(const float mean, const float sd, const float a);  // a < x < inf
+        float sample_upper_truncated(const float mean, const float sd, const float b);  // -inf < x < b
     };
 }
 

@@ -141,6 +141,7 @@ public:
     string snpRange;
     string outLDmatType;
     string windowFile;
+    string residualDiagFile;
     
     Options(){
         numChains               = 1;
@@ -190,7 +191,7 @@ public:
         gamma.resize(ndists);
         gamma                   << 0.0, 0.01, 0.1, 1;  
         pis.resize(ndists);                      
-        pis                     << 0.95, 0.03, 0.01, 0.01;
+        pis                     << 0.95, 0.03, 0.015, 0.005;
         // Kappa defaults
         kappa                   = 10;
         
@@ -250,6 +251,7 @@ public:
         eQTLFile                = "";
         snpRange                = "";
         windowFile              = "";
+        residualDiagFile        = "";
         outLDmatType            = "sparse";
     }
     

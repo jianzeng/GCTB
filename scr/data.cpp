@@ -256,6 +256,8 @@ void Data::readBedFile(const bool noscale, const string &bedFile){
         
         Z.col(snp).array() -= mean; // center column by 2p rather than the real mean
         if (!noscale) Z.col(snp).array() /= sqrt(snp2pq[snp]);  // standardise to have variance one
+        
+        Z.col(snp).array() *= RinverseSqrt.array();
 
         if (++snp == numIncdSnps) break;
     }
@@ -335,6 +337,29 @@ void Data::readCovariateFile(const string &covarFile){
     cout << "Read " << numCovariates << " covariates from [" + covarFile + "]." << endl;
 }
 
+void Data::readResidualDiagFile(const string &resDiagFile){
+    if (resDiagFile.empty()) return;
+    ifstream in(resDiagFile.c_str());
+    if (!in) throw ("Error: can not open the file [" + resDiagFile + "] to read.");
+    map<string, IndInfo*>::iterator it, end=indInfoMap.end();
+    IndInfo *ind = NULL;
+    string fid, pid, resDiag;
+    string id;
+    unsigned line=0;
+    while (in >> fid >> pid >> resDiag) {
+        id = fid + ":" + pid;
+        it = indInfoMap.find(id);
+        if (it != end) {
+            ind = it->second;
+            ind->rinverse = 1.0f/atof(resDiag.c_str());
+            ++line;
+        }
+    }
+    in.close();
+    
+    cout << "Read residual diagonal values for " << line << " individuals from [" + resDiagFile + "]." << endl;
+}
+
 void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){  // keepIndFile is optional
     map<string, IndInfo*>::iterator it, end=indInfoMap.end();
     IndInfo *ind = NULL;
@@ -398,15 +423,21 @@ void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){
     keptIndInfoVec = makeKeptIndInfoVec(indInfoVec);
     numKeptInds =  (unsigned) keptIndInfoVec.size();
     
+    RinverseSqrt.setOnes(numKeptInds);
+    for (unsigned i=0; i<numKeptInds; ++i) {
+        RinverseSqrt[i] = sqrt(keptIndInfoVec[i]->rinverse);
+    }
+    
     y.setZero(numKeptInds);
     for (unsigned i=0; i<numKeptInds; ++i) {
         y[i] = keptIndInfoVec[i]->phenotype;
     }
+    y.array() *= RinverseSqrt.array();
     ypy = (y.array()-y.mean()).square().sum();
     
     X.resize(numKeptInds, numFixedEffects);
     for (unsigned i=0; i<numKeptInds; ++i) {
-        X.row(i) = keptIndInfoVec[i]->covariates;
+        X.row(i) = keptIndInfoVec[i]->covariates.array() * RinverseSqrt.array();
     }
     XPXdiag = X.colwise().squaredNorm();
     
@@ -600,6 +631,8 @@ void Data::includeMatchedSnp(){
 
     cout << numIncdSnps << " SNPs on " << numChroms << " chromosomes are included." << endl;
     
+    if (numAnnos) setAnnoInfoVec();
+
 //    if (numAnnos) {
 //        if (myMPI::rank==0) cout << "\nAnnotation info:" << endl;
 //        numSnpAnnoVec.resize(numAnnos);
@@ -1157,8 +1190,8 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
             snp->gwas_n  = atof(n.c_str());
             snp->gwas_pvalue = atof(pval.c_str());
             snp->flipped = true;
-            //snp->included = false;
-            //qcout << snp->index << " " << snp->ID << " " << snp->gwas_af << " " << snp->gwas_b << endl;
+            snp->included = false;
+            //cout << snp->index << " " << snp->ID << " " << snp->gwas_af << " " << snp->gwas_b << endl;
             ++numFlip;
         } else {
 //            cout << "WARNING: SNP " + id + " has inconsistent allele coding in between the reference and GWAS samples." << endl;
@@ -4361,7 +4394,7 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
         if (it != end) {
             snp = it->second;
             for (unsigned j=1; j<size; ++j) {
-                if (atoi(colData[j].c_str())) {
+                if (atof(colData[j].c_str())) {
                     snp->annoVec.push_back(annoInfoVec[j-1]);
                     snp->numAnnos++;
                 }
@@ -4378,7 +4411,7 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
             snp = snpInfoVec[i];
             if (!snp->included) continue;
             if (!snp->numAnnos) {
-                snp->included = false;
+                snp->included = false;   // remove SNPs without any annotation from the model
             } else {
                 for (unsigned j=0; j<snp->numAnnos; ++j) {
                     AnnoInfo *anno = snp->annoVec[j];
