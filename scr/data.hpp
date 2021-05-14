@@ -167,12 +167,14 @@ public:
     bool kept;
     
     float phenotype;
+    float rinverse;
     
     VectorXf covariates;  // covariates for fixed effects
     
     IndInfo(const int idx, const string &fid, const string &pid, const string &dad, const string &mom, const int sex)
     : famID(fid), indID(pid), catID(fid+":"+pid), fatherID(dad), motherID(mom), index(idx), famFileOrder(idx), sex(sex) {
         phenotype = -9;
+        rinverse = 1;
         kept = true;
     }
 };
@@ -221,6 +223,8 @@ public:
     
     VectorXf LDsamplVar;     // sum of sampling variance of LD for each SNP with all other SNPs; this is for summary-bayes methods
     VectorXf LDscore;        // sum of r^2 over SNPs in significant LD
+    
+    VectorXf RinverseSqrt;   // sqrt of the weights for the residuals in the individual-level model
     
     float ypy;               // y'y the total sum of squares adjusted for the mean
     float varGenotypic;
@@ -364,6 +368,7 @@ public:
     void readWindowFile(const string &windowFile);
     void binSnpByWindowID(void);
     void filterSnpByLDrsq(const float rsqThreshold);
+    void readResidualDiagFile(const string &resDiagFile);
 };
 
 #endif /* data_hpp */

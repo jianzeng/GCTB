@@ -8,14 +8,15 @@
 
 #include "gctb.hpp"
 
-void GCTB::inputIndInfo(Data &data, const string &bedFile, const string &phenotypeFile, const string &keepIndFile, const unsigned keepIndMax, const unsigned mphen, const string &covariateFile){
+void GCTB::inputIndInfo(Data &data, const string &bedFile, const string &phenotypeFile, const string &keepIndFile, const unsigned keepIndMax, const unsigned mphen, const string &covariateFile, const string &residualDiagFile){
     data.readFamFile(bedFile + ".fam");
     data.readPhenotypeFile(phenotypeFile, mphen);
     data.readCovariateFile(covariateFile);
+    data.readResidualDiagFile(residualDiagFile);
     data.keepMatchedInd(keepIndFile, keepIndMax);
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const float mafmin, const float mafmax, const bool noscale, const bool readGenotypes){
+void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile,  const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const float mafmin, const float mafmax, const bool noscale, const bool readGenotypes){
     data.readBimFile(bedFile + ".bim");
     if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
@@ -25,6 +26,10 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &include
     if (!excludeRegionFile.empty()) data.excludeRegion(excludeRegionFile);
     if (!skeletonSnpFile.empty()) data.includeSkeletonSnp(skeletonSnpFile);
     if (!geneticMapFile.empty()) data.readGeneticMapFile(geneticMapFile);
+    if (!annotationFile.empty())
+        data.readAnnotationFile(annotationFile, transpose, true);
+    else if (!continuousAnnoFile.empty())
+        data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000, eQTLFile);
     data.includeMatchedSnp();
     if (readGenotypes) data.readBedFile(noscale, bedFile + ".bed");
 }
@@ -117,6 +122,8 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
         if (data.numAnnos) {
             if (bayesType == "S")
                 return new StratApproxBayesS(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, S, algorithm, robustMode);
+            else if (bayesType == "RC")
+                return new ApproxBayesRC(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm);
             else
                 throw(" Error: Wrong bayes type: " + bayesType + " in the annotation-stratified summary-data-based Bayesian analysis.");
         }
@@ -144,6 +151,14 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
             else
                 throw(" Error: Wrong bayes type: " + bayesType + " in the summary-data-based Bayesian analysis.");
         }
+    }
+    if (data.numAnnos) {
+        if (bayesType == "RC") {
+            data.readBedFile(noscale, bedFile + ".bed");
+            return new BayesRC(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, algorithm);
+        }
+        else
+            throw(" Error: Wrong bayes type: " + bayesType + " in the annotation-stratified Bayesian analysis.");
     }
     if (bayesType == "B") {
         data.readBedFile(noscale, bedFile + ".bed");

@@ -26,9 +26,11 @@ public:
     GCTB(Options &options): opt(options){};
     
     void inputIndInfo(Data &data, const string &bedFile, const string &phenotypeFile, const string &keepIndFile,
-                      const unsigned keepIndMax, const unsigned mphen, const string &covariateFile);
+                      const unsigned keepIndMax, const unsigned mphen, const string &covariateFile, const string &residualDiagFile);
     void inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile,
-                      const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const float mafmin, const float mafmax, const bool noscale, const bool readGenotypes);
+                      const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile,
+                      const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile,
+                      const float mafmin, const float mafmax, const bool noscale, const bool readGenotypes);
     void inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile,
                       const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP,
                       const string &skeletonSnpFile, const string &geneticMapFile, const float genMapN, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile, const string &windowFile,
