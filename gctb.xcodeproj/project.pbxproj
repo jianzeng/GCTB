@@ -20,7 +20,8 @@
 		BD44F8EF2518707F00AE75DC /* model.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD44F8DF2518707E00AE75DC /* model.cpp */; };
 		BD44F8F02518707F00AE75DC /* vgmaf.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD44F8E12518707E00AE75DC /* vgmaf.cpp */; };
 		BD44F8F12518707F00AE75DC /* xci.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD44F8E22518707E00AE75DC /* xci.cpp */; };
-		BD48B1CD253803AD0089DC27 /* libomp.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = BD48B1CC253803AD0089DC27 /* libomp.dylib */; };
+		BD5C1BCA2638F735003DDB74 /* libomp.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = BD48B1CC253803AD0089DC27 /* libomp.dylib */; };
+		BD5C1BCB2638F735003DDB74 /* libomp.dylib in Embed Libraries */ = {isa = PBXBuildFile; fileRef = BD48B1CC253803AD0089DC27 /* libomp.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -32,6 +33,17 @@
 			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 1;
+		};
+		BD5C1BCC2638F735003DDB74 /* Embed Libraries */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				BD5C1BCB2638F735003DDB74 /* libomp.dylib in Embed Libraries */,
+			);
+			name = "Embed Libraries";
+			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
 
@@ -71,7 +83,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				BD48B1CD253803AD0089DC27 /* libomp.dylib in Frameworks */,
+				BD5C1BCA2638F735003DDB74 /* libomp.dylib in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -146,6 +158,7 @@
 				505CDBA123CEDF10007A3DB1 /* Sources */,
 				505CDBA223CEDF10007A3DB1 /* Frameworks */,
 				505CDBA323CEDF10007A3DB1 /* CopyFiles */,
+				BD5C1BCC2638F735003DDB74 /* Embed Libraries */,
 			);
 			buildRules = (
 			);
@@ -327,6 +340,7 @@
 				CC = /usr/local/opt/llvm/bin/clang;
 				CLANG_ENABLE_MODULES = NO;
 				CODE_SIGN_STYLE = Automatic;
+				EXCLUDED_ARCHS = arm64;
 				HEADER_SEARCH_PATHS = (
 					..,
 					"../eigen-eigen-323c052e1731",
@@ -349,6 +363,7 @@
 				CC = /usr/local/opt/llvm/bin/clang;
 				CLANG_ENABLE_MODULES = NO;
 				CODE_SIGN_STYLE = Automatic;
+				EXCLUDED_ARCHS = arm64;
 				HEADER_SEARCH_PATHS = (
 					..,
 					"../eigen-eigen-323c052e1731",
