@@ -163,6 +163,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             multiLDmat = true;
             ss << "--mldm " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--per-snp-gv")) {
+            perSnpGV = true;
+            ss << "--per-snp-gv " << "\n";
+        }
         else if (!strcmp(argv[i], "--snp-res")) {
             snpResFile = argv[++i];
             ss << "--snp-res " << argv[i] << "\n";

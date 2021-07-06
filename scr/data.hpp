@@ -195,6 +195,7 @@ public:
     
     MatrixXf annoMat;        // annotation coefficient matrix
     MatrixXf APA;            // annotation X'X matrix
+    VectorXf annoMean;       // column mean of annotation coefficient matrix
 
     MatrixXf XPX;            // X'X the MME lhs
     MatrixXf ZPX;            // Z'X the covariance matrix of SNPs and fixed effects
@@ -369,6 +370,7 @@ public:
     void binSnpByWindowID(void);
     void filterSnpByLDrsq(const float rsqThreshold);
     void readResidualDiagFile(const string &resDiagFile);
+    void makeWindowAnno(const string &annoFile, const float windowWidth);
 };
 
 #endif /* data_hpp */
