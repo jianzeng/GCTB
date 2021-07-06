@@ -104,6 +104,7 @@ public:
     bool binSnp;  // bin SNPs
     bool bLDMeigen; // flag to set the eigen decomposition to LD matrix or not
     bool robustMode;  // use the robust parameterisation in SBayes models
+    bool perSnpGV;
     string eigCutMethod = "value";
     float eigThreshold = 0.001;
 
@@ -225,6 +226,7 @@ public:
         twoStageModel           = false;
         binSnp                  = false;
         robustMode              = false;
+        perSnpGV                = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";

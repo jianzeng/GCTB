@@ -35,6 +35,7 @@ void McmcSamples::getSample(const unsigned iter, const VectorXf &sample, const b
                 //cout << it.index() << " " << it.value() << endl;
             }
             //cout << MatrixXf(spvec).transpose() << endl;
+//            tout << sample.transpose() << endl;
         }
         //nnz += sample.sparseView().nonZeros();
         //cout << nnz << " " << sample.sparseView().nonZeros() <<endl;
@@ -234,6 +235,7 @@ vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned ch
         if (parSet->label.find("SnpEffects") != string::npos) {
             mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "sparse");
             if (writeBinPosterior) mcmcSamples->initBinFile(title);
+//            mcmcSamples->initTxtFile(title);
         } else if (parSet->label.find("Delta") != string::npos) {
             mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "sparse");
             if (writeBinPosterior) mcmcSamples->initBinFile(title);

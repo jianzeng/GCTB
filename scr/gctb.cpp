@@ -31,6 +31,8 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &include
     else if (!continuousAnnoFile.empty())
         data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000, eQTLFile);
     data.includeMatchedSnp();
+    if (data.numAnnos) data.setAnnoInfoVec();
+//    data.makeWindowAnno(annotationFile, 5e5);
     if (readGenotypes) data.readBedFile(noscale, bedFile + ".bed");
 }
 
@@ -109,7 +111,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
                         const VectorXf &pis, const VectorXf &piPar, const VectorXf &gamma, const bool estimateSigmaSq,
                         const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow,
                         const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS,
-                        const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool originalModel, const bool robustMode){
+                        const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool originalModel, const bool perSnpGV, const bool robustMode){
     data.initVariances(heritability);
 //    if (!bedFile.empty()) {   // TMP_JZ
 //        unsigned n_gwas = data.numKeptInds;
@@ -123,7 +125,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
             if (bayesType == "S")
                 return new StratApproxBayesS(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, S, algorithm, robustMode);
             else if (bayesType == "RC")
-                return new ApproxBayesRC(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm);
+                return new ApproxBayesRC(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, perSnpGV, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm);
             else
                 throw(" Error: Wrong bayes type: " + bayesType + " in the annotation-stratified summary-data-based Bayesian analysis.");
         }
@@ -322,6 +324,58 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
         }
         out.close();
     }
+    if (bayesType == "RC") {
+        McmcSamples *snpEffects = NULL;
+        McmcSamples *deltaPi2 = NULL;
+        McmcSamples *deltaPi3 = NULL;
+        McmcSamples *deltaPi4 = NULL;
+        for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
+            if (mcmcSampleVec[i]->label == "SnpEffects") snpEffects = mcmcSampleVec[i];
+            if (mcmcSampleVec[i]->label == "DeltaPi2") deltaPi2 = mcmcSampleVec[i];
+            if (mcmcSampleVec[i]->label == "DeltaPi3") deltaPi3 = mcmcSampleVec[i];
+            if (mcmcSampleVec[i]->label == "DeltaPi4") deltaPi4 = mcmcSampleVec[i];
+        }
+        string newfilename = filename + ".snpRes";
+        ofstream out(newfilename.c_str());
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %8s %8s %8s %8s\n")
+        % "Id"
+        % "Name"
+        % "Chrom"
+        % "Position"
+        % "A1"
+        % "A2"
+        % "A1Frq"
+        % "A1Effect"
+        % "SE"
+        % "PIP"
+        % "Pi2"
+        % "Pi3"
+        % "Pi4";
+        for (unsigned i=0, idx=0; i<data.numSnps; ++i) {
+            SnpInfo *snp = data.snpInfoVec[i];
+            if(!data.fullSnpFlag[i]) continue;
+            float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
+            float effect = (snp->flipped ? - snpEffects->posteriorMean[idx] : snpEffects->posteriorMean[idx]);
+            float se = sqrt(snpEffects->posteriorSqrMean[idx]-snpEffects->posteriorMean[idx]*snpEffects->posteriorMean[idx]);
+            out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %8.3f %8.3f %8.3f %8.3f\n")
+            % (i+1)
+            % snp->ID
+            % snp->chrom
+            % snp->physPos
+            % (snp->flipped ? snp->a2 : snp->a1)
+            % (snp->flipped ? snp->a1 : snp->a2)
+            % (snp->flipped ? 1.0-snp->af : snp->af)
+            % (noscale ? effect : effect/sqrt2pq)
+            % (noscale ? se : se/sqrt2pq)
+            % snpEffects->pip[i]
+            % deltaPi2->posteriorMean[i]
+            % deltaPi3->posteriorMean[i]
+            % deltaPi4->posteriorMean[i];
+            ++idx;
+        }
+        out.close();
+    }
+
 }
 
 McmcSamples* GCTB::inputMcmcSamples(const string &mcmcSampleFile, const string &label, const string &fileformat){
