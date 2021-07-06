@@ -44,7 +44,7 @@ void AnnoInfo::getSnpInfo() {
 }
 
 void AnnoInfo::print() {
-    cout << boost::format("%6s %12s %10s %8.3f\n")
+    cout << boost::format("%6s %30s %12s %8.3f\n")
     % (idx+1)
     % label
     % size
@@ -631,7 +631,7 @@ void Data::includeMatchedSnp(){
 
     cout << numIncdSnps << " SNPs on " << numChroms << " chromosomes are included." << endl;
     
-    if (numAnnos) setAnnoInfoVec();
+//    if (numAnnos) setAnnoInfoVec();
 
 //    if (numAnnos) {
 //        if (myMPI::rank==0) cout << "\nAnnotation info:" << endl;
@@ -1190,7 +1190,7 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
             snp->gwas_n  = atof(n.c_str());
             snp->gwas_pvalue = atof(pval.c_str());
             snp->flipped = true;
-            snp->included = false;
+//            snp->included = false;
             //cout << snp->index << " " << snp->ID << " " << snp->gwas_af << " " << snp->gwas_b << endl;
             ++numFlip;
         } else {
@@ -1248,7 +1248,7 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
     if (mafmax) cout << "removed " << numMafMax << " SNPs with MAF above " << mafmax << " in either reference and GWAS samples." << endl;
     if (pValueThreshold < 1.0) cout << "removed " << numPvalPruned << " SNPs with GWAS P value greater than " << pValueThreshold << "." << endl;
     cout << match << " matched SNPs in the GWAS summary data (in total " << line << " SNPs)." << endl;
-
+    
     if (imputeN) imputePerSnpSampleSize(snpInfoVec, numIncdSnps, 0);
     
 }
@@ -1830,7 +1830,7 @@ void Data::outputLDmatrix(const string &LDmatType, const string &filename, const
     % "PhysPos"
     % "A1"
     % "A2"
-    % "A2Freq"
+    % "A1Freq"
     % "Index"
     % "WindStart"
     % "WindEnd"
@@ -3989,9 +3989,12 @@ void Data::setAnnoInfoVec() {
             annoMat(i,annoIdx) = 1;
         }
     }
-//    for (unsigned i=0; i<numAnnos; ++i) {
-//        annoMat.col(i+1).array() -= annoMat.col(i+1).mean();
-//    }
+    
+    annoMean.setZero(numAnnos);
+    for (unsigned i=0; i<numAnnos; ++i) {
+        annoMean[i] = annoMat.col(i).mean();
+//        if (i) annoMat.col(i).array() -= annoMean[i];  // center the annotation matrix
+    }
     APA = annoMat.transpose()*annoMat;
 }
 
@@ -4082,7 +4085,7 @@ void Data::directPruneLDmatrix(const string &ldmatrixFile, const string &outLDma
     % "PhysPos"
     % "A1"
     % "A2"
-    % "A2Freq"
+    % "A1Freq"
     % "Index"
     % "WindStart"
     % "WindEnd"
@@ -4255,7 +4258,7 @@ void Data::jackknifeLDmatrix(const string &ldmatrixFile, const string &outLDmatT
     % "PhysPos"
     % "A1"
     % "A2"
-    % "A2Freq"
+    % "A1Freq"
     % "Index"
     % "WindStart"
     % "WindEnd"
@@ -4440,6 +4443,71 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
     }
     
     cout << line << " matched SNPs in the annotation file (" << numAnnos << " annotations and " << numMultiAnno << " SNPs have more than one annotation)." << endl;
+}
+
+void Data::makeWindowAnno(const string &annoFile, const float windowWidth){
+    cout << "Making window annotations ..." << endl;
+    VectorXf annoSum;
+    annoSum.setZero(numAnnos);
+    unsigned currChr = 0;
+    unsigned windStart = 0;
+    unsigned windEnd = 0;
+    SnpInfo *snpi;
+    SnpInfo *snpj;
+    float bound = 0.5*windowWidth;
+    MatrixXf windAnnoMat(numIncdSnps, numAnnos);
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+        snpi = incdSnpInfoVec[i];
+        if (snpi->chrom != currChr) {
+            currChr = snpi->chrom;
+            windStart = i;
+            windEnd = i;
+            annoSum.setZero(numAnnos);
+        }
+        for (unsigned j=windStart; j<numIncdSnps; ++j) {
+            snpj = incdSnpInfoVec[j];
+            if (snpi->physPos - snpj->physPos > bound) {
+                annoSum -= annoMat.row(j);
+                windStart++;
+            } else {
+                break;
+            }
+        }
+        for (unsigned j=windEnd; j<numIncdSnps; ++j) {
+            snpj = incdSnpInfoVec[j];
+            if (snpj->physPos - snpi->physPos < bound) {
+                annoSum += annoMat.row(j);
+                windEnd++;
+            } else {
+                break;
+            }
+        }
+        windAnnoMat.row(i) = annoSum/float(windEnd - windStart);
+        
+//        if (snpi->ID == "rs7588213") {
+//            cout << "chrom " << snpi->chrom << endl;
+//            cout << "prev_chrom " << incdSnpInfoVec[i-1]->chrom << endl;
+//            cout << "windStart " << windStart << endl;
+//            cout << "windEnd " << windEnd << endl;
+//            cout << "BP " << snpi->physPos << " windStartBP " << incdSnpInfoVec[windStart]->physPos << " windEndBP " << incdSnpInfoVec[windEnd]->physPos << endl;
+//            cout << "annoSum " << annoSum << endl;
+//        }
+    }
+    
+    string outfile = Gadget::getFileName(annoFile) + ".windowAnno" + Gadget::getFileSuffix(annoFile);
+    ofstream out(outfile.c_str());
+    cout << "Writing the window annotation to [" + outfile + "]." << endl;
+    out << boost::format("%16s ") %"SNP";
+    for (unsigned k=0; k<numAnnos; ++k) {
+        out << boost::format("%16s ") % annoNames[k];
+    }
+    out << endl;
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+        SnpInfo *snp = incdSnpInfoVec[i];
+        out << boost::format("%16s ") %snp->ID;
+        out << windAnnoMat.row(i) << endl;
+    }
+    throw ("Finished!");
 }
 
 void Data::readAnnotationFileFormat2(const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile) {

@@ -2171,6 +2171,23 @@ public:
 class ApproxBayesRC : public ApproxBayesR {
 public:
     
+    class DeltaPi : public vector<ParamSet*> {
+    public:
+        vector<string> colnames;
+        unsigned numDist;
+        unsigned numSnps;
+
+        DeltaPi(const vector<string> &header, const unsigned numDist, const string &lab = "DeltaPi"):
+        numDist(numDist) {
+            colnames.resize(numDist);
+            numSnps = header.size();
+            for (unsigned i = 0; i<numDist; ++i) {
+                colnames[i] = "DeltaPi" + to_string(static_cast<long long>(i + 1));
+                this->push_back(new ParamSet(colnames[i], header));
+            }
+        }
+    };
+
     class SnpEffects : public ApproxBayesR::SnpEffects {
     public:
         unsigned ndist;
@@ -2189,13 +2206,13 @@ public:
                           const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &LDsamplVar,
                           const float sigmaSq, const MatrixXf &snpPi, const VectorXf &gamma, const float vare,
                           const float varg, const float ps, const float overdispersion,
-                          const bool originalModel);
-        void sampleFromFC(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
+                          const bool originalModel, DeltaPi &deltaPi);
+        void sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &LDsamplVar,
                           const float sigmaSq, const MatrixXf &snpPi, const VectorXf &gamma, const float vare,
-                          const float varg, const float ps, const float overdispersion,
-                          const bool originalModel);
+                          const VectorXf &snpVarg, const float vary, const float ps, const float overdispersion,
+                          const bool originalModel, DeltaPi &deltaPi);
         
     };
     
@@ -2205,8 +2222,8 @@ public:
         unsigned numAnno;  // number of annotations
         MatrixXf wcorr;
         //VectorXf varwcorr;
-        VectorXf intercept;  // intercepts are fitted with a flat prior
         VectorXf annoDiag;
+        vector<VectorXf> annoMean;
         VectorXf ssq;
         vector<string> colnames;
 
@@ -2218,20 +2235,26 @@ public:
             colnames.resize(numComp);
             ar.resize(numComp);
             varProp.setZero(numComp);
+            annoMean.resize(numComp);
+            numAnno = header.size();
+            unsigned numSnps = annoMat.rows();
             for (unsigned i = 0; i<numComp; ++i) {
                 colnames[i] = "AnnoEffects_p" + to_string(static_cast<long long>(i + 2));
                 this->push_back(new BayesC::FixedEffects(header, colnames[i]));
                 ar[i] = new BayesS::AcceptanceRate;
                 varProp[i] = 0.01;
+                annoMean[i].setZero(numAnno);
+                for (unsigned j=0; j<numAnno; ++j) {
+                    annoMean[i][j] = annoMat.col(j).mean();
+                }
             }
-            numAnno = header.size();
-            unsigned numSnps = annoMat.rows();
             wcorr.setZero(numSnps, numComp);
             //varwcorr.setZero(numComp);
-            intercept.setZero(numComp);
             annoDiag.setZero(numAnno);
-            for (unsigned i=0; i<numAnno; ++i) {
-                annoDiag[i] = annoMat.col(i).squaredNorm();
+            annoDiag[0] = numSnps;  // first annotation is intercept
+            for (unsigned j=1; j<numAnno; ++j) {
+                annoDiag[j] = annoMat.col(j).squaredNorm();
+//                annoDiag[j] = (annoMat.col(j).array() - annoMean[0][j]).square().sum();
             }
             ssq.setZero(numComp);
         }
@@ -2264,7 +2287,7 @@ public:
         unsigned numAnno;
 
         AnnoCondProb(const vector<string> &header, const unsigned numComp, const string &lab = "AnnoCondProb"):
-        colnames(colnames), numComp(numComp) {
+        numComp(numComp) {
             colnames.resize(numComp);
             numAnno = header.size();
             for (unsigned i = 0; i<numComp; ++i) {
@@ -2314,6 +2337,33 @@ public:
         void compute(const VectorXf &snpEffects, const vector<vector<unsigned> > &snpset, const VectorXf &ZPy, const VectorXf &rcorr, const MatrixXf &annoMat);
         void compute(const VectorXf &snpEffects, const vector<vector<unsigned> > &snpset, const MatrixXf &annoMat);
     };
+    
+    class AnnoTotalGenVar : public ParamSet {
+    public:
+        
+        AnnoTotalGenVar(const vector<string> &header, const string &lab = "AnnoTotalGenVar"):
+        ParamSet(lab, header) {}
+        
+        void compute(const AnnoGenVar &annoGenVar);
+    };
+    
+    class AnnoPerSnpHsqEnrichment : public ParamSet {
+    public:
+        VectorXf invSnpProp;
+        
+        AnnoPerSnpHsqEnrichment(const vector<string> &header, const vector<AnnoInfo*> &annoVec, const string &lab = "AnnoPerSnpHsqEnrichment"):
+        ParamSet(lab, header) {
+            values.setOnes(size);
+            invSnpProp.setZero(size);
+            for (unsigned i=0; i<size; ++i) {
+                invSnpProp[i] = 1.0/annoVec[i]->fraction;
+            }
+        }
+        
+        void compute(const VectorXf &annoTotalGenVar, const float varg);
+        void compute(const VectorXf &snpEffects, const MatrixXf &annoMat, const unsigned nnz);
+    };
+    
         
     SnpEffects snpEffects;
     AnnoEffects annoEffects;
@@ -2321,19 +2371,31 @@ public:
     AnnoCondProb annoCondProb;
     AnnoJointProb annoJointProb;
     AnnoGenVar annoGenVar;
+    AnnoTotalGenVar annoTotalGenVar;
+    AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
+    DeltaPi deltaPi;
     
     MatrixXf snpP;    // p = Pr(k>i | k>i-1); p2 = pi2+pi3+pi4; p3 = (pi3+pi4)/(pi2+pi3+pi4); p4 = pi4/(pi3+pi4)
     MatrixXf snpPi;   // pi1 = 1-p2; pi2 = (1-p3)*p2; pi3 = (1-p4)*p2*p3; pi4 = p2*p3*p4
+    VectorXf snpVarg; // per-SNP GV based on annotation enrichment
     
-    ApproxBayesRC(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool originalModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool message = true):
+    bool allowPerSnpGV;
+    
+    ApproxBayesRC(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool originalModel, const bool perSnpGV, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool message = true):
     ApproxBayesR(data, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, false, robustMode, alg, false),
     snpEffects(data.snpEffectNames, pis),
     annoEffects(data.annoNames, pis.size(), data.annoMat),
     sigmaSqAnno(annoEffects.colnames, annoEffects.numAnno),
     annoCondProb(data.annoNames, annoEffects.numComp),
     annoJointProb(data.annoNames, pis.size()),
-    annoGenVar(data.annoNames, pis.size(), data.numKeptInds)
+    annoGenVar(data.annoNames, pis.size(), data.numKeptInds),
+    annoTotalGenVar(data.annoNames),
+    annoPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
+    deltaPi(data.snpEffectNames, pis.size())
     {
+        allowPerSnpGV = perSnpGV;
+        snpVarg.setConstant(data.numIncdSnps, varGenotypic);
+        
         initSnpPandPi(pis, data.numIncdSnps, snpP, snpPi);
         if (algorithm == gibbs) annoEffects.initIntercept_probit(pis);
         else if (algorithm == mh) annoEffects.initIntercept_logistic(pis);
@@ -2358,6 +2420,13 @@ public:
             paramSetVec.push_back(annoGenVar[i]);
             paramSetToPrint.push_back(annoGenVar[i]);
         }
+        for (unsigned i=0; i<deltaPi.numDist; ++i) {
+            paramSetVec.push_back(deltaPi[i]);
+        }
+        paramSetVec.push_back(&annoTotalGenVar);
+        paramSetVec.push_back(&annoPerSnpHsqEnrich);
+        paramSetToPrint.push_back(&annoTotalGenVar);
+        paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
         paramToPrint = {&sigmaSq, &vare, &varg, &hsq, &rounding};
         if (originalModel) paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
         paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
@@ -2388,6 +2457,7 @@ public:
             }
             if (robustMode) cout << "Using a more robust parameterisation " << endl;
             cout << "Algorithm: " << alg << endl;
+            if (allowPerSnpGV) cout << "Allow per-SNP genetic variance!" << endl;
         }
     }
 
@@ -2395,11 +2465,29 @@ public:
     void computePfromPi(const MatrixXf &snpPi, MatrixXf &snpP);
     void computePiFromP(const MatrixXf &snpP, MatrixXf &snpPi);
     void initSnpPandPi(const VectorXf &pis, const unsigned numSnps, MatrixXf &snpP, MatrixXf &snpPi);
+    void computeSnpVarg(const MatrixXf &annoMat, const VectorXf &annoPerSnpHsqEnrich, const float varg, const unsigned numSnps);
 };
 
 
 class BayesRC : public BayesR {
 public:
+    class DeltaPi : public vector<ParamSet*> {
+    public:
+        vector<string> colnames;
+        unsigned numDist;
+        unsigned numSnps;
+
+        DeltaPi(const vector<string> &header, const unsigned numDist, const string &lab = "DeltaPi"):
+        numDist(numDist) {
+            colnames.resize(numDist);
+            numSnps = header.size();
+            for (unsigned i = 0; i<numDist; ++i) {
+                colnames[i] = "DeltaPi" + to_string(static_cast<long long>(i + 1));
+                this->push_back(new ParamSet(colnames[i], header));
+            }
+        }
+    };
+
     class SnpEffects : public BayesR::SnpEffects {
     public:
         unsigned ndist;
@@ -2416,7 +2504,7 @@ public:
         void sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
                           const float sigmaSq, const VectorXf &pis,  const VectorXf &gamma,
                           const float vare, VectorXf &ghat, const MatrixXf &snpPi,
-                          const float varg, const bool originalModel);
+                          const float varg, const bool originalModel, DeltaPi &deltaPi);
     };
     
     SnpEffects snpEffects;
@@ -2425,9 +2513,17 @@ public:
     ApproxBayesRC::AnnoCondProb annoCondProb;
     ApproxBayesRC::AnnoJointProb annoJointProb;
     ApproxBayesRC::AnnoGenVar annoGenVar;
-    
+    ApproxBayesRC::AnnoTotalGenVar annoTotalGenVar;
+    ApproxBayesRC::AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
+    DeltaPi deltaPi;
+
     MatrixXf snpP;    // p = Pr(k>i | k>i-1); p2 = pi2+pi3+pi4; p3 = (pi3+pi4)/(pi2+pi3+pi4); p4 = pi4/(pi3+pi4)
     MatrixXf snpPi;   // pi1 = 1-p2; pi2 = (1-p3)*p2; pi3 = (1-p4)*p2*p3; pi4 = p2*p3*p4
+
+    float genVarPrior;
+    float scalePrior;
+    
+    bool noscale;
 
     enum {gibbs, mh} algorithm;
 
@@ -2439,7 +2535,13 @@ public:
     sigmaSqAnno(annoEffects.colnames, annoEffects.numAnno),
     annoCondProb(data.annoNames, annoEffects.numComp),
     annoJointProb(data.annoNames, pis.size()),
-    annoGenVar(data.annoNames, pis.size(), data.numKeptInds)
+    annoGenVar(data.annoNames, pis.size(), data.numKeptInds),
+    annoTotalGenVar(data.annoNames),
+    annoPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
+    deltaPi(data.snpEffectNames, pis.size()),
+    genVarPrior(varGenotypic),
+    scalePrior(sigmaSq.scale),
+    noscale(noscale)
     {
         initSnpPandPi(pis, data.numIncdSnps, snpP, snpPi);
         if (alg == "Gibbs") {
@@ -2469,6 +2571,13 @@ public:
             paramSetVec.push_back(annoGenVar[i]);
             paramSetToPrint.push_back(annoGenVar[i]);
         }
+        for (unsigned i=0; i<deltaPi.numDist; ++i) {
+            paramSetVec.push_back(deltaPi[i]);
+        }
+        paramSetVec.push_back(&annoTotalGenVar);
+        paramSetVec.push_back(&annoPerSnpHsqEnrich);
+        paramSetToPrint.push_back(&annoTotalGenVar);
+        paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
         paramToPrint = {&sigmaSq, &vare, &varg, &hsq, &rounding};
         if (originalModel) paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
         paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
