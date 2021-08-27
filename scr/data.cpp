@@ -1425,9 +1425,10 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
         
         // standardize genotypes
         //D[incj] = snp2pq[incj]*snpj->sampleSize;
-        D[incj] = Gadget::calcVariance(ZP.row(incj))*snpj->sampleSize;
+        D[incj] = Gadget::calcVariance(ZP.row(incj))*numKeptInds;
         
-        ZP.row(incj) = (ZP.row(incj).array() - mean)/sqrt(D[incj]);
+        ZP.row(incj) = (ZP.row(incj).array() - ZP.row(incj).mean())/sqrt(D[incj]);
+//        ZP.row(incj) = (ZP.row(incj).array() - mean)/sqrt(D[incj]);
         
         if (windowWidth) {
             if (incj == 0) firstWindStart = snpj->windStart;
@@ -1527,9 +1528,10 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
             
             // standardize genotypes
             //D[inck] = snp2pq[inck]*snpk->sampleSize;
-            D[inck] = Gadget::calcVariance(Zk.row(inck))*snpk->sampleSize;
+            D[inck] = Gadget::calcVariance(Zk.row(inck))*numKeptInds;
 
-            Zk = (Zk.array() - mean)/sqrt(D[inck]);
+            Zk = (Zk.array() - Zk.mean())/sqrt(D[inck]);
+//            Zk = (Zk.array() - mean)/sqrt(D[inck]);
             
             denseZPZ.col(inck) = ZP * Zk;
 
@@ -1592,9 +1594,10 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
             
             // standardize genotypes
             //D[inck] = snp2pq[inck]*snpk->sampleSize;
-            D[inck] = Gadget::calcVariance(Zk)*snpk->sampleSize;
+            D[inck] = Gadget::calcVariance(Zk)*numKeptInds;
 
-            Zk = (Zk.array() - mean)/sqrt(D[inck]);
+            Zk = (Zk.array() - Zk.mean())/sqrt(D[inck]);
+//            Zk = (Zk.array() - mean)/sqrt(D[inck]);
             
             denseZPZ.col(inck) = ZP * Zk;
             
@@ -1629,7 +1632,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
             snp->windSize  = numIncdSnps;
             snp->windEnd   = numIncdSnps-1;
             ZPZ[i] = denseZPZ.row(i);
-            snp->ldSamplVar = (1.0 - denseZPZ.row(i).array().square()).square().sum()/snp->sampleSize;
+            snp->ldSamplVar = (1.0 - denseZPZ.row(i).array().square()).square().sum()/numKeptInds;
             snp->ldSum = denseZPZ.row(i).sum();
 //            snp->ldSum = samplVarEmp.row(i).sum();
        }
@@ -1640,7 +1643,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
             for (unsigned i=0; i<numSnpInRange; ++i) {
                 SnpInfo *snp = incdSnpInfoVec[start+i];
                 ZPZ[i] = denseZPZ.row(i).segment(snp->windStart, snp->windSize);
-                snp->ldSamplVar = (1.0 - ZPZ[i].array().square()).square().sum()/snp->sampleSize;
+                snp->ldSamplVar = (1.0 - ZPZ[i].array().square()).square().sum()/numKeptInds;
                 snp->ldSum = ZPZ[i].sum();
             }
         } else {  // based on the given LD threshold
@@ -1665,7 +1668,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
                 snp->windEnd = windEndi - 1;
                 ZPZ[i].resize(windSize[i]);
                 VectorXf::Map(&ZPZ[i][0], windSize[i]) = denseZPZ.row(i).segment(windStart[i], windSize[i]);
-                snp->ldSamplVar = (1.0 - ZPZ[i].array().square()).square().sum()/snp->sampleSize;
+                snp->ldSamplVar = (1.0 - ZPZ[i].array().square()).square().sum()/numKeptInds;
                 snp->ldSum = ZPZ[i].sum();
             }
         }
@@ -1686,14 +1689,14 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
                         snpj = incdSnpInfoVec[j];
                         if (snpj->skeleton) {
                             rsq = denseZPZ(i,j)*denseZPZ(i,j);
-                            snpi->ldSamplVar += (1.0-rsq)*(1.0-rsq)/snpi->sampleSize;
+                            snpi->ldSamplVar += (1.0-rsq)*(1.0-rsq)/numKeptInds;
                             snpi->ldSum += denseZPZ(i,j);
                         }
                         else {
                             if (abs(denseZPZ(i,j)) < LDthreshold) denseZPZ(i,j) = 0;
                             else {
                                 rsq = denseZPZ(i,j)*denseZPZ(i,j);
-                                snpi->ldSamplVar += (1.0-rsq)*(1.0-rsq)/snpi->sampleSize;
+                                snpi->ldSamplVar += (1.0-rsq)*(1.0-rsq)/numKeptInds;
                                 snpi->ldSum += denseZPZ(i,j);
                             }
                         }
@@ -1714,7 +1717,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
                         snpj = incdSnpInfoVec[j];
                         if (snpj->skeleton) {
                             rsq = denseZPZ(i,j)*denseZPZ(i,j);
-                            snpi->ldSamplVar += (1.0-rsq)*(1.0-rsq)/snpi->sampleSize;
+                            snpi->ldSamplVar += (1.0-rsq)*(1.0-rsq)/numKeptInds;
                             snpi->ldSum += denseZPZ(i,j);
 //                            cout << j << " " << denseZPZ(i,j) << endl;
 //                            ++cnt;
@@ -1723,7 +1726,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
                             if (i!=j && denseZPZ(i,j)*denseZPZ(i,j)*snpi->sampleSize < chisqThreshold) denseZPZ(i,j) = 0;
                             else {
                                 rsq = denseZPZ(i,j)*denseZPZ(i,j);
-                                snpi->ldSamplVar += (1.0-rsq)*(1.0-rsq)/snpi->sampleSize;
+                                snpi->ldSamplVar += (1.0-rsq)*(1.0-rsq)/numKeptInds;
                                 snpi->ldSum += denseZPZ(i,j);
 //                                cout << j << " " << denseZPZ(i,j) << endl;
 //                                ++cnt;
@@ -1750,7 +1753,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
                         if (abs(denseZPZ(i,j)) < LDthreshold) denseZPZ(i,j) = 0;
                         else {
                             rsq = denseZPZ(i,j)*denseZPZ(i,j);
-                            snpi->ldSamplVar += (1.0-rsq)*(1.0-rsq)/snpi->sampleSize;
+                            snpi->ldSamplVar += (1.0-rsq)*(1.0-rsq)/numKeptInds;
                             snpi->ldSum += denseZPZ(i,j);
                         }
                     }
@@ -1767,10 +1770,10 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
                     snpi->ldSum = 0.0;
                     for (unsigned j=0; j<numIncdSnps; ++j) {
                         snpj = incdSnpInfoVec[j];
-                        if (i!=j && denseZPZ(i,j)*denseZPZ(i,j)*snpi->sampleSize < chisqThreshold) denseZPZ(i,j) = 0;
+                        if (i!=j && denseZPZ(i,j)*denseZPZ(i,j)numKeptInds < chisqThreshold) denseZPZ(i,j) = 0;
                         else {
                             rsq = denseZPZ(i,j)*denseZPZ(i,j);
-                            snpi->ldSamplVar += (1.0-rsq)*(1.0-rsq)/snpi->sampleSize;
+                            snpi->ldSamplVar += (1.0-rsq)*(1.0-rsq)/numKeptInds;
                             snpi->ldSum += denseZPZ(i,j);
                         }
                     }
@@ -1857,7 +1860,7 @@ void Data::outputLDmatrix(const string &LDmatType, const string &filename, const
         % snp->windEnd
         % snp->windSize
         % (windStart->chrom == windEnd->chrom ? windEnd->physPos - windStart->physPos : windStart->chrom-windEnd->chrom)
-        % snp->sampleSize
+        % numKeptInds
         % snp->ldSamplVar
         % snp->ldSum;
         if (LDmatType == "sparse") {
@@ -3339,7 +3342,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
         
         // standardize genotypes
         //D[incj] = snp2pq[incj]*snpj->sampleSize;
-        D[incj] = Gadget::calcVariance(ZP.row(incj))*snpj->sampleSize;
+        D[incj] = Gadget::calcVariance(ZP.row(incj))*numKeptInds;
         
         ZP.row(incj) = (ZP.row(incj).array() - mean)/sqrt(D[incj]);
         
@@ -3406,7 +3409,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
         
         // standardize genotypes
         //D[inck] = snp2pq[inck]*snpk->sampleSize;
-        D[inck] = Gadget::calcVariance(Zk)*snpk->sampleSize;
+        D[inck] = Gadget::calcVariance(Zk)*numKeptInds;
         
         Zk = (Zk.array() - mean)/sqrt(D[inck]);
         
