@@ -43,6 +43,7 @@ int main(int argc, const char * argv[]) {
 //        cout << "==========" << opt.seed << " " << Stat::ranf() << " " << Stat::snorm() << endl;
         
         Data data;
+        data.title = opt.title;
         bool readGenotypes;
         
         GCTB gctb(opt);
