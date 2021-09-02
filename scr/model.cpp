@@ -3508,6 +3508,8 @@ void ApproxBayesR::sampleUnknowns(){
         } else {
             sigmaSq.value = varg.value/(data.numIncdSnps*gamma.values.dot(Pis.values));  // LDpred2's parameterisation
         }
+    } else if (originalModel) {
+        sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     } else {
         if (estimateSigmaSq) sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     }
@@ -3517,6 +3519,7 @@ void ApproxBayesR::sampleUnknowns(){
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
 
+    if (estimateHsq) {
     if (data.Z.size()) {   // TMP_JZ
 //        ghat.setZero(data.Z.rows());
 //        for (unsigned i=0; i<snpEffects.size; ++i) {
@@ -3537,6 +3540,7 @@ void ApproxBayesR::sampleUnknowns(){
     
     hsq.compute(varg.value, vare.value);
     //hsq.value = varg.value / data.varPhenotypic;  // TMP_JZ
+    }
     
     if (iter >= 2000) sigmaSq.scale = scalePrior;
     scale.getValue(sigmaSq.scale);
@@ -3552,13 +3556,13 @@ void ApproxBayesR::sampleUnknowns(){
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
 
 //    numSnpVg.compute(snpEffects.values, data.ZPZdiag, varg.value, vare.nobs);
-    if (originalModel) {
+    //if (originalModel) {
         Vgs.compute(snpEffects.values, data.ZPy, rcorr, snpEffects.snpset, varg.value, vare.nobs);
 //        if (sparse)
 //            Vgs.compute(snpEffects.values, data.ZPZsp, snpEffects.snpset, varg.value, vare.nobs);
 //        else
 //            Vgs.compute(snpEffects.values, data.ZPZ, snpEffects.snpset, varg.value, vare.nobs);
-    }
+    //}
 
     float scaleIteri = 0;
     if (++iter < 2000) {
