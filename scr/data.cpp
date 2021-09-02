@@ -1323,6 +1323,50 @@ void Data::imputePerSnpSampleSize(vector<SnpInfo*> &snpInfoVec, unsigned &numInc
     }
 }
 
+/*
+ * Divide the big matrix to small part (From Zhili)
+ * @Param totalPart: number of parts would like to divide 
+ * @Param curPart:  current part would like to run. 1 based
+ * @Param nSNPs:  total number of SNPs
+ * @Return string: SNP idx start-end, 1 based
+*/
+string makeSNPRangeString(int totalPart, int curPart, int nSNPs){
+    int nPartSNP = (nSNPs + totalPart - 1) / totalPart;
+    int start = nPartSNP * (curPart - 1) + 1;
+    int end = nPartSNP * curPart;
+    if(end > nSNPs) end = nSNPs;
+    return(to_string(start) + "-" + to_string(end));
+}
+
+string Data::partLDMatrix(const string &partParam, const string &outfilename, const string &LDmatType){
+    Gadget::Tokenizer token;
+    token.getTokens(partParam, ",");
+    string snpRange = "";
+    if(token.size() == 2){
+        int nTotalPart = atoi(token[0].c_str());
+        int nCurPart = atoi(token[1].c_str());
+        cout << "Dividing LD matrix by " << nTotalPart << " parts, current running part " << nCurPart << std::endl;
+        if(nTotalPart < nCurPart || nCurPart <= 0){
+            throw("--part usage total,curentPart"); 
+        }
+
+        snpRange = makeSNPRangeString(nTotalPart, nCurPart, numIncdSnps);
+        cout << "  SNP range " << snpRange << endl;
+
+        if(nCurPart == 1){
+            ofstream mldmfile((outfilename + ".mldm").c_str());
+            for(int i = 1; i <= nTotalPart; i++){
+                string snpRange1 = makeSNPRangeString(nTotalPart, i, numIncdSnps);
+                string outfilename2 = outfilename + ".snp" + snpRange1 + ".ldm." + LDmatType;
+                mldmfile << outfilename2 << endl;
+            }
+            mldmfile.close();
+            cout << " run gctb --mldm " << outfilename << ".mldm --make-full-ldm --out ...  to combine the parted LDM matrix" << std::endl;  
+        }
+    }
+    return snpRange;
+}
+
 void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const float chisqThreshold, const float LDthreshold, const unsigned windowWidth, const string &snpRange, const string &filename, const bool writeLdmTxt){
     
     Gadget::Tokenizer token;

@@ -328,6 +328,7 @@ public:
     void truncBlockEigen(string method, float eigThresh);
     void buildSparseMME(const string &bedFile, const unsigned windowWidth);
 //    void makeLDmatrix(const string &bedFile, const unsigned windowWidth, const string &filename);
+    string partLDMatrix(const string &partParam, const string &outfilename, const string &LDmatType);
     void makeLDmatrix(const string &bedFile, const string &LDmatType, const float chisqThreshold, const float LDthreshold, const unsigned windowWidth,
                       const string &snpRange, const string &filename, const bool writeLdmTxt);
     void makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, const string &snpRange, const string &filename, const bool writeLdmTxt, const float effpopNE, const float cutOff, const float genMapN);

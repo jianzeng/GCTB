@@ -354,6 +354,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             snpRange = argv[++i];
             ss << "--snp " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--part")) {
+            partParam = argv[++i];
+            ss << "--part " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--ne")) {
             effpopNE = atof(argv[++i]);
             ss << "--ne " << argv[i] << "\n";
