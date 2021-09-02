@@ -140,6 +140,7 @@ public:
     string ldscoreFile;
     string eQTLFile;
     string snpRange;
+    string partParam;
     string outLDmatType;
     string windowFile;
     string residualDiagFile;
@@ -252,6 +253,7 @@ public:
         ldscoreFile             = "";
         eQTLFile                = "";
         snpRange                = "";
+        partParam               = "";
         windowFile              = "";
         residualDiagFile        = "";
         outLDmatType            = "sparse";
