@@ -279,6 +279,7 @@ public:
     unsigned numWindows;
     
     string label;
+    string title;
     
     Data(){
         numFixedEffects = 0;

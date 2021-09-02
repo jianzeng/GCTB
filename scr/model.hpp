@@ -1539,6 +1539,7 @@ public:
     bool noscale;
     bool originalModel;
     bool estimateSigmaSq;
+    bool estimateHsq;
 
     const float overdispersion;
     
@@ -1574,10 +1575,10 @@ public:
            Pis[i]->value=Pis.values[i];  
         }
         paramVec     = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq};
-        if (originalModel) paramVec.insert(paramVec.begin(), Vgs.begin(), Vgs.end());
+        paramVec.insert(paramVec.begin(), Vgs.begin(), Vgs.end());
         paramVec.insert(paramVec.begin(), numSnps.begin(), numSnps.end());
         paramToPrint = {&sigmaSq, &vare, &varg, &hsq, &rounding};
-        if (originalModel) paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
+        paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
         paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
         if (modelPS) {
             paramVec.push_back(&ps);
@@ -1598,6 +1599,10 @@ public:
             sigmaSq.scale = 0.5*sigmaSq.value;
             cout << "fixing sigmaSq to be " << sigmaSq.value << endl;
         }
+        if (!estimateSigmaSq && (originalModel || robustMode)) {
+            estimateHsq = false;
+            hsq.value = varg.value/(varg.value + vare.value);
+        } else estimateHsq = true;
         
         if (message) {
             cout << "\nApproximate BayesR model fitted." << endl;

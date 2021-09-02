@@ -1277,7 +1277,7 @@ void Data::imputePerSnpSampleSize(vector<SnpInfo*> &snpInfoVec, unsigned &numInc
     ypy = tpq*n.square()*var + tpq*n*bsq;
     float ypy_med = Gadget::findMedian(ypy);
     // Given ypy and n compute 2pq
-    tpq = ypy / (var*n.square() + bsq*n);
+    //tpq = ypy / (var*n.square() + bsq*n);
     // Given ypy_med and 2pq compute n
     float n_med = Gadget::findMedian(n);
     float vary = ypy_med / n_med;
@@ -1296,8 +1296,8 @@ void Data::imputePerSnpSampleSize(vector<SnpInfo*> &snpInfoVec, unsigned &numInc
         }
         else {
             snp->gwas_n = n[j];
-            p_new = 0.5 - 0.5*sqrt(1.0-2.0*tpq[j]);
-            snp->gwas_af = p[j] < 0.5 ? p_new : 1.0-p_new;
+            //p_new = 0.5 - 0.5*sqrt(1.0-2.0*tpq[j]);
+            //snp->gwas_af = p[j] < 0.5 ? p_new : 1.0-p_new;
             ++numIncdSnps;
         }
         ++j;
@@ -1307,6 +1307,18 @@ void Data::imputePerSnpSampleSize(vector<SnpInfo*> &snpInfoVec, unsigned &numInc
         imputePerSnpSampleSize(snpInfoVec, numIncdSnps, sd);
     } else {
         cout << numIncdSnps << " SNPs with per-SNP sample size within 3 sd around the median value of " << n_med << endl;
+        string outfile = title + ".imputedPerSnpN";
+        ofstream out(outfile.c_str());
+        out << boost::format("%15s %12s\n")
+        % "ID" % "Imputed_N";
+        for (unsigned i=0; i<numSnps; ++i) {
+            snp = snpInfoVec[i];
+            if (!snp->included) continue;
+            out << boost::format("%15s %12s\n")
+            % snp->ID
+            % snp->gwas_n;
+        }
+        out.close();
         return;
     }
 }
@@ -1770,7 +1782,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
                     snpi->ldSum = 0.0;
                     for (unsigned j=0; j<numIncdSnps; ++j) {
                         snpj = incdSnpInfoVec[j];
-                        if (i!=j && denseZPZ(i,j)*denseZPZ(i,j)numKeptInds < chisqThreshold) denseZPZ(i,j) = 0;
+                        if (i!=j && denseZPZ(i,j)*denseZPZ(i,j)*numKeptInds < chisqThreshold) denseZPZ(i,j) = 0;
                         else {
                             rsq = denseZPZ(i,j)*denseZPZ(i,j);
                             snpi->ldSamplVar += (1.0-rsq)*(1.0-rsq)/numKeptInds;
