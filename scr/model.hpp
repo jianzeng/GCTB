@@ -1575,10 +1575,10 @@ public:
            Pis[i]->value=Pis.values[i];  
         }
         paramVec     = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq};
-        paramVec.insert(paramVec.begin(), Vgs.begin(), Vgs.end());
+        if (originalModel) paramVec.insert(paramVec.begin(), Vgs.begin(), Vgs.end());
         paramVec.insert(paramVec.begin(), numSnps.begin(), numSnps.end());
         paramToPrint = {&sigmaSq, &vare, &varg, &hsq, &rounding};
-        paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
+        if (originalModel) paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
         paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
         if (modelPS) {
             paramVec.push_back(&ps);

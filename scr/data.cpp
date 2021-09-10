@@ -3088,7 +3088,7 @@ void Data::resizeLDmatrix(const string &LDmatType, const float chisqThreshold, c
                 }
                 // // Multiple each covariance matrix element with the shrinkage value
                 float value = ZPZ[i][j];
-                value = value * shrinkage;
+                if (i != (windStart[i] + j)) value = value * shrinkage;
                 // // Complete as SigHAat from Li and Stephens 2003
                 value =  value * ((1.0 - thetai[i]) * (1.0 - thetai[(windStart[i] + j)]));
                 // If it's the diagonal element add the extra term
