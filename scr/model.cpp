@@ -3556,13 +3556,13 @@ void ApproxBayesR::sampleUnknowns(){
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
 
 //    numSnpVg.compute(snpEffects.values, data.ZPZdiag, varg.value, vare.nobs);
-    //if (originalModel) {
+    if (originalModel) {
         Vgs.compute(snpEffects.values, data.ZPy, rcorr, snpEffects.snpset, varg.value, vare.nobs);
 //        if (sparse)
 //            Vgs.compute(snpEffects.values, data.ZPZsp, snpEffects.snpset, varg.value, vare.nobs);
 //        else
 //            Vgs.compute(snpEffects.values, data.ZPZ, snpEffects.snpset, varg.value, vare.nobs);
-    //}
+    }
 
     float scaleIteri = 0;
     if (++iter < 2000) {
