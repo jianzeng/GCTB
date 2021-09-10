@@ -147,8 +147,8 @@ public:
     
     Options(){
         numChains               = 1;
-        chainLength             = 50000;
-        burnin                  = 20000;
+        chainLength             = 10000;
+        burnin                  = 2000;
         outputFreq              = 100;
         seed                    = 0;
         numThread               = 1;
