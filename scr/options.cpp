@@ -182,7 +182,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--pi")) {
             Gadget::Tokenizer strvec;
             strvec.getTokens(argv[++i], " ,");
-            if (strvec.size() != 1 && (bayesType != "R" && bayesType != "Kap" && bayesType != "RS" && bayesType != "Reigen" && bayesType != "RC"))
+            if (strvec.size() != 1 && (bayesType != "R" && bayesType != "Kap" && bayesType != "RS" && bayesType != "RC"))
                 throw("Error: When NOT using Bayes R or its variants option you can only specify one mixture proportion parameter.");
             if (strvec.size() == 1) {
                 for (unsigned j=0; j<strvec.size(); ++j) pi = stof(strvec[j]);
@@ -523,13 +523,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
     if (bayesType == "S" || bayesType == "ST" || bayesType == "T" || bayesType == "SMix" || bayesType == "RS") {
         noscale = true;
     }
-    
-    if(bayesType == "Reigen"){
-        bLDMeigen = true;
-    }else{
-        bLDMeigen = false;
-    }
-    
+   
     if (analysisType == "hsq") noscale = true;
     
     if (chainLength < burnin) {
