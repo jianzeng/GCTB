@@ -222,8 +222,6 @@ public:
     // for Eigen dec
     VectorXi blockStarts;    // each LD block startings index in SNP included scale
     VectorXi blockSizes;     // each LD block size;
-    vector<VectorXf> truncBlockEigenValues;  // truncted eigen values;
-    vector<MatrixXf> truncBlockEigenVectors; // truncted eigen vectors;
     
     VectorXf LDsamplVar;     // sum of sampling variance of LD for each SNP with all other SNPs; this is for summary-bayes methods
     VectorXf LDscore;        // sum of r^2 over SNPs in significant LD
@@ -328,7 +326,6 @@ public:
     vector<IndInfo*> makeKeptIndInfoVec(const vector<IndInfo*> &indInfoVec);
     void getWindowInfo(const vector<SnpInfo*> &incdSnpInfoVec, const unsigned windowWidth, VectorXi &windStart, VectorXi &windSize);
     void getNonoverlapWindowInfo(const unsigned windowWidth);
-    void truncBlockEigen(string method, float eigThresh);
     void buildSparseMME(const string &bedFile, const unsigned windowWidth);
 //    void makeLDmatrix(const string &bedFile, const unsigned windowWidth, const string &filename);
     string partLDMatrix(const string &partParam, const string &outfilename, const string &LDmatType);
