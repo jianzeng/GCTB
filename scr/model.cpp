@@ -6210,23 +6210,23 @@ void ApproxBayesRC::AnnoEffects::initIntercept_logistic(const VectorXf &pis){
     }
 }
 
-void ApproxBayesRC::AnnoCondProb::compute_probit(const AnnoEffects &annoEffects){
+void ApproxBayesRC::AnnoCondProb::compute_probit(const AnnoEffects &annoEffects, const VectorXf &annoSD){
     for (unsigned i=0; i<annoEffects.numComp; ++i) {
         for (unsigned j=0; j<annoEffects.numAnno; ++j) {
             VectorXf &alpha = annoEffects[i]->values;
             if (j==0) (*this)[i]->values[j] = Normal::cdf_01(alpha[j]);
-            else (*this)[i]->values[j] = Normal::cdf_01(alpha[0] + alpha[j]);
+            else (*this)[i]->values[j] = Normal::cdf_01(alpha[0] + annoSD[j]*alpha[j]);  // NEW
         }
     }
 }
 
-void ApproxBayesRC::AnnoCondProb::compute_logistic(const AnnoEffects &annoEffects){
+void ApproxBayesRC::AnnoCondProb::compute_logistic(const AnnoEffects &annoEffects, const VectorXf &annoSD){
 //    cout << "computing conditional prob... " << endl;
     for (unsigned i=0; i<numComp; ++i) {
         for (unsigned j=0; j<annoEffects.numAnno; ++j) {
             VectorXf &alpha = annoEffects[i]->values;
             if (j==0) (*this)[i]->values[j] = 1.0/(1.0 + exp(-alpha[j]));
-            else (*this)[i]->values[j] = 1.0/(1.0 + exp(- alpha[0] - alpha[j]));
+            else (*this)[i]->values[j] = 1.0/(1.0 + exp(- alpha[0] - annoSD[j]*alpha[j]));
         }
     }
 }
@@ -6313,6 +6313,29 @@ void ApproxBayesRC::computeSnpVarg(const MatrixXf &annoMat, const VectorXf &anno
     }
 }
 
+void ApproxBayesRC::AnnoDistribution::compute(const MatrixXf &z, const MatrixXf &annoMat, const ArrayXf &numSnpMix){
+    unsigned numSnps = z.rows();
+    VectorXi delta = z.rowwise().sum().cast<int>();
+    for (unsigned i=0; i<numDist; ++i) {
+        (*this)[i]->values.setZero(numAnno);
+        unsigned nsnpDisti = numSnpMix[i];
+        MatrixXf annoMatCompi(nsnpDisti, numAnno);
+        unsigned idx = 0;
+        for (unsigned j=0; j<numSnps; ++j) {
+            if (delta[j] == i) {
+                annoMatCompi.row(idx) = annoMat.row(j);
+                ++idx;
+            }
+        }
+        for (unsigned k=0; k<numAnno; ++k) {
+            VectorXf annoSrt = annoMatCompi.col(k);
+            std::sort(annoSrt.data(), annoSrt.data() + annoSrt.size());
+            (*this)[i]->values[k] = annoSrt[annoSrt.size()/2];   // median value
+        }
+    }
+}
+
+
 void ApproxBayesRC::sampleUnknowns(){
     static int iter = 0;    
 //    fixedEffects.sampleFromFC(data.XPX, data.XPXdiag, data.ZPX, data.XPy, snpEffects.values, vare.value, rcorr);
@@ -6351,10 +6374,10 @@ void ApproxBayesRC::sampleUnknowns(){
         //computePfromPi(snpPi, snpP);
         if (algorithm == gibbs) {
             annoEffects.sampleFromFC_Gibbs(snpEffects.z, data.annoMat, sigmaSqAnno.values, snpP);
-            annoCondProb.compute_probit(annoEffects);
+            annoCondProb.compute_probit(annoEffects, data.annoSD);
         } else {
             annoEffects.sampleFromFC_MH(snpEffects.z, data.annoMat, sigmaSqAnno.values, snpP);
-            annoCondProb.compute_logistic(annoEffects);
+            annoCondProb.compute_logistic(annoEffects, data.annoSD);
         }
         sigmaSqAnno.sampleFromFC(annoEffects.ssq);
         computePiFromP(snpP, snpPi);
@@ -6377,6 +6400,8 @@ void ApproxBayesRC::sampleUnknowns(){
     annoPerSnpHsqEnrich.compute(annoTotalGenVar.values, varg.value);
     //annoPerSnpHsqEnrich.compute(snpEffects.values, data.annoMat, snpEffects.numNonZeros);
 
+    annoDist.compute(snpEffects.z, data.annoMat, snpEffects.numSnpMix);
+    
     if (iter >= 2000) sigmaSq.scale = scalePrior;
     scale.getValue(sigmaSq.scale);
     // cout << "iter " << iter << " scalePrior " << scalePrior << "sigmaSq.scale " << sigmaSq.scale << endl;
@@ -6542,10 +6567,10 @@ void BayesRC::sampleUnknowns(){
         //computePfromPi(snpPi, snpP);
         if (algorithm == gibbs) {
             annoEffects.sampleFromFC_Gibbs(snpEffects.z, data.annoMat, sigmaSqAnno.values, snpP);
-            annoCondProb.compute_probit(annoEffects);
+            annoCondProb.compute_probit(annoEffects, data.annoSD);
         } else {
             annoEffects.sampleFromFC_MH(snpEffects.z, data.annoMat, sigmaSqAnno.values, snpP);
-            annoCondProb.compute_logistic(annoEffects);
+            annoCondProb.compute_logistic(annoEffects, data.annoSD);
         }
         sigmaSqAnno.sampleFromFC(annoEffects.ssq);
         computePiFromP(snpP, snpPi);

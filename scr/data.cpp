@@ -4049,10 +4049,24 @@ void Data::setAnnoInfoVec() {
         }
     }
     
+    
+    // TMP
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+        SnpInfo *snp = incdSnpInfoVec[i];
+        annoMat.row(i) = snp->annoValues;
+    }
+    annoSD.setZero(numAnnos);
+    for (unsigned i=0; i<numAnnos; ++i) {
+        AnnoInfo *anno = annoInfoVec[i];
+        if (annoMat.col(i).sum() == anno->size) annoSD[i] = 1; // binary annotation
+        else annoSD[i] = sqrt(Gadget::calcVariance(annoMat.col(i))); // quantitative annotation
+    }
+    
+    
     annoMean.setZero(numAnnos);
     for (unsigned i=0; i<numAnnos; ++i) {
         annoMean[i] = annoMat.col(i).mean();
-//        if (i) annoMat.col(i).array() -= annoMean[i];  // center the annotation matrix
+        //if (i) annoMat.col(i).array() -= annoMean[i];  // center the annotation matrix
     }
     APA = annoMat.transpose()*annoMat;
 }
@@ -4455,9 +4469,11 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
         it = snpInfoMap.find(id);
         if (it != end) {
             snp = it->second;
+            snp->annoValues.resize(size);
             for (unsigned j=1; j<size; ++j) {
                 if (atof(colData[j].c_str())) {
                     snp->annoVec.push_back(annoInfoVec[j-1]);
+                    snp->annoValues[j-1] = atof(colData[j].c_str());  // NEW LINE
                     snp->numAnnos++;
                 }
             }
