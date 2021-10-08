@@ -2301,8 +2301,8 @@ public:
             }
         }
         
-        void compute_probit(const AnnoEffects &annoEffects);
-        void compute_logistic(const AnnoEffects &annoEffects);
+        void compute_probit(const AnnoEffects &annoEffects, const VectorXf &annoSD);
+        void compute_logistic(const AnnoEffects &annoEffects, const VectorXf &annoSD);
     };
     
     class AnnoJointProb : public vector<ParamSet*> {
@@ -2369,6 +2369,24 @@ public:
         void compute(const VectorXf &snpEffects, const MatrixXf &annoMat, const unsigned nnz);
     };
     
+    class AnnoDistribution : public vector<ParamSet*> {
+    public:
+        vector<string> colnames;
+        unsigned numDist;
+        unsigned numAnno;
+
+        AnnoDistribution(const vector<string> &header, const unsigned numDist, const string &lab = "AnnoDistribution"):
+        numDist(numDist) {
+            colnames.resize(numDist);
+            numAnno = header.size();
+            for (unsigned i = 0; i<numDist; ++i) {
+                colnames[i] = "AnnoDistribution_k" + to_string(static_cast<long long>(i + 1));
+                this->push_back(new ParamSet(colnames[i], header));
+            }
+        }
+        
+        void compute(const MatrixXf &z, const MatrixXf &annoMat, const ArrayXf &numSnpMix);
+    };
         
     SnpEffects snpEffects;
     AnnoEffects annoEffects;
@@ -2379,6 +2397,7 @@ public:
     AnnoTotalGenVar annoTotalGenVar;
     AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
     DeltaPi deltaPi;
+    AnnoDistribution annoDist;
     
     MatrixXf snpP;    // p = Pr(k>i | k>i-1); p2 = pi2+pi3+pi4; p3 = (pi3+pi4)/(pi2+pi3+pi4); p4 = pi4/(pi3+pi4)
     MatrixXf snpPi;   // pi1 = 1-p2; pi2 = (1-p3)*p2; pi3 = (1-p4)*p2*p3; pi4 = p2*p3*p4
@@ -2396,7 +2415,8 @@ public:
     annoGenVar(data.annoNames, pis.size(), data.numKeptInds),
     annoTotalGenVar(data.annoNames),
     annoPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
-    deltaPi(data.snpEffectNames, pis.size())
+    deltaPi(data.snpEffectNames, pis.size()),
+    annoDist(data.annoNames, pis.size())
     {
         allowPerSnpGV = perSnpGV;
         snpVarg.setConstant(data.numIncdSnps, varGenotypic);
@@ -2427,6 +2447,9 @@ public:
         }
         for (unsigned i=0; i<deltaPi.numDist; ++i) {
             paramSetVec.push_back(deltaPi[i]);
+        }
+        for (unsigned i=0; i<annoDist.numDist; ++i) {
+            paramSetVec.push_back(annoDist[i]);
         }
         paramSetVec.push_back(&annoTotalGenVar);
         paramSetVec.push_back(&annoPerSnpHsqEnrich);

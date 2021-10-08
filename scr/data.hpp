@@ -64,6 +64,8 @@ public:
     vector<unsigned> annoIdx;   // the index of SNP in the annotation
     map<int, AnnoInfo*> annoMap;
     
+    VectorXf annoValues;
+    
     float effect;   // estimated effect
     
     // GWAS summary statistics
@@ -196,6 +198,7 @@ public:
     MatrixXf annoMat;        // annotation coefficient matrix
     MatrixXf APA;            // annotation X'X matrix
     VectorXf annoMean;       // column mean of annotation coefficient matrix
+    VectorXf annoSD;         // column SD of annotation coefficient matrix
 
     MatrixXf XPX;            // X'X the MME lhs
     MatrixXf ZPX;            // Z'X the covariance matrix of SNPs and fixed effects
