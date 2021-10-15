@@ -102,7 +102,6 @@ public:
     bool originalModel; // original BayesR model
     bool twoStageModel;  // two-step approach for estimating X-chr dosage model and G by sex
     bool binSnp;  // bin SNPs
-    bool bLDMeigen; // flag to set the eigen decomposition to LD matrix or not
     bool robustMode;  // use the robust parameterisation in SBayes models
     bool perSnpGV;
     string eigCutMethod = "value";
