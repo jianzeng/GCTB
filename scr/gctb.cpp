@@ -123,8 +123,6 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
         if (data.numAnnos) {
             if (bayesType == "S")
                 return new StratApproxBayesS(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, S, algorithm, robustMode);
-            else if (bayesType == "RC")
-                return new ApproxBayesRC(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, perSnpGV, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm);
             else
                 throw(" Error: Wrong bayes type: " + bayesType + " in the annotation-stratified summary-data-based Bayesian analysis.");
         }
@@ -154,7 +152,6 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
     if (data.numAnnos) {
         if (bayesType == "RC") {
             data.readBedFile(noscale, bedFile + ".bed");
-            return new BayesRC(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, algorithm);
         }
         else
             throw(" Error: Wrong bayes type: " + bayesType + " in the annotation-stratified Bayesian analysis.");
