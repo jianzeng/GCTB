@@ -2004,7 +2004,7 @@ void Data::resizeWindow(const vector<SnpInfo *> &incdSnpInfoVec, const VectorXi 
 void Data::readLDmatrixInfoFileOld(const string &ldmatrixFile){   // old format: no allele frequency, no header
     ifstream in(ldmatrixFile.c_str());
     if (!in) throw ("Error: can not open the file [" + ldmatrixFile + "] to read.");
-    cout << "Reading SNP info from [" + ldmatrixFile + "]." << endl;
+    //cout << "Reading SNP info from [" + ldmatrixFile + "]." << endl;
     //snpInfoVec.clear();
     //snpInfoMap.clear();
     string header;
