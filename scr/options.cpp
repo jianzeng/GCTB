@@ -118,6 +118,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             covariateFile = argv[++i];
             ss << "--covar " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--random-covar")) {
+            randomCovariateFile = argv[++i];
+            ss << "--random-covar " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--res-diag")) {
             residualDiagFile = argv[++i];
             ss << "--res-diag " << argv[i] << "\n";
@@ -212,6 +216,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
 //            varResidual = atof(argv[++i]);
 //            ss << "--vare " << argv[i] << "\n";
 //        }
+        else if (!strcmp(argv[i], "--var-random")) {
+            propVarRandom = atof(argv[++i]);
+            ss << "--var-random " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--num-chains")) {
             numChains = atoi(argv[++i]);
             ss << "--num-chains " << argv[i] << "\n";

@@ -230,7 +230,7 @@ void XCI::readBedFile(Data &data, const string &bedFile){
 
 
 Model* XCI::buildModel(Data &data, const string &bayesType, const float heritability, const float pi, const VectorXf &piPar, const bool estimatePi, const float piNDC, const Vector2f &piNDCpar, const bool estimatePiNDC, const float piGxE, const bool estimatePiGxE, const unsigned windowWidth){
-    data.initVariances(heritability);
+    data.initVariances(heritability, 0.0);
     bool noscale = true;
     if (bayesType == "B") {
         return new BayesBXCI(data, data.varGenotypic, data.varResidual, pi, piPar[0], piPar[1], estimatePi, piNDC, piNDCpar, estimatePiNDC, numKeptMales, numKeptFemales, noscale);
@@ -267,7 +267,7 @@ Model* XCI::buildModel(Data &data, const string &bayesType, const float heritabi
 Model* XCI::buildModelStageOne(Data &data, const string &bayesType, const float heritability, const float pi, const VectorXf &piPar, const bool estimatePi, const float piNDC, const Vector2f &piNDCpar, const bool estimatePiNDC){
     cout << "Running a two-stage model: " << endl;
     cout << "Stage One: estimating dosage compensation model with females only data." << endl;
-    data.initVariances(heritability);
+    data.initVariances(heritability, 0.0);
     bool noscale = true;
     return new BayesCXCI(data, data.varGenotypic, data.varResidual, pi, piPar[0], piPar[1], estimatePi, piNDC, piNDCpar, estimatePiNDC, 0, numKeptFemales, noscale);
 }
@@ -284,7 +284,7 @@ Model* XCI::buildModelStageTwo(Data &data, const string &bayesType, const float 
 
 vector<McmcSamples*> XCI::multi_chain_mcmc(Data &data, const string &bayesType, const float heritability, const float pi, const VectorXf &piPar, const bool estimatePi, const float piNDC, const Vector2f &piNDCpar, const bool estimatePiNDC, const float piGxE, const bool estimatePiGxE, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
     
-    data.initVariances(heritability);
+    data.initVariances(heritability, 0.0);
     bool noscale = true;
 
     vector<Model*> modelVec(numChains);

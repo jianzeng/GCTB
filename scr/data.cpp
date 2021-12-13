@@ -317,8 +317,10 @@ void Data::readCovariateFile(const string &covarFile){
             numFixedEffects = numCovariates + 1;
             fixedEffectNames.resize(numFixedEffects);
             fixedEffectNames[0] = "Intercept";
-            for (unsigned i=0; i<numCovariates; ++i)
+            for (unsigned i=0; i<numCovariates; ++i) {
                 fixedEffectNames[i+1] = colData[i+2];
+            }
+            ++line;
         }
         id = colData[0] + ":" + colData[1];
         it = indInfoMap.find(id);
@@ -335,6 +337,43 @@ void Data::readCovariateFile(const string &covarFile){
     in.close();
     
     cout << "Read " << numCovariates << " covariates from [" + covarFile + "]." << endl;
+}
+
+void Data::readRandomCovariateFile(const string &covarFile){
+    if (covarFile.empty()) return;
+    ifstream in(covarFile.c_str());
+    if (!in) throw ("Error: can not open the file [" + covarFile + "] to read.");
+    map<string, IndInfo*>::iterator it, end=indInfoMap.end();
+    IndInfo *ind = NULL;
+    Gadget::Tokenizer colData;
+    string inputStr;
+    string sep(" \t");
+    string id;
+    unsigned line=0;
+    while (getline(in,inputStr)) {
+        colData.getTokens(inputStr, sep);
+        if (line==0) {
+            numRandomEffects = (unsigned)colData.size() - 2;
+            randomEffectNames.resize(numRandomEffects);
+            for (unsigned i=0; i<numRandomEffects; ++i) {
+                randomEffectNames[i] = colData[i+2];
+            }
+            ++line;
+        }
+        id = colData[0] + ":" + colData[1];
+        it = indInfoMap.find(id);
+        if (it != end) {
+            ind = it->second;
+            ind->randomCovariates.resize(numRandomEffects);
+            for (unsigned i=0; i<numRandomEffects; ++i) {
+                ind->randomCovariates[i] = atof(colData[i+2].c_str());
+            }
+            ++line;
+        }
+    }
+    in.close();
+    
+    cout << "Read " << numRandomEffects << " covariates as random effects from [" + covarFile + "]." << endl;
 }
 
 void Data::readResidualDiagFile(const string &resDiagFile){
@@ -356,6 +395,7 @@ void Data::readResidualDiagFile(const string &resDiagFile){
         }
     }
     in.close();
+    weightedRes = true;
     
     cout << "Read residual diagonal values for " << line << " individuals from [" + resDiagFile + "]." << endl;
 }
@@ -371,22 +411,41 @@ void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){
         for (unsigned i=0; i<numInds; ++i) {
             ind = indInfoVec[i];
             ind->kept = false;
-            if (ind->phenotype!=-9 && ind->covariates.size()) {
-                if (keepIndMax > cnt++)
-                    keep.push_back(ind->catID);
+            if (numRandomEffects) {
+                if (ind->phenotype!=-9 && ind->covariates.size() && ind->randomCovariates.size()) {
+                    if (keepIndMax > cnt++)
+                        keep.push_back(ind->catID);
+                }
+            }
+            else {
+                if (ind->phenotype!=-9 && ind->covariates.size()) {
+                    if (keepIndMax > cnt++)
+                        keep.push_back(ind->catID);
+                }
             }
         }
-    } else {
+    }
+    else {
         numFixedEffects = 1;
         fixedEffectNames = {"Intercept"};
         for (unsigned i=0; i<numInds; ++i) {
             ind = indInfoVec[i];
             ind->kept = false;
-            if (ind->phenotype!=-9) {
-                ind->covariates.resize(1);
-                ind->covariates << 1;
-                if (keepIndMax > cnt++)
-                    keep.push_back(ind->catID);
+            if (numRandomEffects) {
+                if (ind->phenotype!=-9 && ind->randomCovariates.size()) {
+                    ind->covariates.resize(1);
+                    ind->covariates << 1;
+                    if (keepIndMax > cnt++)
+                        keep.push_back(ind->catID);
+                }
+            }
+            else {
+                if (ind->phenotype!=-9) {
+                    ind->covariates.resize(1);
+                    ind->covariates << 1;
+                    if (keepIndMax > cnt++)
+                        keep.push_back(ind->catID);
+                }
             }
         }
     }
@@ -424,8 +483,10 @@ void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){
     numKeptInds =  (unsigned) keptIndInfoVec.size();
     
     RinverseSqrt.setOnes(numKeptInds);
+    Rsqrt.setOnes(numKeptInds);
     for (unsigned i=0; i<numKeptInds; ++i) {
         RinverseSqrt[i] = sqrt(keptIndInfoVec[i]->rinverse);
+        Rsqrt[i] = 1.0f/RinverseSqrt[i];
     }
     
     y.setZero(numKeptInds);
@@ -441,13 +502,22 @@ void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){
     }
     XPXdiag = X.colwise().squaredNorm();
     
+    if (numRandomEffects) {
+        W.resize(numKeptInds, numRandomEffects);
+        for (unsigned i=0; i<numKeptInds; ++i) {
+            W.row(i) = keptIndInfoVec[i]->randomCovariates.array() * RinverseSqrt.array();
+        }
+        WPWdiag = W.colwise().squaredNorm();
+    }
+    
     cout << numKeptInds << " matched individuals are kept." << endl;
 }
 
-void Data::initVariances(const float heritability){
+void Data::initVariances(const float heritability, const float propVarRandom){
     float varPhenotypic = ypy/numKeptInds;;
     varGenotypic = varPhenotypic * heritability;
     varResidual  = varPhenotypic - varGenotypic;
+    varRandom    = varPhenotypic * propVarRandom;
 //    cout <<ypy<<" "<<numKeptInds<<" "<<varPhenotypic<<" " <<varGenotypic << " " <<varResidual << endl;
 }
 
@@ -1130,6 +1200,17 @@ void Data::outputFixedEffects(const MatrixXf &fixedEffects, const string &filena
     VectorXf sd = (fixedEffects.rowwise() - mean.transpose()).colwise().squaredNorm().cwiseSqrt()/sqrt(nrow);
     for (unsigned i=0; i<numFixedEffects; ++i) {
         out << boost::format("%20s %12.6f %12.6f\n") % fixedEffectNames[i] %mean[i] %sd[i];
+    }
+    out.close();
+}
+
+void Data::outputRandomEffects(const MatrixXf &randomEffects, const string &filename) const {
+    ofstream out(filename.c_str());
+    long nrow = randomEffects.rows();
+    VectorXf mean = randomEffects.colwise().mean();
+    VectorXf sd = (randomEffects.rowwise() - mean.transpose()).colwise().squaredNorm().cwiseSqrt()/sqrt(nrow);
+    for (unsigned i=0; i<numRandomEffects; ++i) {
+        out << boost::format("%20s %12.6f %12.6f\n") % randomEffectNames[i] %mean[i] %sd[i];
     }
     out.close();
 }
@@ -2004,7 +2085,7 @@ void Data::resizeWindow(const vector<SnpInfo *> &incdSnpInfoVec, const VectorXi 
 void Data::readLDmatrixInfoFileOld(const string &ldmatrixFile){   // old format: no allele frequency, no header
     ifstream in(ldmatrixFile.c_str());
     if (!in) throw ("Error: can not open the file [" + ldmatrixFile + "] to read.");
-    cout << "Reading SNP info from [" + ldmatrixFile + "]." << endl;
+    //cout << "Reading SNP info from [" + ldmatrixFile + "]." << endl;
     //snpInfoVec.clear();
     //snpInfoMap.clear();
     string header;

@@ -55,6 +55,7 @@ public:
     float heritability;
 //    float varGenotypic;
 //    float varResidual;
+    float propVarRandom;  // proportion of variance explained by random covariate effects
     float varS; // prior variance of S in BayesS and BayesNS
     vector<float> S;    // starting value of S in BayesS and BayesNS
     float LDthreshold;  // used to define the two ends of per-SNP LD window in the banded LD matrix
@@ -122,6 +123,7 @@ public:
     string optionFile;
     string phenotypeFile;
     string covariateFile;
+    string randomCovariateFile;
     string bedFile;
     string alleleFreqFile;
     string includeSnpFile;
@@ -164,6 +166,7 @@ public:
         heritability            = 0.1;
 //        varGenotypic            = 1.0;
 //        varResidual             = 1.0;
+        propVarRandom           = 0.05;
         varS                    = 1.0;
         S.resize(1);
         S[0]                    = 0.0;
@@ -235,6 +238,7 @@ public:
         optionFile              = "";
         phenotypeFile           = "";
         covariateFile           = "";
+        randomCovariateFile     = "";
         bedFile                 = "";
         alleleFreqFile          = "";
         includeSnpFile          = "";
