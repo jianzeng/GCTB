@@ -172,6 +172,7 @@ public:
     float rinverse;
     
     VectorXf covariates;  // covariates for fixed effects
+    VectorXf randomCovariates;
     
     IndInfo(const int idx, const string &fid, const string &pid, const string &dad, const string &mom, const int sex)
     : famID(fid), indID(pid), catID(fid+":"+pid), fatherID(dad), motherID(mom), index(idx), famFileOrder(idx), sex(sex) {
@@ -184,6 +185,7 @@ public:
 class Data {
 public:
     MatrixXf X;              // coefficient matrix for fixed effects
+    MatrixXf W;              // coefficient matrix for random effects
     MatrixXf Z;              // coefficient matrix for SNP effects
     VectorXf D;              // 2pqn
     VectorXf y;              // phenotypes
@@ -201,8 +203,10 @@ public:
     VectorXf annoSD;         // column SD of annotation coefficient matrix
 
     MatrixXf XPX;            // X'X the MME lhs
+    MatrixXf WPW;
     MatrixXf ZPX;            // Z'X the covariance matrix of SNPs and fixed effects
     VectorXf XPXdiag;        // X'X diagonal
+    VectorXf WPWdiag;
     VectorXf ZPZdiag;        // Z'Z diagonal
     VectorXf XPy;            // X'y the MME rhs for fixed effects
     VectorXf ZPy;            // Z'y the MME rhs for snp effects
@@ -227,17 +231,20 @@ public:
     VectorXf LDscore;        // sum of r^2 over SNPs in significant LD
     
     VectorXf RinverseSqrt;   // sqrt of the weights for the residuals in the individual-level model
+    VectorXf Rsqrt;
     
     float ypy;               // y'y the total sum of squares adjusted for the mean
     float varGenotypic;
     float varResidual;
     float varPhenotypic;
+    float varRandom;         // variance explained by random covariate effects
     
     bool reindexed;
     bool sparseLDM;
     bool shrunkLDM;
     bool readLDscore;
     bool makeWindows;
+    bool weightedRes;
     
     vector<SnpInfo*> snpInfoVec;
     vector<IndInfo*> indInfoVec;
@@ -253,6 +260,7 @@ public:
     vector<IndInfo*> keptIndInfoVec;
     
     vector<string> fixedEffectNames;
+    vector<string> randomEffectNames;
     vector<string> snpEffectNames;
     
     set<int> chromosomes;
@@ -270,6 +278,7 @@ public:
     vector<vector<unsigned> > windowSnpIdxVec;
     
     unsigned numFixedEffects;
+    unsigned numRandomEffects;
     unsigned numSnps;
     unsigned numInds;
     unsigned numIncdSnps;
@@ -284,6 +293,7 @@ public:
     
     Data(){
         numFixedEffects = 0;
+        numRandomEffects = 0;
         numSnps = 0;
         numInds = 0;
         numIncdSnps = 0;
@@ -297,6 +307,7 @@ public:
         sparseLDM = false;
         readLDscore = false;
         makeWindows = false;
+        weightedRes = false;
     }
     
     void readFamFile(const string &famFile);
@@ -304,6 +315,7 @@ public:
     void readBedFile(const bool noscale, const string &bedFile);
     void readPhenotypeFile(const string &phenFile, const unsigned mphen);
     void readCovariateFile(const string &covarFile);
+    void readRandomCovariateFile(const string &covarFile);
     void readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool imputeN);
     void readLDmatrixInfoFileOld(const string &ldmatrixFile);
     void readLDmatrixInfoFile(const string &ldmatrixFile);
@@ -336,11 +348,12 @@ public:
                       VectorXi &windStartNew, VectorXi &windSizeNew);
     void computeAlleleFreq(const MatrixXf &Z, vector<SnpInfo*> &incdSnpInfoVec, VectorXf &snp2pq);
     void reindexSnp(vector<SnpInfo*> snpInfoVec);
-    void initVariances(const float heritability);
+    void initVariances(const float heritability, const float propVarRandom);
     
     void outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const bool noscale, const string &filename) const;
     void outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &lastSample, const VectorXf &pip, const bool noscale, const string &filename) const;
     void outputFixedEffects(const MatrixXf &fixedEffects, const string &filename) const;
+    void outputRandomEffects(const MatrixXf &randomEffects, const string &filename) const;
     void outputWindowResults(const VectorXf &posteriorMean, const string &filename) const;
     void summarizeSnpResults(const SpMat &snpEffects, const string &filename) const;
     void buildSparseMME(const bool sampleOverlap, const bool noscale);
