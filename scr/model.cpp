@@ -24,16 +24,42 @@ void BayesC::FixedEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &X,
     }
 }
 
-void BayesC::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
+void BayesC::RandomEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &W, const VectorXf &WPWdiag, const float sigmaSqRand, const float vare, VectorXf &rhat){
+    rhat.setZero(ycorr.size());
+    float invVare = 1.0f/vare;
+    float invSigmaSqRand = 1.0f/sigmaSqRand;
+    float rhs = 0.0;
+    ssq = 0.0;
+    for (unsigned i=0; i<size; ++i) {
+        if (!WPWdiag[i]) continue;
+        float oldSample = values[i];
+        float rhs = W.col(i).dot(ycorr) + WPWdiag[i]*oldSample;
+        rhs *= invVare;
+        float invLhs = 1.0f/(WPWdiag[i]*invVare); // + invSigmaSqRand);
+        float uhat = invLhs*rhs;
+        values[i] = Normal::sample(uhat, invLhs);
+        ssq = values[i]*values[i];
+        rhat  += W.col(i) * values[i];
+        ycorr += W.col(i) * (oldSample - values[i]);
+    }
+}
+
+void BayesC::VarRandomEffects::sampleFromFC(const float randEffSumSq, const unsigned int numRandEff){
+    float dfTilde = df + numRandEff;
+    float scaleTilde = randEffSumSq + df*scale;
+    value = InvChiSq::sample(dfTilde, scaleTilde);
+}
+
+void BayesC::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &Rsqrt, const bool weightedRes,
 const float sigmaSq, const float pi, const float vare, VectorXf &ghat){
     if (algorithm == gibbs) {
-        gibbsSampler(ycorr, Z, ZPZdiag, sigmaSq, pi, vare, ghat);
+        gibbsSampler(ycorr, Z, ZPZdiag, Rsqrt, weightedRes, sigmaSq, pi, vare, ghat);
     } else if (algorithm == hmc) {
         hmcSampler(ycorr, Z, ZPZdiag, sigmaSq, pi, vare, ghat);
     }
 }
 
-void BayesC::SnpEffects::gibbsSampler(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
+void BayesC::SnpEffects::gibbsSampler(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &Rsqrt, const bool weightedRes,
                                       const float sigmaSq, const float pi, const float vare, VectorXf &ghat){
     sumSq = 0.0;
     numNonZeros = 0;
@@ -66,7 +92,8 @@ void BayesC::SnpEffects::gibbsSampler(VectorXf &ycorr, const MatrixXf &Z, const 
         if (bernoulli.sample(probDelta1)) {
             values[i] = normal.sample(uhat, invLhs);
             ycorr += Z.col(i) * (oldSample - values[i]);
-            ghat  += Z.col(i) * values[i];
+            if (weightedRes) ghat += Z.col(i).cwiseProduct(Rsqrt) * values[i];
+            else ghat  += Z.col(i) * values[i];
             sumSq += values[i]*values[i];
             ++numNonZeros;
         } else {
@@ -277,12 +304,22 @@ void BayesC::GenotypicVar::compute(const VectorXf &ghat){
     value = ssq/size - mean*mean;
 }
 
-void BayesC::Rounding::computeYcorr(const VectorXf &y, const MatrixXf &X, const MatrixXf &Z,
-                                    const VectorXf &fixedEffects, const VectorXf &snpEffects,
+void BayesC::RandomVar::compute(const VectorXf &rhat){
+    //value = Gadget::calcVariance(ghat);
+    float sum = rhat.sum();
+    float ssq = rhat.squaredNorm();
+    unsigned size = (unsigned)rhat.size();
+    float mean = sum/size;
+    value = ssq/size - mean*mean;
+}
+
+void BayesC::Rounding::computeYcorr(const VectorXf &y, const MatrixXf &X, const MatrixXf &W, const MatrixXf &Z,
+                                    const VectorXf &fixedEffects, const VectorXf &randomEffects, const VectorXf &snpEffects,
                                     VectorXf &ycorr){
     if (count++ % 100) return;
     VectorXf oldYcorr = ycorr;
     ycorr = y - X*fixedEffects;
+    if (randomEffects.size()) ycorr -= W*randomEffects;
     for (unsigned i=0; i<snpEffects.size(); ++i) {
         if (snpEffects[i]) ycorr -= Z.col(i)*snpEffects[i];
     }
@@ -292,9 +329,14 @@ void BayesC::Rounding::computeYcorr(const VectorXf &y, const MatrixXf &X, const 
 
 void BayesC::sampleUnknowns(){
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
+    if (data.numRandomEffects) {
+        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, sigmaSqRand.value, vare.value, rhat);
+        sigmaSqRand.sampleFromFC(randomEffects.ssq, data.numRandomEffects);
+        varRand.compute(rhat);
+    }
     unsigned cnt=0;
     do {
-        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, sigmaSq.value, pi.value, vare.value, ghat);
+        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, pi.value, vare.value, ghat);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
@@ -305,7 +347,7 @@ void BayesC::sampleUnknowns(){
     varg.compute(ghat);
     hsq.compute(varg.value, vare.value);
     
-    rounding.computeYcorr(data.y, data.X, data.Z, fixedEffects.values, snpEffects.values, ycorr);
+    rounding.computeYcorr(data.y, data.X, data.W, data.Z, fixedEffects.values, randomEffects.values, snpEffects.values, ycorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
 }
 
@@ -318,7 +360,7 @@ void BayesC::sampleStartVal(){
 }
 
 
-void BayesB::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
+void BayesB::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &Rsqrt, const bool weightedRes,
                                       const VectorXf &sigmaSq, const float pi, const float vare, VectorXf &ghat){
     numNonZeros = 0;
     
@@ -348,7 +390,8 @@ void BayesB::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
         if (bernoulli.sample(probDelta1)) {
             values[i] = normal.sample(uhat, invLhs);
             ycorr += Z.col(i) * (oldSample - values[i]);
-            ghat  += Z.col(i) * values[i];
+            if (weightedRes) ghat += Z.col(i).cwiseProduct(Rsqrt) * values[i];
+            else ghat  += Z.col(i) * values[i];
             betaSq[i] = values[i]*values[i];
             ++numNonZeros;
         } else {
@@ -370,9 +413,14 @@ void BayesB::VarEffects::sampleFromFC(const VectorXf &betaSq){
 
 void BayesB::sampleUnknowns(){
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
+    if (data.numRandomEffects) {
+        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, sigmaSqRand.value, vare.value, rhat);
+        sigmaSqRand.sampleFromFC(randomEffects.ssq, data.numRandomEffects);
+        varRand.compute(rhat);
+    }
     unsigned cnt=0;
     do {
-        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, sigmaSq.values, pi.value, vare.value, ghat);
+        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.values, pi.value, vare.value, ghat);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
     sigmaSq.sampleFromFC(snpEffects.betaSq);
@@ -380,12 +428,12 @@ void BayesB::sampleUnknowns(){
     vare.sampleFromFC(ycorr);
     varg.compute(ghat);
     hsq.compute(varg.value, vare.value);
-    rounding.computeYcorr(data.y, data.X, data.Z, fixedEffects.values, snpEffects.values, ycorr);
+    rounding.computeYcorr(data.y, data.X, data.W, data.Z, fixedEffects.values, randomEffects.values, snpEffects.values, ycorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
 }
 
 
-void BayesN::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
+void BayesN::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &Rsqrt, const bool weightedRes,
                                       const float sigmaSq, const float pi, const float vare, VectorXf &ghat){
     sumSq = 0.0;
     numNonZeros = 0;
@@ -456,7 +504,8 @@ void BayesN::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
                 if (bernoulli.sample(probDelta1)) {
                     values[j] = beta[j] = normal.sample(uhat, invLhs);
                     ycorr += Z.col(j) * (oldSample - values[j]);
-                    ghat  += Z.col(j) * values[j];
+                    if (weightedRes) ghat += Z.col(j).cwiseProduct(Rsqrt) * values[j];
+                    else ghat  += Z.col(j) * values[j];
                     sumSq += values[j]*values[j];
                     snpDelta[j] = 1.0;
                     ++cumDelta[j];
@@ -489,9 +538,14 @@ void BayesN::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
 
 void BayesN::sampleUnknowns(){
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
+    if (data.numRandomEffects) {
+        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, sigmaSqRand.value, vare.value, rhat);
+        sigmaSqRand.sampleFromFC(randomEffects.ssq, data.numRandomEffects);
+        varRand.compute(rhat);
+    }
     unsigned cnt=0;
     do {
-        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, sigmaSq.value, pi.value, vare.value, ghat);
+        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, pi.value, vare.value, ghat);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
@@ -502,7 +556,7 @@ void BayesN::sampleUnknowns(){
     varg.compute(ghat);
     hsq.compute(varg.value, vare.value);
     
-    rounding.computeYcorr(data.y, data.X, data.Z, fixedEffects.values, snpEffects.values, ycorr);
+    rounding.computeYcorr(data.y, data.X, data.W, data.Z, fixedEffects.values, randomEffects.values, snpEffects.values, ycorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
     nnzWind.getValue(snpEffects.numNonZeroWind);
     windDelta.getValues(snpEffects.windDelta);
@@ -548,7 +602,7 @@ void BayesR::VgMixComps::compute(const VectorXf &snpEffects, const MatrixXf &Z, 
     (*this)[minIdx]->value = values[minIdx] = 1.0 - sum;
 }
 
-void BayesR::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
+void BayesR::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &Rsqrt, const bool weightedRes,
                                       const float sigmaSq, const VectorXf &pis, const VectorXf &gamma,
                                       const float vare, VectorXf &ghat, VectorXf &snpStore,
                                       const float varg, const bool originalModel){
@@ -637,7 +691,8 @@ void BayesR::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
             v1 = ZPZdiag[i] + vare / gp((indistflag - 1));
             values[i] = normal.sample(rhs / v1, vare / v1);
             ycorr += Z.col(i) * (oldSample - values[i]);
-            ghat  += Z.col(i) * values[i];
+            if (weightedRes) ghat += Z.col(i).cwiseProduct(Rsqrt) * values[i];
+            else ghat  += Z.col(i) * values[i];
             sumSq += (values[i] * values[i]) / gamma[indistflag - 1];
             ++numNonZeros;
         } else {
@@ -656,9 +711,14 @@ void BayesR::VarEffects::computeScale(const float varg, const VectorXf &snp2pq, 
 
 void BayesR::sampleUnknowns(){
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
+    if (data.numRandomEffects) {
+        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, sigmaSqRand.value, vare.value, rhat);
+        sigmaSqRand.sampleFromFC(randomEffects.ssq, data.numRandomEffects);
+        varRand.compute(rhat);
+    }
     unsigned cnt=0;
     do {
-        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, sigmaSq.value, Pis.values, gamma.values, vare.value, ghat, snpStore, varg.value, originalModel);
+        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, Pis.values, gamma.values, vare.value, ghat, snpStore, varg.value, originalModel);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);  
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
@@ -668,7 +728,7 @@ void BayesR::sampleUnknowns(){
     varg.compute(ghat);
     hsq.compute(varg.value, vare.value);
     if (originalModel) Vgs.compute(snpEffects.values, data.Z, snpEffects.snpset, varg.value);
-    rounding.computeYcorr(data.y, data.X, data.Z, fixedEffects.values, snpEffects.values, ycorr);
+    rounding.computeYcorr(data.y, data.X, data.W, data.Z, fixedEffects.values, randomEffects.values, snpEffects.values, ycorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
 }
 
@@ -1017,7 +1077,7 @@ float BayesS::Sp::computeU2(const float S, const ArrayXf &snpEffects, const floa
 
 
 
-void BayesS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
+void BayesS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &Rsqrt, const bool weightedRes,
                                       const float sigmaSq, const float pi, const float vare,
                                       const ArrayXf &snp2pqPowS, const VectorXf &snp2pq,
                                       const float vg, float &scale, VectorXf &ghat){
@@ -1051,7 +1111,8 @@ void BayesS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
         if (bernoulli.sample(probDelta1)) {
             values[i] = normal.sample(uhat, invLhs);
             ycorr += Z.col(i) * (oldSample - values[i]);
-            ghat  += Z.col(i) * values[i];
+            if (weightedRes) ghat += Z.col(i).cwiseProduct(Rsqrt) * values[i];
+            else ghat  += Z.col(i) * values[i];
             wtdSumSq += values[i]*values[i]/snp2pqPowS[i];
             ++numNonZeros;
         } else {
@@ -1063,10 +1124,15 @@ void BayesS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
 
 void BayesS::sampleUnknowns(){
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
-    
+    if (data.numRandomEffects) {
+        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, sigmaSqRand.value, vare.value, rhat);
+        sigmaSqRand.sampleFromFC(randomEffects.ssq, data.numRandomEffects);
+        varRand.compute(rhat);
+    }
+
     unsigned cnt=0;
     do {
-        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, sigmaSq.value, pi.value, vare.value, snp2pqPowS, data.snp2pq, genVarPrior, sigmaSq.scale, ghat);
+        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, pi.value, vare.value, snp2pqPowS, data.snp2pq, genVarPrior, sigmaSq.scale, ghat);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
     
@@ -1088,7 +1154,7 @@ void BayesS::sampleUnknowns(){
     varg.compute(ghat);
     hsq.compute(varg.value, vare.value);
     
-    rounding.computeYcorr(data.y, data.X, data.Z, fixedEffects.values, snpEffects.values, ycorr);
+    rounding.computeYcorr(data.y, data.X, data.W, data.Z, fixedEffects.values, randomEffects.values, snpEffects.values, ycorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
     
     if (++iter < 2000) {
@@ -1118,7 +1184,7 @@ void BayesS::findStartValueForS(const vector<float> &val){
         unsigned idx = 0;
         for (unsigned i=0; i<size; ++i) {
             vector<float> cand = {val[i]};
-            BayesS *model = new BayesS(data, varg.value, vare.value, pi.value, pi.alpha, pi.beta, estimatePi, S.var, cand, "", false);
+            BayesS *model = new BayesS(data, varg.value, vare.value, sigmaSqRand.value, pi.value, pi.alpha, pi.beta, estimatePi, S.var, cand, "", false);
             unsigned numiter = 100;
             for (unsigned iter=0; iter<numiter; ++iter) {
                 model->sampleUnknownsWarmup();
@@ -1149,7 +1215,7 @@ float BayesS::computeLogLikelihood(){
 
 void BayesS::sampleUnknownsWarmup(){
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
-    snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, sigmaSq.value, pi.value, vare.value, snp2pqPowS, data.snp2pq, varg.value, sigmaSq.scale, ghat);
+    snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, pi.value, vare.value, snp2pqPowS, data.snp2pq, varg.value, sigmaSq.scale, ghat);
     sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
     if (estimatePi) pi.sampleFromFC(snpEffects.size, snpEffects.numNonZeros);
     vare.sampleFromFC(ycorr);
@@ -1159,7 +1225,7 @@ void BayesS::sampleUnknownsWarmup(){
 }
 
 
-void BayesNS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
+void BayesNS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &Rsqrt, const bool weightedRes,
                                        const float sigmaSq, const float pi, const float vare,
                                        const ArrayXf &snp2pqPowS, const VectorXf &snp2pq,
                                        const float vg, float &scale, VectorXf &ghat){
@@ -1235,7 +1301,8 @@ void BayesNS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const
                 if (bernoulli.sample(probDelta1)) {
                     values[j] = beta[j] = normal.sample(uhat, invLhs);
                     ycorr += Z.col(j) * (oldSample - values[j]);
-                    ghat  += Z.col(j) * values[j];
+                    if (weightedRes) ghat += Z.col(j).cwiseProduct(Rsqrt) * values[j];
+                    else ghat  += Z.col(j) * values[j];
                     wtdSumSq += values[j]*values[j]/snp2pqPowS[j];
                     snpDelta[j] = 1.0;
                     ++cumDelta[j];
@@ -1330,10 +1397,15 @@ float BayesNS::Sp::computeU(const float S, const ArrayXf &snpEffects, const floa
 
 void BayesNS::sampleUnknowns(){
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
-    
+    if (data.numRandomEffects) {
+        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, sigmaSqRand.value, vare.value, rhat);
+        sigmaSqRand.sampleFromFC(randomEffects.ssq, data.numRandomEffects);
+        varRand.compute(rhat);
+    }
+
     unsigned cnt=0;
     do {
-        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, sigmaSq.value, pi.value, vare.value, snp2pqPowS, data.snp2pq, genVarPrior, sigmaSq.scale, ghat);
+        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, pi.value, vare.value, snp2pqPowS, data.snp2pq, genVarPrior, sigmaSq.scale, ghat);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
     
@@ -1351,7 +1423,7 @@ void BayesNS::sampleUnknowns(){
     varg.compute(ghat);
     hsq.compute(varg.value, vare.value);
     
-    rounding.computeYcorr(data.y, data.X, data.Z, fixedEffects.values, snpEffects.values, ycorr);
+    rounding.computeYcorr(data.y, data.X, data.W, data.Z, fixedEffects.values, randomEffects.values, snpEffects.values, ycorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
     nnzWind.getValue(snpEffects.numNonZeroWind);
     windDelta.getValues(snpEffects.windDelta);
@@ -1363,7 +1435,7 @@ void BayesNS::sampleUnknowns(){
 }
 
 
-void BayesRS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, const ArrayXf &snp2pqPowS, const VectorXf &snp2pq, const float varg, float &scale, VectorXf &ghat, const bool originalModel) {
+void BayesRS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &Rsqrt, const bool weightedRes, const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, const ArrayXf &snp2pqPowS, const VectorXf &snp2pq, const float varg, float &scale, VectorXf &ghat, const bool originalModel) {
     
     wtdSumSq = 0.0;
     numNonZeros = 0.0;
@@ -1428,7 +1500,8 @@ void BayesRS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const
         if (delta) {
             values[i] = normal.sample(uhat[delta], invLhs[delta]);
             ycorr += Z.col(i) * (oldSample - values[i]);
-            ghat  += Z.col(i) * values[i];
+            if (weightedRes) ghat += Z.col(i).cwiseProduct(Rsqrt) * values[i];
+            else ghat  += Z.col(i) * values[i];
             wtdSumSq += (values[i] * values[i]) / (gamma[delta]*snp2pqPowS[i]);
             ++numNonZeros;
         }
@@ -1541,9 +1614,15 @@ float BayesRS::Sp::computeU(const float S, const unsigned nnzMix, const vector<A
 void BayesRS::sampleUnknowns() {
     static int iter = 0;
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
+    if (data.numRandomEffects) {
+        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, sigmaSqRand.value, vare.value, rhat);
+        sigmaSqRand.sampleFromFC(randomEffects.ssq, data.numRandomEffects);
+        varRand.compute(rhat);
+    }
+
     unsigned cnt=0;
     do {
-        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, sigmaSq.value, Pis.values, gamma.values, vare.value, snp2pqPowS, data.snp2pq, varg.value, sigmaSq.scale, ghat, originalModel);
+        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, Pis.values, gamma.values, vare.value, snp2pqPowS, data.snp2pq, varg.value, sigmaSq.scale, ghat, originalModel);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
     sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
@@ -1560,7 +1639,7 @@ void BayesRS::sampleUnknowns() {
     scale.getValue(sigmaSq.scale);
     // cout << "iter " << iter << " scalePrior " << scalePrior << "sigmaSq.scale " << sigmaSq.scale << endl;
     
-    rounding.computeYcorr(data.y, data.X, data.Z, fixedEffects.values, snpEffects.values, ycorr);
+    rounding.computeYcorr(data.y, data.X, data.W, data.Z, fixedEffects.values, randomEffects.values, snpEffects.values, ycorr);
 
     nnzSnp.getValue(snpEffects.numNonZeros);
     
@@ -5435,7 +5514,12 @@ void BayesSMix::GenotypicVarMixComp::compute(const vector<VectorXf> &ghatMixComp
 
 void BayesSMix::sampleUnknowns(){    
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
-    
+    if (data.numRandomEffects) {
+        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, sigmaSqRand.value, vare.value, rhat);
+        sigmaSqRand.sampleFromFC(randomEffects.ssq, data.numRandomEffects);
+        varRand.compute(rhat);
+    }
+
     unsigned cnt=0;
     do {
         snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, snp2pqPowS, data.snp2pq, sigmaSq.values, piMixComp.values, vare.value, deltaS.values, ghat, ghatMixComp);
@@ -5462,7 +5546,7 @@ void BayesSMix::sampleUnknowns(){
     
     S.sampleFromFC(snpEffects.wtdSumSq[1], snpEffects.numNonZeros[1], sigmaSq.values[1], snpEffects.valuesMixCompS, data.snp2pq, snp2pqPowS, logSnp2pq, vargMixComp.values[1], sigmaSq[1]->scale, snpEffects.sum2pqSplusOne);
     
-    rounding.computeYcorr(data.y, data.X, data.Z, fixedEffects.values, snpEffects.values, ycorr);
+    rounding.computeYcorr(data.y, data.X, data.W, data.Z, fixedEffects.values, randomEffects.values, snpEffects.values, ycorr);
     
 }
 
@@ -6231,7 +6315,7 @@ void ApproxBayesRC::sampleUnknowns(){
 }
 
 
-void BayesRC::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, VectorXf &ghat, const MatrixXf &snpPi, const float varg, const bool originalModel, DeltaPi &deltaPi){
+void BayesRC::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &Rsqrt, const bool weightedRes, const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, VectorXf &ghat, const MatrixXf &snpPi, const float varg, const bool originalModel, DeltaPi &deltaPi){
     sumSq = 0.0;
     numNonZeros = 0;
     
@@ -6300,7 +6384,8 @@ void BayesRC::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const
         if (delta) {
             values[i] = normal.sample(uhat[delta], invLhs[delta]);
             ycorr += Z.col(i) * (oldSample - values[i]);
-            ghat  += Z.col(i) * values[i];
+            if (weightedRes) ghat += Z.col(i).cwiseProduct(Rsqrt) * values[i];
+            else ghat  += Z.col(i) * values[i];
             sumSq += (values[i] * values[i]) / gamma[delta];
             ++numNonZeros;
             z(i,0) = 1;
@@ -6342,9 +6427,15 @@ void BayesRC::sampleUnknowns(){
     static unsigned iter=0;
     
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
+    if (data.numRandomEffects) {
+        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, sigmaSqRand.value, vare.value, rhat);
+        sigmaSqRand.sampleFromFC(randomEffects.ssq, data.numRandomEffects);
+        varRand.compute(rhat);
+    }
+
     unsigned cnt=0;
     do {
-        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, sigmaSq.value, Pis.values, gamma.values, vare.value, ghat, snpPi, varg.value, originalModel, deltaPi);
+        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, Pis.values, gamma.values, vare.value, ghat, snpPi, varg.value, originalModel, deltaPi);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
                 
@@ -6385,7 +6476,7 @@ void BayesRC::sampleUnknowns(){
     // cout << "iter " << iter << " scalePrior " << scalePrior << "sigmaSq.scale " << sigmaSq.scale << endl;
 
     if (originalModel) Vgs.compute(snpEffects.values, data.Z, snpEffects.snpset, varg.value);
-    rounding.computeYcorr(data.y, data.X, data.Z, fixedEffects.values, snpEffects.values, ycorr);
+    rounding.computeYcorr(data.y, data.X, data.W, data.Z, fixedEffects.values, randomEffects.values, snpEffects.values, ycorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
 
     float scaleIteri = 0;

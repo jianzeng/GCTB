@@ -8,10 +8,11 @@
 
 #include "gctb.hpp"
 
-void GCTB::inputIndInfo(Data &data, const string &bedFile, const string &phenotypeFile, const string &keepIndFile, const unsigned keepIndMax, const unsigned mphen, const string &covariateFile, const string &residualDiagFile){
+void GCTB::inputIndInfo(Data &data, const string &bedFile, const string &phenotypeFile, const string &keepIndFile, const unsigned keepIndMax, const unsigned mphen, const string &covariateFile, const string &randomCovariateFile, const string &residualDiagFile){
     data.readFamFile(bedFile + ".fam");
     data.readPhenotypeFile(phenotypeFile, mphen);
     data.readCovariateFile(covariateFile);
+    data.readRandomCovariateFile(randomCovariateFile);
     data.readResidualDiagFile(residualDiagFile);
     data.keepMatchedInd(keepIndFile, keepIndMax);
 }
@@ -106,12 +107,12 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSum
 }
 
 Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
-                        const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const bool noscale,
+                        const float heritability, const float propVarRandom, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const bool noscale,
                         const VectorXf &pis, const VectorXf &piPar, const VectorXf &gamma, const bool estimateSigmaSq,
                         const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow,
                         const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS,
                         const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool originalModel, const bool perSnpGV, const bool robustMode){
-    data.initVariances(heritability);
+    data.initVariances(heritability, propVarRandom);
 //    if (!bedFile.empty()) {   // TMP_JZ
 //        unsigned n_gwas = data.numKeptInds;
 //        data.readFamFile(bedFile + ".fam");
@@ -130,7 +131,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
         }
         else {
             if (bayesType == "C")
-                return new ApproxBayesC(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, noscale, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, diagnosticMode, robustMode);
+                return new ApproxBayesC(data, data.varGenotypic, data.varResidual, data.varRandom, pi, piAlpha, piBeta, estimatePi, noscale, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, diagnosticMode, robustMode);
             else if (bayesType == "B")
             return new ApproxBayesB(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, noscale, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, diagnosticMode, robustMode);
             else if (bayesType == "S")
@@ -154,44 +155,44 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
     if (data.numAnnos) {
         if (bayesType == "RC") {
             data.readBedFile(noscale, bedFile + ".bed");
-            return new BayesRC(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, algorithm);
+            return new BayesRC(data, data.varGenotypic, data.varResidual, data.varRandom, pis, piPar, gamma, estimatePi, noscale, originalModel, algorithm);
         }
         else
             throw(" Error: Wrong bayes type: " + bayesType + " in the annotation-stratified Bayesian analysis.");
     }
     if (bayesType == "B") {
         data.readBedFile(noscale, bedFile + ".bed");
-        return new BayesB(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, noscale);
+        return new BayesB(data, data.varGenotypic, data.varResidual, data.varRandom, pi, piAlpha, piBeta, estimatePi, noscale);
     }
     if (bayesType == "C") {
         data.readBedFile(noscale, bedFile + ".bed");
-        return new BayesC(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, noscale, algorithm);
+        return new BayesC(data, data.varGenotypic, data.varResidual, data.varRandom, pi, piAlpha, piBeta, estimatePi, noscale, algorithm);
     } 
     if (bayesType == "R") {
         data.readBedFile(noscale, bedFile + ".bed");
-        return new BayesR(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, algorithm);
+        return new BayesR(data, data.varGenotypic, data.varResidual, data.varRandom, pis, piPar, gamma, estimatePi, noscale, originalModel, algorithm);
     }
     else if (bayesType == "S") {
         data.readBedFile(noscale, bedFile + ".bed");
-        return new BayesS(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm);
+        return new BayesS(data, data.varGenotypic, data.varResidual, data.varRandom, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm);
     }
     else if (bayesType == "SMix") {
         data.readBedFile(noscale, bedFile + ".bed");
-        return new BayesSMix(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm);
+        return new BayesSMix(data, data.varGenotypic, data.varResidual, data.varRandom, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm);
     }
     else if (bayesType == "N") {
         data.readBedFile(noscale, bedFile + ".bed");
         data.getNonoverlapWindowInfo(windowWidth);
-        return new BayesN(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, noscale, snpFittedPerWindow);
+        return new BayesN(data, data.varGenotypic, data.varResidual, data.varRandom, pi, piAlpha, piBeta, estimatePi, noscale, snpFittedPerWindow);
     }
     else if (bayesType == "NS") {
         data.readBedFile(noscale, bedFile + ".bed");
         data.getNonoverlapWindowInfo(windowWidth);
-        return new BayesNS(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, snpFittedPerWindow, algorithm);
+        return new BayesNS(data, data.varGenotypic, data.varResidual, data.varRandom, pi, piAlpha, piBeta, estimatePi, varS, S, snpFittedPerWindow, algorithm);
     }
     else if (bayesType == "RS") {
         data.readBedFile(noscale, bedFile + ".bed");
-        return new BayesRS(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, varS, S, noscale, originalModel, algorithm);
+        return new BayesRS(data, data.varGenotypic, data.varResidual, data.varRandom, pis, piPar, gamma, estimatePi, varS, S, noscale, originalModel, algorithm);
     }
     else if (bayesType == "Cap") {
         //data.readBedFile(bedFile + ".bed");
@@ -212,9 +213,9 @@ vector<McmcSamples*> GCTB::runMcmc(Model &model, const unsigned chainLength, con
     return mcmc.run(model, chainLength, burnin, thin, true, outputFreq, title, writeBinPosterior, writeTxtPosterior);
 }
 
-vector<McmcSamples*> GCTB::multi_chain_mcmc(Data &data, const string &bayesType, const unsigned windowWidth, const float heritability, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
+vector<McmcSamples*> GCTB::multi_chain_mcmc(Data &data, const string &bayesType, const unsigned windowWidth, const float heritability, const float propVarRandom, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
     
-    data.initVariances(heritability);
+    data.initVariances(heritability, propVarRandom);
 
     vector<Model*> modelVec(numChains);
     
@@ -279,6 +280,9 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
         }
         else if (mcmcSamples->label == "CovEffects") {
             data.outputFixedEffects(mcmcSamples->datMat, filename + ".covRes");
+        }
+        else if (mcmcSamples->label == "RandCovEffects") {
+            data.outputRandomEffects(mcmcSamples->datMat, filename + ".randCovRes");
         }
         else if (mcmcSamples->label == "WindowDelta") {
             //mcmcSamples->readDataBin(mcmcSamples->filename);
