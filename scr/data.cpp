@@ -498,14 +498,14 @@ void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){
     
     X.resize(numKeptInds, numFixedEffects);
     for (unsigned i=0; i<numKeptInds; ++i) {
-        X.row(i) = keptIndInfoVec[i]->covariates.array() * RinverseSqrt.array();
+        X.row(i) = keptIndInfoVec[i]->covariates.array() * RinverseSqrt[i];
     }
     XPXdiag = X.colwise().squaredNorm();
     
     if (numRandomEffects) {
         W.resize(numKeptInds, numRandomEffects);
         for (unsigned i=0; i<numKeptInds; ++i) {
-            W.row(i) = keptIndInfoVec[i]->randomCovariates.array() * RinverseSqrt.array();
+            W.row(i) = keptIndInfoVec[i]->randomCovariates.array() * RinverseSqrt[i];
         }
         WPWdiag = W.colwise().squaredNorm();
     }
@@ -1026,7 +1026,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
 
 void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &lastSample, const VectorXf &pip, const bool noscale, const string &filename) const {
     ofstream out(filename.c_str());
-    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %8s %14s")
+    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %14s %14s")
     % "Id"
     % "Name"
     % "Chrom"
@@ -1041,6 +1041,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
     if (makeWindows) out << boost::format("%8s") % "Window";
     out << endl;
     for (unsigned i=0, idx=0; i<numSnps; ++i) {
+        cout << i << endl;
         SnpInfo *snp = snpInfoVec[i];
         if(!fullSnpFlag[i]) continue;
         //        if(snp->isQTL) continue;)
@@ -1048,7 +1049,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
         float lastBeta = (snp->flipped ? -lastSample[idx] : lastSample[idx]);
         float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
-        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %8.3f %14.6f")
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %14.8f %14.6f")
         % (idx+1)
         % snp->ID
         % snp->chrom

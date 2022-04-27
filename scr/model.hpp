@@ -103,6 +103,8 @@ public:
         float sumSq;
         unsigned numNonZeros;
         
+        VectorXf pip;
+        
         enum {gibbs, hmc} algorithm;
         
         unsigned cnt;
@@ -113,6 +115,7 @@ public:
         : ParamSet(lab, header){
             sumSq = 0.0;
             numNonZeros = 0;
+            pip.setZero(size);
             if (alg=="HMC") algorithm = hmc;
             else algorithm = gibbs;
             cnt = 0;
@@ -133,6 +136,13 @@ public:
         void sampleFromFC_omp(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag,
                               const float sigmaSq, const float pi, const float vare, VectorXf &ghat);
 
+    };
+    
+    class SnpPIP : public ParamSet {
+    public:
+        SnpPIP(const vector<string> &header, const string &lab = "PIP") : ParamSet(lab, header){}
+        
+        void getValues(const VectorXf &pip){values = pip;}
     };
     
     class VarEffects : public Parameter, public Stat::InvChiSq {
@@ -283,6 +293,7 @@ public:
     FixedEffects fixedEffects;
     RandomEffects randomEffects;
     SnpEffects snpEffects;
+    SnpPIP snpPip;
     VarEffects sigmaSq;
     VarRandomEffects sigmaSqRand;
     ScaleVar scale;
@@ -303,6 +314,7 @@ public:
     randomEffects(data.randomEffectNames),
     sigmaSqRand(varRandom, data.numRandomEffects),
     snpEffects(data.snpEffectNames, algorithm),
+    snpPip(data.snpEffectNames),
     sigmaSq(varGenotypic, data.snp2pq, pival, noscale),
     scale(sigmaSq.scale),
     pi(pival, piAlpha, piBeta),
@@ -312,7 +324,7 @@ public:
     estimatePi(estimatePi)
     {
         numSnps = data.numIncdSnps;
-        paramSetVec = {&snpEffects, &fixedEffects};           // for which collect mcmc samples
+        paramSetVec = {&snpEffects, &fixedEffects, &snpPip};           // for which collect mcmc samples
         paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq};       // for which collect mcmc samples
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq};   // print in order
         if (data.numRandomEffects) {
@@ -414,11 +426,14 @@ public:
         VectorXf beta;     // save samples of full conditional normal distribution regardless of delta values
         ArrayXf cumDelta;  // for Polya urn proposal
         
+        VectorXf windPip;
+        
         SnpEffects(const vector<string> &header, const VectorXi &windStart, const VectorXi &windSize, const unsigned snpFittedPerWindow):
         BayesC::SnpEffects(header, "Gibbs"), windStart(windStart), windSize(windSize){
             numWindows = (unsigned) windStart.size();
             windDelta.setZero(numWindows);
             localPi.setOnes(numWindows);
+            windPip.setZero(numWindows);
             snpDelta.setZero(size);
             beta.setZero(size);
             cumDelta.setZero(size);
