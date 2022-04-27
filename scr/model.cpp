@@ -64,6 +64,7 @@ void BayesC::SnpEffects::gibbsSampler(VectorXf &ycorr, const MatrixXf &Z, const 
     sumSq = 0.0;
     numNonZeros = 0;
     
+    pip.setZero(size);
     ghat.setZero(ycorr.size());
     
     float oldSample;
@@ -86,6 +87,7 @@ void BayesC::SnpEffects::gibbsSampler(VectorXf &ycorr, const MatrixXf &Z, const 
         //logDelta1 = rhs*oldSample - 0.5*ZPZdiag[i]*oldSample*oldSample/vare + logPiComp;
         logDelta0 = logPiComp;
         probDelta1 = 1.0f/(1.0f + expf(logDelta0-logDelta1));
+        pip[i] = probDelta1;
         
         //cout << i << " rhs " << rhs << " invLhs " << invLhs << " uhat " << uhat << endl;
 
@@ -335,10 +337,11 @@ void BayesC::sampleUnknowns(){
         varRand.compute(rhat);
     }
     unsigned cnt=0;
-    do {
+//    do {
         snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, pi.value, vare.value, ghat);
-        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-    } while (snpEffects.numNonZeros == 0);
+//        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+//    } while (snpEffects.numNonZeros == 0);
+    snpPip.getValues(snpEffects.pip);
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     //scale.sampleFromFC(sigmaSq.value, sigmaSq.df, sigmaSq.scale);
     if (estimatePi) pi.sampleFromFC(snpEffects.size, snpEffects.numNonZeros);
@@ -441,6 +444,9 @@ void BayesN::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
     
     ghat.setZero(ycorr.size());
     
+    pip.setZero(size);
+    windPip.setZero(numWindows);
+    
     float oldSample;
     float rhs, invLhs, uhat;
     float logDelta0, logDelta1, probDelta1;
@@ -479,6 +485,7 @@ void BayesN::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
         diffQuadSum *= invVare;
         logDelta0MinusLogDelta1 = -0.5f*diffQuadSum + logPiComp - logPi;
         probDelta1 = 1.0f/(1.0f + expf(logDelta0MinusLogDelta1));
+        windPip[i] = probDelta1;
         
         if (bernoulli.sample(probDelta1)) {
             if (!windDelta[i]) {
@@ -501,6 +508,7 @@ void BayesN::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
                 logDelta1 = 0.5*(logf(invLhs) - logSigmaSq + uhat*rhs) + logLocalPi[i];
                 logDelta0 = logLocalPiComp[i];
                 probDelta1 = 1.0f/(1.0f + expf(logDelta0-logDelta1));
+                pip[j] = probDelta1;
                 if (bernoulli.sample(probDelta1)) {
                     values[j] = beta[j] = normal.sample(uhat, invLhs);
                     ycorr += Z.col(j) * (oldSample - values[j]);
@@ -525,6 +533,7 @@ void BayesN::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
             for (unsigned j=start; j<end; ++j) {
                 beta[j] = normal.sample(0.0, sigmaSq);
                 snpDelta[j] = bernoulli.sample(localPi[i]);
+                pip[j] = localPi[i];
 //                float seudopi = (localPi[i]/(windSize-1)+cumDelta[j])/(localPi[i]+localSum-cumDelta[j]);
 //                snpDelta[j] = bernoulli.sample(seudopi);
                 if (values[j]) ycorr += Z.col(j) * values[j];
@@ -585,8 +594,24 @@ void BayesR::NumSnpMixComps::getValues(const VectorXf &snpStore) {
 void BayesR::VgMixComps::compute(const VectorXf &snpEffects, const MatrixXf &Z, const vector<vector<unsigned> > snpset, const float varg) {
     values.setZero(ndist);
     long nobs = Z.rows();
+//    for (unsigned k=0; k<ndist; ++k) {
+//        if (k!=zeroIdx && k!=minIdx) {
+//            long numSnps = snpset[k].size();
+//            unsigned idx;
+//            VectorXf ghat;
+//            ghat.setZero(nobs);
+//            for (unsigned i=0; i<numSnps; ++i) {
+//                idx = snpset[k][i];
+//                ghat += snpEffects[idx]*Z.col(idx);
+//            }
+//            (*this)[k]->value = values[k] = Gadget::calcVariance(ghat)/varg;
+//        }
+//    }
+//    float sum = values.sum();
+//    (*this)[minIdx]->value = values[minIdx] = 1.0 - sum;
+
     for (unsigned k=0; k<ndist; ++k) {
-        if (k!=zeroIdx && k!=minIdx) {
+        if (k!=zeroIdx) {
             long numSnps = snpset[k].size();
             unsigned idx;
             VectorXf ghat;
@@ -595,11 +620,14 @@ void BayesR::VgMixComps::compute(const VectorXf &snpEffects, const MatrixXf &Z, 
                 idx = snpset[k][i];
                 ghat += snpEffects[idx]*Z.col(idx);
             }
-            (*this)[k]->value = values[k] = Gadget::calcVariance(ghat)/varg;
+            values[k] = Gadget::calcVariance(ghat);
         }
     }
     float sum = values.sum();
-    (*this)[minIdx]->value = values[minIdx] = 1.0 - sum;
+    for (unsigned k=0; k<ndist; ++k) {
+        (*this)[k]->value = values[k] = values[k]/sum;
+    }
+
 }
 
 void BayesR::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &Rsqrt, const bool weightedRes,
