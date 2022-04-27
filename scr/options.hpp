@@ -162,7 +162,7 @@ public:
         windowWidth             = 0*Megabase;
         pi                      = 0.05;
         piAlpha                 = 1;
-        piBeta                  = 19;
+        piBeta                  = 1;
         heritability            = 0.1;
 //        varGenotypic            = 1.0;
 //        varResidual             = 1.0;

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		BD21D06E27C754D900C297A4 /* libomp.dylib in Embed Libraries */ = {isa = PBXBuildFile; fileRef = BD286E75265D2A80005FFA40 /* libomp.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		BD286E65265CDEB1005FFA40 /* gctb.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD286E4C265CDEB0005FFA40 /* gctb.cpp */; };
 		BD286E66265CDEB1005FFA40 /* model.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD286E4D265CDEB0005FFA40 /* model.cpp */; };
 		BD286E67265CDEB1005FFA40 /* data.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD286E50265CDEB0005FFA40 /* data.cpp */; };
@@ -24,6 +25,17 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		BD21D06F27C754D900C297A4 /* Embed Libraries */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				BD21D06E27C754D900C297A4 /* libomp.dylib in Embed Libraries */,
+			);
+			name = "Embed Libraries";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		BD286E3C265CDE27005FFA40 /* CopyFiles */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -144,6 +156,7 @@
 				BD286E3A265CDE27005FFA40 /* Sources */,
 				BD286E3B265CDE27005FFA40 /* Frameworks */,
 				BD286E3C265CDE27005FFA40 /* CopyFiles */,
+				BD21D06F27C754D900C297A4 /* Embed Libraries */,
 			);
 			buildRules = (
 			);
@@ -338,6 +351,7 @@
 					/usr/local/Cellar/llvm/10.0.1_2/lib,
 					/usr/local/Cellar/llvm/12.0.0_1/lib,
 				);
+				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = "-fopenmp";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
@@ -361,6 +375,7 @@
 					/usr/local/Cellar/llvm/10.0.1_2/lib,
 					/usr/local/Cellar/llvm/12.0.0_1/lib,
 				);
+				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = "-fopenmp";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
