@@ -1006,7 +1006,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
         float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
         float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
-        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %8.3f")
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %8.8f")
         % (idx+1)
         % snp->ID
         % snp->chrom
@@ -1306,7 +1306,7 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
         }
         if (inconAllele || inconAf || fixed || ismafmin || ismafmax || isPvalPruned) {
             snp->included = false;
-            //cout << snp->index << " " << snp->ID << endl;
+            cout << snp->index << " " << snp->ID << endl;
         } else ++match;
     }
     in.close();

@@ -77,7 +77,7 @@ public:
         RandomEffects(const vector<string> &header, const string &lab = "RandCovEffects")
         : ParamSet(lab, header){}
         
-        void sampleFromFC(VectorXf &ycorr, const MatrixXf &W, const VectorXf &WPWdiag, const float sigmaSqRand, const float vare, VectorXf &rhat);
+        void sampleFromFC(VectorXf &ycorr, const MatrixXf &W, const VectorXf &WPWdiag, const VectorXf &Rsqrt, const bool weightedRes, const float sigmaSqRand, const float vare, VectorXf &rhat);
     };
     
     class VarRandomEffects : public Parameter, public Stat::InvChiSq {
@@ -89,8 +89,9 @@ public:
         VarRandomEffects(const float varRandom, const float numRandomEffects, const string &lab = "SigmaSqRand")
         : Parameter(lab), df(4)
         {
-            value = varRandom/numRandomEffects;
-            scale = 0.5f*value;  // due to df = 4
+            //value = varRandom/numRandomEffects;
+            value = varRandom;
+            scale = 0.5f*value/numRandomEffects;  // due to df = 4
         }
         
         void sampleFromFC(const float randEffSumSq, const unsigned numRandEff);
