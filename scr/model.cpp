@@ -24,7 +24,7 @@ void BayesC::FixedEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &X,
     }
 }
 
-void BayesC::RandomEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &W, const VectorXf &WPWdiag, const float sigmaSqRand, const float vare, VectorXf &rhat){
+void BayesC::RandomEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &W, const VectorXf &WPWdiag, const VectorXf &Rsqrt, const bool weightedRes, const float sigmaSqRand, const float vare, VectorXf &rhat){
     rhat.setZero(ycorr.size());
     float invVare = 1.0f/vare;
     float invSigmaSqRand = 1.0f/sigmaSqRand;
@@ -35,11 +35,12 @@ void BayesC::RandomEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &W, con
         float oldSample = values[i];
         float rhs = W.col(i).dot(ycorr) + WPWdiag[i]*oldSample;
         rhs *= invVare;
-        float invLhs = 1.0f/(WPWdiag[i]*invVare); // + invSigmaSqRand);
+        float invLhs = 1.0f/(WPWdiag[i]*invVare + invSigmaSqRand);
         float uhat = invLhs*rhs;
         values[i] = Normal::sample(uhat, invLhs);
-        ssq = values[i]*values[i];
-        rhat  += W.col(i) * values[i];
+        ssq += values[i]*values[i];
+        if (weightedRes) rhat += W.col(i).cwiseProduct(Rsqrt) * values[i];
+        else rhat  += W.col(i) * values[i];
         ycorr += W.col(i) * (oldSample - values[i]);
     }
 }
@@ -47,7 +48,7 @@ void BayesC::RandomEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &W, con
 void BayesC::VarRandomEffects::sampleFromFC(const float randEffSumSq, const unsigned int numRandEff){
     float dfTilde = df + numRandEff;
     float scaleTilde = randEffSumSq + df*scale;
-    value = InvChiSq::sample(dfTilde, scaleTilde);
+    value = InvChiSq::sample(dfTilde, scaleTilde);    
 }
 
 void BayesC::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &Rsqrt, const bool weightedRes,
@@ -332,7 +333,7 @@ void BayesC::Rounding::computeYcorr(const VectorXf &y, const MatrixXf &X, const 
 void BayesC::sampleUnknowns(){
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
     if (data.numRandomEffects) {
-        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, sigmaSqRand.value, vare.value, rhat);
+        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, data.Rsqrt, data.weightedRes, sigmaSqRand.value, vare.value, rhat);
         sigmaSqRand.sampleFromFC(randomEffects.ssq, data.numRandomEffects);
         varRand.compute(rhat);
     }
@@ -417,7 +418,7 @@ void BayesB::VarEffects::sampleFromFC(const VectorXf &betaSq){
 void BayesB::sampleUnknowns(){
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
     if (data.numRandomEffects) {
-        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, sigmaSqRand.value, vare.value, rhat);
+        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, data.Rsqrt, data.weightedRes, sigmaSqRand.value, vare.value, rhat);
         sigmaSqRand.sampleFromFC(randomEffects.ssq, data.numRandomEffects);
         varRand.compute(rhat);
     }
@@ -548,7 +549,7 @@ void BayesN::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
 void BayesN::sampleUnknowns(){
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
     if (data.numRandomEffects) {
-        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, sigmaSqRand.value, vare.value, rhat);
+        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, data.Rsqrt, data.weightedRes, sigmaSqRand.value, vare.value, rhat);
         sigmaSqRand.sampleFromFC(randomEffects.ssq, data.numRandomEffects);
         varRand.compute(rhat);
     }
@@ -740,7 +741,7 @@ void BayesR::VarEffects::computeScale(const float varg, const VectorXf &snp2pq, 
 void BayesR::sampleUnknowns(){
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
     if (data.numRandomEffects) {
-        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, sigmaSqRand.value, vare.value, rhat);
+        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, data.Rsqrt, data.weightedRes, sigmaSqRand.value, vare.value, rhat);
         sigmaSqRand.sampleFromFC(randomEffects.ssq, data.numRandomEffects);
         varRand.compute(rhat);
     }
@@ -1153,7 +1154,7 @@ void BayesS::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
 void BayesS::sampleUnknowns(){
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
     if (data.numRandomEffects) {
-        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, sigmaSqRand.value, vare.value, rhat);
+        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, data.Rsqrt, data.weightedRes, sigmaSqRand.value, vare.value, rhat);
         sigmaSqRand.sampleFromFC(randomEffects.ssq, data.numRandomEffects);
         varRand.compute(rhat);
     }
@@ -1426,7 +1427,7 @@ float BayesNS::Sp::computeU(const float S, const ArrayXf &snpEffects, const floa
 void BayesNS::sampleUnknowns(){
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
     if (data.numRandomEffects) {
-        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, sigmaSqRand.value, vare.value, rhat);
+        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, data.Rsqrt, data.weightedRes, sigmaSqRand.value, vare.value, rhat);
         sigmaSqRand.sampleFromFC(randomEffects.ssq, data.numRandomEffects);
         varRand.compute(rhat);
     }
@@ -1643,7 +1644,7 @@ void BayesRS::sampleUnknowns() {
     static int iter = 0;
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
     if (data.numRandomEffects) {
-        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, sigmaSqRand.value, vare.value, rhat);
+        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, data.Rsqrt, data.weightedRes, sigmaSqRand.value, vare.value, rhat);
         sigmaSqRand.sampleFromFC(randomEffects.ssq, data.numRandomEffects);
         varRand.compute(rhat);
     }
@@ -5543,7 +5544,7 @@ void BayesSMix::GenotypicVarMixComp::compute(const vector<VectorXf> &ghatMixComp
 void BayesSMix::sampleUnknowns(){    
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
     if (data.numRandomEffects) {
-        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, sigmaSqRand.value, vare.value, rhat);
+        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, data.Rsqrt, data.weightedRes, sigmaSqRand.value, vare.value, rhat);
         sigmaSqRand.sampleFromFC(randomEffects.ssq, data.numRandomEffects);
         varRand.compute(rhat);
     }
@@ -6456,7 +6457,7 @@ void BayesRC::sampleUnknowns(){
     
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
     if (data.numRandomEffects) {
-        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, sigmaSqRand.value, vare.value, rhat);
+        randomEffects.sampleFromFC(ycorr, data.W, data.WPWdiag, data.Rsqrt, data.weightedRes, sigmaSqRand.value, vare.value, rhat);
         sigmaSqRand.sampleFromFC(randomEffects.ssq, data.numRandomEffects);
         varRand.compute(rhat);
     }

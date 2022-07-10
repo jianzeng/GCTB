@@ -335,7 +335,7 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
         }
         out.close();
     }
-    if (bayesType == "RC") {
+    if (bayesType == "RC2") {
         McmcSamples *snpEffects = NULL;
         McmcSamples *deltaPi2 = NULL;
         McmcSamples *deltaPi3 = NULL;
@@ -348,7 +348,7 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
         }
         string newfilename = filename + ".snpRes";
         ofstream out(newfilename.c_str());
-        out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %8s %8s %8s %8s\n")
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s %12s")
         % "Id"
         % "Name"
         % "Chrom"
@@ -359,16 +359,18 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
         % "A1Effect"
         % "SE"
         % "PIP"
-        % "Pi2"
-        % "Pi3"
-        % "Pi4";
+        % "Pi2";
+        if (deltaPi3) out << boost::format("%12s") % "Pi3";
+        if (deltaPi4) out << boost::format("%12s") % "Pi4";
+        out << boost::format("%12s") % "LastSample";
+        out << endl;
         for (unsigned i=0, idx=0; i<data.numSnps; ++i) {
             SnpInfo *snp = data.snpInfoVec[i];
             if(!data.fullSnpFlag[i]) continue;
             float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
             float effect = (snp->flipped ? - snpEffects->posteriorMean[idx] : snpEffects->posteriorMean[idx]);
             float se = sqrt(snpEffects->posteriorSqrMean[idx]-snpEffects->posteriorMean[idx]*snpEffects->posteriorMean[idx]);
-            out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %8.3f %8.3f %8.3f %8.3f\n")
+            out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.8f %12.8f")
             % (i+1)
             % snp->ID
             % snp->chrom
@@ -379,9 +381,11 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
             % (noscale ? effect : effect/sqrt2pq)
             % (noscale ? se : se/sqrt2pq)
             % snpEffects->pip[i]
-            % deltaPi2->posteriorMean[i]
-            % deltaPi3->posteriorMean[i]
-            % deltaPi4->posteriorMean[i];
+            % deltaPi2->posteriorMean[i];
+            if (deltaPi3) out << boost::format("%12.8f") % deltaPi3->posteriorMean[i];
+            if (deltaPi4) out << boost::format("%12.8f") % deltaPi4->posteriorMean[i];
+            out << boost::format("%12.8f") % snpEffects->lastSample[i];
+            out << endl;
             ++idx;
         }
         out.close();
