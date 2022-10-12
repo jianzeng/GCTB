@@ -2419,9 +2419,9 @@ public:
         for (unsigned i=0; i<deltaPi.numDist; ++i) {
             paramSetVec.push_back(deltaPi[i]);
         }
-        for (unsigned i=0; i<annoDist.numDist; ++i) {
-            paramSetVec.push_back(annoDist[i]);
-        }
+//        for (unsigned i=0; i<annoDist.numDist; ++i) {
+//            paramSetVec.push_back(annoDist[i]);
+//        }
         paramSetVec.push_back(&annoTotalGenVar);
         paramSetVec.push_back(&annoPerSnpHsqEnrich);
         paramSetToPrint.push_back(&annoTotalGenVar);

@@ -5943,6 +5943,9 @@ void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(MatrixXf &z, const MatrixXf 
         }
     }
 //    ++iter;
+    
+//    cout << "sampling anno effects finished." << endl;
+
 }
 
 void ApproxBayesRC::AnnoEffects::sampleFromFC_MH(MatrixXf &z, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP) {
@@ -6075,10 +6078,26 @@ void ApproxBayesRC::computePiFromP(const MatrixXf &snpP, MatrixXf &snpPi) {
 //    cout << "computing Pi from p ..." << endl;
 //    cout << "snpP" << endl;
 //    cout << snpP << endl;
-    snpPi.col(0) = 1.0 - snpP.col(0).array();
-    snpPi.col(1) = (1.0 - snpP.col(1).array()) * snpP.col(0).array();
-    snpPi.col(2) = (1.0 - snpP.col(2).array()) * snpP.col(0).array() * snpP.col(1).array();
-    snpPi.col(3) = snpP.col(0).array() * snpP.col(1).array() * snpP.col(2).array();
+    unsigned numDist = snpPi.cols();
+    unsigned numSnps = snpPi.rows();
+    
+    for (unsigned i=0; i<numDist; ++i) {
+        if (i < numDist-1) snpPi.col(i) = (1.0 - snpP.col(i).array());
+        else snpPi.col(i).setOnes();
+        if (i) {
+            for (unsigned j=0; j<i; ++j) {
+                snpPi.col(i).array() *= snpP.col(j).array();
+            }
+        }
+    }
+//    snpPi.col(0) = 1.0 - snpP.col(0).array();
+//    snpPi.col(1) = (1.0 - snpP.col(1).array()) * snpP.col(0).array();
+//    snpPi.col(2) = (1.0 - snpP.col(2).array()) * snpP.col(0).array() * snpP.col(1).array();
+//    snpPi.col(3) = snpP.col(0).array() * snpP.col(1).array() * snpP.col(2).array();
+    
+//    cout << snpPi.row(0) << endl;
+//    cout << snpPi.row(1) << endl;
+//    cout << snpPi.row(2) << endl;
 }
 
 void ApproxBayesRC::initSnpPandPi(const VectorXf &pis, const unsigned numSnps, MatrixXf &snpP, MatrixXf &snpPi) {
@@ -6086,9 +6105,14 @@ void ApproxBayesRC::initSnpPandPi(const VectorXf &pis, const unsigned numSnps, M
     snpP.setZero(numSnps, ndist-1);
     snpPi.setZero(numSnps, ndist);
     VectorXf p(ndist-1);
-    p[0] = pis[1] + pis[2] + pis[3];
-    p[1] = (pis[2] + pis[3]) / p[0];
-    p[2] = pis[3] / (pis[2] + pis[3]);
+    
+    for (unsigned i=1; i<ndist; ++i) {
+        p[i-1] = pis.tail(ndist-i).sum();
+        if (i>1) p[i-1] /= pis.tail(ndist-i+1).sum();
+    }
+//    p[0] = pis[1] + pis[2] + pis[3];
+//    p[1] = (pis[2] + pis[3]) / p[0];
+//    p[2] = pis[3] / (pis[2] + pis[3]);
     for (unsigned i=0; i<numSnps; ++i) {
         snpPi.row(i) = pis;
         snpP.row(i) = p;
@@ -6097,9 +6121,14 @@ void ApproxBayesRC::initSnpPandPi(const VectorXf &pis, const unsigned numSnps, M
 
 void ApproxBayesRC::AnnoEffects::initIntercept_probit(const VectorXf &pis){
     VectorXf p(numComp);
-    p[0] = pis[1] + pis[2] + pis[3];
-    p[1] = (pis[2] + pis[3]) / p[0];
-    p[2] = pis[3] / (pis[2] + pis[3]);
+    unsigned ndist = pis.size();
+    for (unsigned i=1; i<ndist; ++i) {
+        p[i-1] = pis.tail(ndist-i).sum();
+        if (i>1) p[i-1] /= pis.tail(ndist-i+1).sum();
+    }
+//    p[0] = pis[1] + pis[2] + pis[3];
+//    p[1] = (pis[2] + pis[3]) / p[0];
+//    p[2] = pis[3] / (pis[2] + pis[3]);
     for (unsigned i = 0; i<numComp; ++i) {
         (*this)[i]->values[0] = Normal::quantile_01(p[i]);
     }
@@ -6107,9 +6136,14 @@ void ApproxBayesRC::AnnoEffects::initIntercept_probit(const VectorXf &pis){
 
 void ApproxBayesRC::AnnoEffects::initIntercept_logistic(const VectorXf &pis){
     VectorXf p(numComp);
-    p[0] = pis[1] + pis[2] + pis[3];
-    p[1] = (pis[2] + pis[3]) / p[0];
-    p[2] = pis[3] / (pis[2] + pis[3]);
+    unsigned ndist = pis.size();
+    for (unsigned i=1; i<ndist; ++i) {
+        p[i-1] = pis.tail(ndist-i).sum();
+        if (i>1) p[i-1] /= pis.tail(ndist-i+1).sum();
+    }
+//    p[0] = pis[1] + pis[2] + pis[3];
+//    p[1] = (pis[2] + pis[3]) / p[0];
+//    p[2] = pis[3] / (pis[2] + pis[3]);
     for (unsigned i = 0; i<numComp; ++i) {
         (*this)[i]->values[0] = log(p[i]/(1-p[i]));
     }
@@ -6138,12 +6172,22 @@ void ApproxBayesRC::AnnoCondProb::compute_logistic(const AnnoEffects &annoEffect
 
 void ApproxBayesRC::AnnoJointProb::compute(const AnnoCondProb &annoCondProb){
 //    cout << "computing joint prob... " << endl;
-    for (unsigned j=0; j<annoCondProb.numAnno; ++j) {
-        (*this)[0]->values[j] =  1.0 - annoCondProb[0]->values[j];
-        (*this)[1]->values[j] = (1.0 - annoCondProb[1]->values[j]) * annoCondProb[0]->values[j];
-        (*this)[2]->values[j] = (1.0 - annoCondProb[2]->values[j]) * annoCondProb[0]->values[j] * annoCondProb[1]->values[j];
-        (*this)[3]->values[j] = annoCondProb[0]->values[j] * annoCondProb[1]->values[j] * annoCondProb[2]->values[j];
+    for (unsigned k=0; k<annoCondProb.numAnno; ++k) {
+        for (unsigned i=0; i<numDist; ++i) {
+           if (i < numDist-1) (*this)[i]->values[k] = 1.0 - annoCondProb[i]->values[k];
+            else (*this)[i]->values[k] = 1.0;
+            if (i) {
+                for (unsigned j=0; j<i; ++j) {
+                    (*this)[i]->values[k] *= annoCondProb[j]->values[k];
+                }
+            }
+        }
+//        (*this)[0]->values[j] =  1.0 - annoCondProb[0]->values[j];
+//        (*this)[1]->values[j] = (1.0 - annoCondProb[1]->values[j]) * annoCondProb[0]->values[j];
+//        (*this)[2]->values[j] = (1.0 - annoCondProb[2]->values[j]) * annoCondProb[0]->values[j] * annoCondProb[1]->values[j];
+//        (*this)[3]->values[j] = annoCondProb[0]->values[j] * annoCondProb[1]->values[j] * annoCondProb[2]->values[j];
     }
+//    cout << "computing joint prob finished." << endl;
 }
 
 void ApproxBayesRC::AnnoGenVar::compute(const VectorXf &snpEffects, const vector<vector<unsigned> > &snpset, const VectorXf &ZPy, const VectorXf &rcorr, const MatrixXf &annoMat){
@@ -6222,8 +6266,11 @@ void ApproxBayesRC::AnnoDistribution::compute(const MatrixXf &z, const MatrixXf 
     unsigned numSnps = z.rows();
     VectorXi delta = z.rowwise().sum().cast<int>();
     for (unsigned i=0; i<numDist; ++i) {
+//        cout << "i " << i << endl;
         (*this)[i]->values.setZero(numAnno);
         unsigned nsnpDisti = numSnpMix[i];
+//        cout << "i " << i << " " << nsnpDisti << endl;
+        if (nsnpDisti == 0) continue;
         MatrixXf annoMatCompi(nsnpDisti, numAnno);
         unsigned idx = 0;
         for (unsigned j=0; j<numSnps; ++j) {
@@ -6235,6 +6282,7 @@ void ApproxBayesRC::AnnoDistribution::compute(const MatrixXf &z, const MatrixXf 
         for (unsigned k=0; k<numAnno; ++k) {
             VectorXf annoSrt = annoMatCompi.col(k);
             std::sort(annoSrt.data(), annoSrt.data() + annoSrt.size());
+//            cout << "k " << k << " " << annoSrt.size() << endl;
             (*this)[i]->values[k] = annoSrt[annoSrt.size()/2];   // median value
         }
     }
@@ -6288,10 +6336,14 @@ void ApproxBayesRC::sampleUnknowns(){
         computePiFromP(snpP, snpPi);
         annoJointProb.compute(annoCondProb);
     }
+        
+//    cout << "check 1 " << endl;
     
     numSnps.getValues(snpEffects.numSnpMix);
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
+
+//    cout << "check 2 " << endl;
 
     covg.compute(data.ypy, snpEffects.values, data.ZPy, rcorr);
     varg.compute(snpEffects.values, data.ZPy, rcorr, covg.value);
@@ -6300,13 +6352,21 @@ void ApproxBayesRC::sampleUnknowns(){
     hsq.compute(varg.value, vare.value);
     //hsq.value = varg.value / data.varPhenotypic;  // TMP_JZ
     
+//    cout << "check 3 " << endl;
+
     annoGenVar.compute(snpEffects.values, snpEffects.snpset, data.ZPy, rcorr, data.annoMat);
+//    cout << "check 4 " << endl;
     annoTotalGenVar.compute(annoGenVar);
+//    cout << "check 5 " << endl;
     annoPerSnpHsqEnrich.compute(annoTotalGenVar.values, varg.value);
     //annoPerSnpHsqEnrich.compute(snpEffects.values, data.annoMat, snpEffects.numNonZeros);
 
-    annoDist.compute(snpEffects.z, data.annoMat, snpEffects.numSnpMix);
+//    cout << "check 6 " << endl;
+
+//    annoDist.compute(snpEffects.z, data.annoMat, snpEffects.numSnpMix);
     
+//    cout << "check 7 " << endl;
+
     if (iter >= 2000) sigmaSq.scale = scalePrior;
     scale.getValue(sigmaSq.scale);
     // cout << "iter " << iter << " scalePrior " << scalePrior << "sigmaSq.scale " << sigmaSq.scale << endl;
