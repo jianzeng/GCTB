@@ -335,18 +335,20 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
         }
         out.close();
     }
-    if (bayesType == "RC2") {
+    if (bayesType == "RC") {
         McmcSamples *snpEffects = NULL;
         McmcSamples *deltaPi2 = NULL;
         McmcSamples *deltaPi3 = NULL;
         McmcSamples *deltaPi4 = NULL;
+        McmcSamples *deltaPi5 = NULL;
         for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
             if (mcmcSampleVec[i]->label == "SnpEffects") snpEffects = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label == "DeltaPi2") deltaPi2 = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label == "DeltaPi3") deltaPi3 = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label == "DeltaPi4") deltaPi4 = mcmcSampleVec[i];
+            if (mcmcSampleVec[i]->label == "DeltaPi5") deltaPi5 = mcmcSampleVec[i];
         }
-        string newfilename = filename + ".snpRes";
+        string newfilename = filename + ".snpRes_RC";
         ofstream out(newfilename.c_str());
         out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s %12s")
         % "Id"
@@ -362,6 +364,7 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
         % "Pi2";
         if (deltaPi3) out << boost::format("%12s") % "Pi3";
         if (deltaPi4) out << boost::format("%12s") % "Pi4";
+        if (deltaPi5) out << boost::format("%12s") % "Pi5";
         out << boost::format("%12s") % "LastSample";
         out << endl;
         for (unsigned i=0, idx=0; i<data.numSnps; ++i) {
@@ -384,6 +387,7 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
             % deltaPi2->posteriorMean[i];
             if (deltaPi3) out << boost::format("%12.8f") % deltaPi3->posteriorMean[i];
             if (deltaPi4) out << boost::format("%12.8f") % deltaPi4->posteriorMean[i];
+            if (deltaPi5) out << boost::format("%12.8f") % deltaPi5->posteriorMean[i];
             out << boost::format("%12.8f") % snpEffects->lastSample[i];
             out << endl;
             ++idx;
