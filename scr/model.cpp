@@ -5647,7 +5647,7 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
         ArrayXf probDelta(ndist);
         
         unsigned delta;
-        
+                
         for (unsigned i=chrStart; i<=chrEnd; ++i) {
             oldSample = valuesPtr[i];
             
@@ -5664,12 +5664,11 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
             
             for (unsigned k=0; k<ndist; ++k) {
                 probDelta[k] = 1.0f/(logDelta-logDelta[k]).exp().sum();
+                deltaPi[k]->values[i] = probDelta[k];
             }
-                        
             delta = bernoulli.sample(probDelta);
             
             snpset[delta].push_back(i);
-            deltaPi[delta]->values[i] = 1;
             numSnpMix[delta]++;
             
             if (delta) {
@@ -5806,12 +5805,12 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
             
             for (unsigned k=0; k<ndist; ++k) {
                 probDelta[k] = 1.0f/(logDelta-logDelta[k]).exp().sum();
+                deltaPi[k]->values[i] = probDelta[k];
             }
                         
             delta = bernoulli.sample(probDelta);
             
             snpset[delta].push_back(i);
-            deltaPi[delta]->values[i] = 1;
             numSnpMix[delta]++;
             
             if (delta) {
@@ -6462,12 +6461,12 @@ void BayesRC::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const
         
         for (unsigned k=0; k<ndist; ++k) {
             probDelta[k] = 1.0f/(logDelta-logDelta[k]).exp().sum();
+            deltaPi[k]->values[i] = probDelta[k];
         }
                     
         delta = bernoulli.sample(probDelta);
         
         snpset[delta].push_back(i);
-        deltaPi[delta]->values[i] = 1;
         numSnpMix[delta]++;
         
         if (delta) {
