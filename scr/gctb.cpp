@@ -283,9 +283,10 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
                     break;
                 }
             }
-            if (pip == NULL)
-                data.outputSnpResults(mcmcSamples->posteriorMean, mcmcSamples->posteriorSqrMean, mcmcSamples->pip, noscale, filename + ".snpRes");
-            else
+            if (pip == NULL) {
+                //data.outputSnpResults(mcmcSamples->posteriorMean, mcmcSamples->posteriorSqrMean, mcmcSamples->pip, noscale, filename + ".snpRes");
+                data.outputSnpResults(mcmcSamples->posteriorMean, mcmcSamples->posteriorSqrMean, mcmcSamples->lastSample, mcmcSamples->pip, noscale, filename + ".snpRes");
+            } else
                 data.outputSnpResults(mcmcSamples->posteriorMean, mcmcSamples->posteriorSqrMean, mcmcSamples->lastSample, pip->posteriorMean, noscale, filename + ".snpRes");
         }
         else if (mcmcSamples->label == "CovEffects") {
@@ -337,12 +338,14 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
     }
     if (bayesType == "RC") {
         McmcSamples *snpEffects = NULL;
+        McmcSamples *deltaPi1 = NULL;
         McmcSamples *deltaPi2 = NULL;
         McmcSamples *deltaPi3 = NULL;
         McmcSamples *deltaPi4 = NULL;
         McmcSamples *deltaPi5 = NULL;
         for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
             if (mcmcSampleVec[i]->label == "SnpEffects") snpEffects = mcmcSampleVec[i];
+            if (mcmcSampleVec[i]->label == "DeltaPi1") deltaPi1 = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label == "DeltaPi2") deltaPi2 = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label == "DeltaPi3") deltaPi3 = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label == "DeltaPi4") deltaPi4 = mcmcSampleVec[i];
@@ -350,7 +353,7 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
         }
         string newfilename = filename + ".snpRes_RC";
         ofstream out(newfilename.c_str());
-        out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s %12s")
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s")
         % "Id"
         % "Name"
         % "Chrom"
@@ -360,20 +363,33 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
         % "A1Frq"
         % "A1Effect"
         % "SE"
-        % "PIP"
-        % "Pi2";
+        % "Pi1";
+        if (deltaPi2) out << boost::format("%12s") % "Pi2";
         if (deltaPi3) out << boost::format("%12s") % "Pi3";
         if (deltaPi4) out << boost::format("%12s") % "Pi4";
         if (deltaPi5) out << boost::format("%12s") % "Pi5";
-        out << boost::format("%12s") % "LastSample";
+        out << boost::format(" %14s %14s") % "PIP" % "Pvalue";
         out << endl;
+        
+        // estimate P value from PIP
+        VectorXf pip_vec = 1.0 - deltaPi1->posteriorMean.array();
+        McmcSamples *numSnp1 = NULL;
+        for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
+            McmcSamples *mcmcSamples = mcmcSampleVec[i];
+            if (mcmcSamples->label == "NumSnp1") numSnp1 = mcmcSampleVec[i];
+        }
+        float propNull = numSnp1->posteriorMean[0]/(float)data.numIncdSnps;
+        VectorXf pval(data.numIncdSnps);
+        pip2p(data, pip_vec, propNull, pval);
+        // END
+        
         for (unsigned i=0, idx=0; i<data.numSnps; ++i) {
             SnpInfo *snp = data.snpInfoVec[i];
             if(!data.fullSnpFlag[i]) continue;
             float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
             float effect = (snp->flipped ? - snpEffects->posteriorMean[idx] : snpEffects->posteriorMean[idx]);
             float se = sqrt(snpEffects->posteriorSqrMean[idx]-snpEffects->posteriorMean[idx]*snpEffects->posteriorMean[idx]);
-            out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.8f %12.8f")
+            out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6f")
             % (i+1)
             % snp->ID
             % snp->chrom
@@ -383,12 +399,12 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
             % (snp->flipped ? 1.0-snp->af : snp->af)
             % (noscale ? effect : effect/sqrt2pq)
             % (noscale ? se : se/sqrt2pq)
-            % snpEffects->pip[i]
-            % deltaPi2->posteriorMean[i];
-            if (deltaPi3) out << boost::format("%12.8f") % deltaPi3->posteriorMean[i];
-            if (deltaPi4) out << boost::format("%12.8f") % deltaPi4->posteriorMean[i];
-            if (deltaPi5) out << boost::format("%12.8f") % deltaPi5->posteriorMean[i];
-            out << boost::format("%12.8f") % snpEffects->lastSample[i];
+            % deltaPi1->posteriorMean[idx];
+            if (deltaPi2) out << boost::format("%12.6f") % deltaPi2->posteriorMean[idx];
+            if (deltaPi3) out << boost::format("%12.6f") % deltaPi3->posteriorMean[idx];
+            if (deltaPi4) out << boost::format("%12.6f") % deltaPi4->posteriorMean[idx];
+            if (deltaPi5) out << boost::format("%12.6f") % deltaPi5->posteriorMean[idx];
+            out << " " << setw(14) << (1.0 - deltaPi1->posteriorMean[idx]) << " " << setw(14) << pval[idx];
             out << endl;
             ++idx;
         }
@@ -554,5 +570,22 @@ void GCTB::solveSnpEffectsByConjugateGradientMethod(Data &data, const float lamb
         ++idx;
     }
     out.close();
+}
+
+void GCTB::pip2p(const Data &data, const VectorXf &pip, const float propNull, VectorXf &pval){
+    VectorXf pipSrt = pip;
+    std::sort(pipSrt.data(), pipSrt.data() + pipSrt.size(), greater<float>());
+    float cumsum = 0.0;
+    float pvali = 0.0;
+    float numNull = data.numIncdSnps*propNull;
+    map<float, float> pip2pMap;
+    for (unsigned i=0; i<data.numIncdSnps; ++i){
+        cumsum += pipSrt[i];
+        pvali = (i+1 - cumsum) / numNull;
+        pip2pMap[pipSrt[i]] = pvali;
+    }
+    for (unsigned i=0; i<data.numIncdSnps; ++i){
+        pval[i] = pip2pMap[pip[i]];
+    }
 }
 

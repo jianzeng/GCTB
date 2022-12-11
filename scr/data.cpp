@@ -1041,7 +1041,6 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
     if (makeWindows) out << boost::format("%8s") % "Window";
     out << endl;
     for (unsigned i=0, idx=0; i<numSnps; ++i) {
-        cout << i << endl;
         SnpInfo *snp = snpInfoVec[i];
         if(!fullSnpFlag[i]) continue;
         //        if(snp->isQTL) continue;)

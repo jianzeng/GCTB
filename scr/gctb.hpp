@@ -62,6 +62,7 @@ public:
     
     void solveSnpEffectsByConjugateGradientMethod(Data &data, const float lambda, const string &filename) const;
     
+    void pip2p(const Data &data, const VectorXf &pip, const float propNull, VectorXf &pval);
 };
 
 #endif /* amber_hpp */
