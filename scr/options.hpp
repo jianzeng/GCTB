@@ -76,6 +76,7 @@ public:
     float lambda;  // for conjugate gradient
     float rsqThreshold;
     float pValueThreshold;
+    float eigenCutoff;
     
     bool estimatePi;
     bool estimateSigmaSq; // variance of SNP effects
@@ -145,6 +146,8 @@ public:
     string outLDmatType;
     string windowFile;
     string residualDiagFile;
+    string eigenMatrixFile;
+    string ldBlockInfoFile;
     
     Options(){
         numChains               = 1;
@@ -189,6 +192,7 @@ public:
         lambda                  = 1e6;
         rsqThreshold            = 1.0;
         pValueThreshold         = 1.0;
+        eigenCutoff             = 0.995;
 
         // Bayes R defaults
         ndists                  = 4;
@@ -259,6 +263,8 @@ public:
         partParam               = "";
         windowFile              = "";
         residualDiagFile        = "";
+        eigenMatrixFile         = "";
+        ldBlockInfoFile         = "";
         outLDmatType            = "sparse";
     }
     

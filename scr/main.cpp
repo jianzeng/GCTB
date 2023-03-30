@@ -16,12 +16,12 @@ using namespace std;
 
 int main(int argc, const char * argv[]) {
     
-    cout << "***********************************************\n";
-    cout << "* GCTB 2.05                                *\n";
-    cout << "* Genome-wide Complex Trait Bayesian analysis *\n";
-    cout << "* Author: Jian Zeng, Luke Lloyd-Jones         *\n";
-    cout << "* MIT License                                 *\n";
-    cout << "***********************************************\n";
+    cout << "******************************************************************\n";
+    cout << "* GCTB 2.04.90                                                   *\n";
+    cout << "* Genome-wide Complex Trait Bayesian analysis                    *\n";
+    cout << "* Authors: Jian Zeng, Luke Lloyd-Jones, Zhili Zheng, Shouye Liu  *\n";
+    cout << "* MIT License                                                    *\n";
+    cout << "******************************************************************\n";
     
     Gadget::Timer timer;
     timer.setTime();
@@ -73,9 +73,12 @@ int main(int argc, const char * argv[]) {
                 gctb.inputIndInfo(data, opt.bedFile, opt.bedFile + ".fam", opt.keepIndFile, opt.keepIndMax,
                                   opt.mphen, opt.covariateFile, opt.randomCovariateFile, opt.residualDiagFile);
                 gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.mafmin, opt.mafmax, opt.noscale, readGenotypes);
-                if (opt.outLDmatType == "shrunk")
+                if (opt.outLDmatType == "shrunk") {
                     data.makeshrunkLDmatrix(opt.bedFile + ".bed", opt.outLDmatType, opt.snpRange, opt.title, opt.writeLdmTxt, opt.effpopNE, opt.cutOff, opt.genMapN);
-                else{
+                } else if (!opt.ldBlockInfoFile.empty()) {
+                    data.makeFullLdmForLdBlocks(opt.bedFile + ".bed", opt.ldBlockInfoFile, opt.title, opt.writeLdmTxt);
+                }
+                else {
                     string snpRange = opt.snpRange;
                     if(!opt.partParam.empty()){
                         snpRange = data.partLDMatrix(opt.partParam, opt.title, opt.outLDmatType);
@@ -115,9 +118,31 @@ int main(int argc, const char * argv[]) {
                 }
             }
         }
+        else if (opt.analysisType == "LDmatrixEigen") {
+            readGenotypes = false;
+            if (opt.eigenMatrixFile.empty()) { // perform eigen decomposition for the blocked LD matrices
+                //gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.mafmin, opt.mafmax, opt.noscale, readGenotypes);
+                //data.getEigenDataFromFullLDM(opt.title, opt.eigenCutoff);
+                data.readBlockLDmatrixAndDoEigenDecomposition(opt.ldmatrixFile, opt.eigenCutoff, opt.writeLdmTxt);
+            }
+            else { // merge existing eigen matrices
+                gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, "", opt.eigenMatrixFile, opt.ldBlockInfoFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
+                                  opt.eigenCutoff, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold, opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt);
+
+            }
+        }
         else if (opt.analysisType == "SBayes") {
             if (!opt.ldmatrixFile.empty()) {
                 gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.genMapN, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile, opt.windowFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold, opt.sampleOverlap, opt.imputeN, opt.noscale, opt.binSnp, opt.readLdmTxt);
+            } else if (!opt.eigenMatrixFile.empty()) {
+                gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile,
+                                  opt.gwasSummaryFile, opt.eigenMatrixFile, opt.ldBlockInfoFile,
+                                  opt.includeChr, opt.excludeAmbiguousSNP,
+                                  opt.annotationFile, opt.transpose,
+                                  opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
+                                  opt.eigenCutoff, opt.excludeMHC,
+                                  opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
+                                  opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt);
             } else {
                 gctb.inputSnpInfo(data, opt.bedFile, opt.gwasSummaryFile, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.sampleOverlap, opt.imputeN, opt.noscale);
             }

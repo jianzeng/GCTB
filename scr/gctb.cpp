@@ -93,6 +93,39 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (!windowFile.empty()) data.binSnpByWindowID();
 }
 
+// this function read eigen matrices
+void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile,
+                        const string &gwasSummaryFile, const string &eigenMatrixFile, const string &ldBlockInfoFile,
+                        const unsigned includeChr, const bool excludeAmbiguousSNP,
+                        const string &annotationFile, const bool transpose,
+                        const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile,
+                        const float eigenCutoff, const bool excludeMHC,
+                        const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const float rsqThreshold,
+                        const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile){
+    data.readEigenMatrix(eigenMatrixFile, eigenCutoff);
+    if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
+    if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
+    if (includeChr) data.includeChr(includeChr);
+    if (excludeAmbiguousSNP) data.excludeAmbiguousSNP();
+    if (!excludeRegionFile.empty()) data.excludeRegion(excludeRegionFile);
+    if (excludeMHC) data.excludeMHC();
+    if (!annotationFile.empty())
+        data.readAnnotationFile(annotationFile, transpose, true);
+    else if (!continuousAnnoFile.empty())
+        data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000, eQTLFile);
+    if (!ldscoreFile.empty()) data.readLDscoreFile(ldscoreFile);
+    if (!gwasSummaryFile.empty()) {
+        data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, pValueThreshold, imputeN);
+        data.includeMatchedSnp();
+    }
+
+    /// partition ld into blocks
+//    if(!ldBlockInfoFile.empty()) data.readLDBlockInfoFile(ldBlockInfoFile);
+
+    if(!gwasSummaryFile.empty()) data.buildMMEeigen(sampleOverlap, noscale);
+}
+
+
 void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool sampleOverlap, const bool imputeN, const bool noscale){
     data.readFamFile(bedFile + ".fam");
     data.readBimFile(bedFile + ".bim");
@@ -125,7 +158,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
             if (bayesType == "S")
                 return new StratApproxBayesS(data, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, S, algorithm, robustMode);
             else if (bayesType == "RC")
-                return new ApproxBayesRC(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, perSnpGV, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm);
+                return new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, perSnpGV, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm);
             else
                 throw(" Error: Wrong bayes type: " + bayesType + " in the annotation-stratified summary-data-based Bayesian analysis.");
         }
