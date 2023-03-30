@@ -53,6 +53,7 @@ public:
     float twopq;
     bool included;  // flag for inclusion in panel
     bool isQTL;     // for simulation
+    bool iseQTL;
     bool recoded;   // swap A1 and A2: use A2 as the reference allele and A1 as the coded allele
     bool skeleton;  // skeleton snp for sbayes
     bool flipped;   // A1 A2 alleles are flipped in between gwas and LD ref samples
@@ -79,6 +80,8 @@ public:
     float ldSum;         // sum of LD with other SNPs
     float ldsc;          // LD score: sum of r^2
     
+    int ld_n;  // LD reference sample size
+    
     int numNonZeroLD;   // may be different from windSize in shrunk ldm
     unsigned numAnnos;
 
@@ -96,6 +99,7 @@ public:
         twopq = -1;
         included = true;
         isQTL = false;
+        iseQTL = false;
         recoded = false;
         skeleton = false;
         flipped = false;
@@ -111,11 +115,80 @@ public:
         ldsc = 0.0;
         numNonZeroLD = 0;
         numAnnos = 0;
+        ld_n = -999;
     };
     
     void resetWindow(void) {windStart = -1; windSize = 0;};
     bool isProximal(const SnpInfo &snp2, const float genWindow) const;
     bool isProximal(const SnpInfo &snp2, const unsigned physWindow) const;
+};
+
+class LDBlockInfo {
+public:
+    const string ID;
+    const int chrom;
+    int index;
+    // block
+    int startPos;
+    int endPos;
+    float start_cm;
+    float stop_cm;
+    int pdist;
+    float gdist;
+    bool kept;
+
+    // the following variables aim to read svd-ld matrix from SBayesRC-Eigen
+    int startSnpIdx;
+    int endSnpIdx;
+    
+    int idxStart;
+    int idxEnd;
+    int preBlock;
+    int postBlock;
+    //
+    vector<string> gwasSnpNameVecInBlock;
+    vector<SnpInfo*> memberSnpVec;
+    vector<int> block2GwasSnpVec; // store snps that belong to this block;
+    int numSnpInBlock;
+
+    LDBlockInfo(const int idx, const string id, const int chr) : index(idx), ID(id), chrom(chr)
+    {
+        // block info
+        startPos = -999;
+        endPos = -999;
+        start_cm = -999;
+        stop_cm = -999;
+        pdist = -999;
+        gdist = -999;
+        // svd'ed ld info
+        startSnpIdx = -999;
+        endSnpIdx = -999;
+        idxStart = -999;
+        idxEnd = -999;
+        preBlock = -999;
+        postBlock = -999;
+        numSnpInBlock = -999;
+        kept = true;
+    }
+};
+
+class locus_bp {
+public:
+    string locusName;
+    int chr;
+    int bp;
+
+    locus_bp(string locusNameBuf, int chrBuf, int bpBuf)
+    {
+        locusName = locusNameBuf;
+        chr = chrBuf;
+        bp = bpBuf;
+    }
+
+    bool operator()(const locus_bp &other)
+    {
+        return (chr == other.chr && bp <= other.bp);
+    }
 };
 
 class ChromInfo {
@@ -182,6 +255,44 @@ public:
     }
 };
 
+struct MatrixDat
+{
+public:
+    const vector<string> colnames;
+    std::map<string, int> colname2index;
+    vector<string> rownames;
+    std::map<string, int> rowname2index;
+    unsigned ncol;
+    unsigned nrow;
+    Eigen::MatrixXf values;
+
+    MatrixDat(const vector<string> &colnames, const Eigen::MatrixXf &values)
+        : colnames(colnames), ncol(int(colnames.size())), values(values)
+    {
+        nrow = values.rows();
+        rownames.resize(nrow);
+        for (unsigned j = 0; j < ncol; j++)
+            colname2index.insert(pair<string, int>(colnames[j], j));
+        for (unsigned j = 0; j < nrow; j++)
+        {
+            rownames[j] = "row" + to_string(j);
+            rowname2index.insert(pair<string, int>(rownames[j], j));
+        }
+    }
+    MatrixDat(vector<string> &rownames, const vector<string> &colnames, const Eigen::MatrixXf &values)
+        : colnames(colnames), ncol(int(colnames.size())), rownames(rownames), nrow(int(rownames.size())), values(values)
+    {
+        for (unsigned j = 0; j < ncol; j++)
+            colname2index.insert(pair<string, int>(colnames[j], j));
+        for (unsigned j = 0; j < nrow; j++)
+            rowname2index.insert(pair<string, int>(rownames[j], j));
+    }
+    Eigen::VectorXf col(string nameIdx) const { return values.col(colname2index.at(nameIdx)); }
+    Eigen::VectorXf row(string nameIdx) const { return values.row(rowname2index.at(nameIdx)); }
+};
+
+
+
 class Data {
 public:
     MatrixXf X;              // coefficient matrix for fixed effects
@@ -226,6 +337,8 @@ public:
     // for Eigen dec
     VectorXi blockStarts;    // each LD block startings index in SNP included scale
     VectorXi blockSizes;     // each LD block size;
+    VectorXf nGWASblock;     // median GWAS sample size for each block in GWAS
+    VectorXf numEigenvalBlocks;  // number of eigenvalues kept for each block
     
     VectorXf LDsamplVar;     // sum of sampling variance of LD for each SNP with all other SNPs; this is for summary-bayes methods
     VectorXf LDscore;        // sum of r^2 over SNPs in significant LD
@@ -245,6 +358,8 @@ public:
     bool readLDscore;
     bool makeWindows;
     bool weightedRes;
+    
+    bool lowRankModel;
     
     vector<SnpInfo*> snpInfoVec;
     vector<IndInfo*> indInfoVec;
@@ -277,6 +392,22 @@ public:
     
     vector<vector<unsigned> > windowSnpIdxVec;
     
+    //////// ld block begin ///////
+     vector<LDBlockInfo *> ldBlockInfoVec;
+     vector<LDBlockInfo *> keptLdBlockInfoVec;
+     map<string, LDBlockInfo *> ldBlockInfoMap;
+     vector<string> ldblockNames;
+     vector<VectorXf> eigenValLdBlock; // store lambda  (per LD block matrix = U * diag(lambda)* V')  per gene LD
+     vector<MatrixXf> eigenVecLdBlock; // store U   (per  LD block matrix = U * diag(lambda)* V')  per gene LD
+     vector<VectorXf> wcorrBlocks;
+     vector<MatrixDat> Qblocks;
+     ///////// ld block end  ////////
+    ///
+    map<int, vector<int>> ldblock2gwasSnpMap;
+
+    vector<VectorXf> gwasMarginEffectInBlock;  // gwas marginal effect;
+
+    
     unsigned numFixedEffects;
     unsigned numRandomEffects;
     unsigned numSnps;
@@ -287,6 +418,8 @@ public:
     unsigned numSkeletonSnps;
     unsigned numAnnos;
     unsigned numWindows;
+    unsigned numLDBlocks;
+    unsigned numKeptLDBlocks;
     
     string label;
     string title;
@@ -308,6 +441,7 @@ public:
         readLDscore = false;
         makeWindows = false;
         weightedRes = false;
+        lowRankModel = false;
     }
     
     void readFamFile(const string &famFile);
@@ -386,6 +520,43 @@ public:
     void filterSnpByLDrsq(const float rsqThreshold);
     void readResidualDiagFile(const string &resDiagFile);
     void makeWindowAnno(const string &annoFile, const float windowWidth);
+    
+    /////////// eigen decomposition for LD blocks
+    void readLDBlockInfoFile(const string &ldBlockInfoFile);
+    void getEigenDataFromFullLDM(const string &filename, const float eigenCutoff);
+
+    void eigenDecomposition(const MatrixXf &X, const float &prop, VectorXf &eigenValAdjusted, MatrixXf &eigenVecAdjusted, VectorXf &cumsumNonNeg);
+    MatrixXf generateLDmatrixPerBlock(const string &bedFile, const vector<string> &snplists); // generate full LDM for block
+    
+    void makeFullLdmForLdBlocks(const string &bedFile, const string &ldBlockInfoFile, const string &filename, const bool writeLdmTxt, int ldBlockRegionWind = 0);
+
+    void readBlockLDMbinaryAndDoEigenDecomposition(const string &binFile, const string &filename, const float &eigenCutoff, const bool writeLdmTxt);
+    
+    void getEigenDataForLDBlock(const string &bedFile, const string &ldBlockInfoFile, int ldBlockRegionWind, const string &filename, const float eigenCutoff);
+    void outputLdDataForBlockLDM(const string &filename) const;
+
+    ///////////// read LD matrix eigen-decomposition data for LD blocks
+    void readEigenMatrix(const string &eigenMatrixFile, const float eigenCutoff = 1);
+    void readBlockLDmatrixAndDoEigenDecomposition(const string &LDmatrixFile, const float eigenCutoff, const bool writeLdmTxt);
+    void readBlockLDMblockInfoFile(const string &infoFile);
+    void readBlockLDMsnpInfoFile(const string &snpInfoFile);
+    void readBlockLDMbinaryFile(const string &svdLDfile, const float eigenCutoff);
+    vector<LDBlockInfo *> makeKeptLDBlockInfoVec(const vector<LDBlockInfo *> &ldBlockInfoVec);
+    
+    void readEigenMatrixBinaryFile(const string &eigenMatrixFile, const float eigenCutoff);
+
+    
+    ///////////// merge eigen matrices
+    void mergeMultiEigenLDMatrices(const string & infoFile, const string &filename, const string LDmatType);
+
+    //////////// Step 2.2 Build multiple maps
+    void buildMMEeigen(const bool sampleOverlap, const bool noscale); // for eigen decomposition
+    void includeMatchedBlocks(void);
+
+    //////////// Step 2.3 build model matrix
+    void constructWandQ(const bool noscale);
+ 
+    
 };
 
 #endif /* data_hpp */

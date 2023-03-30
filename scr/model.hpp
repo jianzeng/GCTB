@@ -990,6 +990,7 @@ public:
         float sum2pq;
         
         VectorXf nnzPerChr;
+        VectorXf nnzPerBlk;
         VectorXi leaveout;
         
         SnpEffects(const vector<string> &header): BayesC::SnpEffects(header, "Gibbs"){
@@ -2170,6 +2171,7 @@ public:
         ArrayXf numSnpMix;
         MatrixXf z;
         vector<vector<unsigned> > snpset;
+        VectorXf ssqBlocks;
         
         SnpEffects(const vector<string> &header, const VectorXf &pis): ApproxBayesR::SnpEffects(header){
             ndist = pis.size();
@@ -2189,6 +2191,10 @@ public:
                           const float sigmaSq, const MatrixXf &snpPi, const VectorXf &gamma, const float vare,
                           const VectorXf &snpVarg, const float vary, const float ps, const float overdispersion,
                           const bool originalModel, DeltaPi &deltaPi);
+        void sampleFromFC(vector<VectorXf> &wcorrBlocks, const vector<MatrixDat> &Qblocks, vector<VectorXf> &whatBlocks,
+                          const vector<LDBlockInfo*> keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
+                          const MatrixXf &snpPi, const VectorXf &gamma, const float varg,
+                          DeltaPi &deltaPi);
         
     };
     
@@ -2220,6 +2226,7 @@ public:
                 ar[i] = new BayesS::AcceptanceRate;
                 varProp[i] = 0.01;
                 annoMean[i].setZero(numAnno);
+                                
                 for (unsigned j=0; j<numAnno; ++j) {
                     annoMean[i][j] = annoMat.col(j).mean();
                 }
@@ -2358,6 +2365,42 @@ public:
         
         void compute(const MatrixXf &z, const MatrixXf &annoMat, const ArrayXf &numSnpMix);
     };
+    
+    class BlockGenotypicVar : public ParamSet, public ApproxBayesC::GenotypicVar {
+    public:
+        unsigned numBlocks;
+        float total;
+        
+        BlockGenotypicVar(const vector<string> &header, const float varg, const unsigned n, const string &lab = "BlockGenVar"):
+        ParamSet(lab, header), ApproxBayesC::GenotypicVar(varg, n){
+            numBlocks = header.size();
+            total = 0.0;
+        }
+
+        void compute(const vector<VectorXf> &whatBlocks);
+    };
+    
+    class BlockResidualVar : public ParamSet, public Stat::InvChiSq {
+    public:
+        const float df;      // hyperparameter
+        const float scale;   // hyperparameter
+        
+        const float vary;
+
+        unsigned numBlocks;
+        float threshold;
+        float mean;
+        
+        BlockResidualVar(const vector<string> &header, const float varPhenotypic, const string &lab = "BlockResVar"):
+        ParamSet(lab, header), df(4), scale(0.5f*varPhenotypic), vary(varPhenotypic) {
+            values.setConstant(size, varPhenotypic);
+            numBlocks = header.size();
+            threshold = 1.1;
+            mean = varPhenotypic;
+        }
+        
+        void sampleFromFC(vector<VectorXf> &wcorrBlocks, VectorXf &ssqBlocks, const VectorXf &nGWASblocks, const VectorXf &numEigenvalBlocks);
+    };
         
     SnpEffects snpEffects;
     AnnoEffects annoEffects;
@@ -2369,15 +2412,22 @@ public:
     AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
     DeltaPi deltaPi;
     AnnoDistribution annoDist;
+    BlockGenotypicVar vargBlk;
+    BlockResidualVar vareBlk;
     
     MatrixXf snpP;    // p = Pr(k>i | k>i-1); p2 = pi2+pi3+pi4; p3 = (pi3+pi4)/(pi2+pi3+pi4); p4 = pi4/(pi3+pi4)
     MatrixXf snpPi;   // pi1 = 1-p2; pi2 = (1-p3)*p2; pi3 = (1-p4)*p2*p3; pi4 = p2*p3*p4
     VectorXf snpVarg; // per-SNP GV based on annotation enrichment
     
-    bool allowPerSnpGV;
+    vector<VectorXf> wcorrBlocks;
+    vector<VectorXf> whatBlocks;
     
-    ApproxBayesRC(const Data &data, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool originalModel, const bool perSnpGV, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool message = true):
+    bool allowPerSnpGV;
+    bool lowRankModel;
+    
+    ApproxBayesRC(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool originalModel, const bool perSnpGV, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool message = true):
     ApproxBayesR(data, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, false, robustMode, alg, false),
+    wcorrBlocks(data.wcorrBlocks),
     snpEffects(data.snpEffectNames, pis),
     annoEffects(data.annoNames, pis.size(), data.annoMat),
     sigmaSqAnno(annoEffects.colnames, annoEffects.numAnno),
@@ -2387,8 +2437,16 @@ public:
     annoTotalGenVar(data.annoNames),
     annoPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
     deltaPi(data.snpEffectNames, pis.size()),
-    annoDist(data.annoNames, pis.size())
+    annoDist(data.annoNames, pis.size()),
+    vargBlk(data.ldblockNames, varGenotypic, data.numKeptInds),
+    vareBlk(data.ldblockNames, data.varPhenotypic),
+    lowRankModel(lowrank)
     {
+        
+//        cout << "In SBayesRC" << endl;
+//        cout << "Q size: \n" << data.Qblocks[0].nrow << " " << data.Qblocks[0].ncol << endl << data.Qblocks[1].nrow << " " << data.Qblocks[1].ncol << endl;
+//        cout << "w size: \n" << data.wcorrBlocks[0].rows() << " " << data.wcorrBlocks[0].cols() << endl << data.wcorrBlocks[1].rows() << " " << data.wcorrBlocks[1].cols() << endl;
+
         allowPerSnpGV = perSnpGV;
         snpVarg.setConstant(data.numIncdSnps, varGenotypic);
         
@@ -2427,6 +2485,10 @@ public:
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
         paramToPrint = {&sigmaSq, &vare, &varg, &hsq, &rounding};
+        if (lowRankModel) {
+            paramSetVec.push_back(&vargBlk);
+            paramSetVec.push_back(&vareBlk);
+        }
         if (originalModel) paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
         paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
         if (modelPS) {

@@ -167,6 +167,23 @@ void Options::inputOptions(const int argc, const char* argv[]){
             multiLDmat = true;
             ss << "--mldm " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--make-ldm-eigen")) {
+            //ldBlockInfoFile = argv[++i];
+            analysisType = "LDmatrixEigen";
+            ss << "--make-ldm-eigen " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--ldm-eigen")) {
+            eigenMatrixFile = argv[++i];
+            ss << "--ldm-eigen " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--ldm-eigen-cutoff")) {
+            eigenCutoff = atof(argv[++i]);
+            ss << "--ldm-eigen-cutoff " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--ld-block")) {
+            ldBlockInfoFile = argv[++i];
+            ss << "--ld-block " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--per-snp-gv")) {
             perSnpGV = true;
             ss << "--per-snp-gv " << "\n";

@@ -22,6 +22,7 @@
 		BD286E72265CDEB1005FFA40 /* predict.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD286E63265CDEB1005FFA40 /* predict.cpp */; };
 		BD286E73265CDEB1005FFA40 /* stat.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD286E64265CDEB1005FFA40 /* stat.cpp */; };
 		BD286E76265D2A80005FFA40 /* libomp.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = BD286E75265D2A80005FFA40 /* libomp.dylib */; };
+		BD88D2D729668AD800D9C63D /* eigen.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD88D2D629668AD700D9C63D /* eigen.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -75,6 +76,7 @@
 		BD286E63265CDEB1005FFA40 /* predict.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = predict.cpp; sourceTree = "<group>"; };
 		BD286E64265CDEB1005FFA40 /* stat.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = stat.cpp; sourceTree = "<group>"; };
 		BD286E75265D2A80005FFA40 /* libomp.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libomp.dylib; path = ../../../../usr/local/Cellar/llvm/12.0.0_1/lib/libomp.dylib; sourceTree = "<group>"; };
+		BD88D2D629668AD700D9C63D /* eigen.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = eigen.cpp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -110,6 +112,7 @@
 			isa = PBXGroup;
 			children = (
 				BD286E50265CDEB0005FFA40 /* data.cpp */,
+				BD88D2D629668AD700D9C63D /* eigen.cpp */,
 				BD286E51265CDEB0005FFA40 /* data.hpp */,
 				BD286E5D265CDEB1005FFA40 /* gadgets.cpp */,
 				BD286E56265CDEB1005FFA40 /* gadgets.hpp */,
@@ -203,6 +206,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				BD88D2D729668AD800D9C63D /* eigen.cpp in Sources */,
 				BD286E6D265CDEB1005FFA40 /* gadgets.cpp in Sources */,
 				BD286E68265CDEB1005FFA40 /* hsq.cpp in Sources */,
 				BD286E6A265CDEB1005FFA40 /* vgmaf.cpp in Sources */,
@@ -342,7 +346,7 @@
 				COMPILER_INDEX_STORE_ENABLE = NO;
 				HEADER_SEARCH_PATHS = (
 					..,
-					"../eigen-eigen-323c052e1731",
+					"../eigen-3.4.0",
 					/usr/local/opt/llvm/lib/clang/10.0.1/include/,
 				);
 				LIBRARY_SEARCH_PATHS = (
@@ -366,7 +370,7 @@
 				COMPILER_INDEX_STORE_ENABLE = NO;
 				HEADER_SEARCH_PATHS = (
 					..,
-					"../eigen-eigen-323c052e1731",
+					"../eigen-3.4.0",
 					/usr/local/opt/llvm/lib/clang/10.0.1/include/,
 				);
 				LIBRARY_SEARCH_PATHS = (

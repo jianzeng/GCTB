@@ -4005,8 +4005,7 @@ void Data::setAnnoInfoVec() {
             annoMat(i,annoIdx) = 1;
         }
     }
-    
-    
+        
     // TMP
     for (unsigned i=0; i<numIncdSnps; ++i) {
         SnpInfo *snp = incdSnpInfoVec[i];
@@ -4426,7 +4425,7 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
         it = snpInfoMap.find(id);
         if (it != end) {
             snp = it->second;
-            snp->annoValues.resize(size);
+            snp->annoValues.resize(size-1);
             for (unsigned j=1; j<size; ++j) {
                 if (atof(colData[j].c_str())) {
                     snp->annoVec.push_back(annoInfoVec[j-1]);
