@@ -6420,17 +6420,17 @@ void ApproxBayesRC::BlockGenotypicVar::compute(const vector<VectorXf> &whatBlock
     total = values.sum();
 }
 
-void ApproxBayesRC::BlockResidualVar::sampleFromFC(vector<VectorXf> &wcorrBlocks, VectorXf &ssqBlocks, const VectorXf &nGWASblocks, const VectorXf &numEigenvalBlocks){
+void ApproxBayesRC::BlockResidualVar::sampleFromFC(vector<VectorXf> &wcorrBlocks, VectorXf &ssqBlocks, const VectorXf &nGWASblocks, const VectorXf &numEigenvalBlock){
     for (unsigned i=0; i<numBlocks; ++i) {
         float sse = wcorrBlocks[i].squaredNorm() * nGWASblocks[i];
-        float dfTilde = df + numEigenvalBlocks[i];
+        float dfTilde = df + numEigenvalBlock[i];
         float scaleTilde = sse + df*scale;
         float sample = InvChiSq::sample(dfTilde, scaleTilde);
-        if (ssqBlocks[i]/sample > threshold) {
+        //if (ssqBlocks[i]/sample > threshold) {
             values[i] = sample;
-        } else {
-            values[i] = vary;
-        }
+        //} else {
+        //    values[i] = vary;
+        //}
         //cout << "vare " << i << " " << values[i] << endl;
     }
     mean = values.mean();
@@ -6500,7 +6500,7 @@ void ApproxBayesRC::sampleUnknowns(){
 
     if (lowRankModel) {
         vargBlk.compute(whatBlocks);
-        vareBlk.sampleFromFC(wcorrBlocks, snpEffects.ssqBlocks, data.nGWASblock, data.numEigenvalBlocks);
+        vareBlk.sampleFromFC(wcorrBlocks, snpEffects.ssqBlocks, data.nGWASblock, data.numEigenvalBlock);
         varg.value = vargBlk.total;
         vare.value = vareBlk.mean;
     }
@@ -6510,8 +6510,8 @@ void ApproxBayesRC::sampleUnknowns(){
         vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value);
     }
         
-    hsq.compute(varg.value, vare.value);
-    //hsq.value = varg.value / data.varPhenotypic;  // TMP_JZ
+    //hsq.compute(varg.value, vare.value);
+    hsq.value = varg.value / data.varPhenotypic;
     
 //    cout << "check 3 " << endl;
 
