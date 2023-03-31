@@ -2399,7 +2399,7 @@ public:
             mean = varPhenotypic;
         }
         
-        void sampleFromFC(vector<VectorXf> &wcorrBlocks, VectorXf &ssqBlocks, const VectorXf &nGWASblocks, const VectorXf &numEigenvalBlocks);
+        void sampleFromFC(vector<VectorXf> &wcorrBlocks, VectorXf &ssqBlocks, const VectorXf &nGWASblocks, const VectorXf &numEigenvalBlock);
     };
         
     SnpEffects snpEffects;
@@ -2506,8 +2506,11 @@ public:
         //    cout << "fixing sigmaSq to be " << sigmaSq.value << endl;
         //}
         if (message) {
-            cout << "\nApproximate BayesRC model fitted." << endl;
-            cout << "scale factor: " << sigmaSq.scale << endl;
+            cout << "\nSBayesRC" << endl;
+            if (lowRankModel) {
+                cout << "Using the low-rank model" << endl;
+            }
+            //cout << "scale factor: " << sigmaSq.scale << endl;
             cout << "Gamma: " << gamma.transpose() << endl;
             if (noscale)
             {
@@ -2517,7 +2520,7 @@ public:
                cout << "Fitting model assuming scaled genotypes "  << endl;
             }
             if (robustMode) cout << "Using a more robust parameterisation " << endl;
-            cout << "Algorithm: " << alg << endl;
+            //cout << "Algorithm: " << alg << endl;
             if (allowPerSnpGV) cout << "Allow per-SNP genetic variance!" << endl;
         }
     }

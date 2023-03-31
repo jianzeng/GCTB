@@ -338,7 +338,8 @@ public:
     VectorXi blockStarts;    // each LD block startings index in SNP included scale
     VectorXi blockSizes;     // each LD block size;
     VectorXf nGWASblock;     // median GWAS sample size for each block in GWAS
-    VectorXf numEigenvalBlocks;  // number of eigenvalues kept for each block
+    VectorXf numSnpsBlock;   // number of SNPs for each block
+    VectorXf numEigenvalBlock;  // number of eigenvalues kept for each block
     
     VectorXf LDsamplVar;     // sum of sampling variance of LD for each SNP with all other SNPs; this is for summary-bayes methods
     VectorXf LDscore;        // sum of r^2 over SNPs in significant LD
