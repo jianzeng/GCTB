@@ -570,6 +570,79 @@ void Data::makeFullLdmForLdBlocks(const string &bedFile, const string &ldBlockIn
 }
 
 
+void Data::impGa(double diag_mod){
+
+    LDBlockInfo *ldblock;
+    SnpInfo *snp;
+    map<string, SnpInfo*>::iterator iterSnp;
+    int numImpSnp = 0;
+    for (unsigned i = 0; i < numLDBlocks; i++ ){
+        /// Step 1. construct LD 
+        ldblock = ldBlockInfoVec[i];
+        MatrixXf LDPerBlock = eigenVecLdBlock[i] * eigenValLdBlock[i].asDiagonal() * eigenVecLdBlock[i].transpose();
+
+        LDPerBlock.diagonal().array() += (float)diag_mod;
+        /// Step 2. Construct the LD correlation matrix among the typed SNPs(LDtt) and the LD correlation matrix among the missing SNPs and typed SNPs (LDit).
+        // Step 2.1 divide SNPs into typed and untyped SNPs
+        vector<int> typedSnpIdx, untypedSnpIdx;
+        MatrixXf LDtt, LDit;
+        VectorXf ZPerBlock(ldblock->numSnpInBlock),NPerBlock(ldblock->numSnpInBlock),VpPerBlock(ldblock->numSnpInBlock),Ztt; // typed zz
+        for(unsigned j = 0; j < ldblock->numSnpInBlock; j++){
+            iterSnp = snpInfoMap.find(ldblock->gwasSnpNameVecInBlock[j]);
+            if (iterSnp == snpInfoMap.end()) {
+                continue;
+            }
+            snp = iterSnp->second;
+            if(snp->included){
+                // typed snp
+                typedSnpIdx.push_back(j);
+                ZPerBlock(j) = snp->gwas_b / snp->gwas_se;
+                NPerBlock(j) = snp->gwas_n;
+                float D = 2 * snp->gwas_af * ( 1- snp->gwas_af) * snp->gwas_n;
+                VpPerBlock(j) = D * (snp->gwas_n * snp->gwas_se * snp->gwas_se + snp->gwas_b * snp->gwas_b)/ snp->gwas_n;
+            } else {
+                untypedSnpIdx.push_back(j);
+            }
+        }
+        // Step 2.2 construct LDtt and LDit and Ztt.
+        Ztt = ZPerBlock(typedSnpIdx);
+        LDtt = LDPerBlock(typedSnpIdx,typedSnpIdx);
+        LDit = LDPerBlock(untypedSnpIdx,typedSnpIdx);
+        // Step 2.3 //  The Z score for the missing SNPs; 
+        VectorXf LDi_Z = LDtt.colPivHouseholderQr().solve(Ztt);
+        ZPerBlock(untypedSnpIdx) = LDit * LDi_Z;
+        // Step 3. re-calcualte beta and se
+        // if snp is missing use median to replace N
+        VectorXf Ntyped = NPerBlock(typedSnpIdx);
+        std::sort(Ntyped.data(), Ntyped.data() + Ntyped.size());
+        float NMedian = Ntyped[Ntyped.size()/2];  // median
+        // calcuate median of phenotypic variance 
+        VectorXf Vptyped = NPerBlock(typedSnpIdx);
+        std::sort(Vptyped.data(), Vptyped.data() + Vptyped.size());
+        float VpMedian = Vptyped[Vptyped.size()/2];  // median
+        // begin impute 
+        for(unsigned j = 0; j < untypedSnpIdx.size(); j++){
+            iterSnp = snpInfoMap.find(ldblock->gwasSnpNameVecInBlock[untypedSnpIdx[j]]);
+            if (iterSnp == snpInfoMap.end()) {
+                // base = 2 * snp->af *( 1- snp->af) * ( NMedian + ZPerBlock(j) * ZPerBlock(j));
+                continue;
+            }
+            snp = iterSnp->second;
+            if(!snp->included){
+                float base1 = 2 * snp->af *( 1- snp->af) * (NMedian + ZPerBlock(j) * ZPerBlock(j));
+                snp->gwas_b = ZPerBlock(j) * sqrt(VpMedian)/base1;
+                snp->gwas_se = sqrt(VpMedian) / base1;
+                // snp->gwas_pvalue = 
+                snp->included = true;
+            }
+        }
+        numImpSnp = numImpSnp + untypedSnpIdx.size();
+    }
+    cout << "Number of SNP to impute: " << numImpSnp << endl;
+}
+
+
+
 void Data::getEigenDataForLDBlock(const string &bedFile, const string &ldBlockInfoFile, int ldBlockRegionWind, const string &filename, const float eigenCutoff){
     int i,j;
     vector<locus_bp> snpVec;
