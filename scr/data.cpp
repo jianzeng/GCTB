@@ -1331,6 +1331,8 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
     cout << match << " matched SNPs in the GWAS summary data (in total " << line << " SNPs)." << endl;
     
     if (imputeN) imputePerSnpSampleSize(snpInfoVec, numIncdSnps, 0);
+
+    if(imputeG) impGa();
     
 }
 
