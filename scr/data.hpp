@@ -59,6 +59,8 @@ public:
     bool flipped;   // A1 A2 alleles are flipped in between gwas and LD ref samples
     long sampleSize;
     
+    string block;
+    
     VectorXf genotypes; // temporary storage of genotypes of individuals used for building sparse Z'Z
     
     vector<AnnoInfo*> annoVec;
@@ -116,6 +118,7 @@ public:
         numNonZeroLD = 0;
         numAnnos = 0;
         ld_n = -999;
+        block = "NA";
     };
     
     void resetWindow(void) {windStart = -1; windSize = 0;};
@@ -141,8 +144,8 @@ public:
     int startSnpIdx;
     int endSnpIdx;
     
-    int idxStart;
-    int idxEnd;
+    //int idxStart;
+    //int idxEnd;
     int preBlock;
     int postBlock;
     //
@@ -163,8 +166,8 @@ public:
         // svd'ed ld info
         startSnpIdx = -999;
         endSnpIdx = -999;
-        idxStart = -999;
-        idxEnd = -999;
+        //idxStart = -999;
+        //idxEnd = -999;
         preBlock = -999;
         postBlock = -999;
         numSnpInBlock = -999;
@@ -462,6 +465,7 @@ public:
     void includeSnp(const string &includeSnpFile);
     void excludeSnp(const string &excludeSnpFile);
     void includeChr(const unsigned chr);
+    void includeBlock(const unsigned block);
     void excludeMHC(void);
     void excludeAmbiguousSNP(void);
     void excludeSNPwithMaf(const float mafmin, const float mafmax);
@@ -522,6 +526,9 @@ public:
     void readResidualDiagFile(const string &resDiagFile);
     void makeWindowAnno(const string &annoFile, const float windowWidth);
     
+    void mergeLdmInfo(const string &outLDmatType, const string &dirname);
+
+    
     /////////// eigen decomposition for LD blocks
     void readLDBlockInfoFile(const string &ldBlockInfoFile);
     void getEigenDataFromFullLDM(const string &filename, const float eigenCutoff);
@@ -529,18 +536,18 @@ public:
     void eigenDecomposition(const MatrixXf &X, const float &prop, VectorXf &eigenValAdjusted, MatrixXf &eigenVecAdjusted, VectorXf &cumsumNonNeg);
     MatrixXf generateLDmatrixPerBlock(const string &bedFile, const vector<string> &snplists); // generate full LDM for block
     
-    void makeFullLdmForLdBlocks(const string &bedFile, const string &ldBlockInfoFile, const string &filename, const bool writeLdmTxt, int ldBlockRegionWind = 0);
+    void makeBlockLDmatrix(const string &bedFile, const string &LDmatType, const string &ldBlockInfoFile, const unsigned block, const string &filename, const bool writeLdmTxt, int ldBlockRegionWind = 0);
 
-    void readBlockLDMbinaryAndDoEigenDecomposition(const string &binFile, const string &filename, const float &eigenCutoff, const bool writeLdmTxt);
+    void readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, const unsigned block, const float &eigenCutoff, const bool writeLdmTxt);
     
     void getEigenDataForLDBlock(const string &bedFile, const string &ldBlockInfoFile, int ldBlockRegionWind, const string &filename, const float eigenCutoff);
-    void outputLdDataForBlockLDM(const string &filename) const;
+    void outputBlockLDmatrixInfo(const unsigned block, const string &filename) const;
 
     ///////////// read LD matrix eigen-decomposition data for LD blocks
     void readEigenMatrix(const string &eigenMatrixFile, const float eigenCutoff = 1);
-    void readBlockLDmatrixAndDoEigenDecomposition(const string &LDmatrixFile, const float eigenCutoff, const bool writeLdmTxt);
-    void readBlockLDMblockInfoFile(const string &infoFile);
-    void readBlockLDMsnpInfoFile(const string &snpInfoFile);
+    void readBlockLDmatrixAndDoEigenDecomposition(const string &LDmatrixFile, const unsigned block, const float eigenCutoff, const bool writeLdmTxt);
+    void readBlockLdmInfoFile(const string &infoFile);
+    void readBlockLdmSnpInfoFile(const string &snpInfoFile);
     void readBlockLDMbinaryFile(const string &svdLDfile, const float eigenCutoff);
     vector<LDBlockInfo *> makeKeptLDBlockInfoVec(const vector<LDBlockInfo *> &ldBlockInfoVec);
     
@@ -557,6 +564,7 @@ public:
     //////////// Step 2.3 build model matrix
     void constructWandQ(const bool noscale);
  
+    void imputeSummaryData(void);
     
 };
 

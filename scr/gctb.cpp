@@ -17,7 +17,7 @@ void GCTB::inputIndInfo(Data &data, const string &bedFile, const string &phenoty
     data.keepMatchedInd(keepIndFile, keepIndMax);
 }
 
-void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile,  const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const float mafmin, const float mafmax, const bool noscale, const bool readGenotypes){
+void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile,  const string &ldBlockInfoFile, const unsigned includeBlock, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const float mafmin, const float mafmax, const bool noscale, const bool readGenotypes){
     data.readBimFile(bedFile + ".bim");
     if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
@@ -31,6 +31,8 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &include
         data.readAnnotationFile(annotationFile, transpose, true);
     else if (!continuousAnnoFile.empty())
         data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000, eQTLFile);
+    if (!ldBlockInfoFile.empty()) data.readLDBlockInfoFile(ldBlockInfoFile);
+    if (includeBlock) data.includeBlock(includeBlock);
     data.includeMatchedSnp();
     if (data.numAnnos) data.setAnnoInfoVec();
 //    data.makeWindowAnno(annotationFile, 5e5);

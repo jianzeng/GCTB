@@ -97,19 +97,23 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--ldm-eigen /Users/uqjzeng1/Desktop/sbayesrc/run.ldm.full"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--gwas-summary /Users/uqjzeng1/Desktop/sbayesrc/test10K.ma"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--sbayes RC --annot /Users/uqjzeng1/Desktop/sbayesrc/annot --out /Users/uqjzeng1/Desktop/sbayesrc/run"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--out-freq 1"
             isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--ldm /Users/uqjzeng1/Desktop/sbayesrc/run --make-ldm-eigen --block 1 --ldm-eigen-cutoff 0.995 --write-ldm-txt --out /Users/uqjzeng1/Desktop/sbayesrc/run"
+            isEnabled = "YES">
          </CommandLineArgument>
       </CommandLineArguments>
    </LaunchAction>
