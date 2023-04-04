@@ -24,18 +24,13 @@ void Data::readLDBlockInfoFile(const string &ldBlockInfoFile){
     ldBlockInfoMap.clear();
     string header;
     string id;
-    int  chr,start, stop,pdist;
-    float start_cm, stop_cm,gdist;
+    int  chr,start, stop;
     int idx = 0;
     getline(in, header);
-    while (in >>chr>>id>>start>>stop>>start_cm>>stop_cm>>pdist>>gdist) {
+    while (in >> id >> chr >> start >> stop) {
         LDBlockInfo *ld = new LDBlockInfo(idx++, id, chr);
         ld->startPos    = start;
         ld->endPos     = stop;
-        ld->start_cm    = start_cm;
-        ld->stop_cm     = stop_cm;
-        ld->pdist       = pdist;
-        ld->gdist       = gdist;
         ldBlockInfoVec.push_back(ld);
         //chromosomes.insert(ld->chr);
         if (ldBlockInfoMap.insert(pair<string, LDBlockInfo*>(id, ld)).second == false) {
@@ -582,13 +577,88 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
         if (writeLdmTxt) cout << "Written the LD matrix into file [" << outTxtfile << "]." << endl;
     }
     else {
-        cout << "Written the LD matrix into folder [" << dirname << "/*.ldm.bin]." << endl;
-        if (writeLdmTxt) cout << "Written the LD matrix into text file [" << dirname << "/*.ldm.txt]." << endl;
+        cout << "Written the LD matrix into folder [" << dirname << "/block*.ldm.bin]." << endl;
+        if (writeLdmTxt) cout << "Written the LD matrix into text file [" << dirname << "/block*.ldm.txt]." << endl;
     }
     
     outputBlockLDmatrixInfo(block, dirname);
 
 }
+
+
+void Data::impG(double diag_mod){
+
+    LDBlockInfo *ldblock;
+    SnpInfo *snp;
+    map<string, SnpInfo*>::iterator iterSnp;
+    int numImpSnp = 0;
+    for (unsigned i = 0; i < numLDBlocks; i++ ){
+        /// Step 1. construct LD 
+        ldblock = ldBlockInfoVec[i];
+        MatrixXf LDPerBlock = eigenVecLdBlock[i] * eigenValLdBlock[i].asDiagonal() * eigenVecLdBlock[i].transpose();
+
+        LDPerBlock.diagonal().array() += (float)diag_mod;
+        /// Step 2. Construct the LD correlation matrix among the typed SNPs(LDtt) and the LD correlation matrix among the missing SNPs and typed SNPs (LDit).
+        // Step 2.1 divide SNPs into typed and untyped SNPs
+        vector<int> typedSnpIdx, untypedSnpIdx;
+        MatrixXf LDtt, LDit;
+        VectorXf ZPerBlock(ldblock->numSnpInBlock),NPerBlock(ldblock->numSnpInBlock),VpPerBlock(ldblock->numSnpInBlock),Ztt; // typed zz
+        for(unsigned j = 0; j < ldblock->numSnpInBlock; j++){
+            iterSnp = snpInfoMap.find(ldblock->gwasSnpNameVecInBlock[j]);
+            if (iterSnp == snpInfoMap.end()) {
+                continue;
+            }
+            snp = iterSnp->second;
+            if(snp->included){
+                // typed snp
+                typedSnpIdx.push_back(j);
+                ZPerBlock(j) = snp->gwas_b / snp->gwas_se;
+                NPerBlock(j) = snp->gwas_n;
+                float D = 2 * snp->gwas_af * ( 1- snp->gwas_af) * snp->gwas_n;
+                VpPerBlock(j) = D * (snp->gwas_n * snp->gwas_se * snp->gwas_se + snp->gwas_b * snp->gwas_b)/ snp->gwas_n;
+            } else {
+                untypedSnpIdx.push_back(j);
+            }
+        }
+        // Step 2.2 construct LDtt and LDit and Ztt.
+        Ztt = ZPerBlock(typedSnpIdx);
+        LDtt = LDPerBlock(typedSnpIdx,typedSnpIdx);
+        LDit = LDPerBlock(untypedSnpIdx,typedSnpIdx);
+        // Step 2.3 //  The Z score for the missing SNPs; 
+        VectorXf LDi_Z = LDtt.colPivHouseholderQr().solve(Ztt);
+        ZPerBlock(untypedSnpIdx) = LDit * LDi_Z;
+        // Step 3. re-calcualte beta and se
+        // if snp is missing use median to replace N
+        VectorXf Ntyped = NPerBlock(typedSnpIdx);
+        std::sort(Ntyped.data(), Ntyped.data() + Ntyped.size());
+        float NMedian = Ntyped[Ntyped.size()/2];  // median
+        // calcuate median of phenotypic variance 
+        VectorXf Vptyped = NPerBlock(typedSnpIdx);
+        std::sort(Vptyped.data(), Vptyped.data() + Vptyped.size());
+        float VpMedian = Vptyped[Vptyped.size()/2];  // median
+        // begin impute 
+        for(unsigned j = 0; j < untypedSnpIdx.size(); j++){
+            iterSnp = snpInfoMap.find(ldblock->gwasSnpNameVecInBlock[untypedSnpIdx[j]]);
+            if (iterSnp == snpInfoMap.end()) {
+                // base = 2 * snp->af *( 1- snp->af) * ( NMedian + ZPerBlock(j) * ZPerBlock(j));
+                continue;
+            }
+            snp = iterSnp->second;
+            if(!snp->included){
+                float base1 = 2 * snp->af *( 1- snp->af) * (NMedian + ZPerBlock(j) * ZPerBlock(j));
+                snp->gwas_b = ZPerBlock(j) * sqrt(VpMedian)/base1;
+                snp->gwas_se = sqrt(VpMedian) / base1;
+                snp->gwas_n = NMedian;
+                snp->gwas_af = snp->af;
+                //snp->gwas_pvalue = ;
+                snp->included = true;
+            }
+        }
+        numImpSnp += untypedSnpIdx.size();
+    }
+    if (numImpSnp) cout << "Imputed the summary statistics for " << to_string(numImpSnp) << " SNPs." << endl;
+}
+
 
 
 void Data::getEigenDataForLDBlock(const string &bedFile, const string &ldBlockInfoFile, int ldBlockRegionWind, const string &filename, const float eigenCutoff){
@@ -802,30 +872,26 @@ void Data::outputBlockLDmatrixInfo(const unsigned block, const string &dirname) 
 
     // svd matrix for ld blocks here.
     ofstream out2(outldmfile.c_str());
-    out2 << boost::format("%10s %6s %10s %15s %10s %15s %10s %10s %15s\n")
+    out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
     % "Block"
     % "Chrom"
     % "StartSnpIdx"
     % "StartSnpID"
     % "EndSnpIdx"
     % "EndSnpID"
-    % "NumSnps"
-    % "GenDist"
-    % "PhysDist";
+    % "NumSnps";
     LDBlockInfo * ldblock;
     for (unsigned i=0; i < numKeptLDBlocks ; ++i) {
         ldblock = keptLdBlockInfoVec[i];
         //cout << "ldblock id: " << ldblock->ID << endl;
-        out2 << boost::format("%10s %6s %10s %15s %10s %15s %10s %10s %15s\n")
+        out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
         % ldblock->ID
         % ldblock->chrom
         % ldblock->startSnpIdx
         % incdSnpInfoVec[ldblock->startSnpIdx]->ID
         % ldblock->endSnpIdx
         % incdSnpInfoVec[ldblock->endSnpIdx]->ID
-        % ldblock->gwasSnpNameVecInBlock.size()
-        % ldblock->gdist
-        % ldblock->pdist;
+        % ldblock->gwasSnpNameVecInBlock.size();
     }
     out2.close();
     
@@ -849,18 +915,14 @@ void Data::readBlockLdmInfoFile(const string &infoFile){
     int snpCount =  1;
     string snpName;
     string startSnpID, endSnpID;
-    int pdist;
-    float gdist;
     LDBlockInfo *ldblock;
     getline(in, header);
-    while (in >> id >> chr >> blockStart >> startSnpID >> blockEnd >> endSnpID >> snpNum >> gdist >> pdist) {
+    while (in >> id >> chr >> blockStart >> startSnpID >> blockEnd >> endSnpID >> snpNum) {
         
         ldblock = new LDBlockInfo(idx++, id, chr);
         ldblock->startSnpIdx = blockStart;
         ldblock->endSnpIdx   = blockEnd;
         ldblock->numSnpInBlock = snpNum;
-        ldblock->gdist = gdist;
-        ldblock->pdist = pdist;
         
         ldBlockInfoVec.push_back(ldblock);
         ldBlockInfoMap[id] = ldblock;
@@ -1020,8 +1082,8 @@ void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, cons
         if (writeLdmTxt) cout << "Written the eigen data for block LD matrix into file [" << outTxtfile << "]." << endl;
     }
     else {
-    cout << "Written the eigen data for block LD matrix into file [" << dirname << "/*.eigen.bin]." << endl;
-    if (writeLdmTxt) cout << "Written the eigen data for block LD matrix into file [" << dirname << "/*.eigen.txt]." << endl;
+    cout << "Written the eigen data for block LD matrix into file [" << dirname << "/block*.eigen.bin]." << endl;
+    if (writeLdmTxt) cout << "Written the eigen data for block LD matrix into file [" << dirname << "/block*.eigen.txt]." << endl;
     }
 
 }
@@ -1367,16 +1429,14 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname) {
     % "Block";
     
     ofstream out2(outldmInfoFile.c_str());
-    out2 << boost::format("%10s %6s %10s %15s %10s %15s %10s %10s %15s\n")
+    out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
     % "Block"
     % "Chrom"
     % "StartSnpIdx"
     % "StartSnpID"
     % "EndSnpIdx"
     % "EndSnpID"
-    % "NumSnps"
-    % "GenDist"
-    % "PhysDist";
+    % "NumSnps";
     
     
     
@@ -1427,20 +1487,16 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname) {
         
         int blockStart, blockEnd, snpNum;
         string startSnpID, endSnpID;
-        int pdist;
-        float gdist;
         getline(in2, header);
-        while (in2 >> id >> chr >> blockStart >> startSnpID >> blockEnd >> endSnpID >> snpNum >> gdist >> pdist) {
-            out2 << boost::format("%10s %6s %10s %15s %10s %15s %10s %10s %15s\n")
+        while (in2 >> id >> chr >> blockStart >> startSnpID >> blockEnd >> endSnpID >> snpNum) {
+            out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
             % id
             % chr
             % snpID2index[startSnpID]
             % startSnpID
             % snpID2index[endSnpID]
             % endSnpID
-            % snpNum
-            % gdist
-            % pdist;
+            % snpNum;
             
             ++ldmIdx;
         }

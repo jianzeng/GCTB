@@ -1237,7 +1237,7 @@ void Data::outputWindowResults(const VectorXf &posteriorMean, const string &file
     out.close();
 }
 
-void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool imputeN){
+void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool imputeN, const bool imputeSumStats){
     ifstream in(gwasFile.c_str());
     if (!in) throw ("Error: can not open the GWAS summary data file [" + gwasFile + "] to read.");
     cout << "Reading GWAS summary data from [" + gwasFile + "]." << endl;
@@ -1342,6 +1342,8 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
     cout << match << " matched SNPs in the GWAS summary data (in total " << line << " SNPs)." << endl;
     
     if (imputeN) imputePerSnpSampleSize(snpInfoVec, numIncdSnps, 0);
+
+    if (imputeSumStats) impG();
     
 }
 

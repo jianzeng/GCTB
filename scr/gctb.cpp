@@ -117,7 +117,8 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
         data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000, eQTLFile);
     if (!ldscoreFile.empty()) data.readLDscoreFile(ldscoreFile);
     if (!gwasSummaryFile.empty()) {
-        data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, pValueThreshold, imputeN);
+        bool imputeSumStats = true;
+        data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, pValueThreshold, imputeN, imputeSumStats);
         data.includeMatchedSnp();
     }
 
