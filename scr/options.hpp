@@ -48,6 +48,7 @@ public:
     unsigned includeChr;  // chromosome to include
     unsigned ndists; // Number of distributions for base Bayes R
     unsigned flank;
+    unsigned includeBlock;  // block to include
     
     float pi;
     float piAlpha;
@@ -106,6 +107,8 @@ public:
     bool binSnp;  // bin SNPs
     bool robustMode;  // use the robust parameterisation in SBayes models
     bool perSnpGV;
+    bool mergeLdm;
+    
     string eigCutMethod = "value";
     float eigThreshold = 0.001;
 
@@ -161,6 +164,7 @@ public:
         snpFittedPerWindow      = 2;
         thin                    = 10;
         includeChr              = 0;
+        includeBlock            = 0;
                 
         windowWidth             = 0*Megabase;
         pi                      = 0.05;
@@ -234,6 +238,7 @@ public:
         binSnp                  = false;
         robustMode              = false;
         perSnpGV                = false;
+        mergeLdm                = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";

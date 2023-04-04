@@ -560,6 +560,17 @@ void Data::includeChr(const unsigned chr){
     }
 }
 
+void Data::includeBlock(const unsigned block){
+    if (!block) return;
+    LDBlockInfo *blockInfo = ldBlockInfoVec[block-1];
+    for (unsigned i=0; i<numSnps; ++i){
+        SnpInfo *snpInfo = snpInfoVec[i];
+        if (snpInfo->chrom != blockInfo->chrom) snpInfo->included = false;
+        else if (snpInfo->physPos < blockInfo->startPos) snpInfo->included = false;
+        else if (snpInfo->physPos > blockInfo->endPos) snpInfo->included = false;
+    }
+}
+
 void Data::includeSkeletonSnp(const string &skeletonSnpFile){
     ifstream in(skeletonSnpFile.c_str());
     if (!in) throw ("Error: can not open the file [" + skeletonSnpFile + "] to read.");
@@ -5015,3 +5026,4 @@ void Data::readLDmatrixTxtFile(const string &ldmatrixFile) {
     if (ZPZdiag.mean() < 0.8 || ZPZdiag.mean() > 1.2) throw("ERROR: The mean of LD matrix diagonal values is expected to be close to one. Something is wrong with the LD matrix!");
     cout << "Read LD matrix for " << numIncdSnps << " SNPs (time used: " << timer.format(timer.getElapse()) << ")." << endl;
 }
+

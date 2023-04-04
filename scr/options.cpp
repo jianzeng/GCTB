@@ -77,6 +77,11 @@ void Options::inputOptions(const int argc, const char* argv[]){
             outLDmatType = "sparseshrunk";
             ss << "--make-sparse-shrunk-ldm " << "\n";
         }
+        else if (!strcmp(argv[i], "--make-block-ldm")) {
+            analysisType = "LDmatrix";
+            outLDmatType = "block";
+            ss << "--make-block-ldm " << "\n";
+        }
         else if (!strcmp(argv[i], "--xci")) {
             analysisType = "XCI";
             bayesType = argv[++i];
@@ -168,7 +173,6 @@ void Options::inputOptions(const int argc, const char* argv[]){
             ss << "--mldm " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--make-ldm-eigen")) {
-            //ldBlockInfoFile = argv[++i];
             analysisType = "LDmatrixEigen";
             ss << "--make-ldm-eigen " << argv[i] << "\n";
         }
@@ -180,9 +184,19 @@ void Options::inputOptions(const int argc, const char* argv[]){
             eigenCutoff = atof(argv[++i]);
             ss << "--ldm-eigen-cutoff " << argv[i] << "\n";
         }
-        else if (!strcmp(argv[i], "--ld-block")) {
+        else if (!strcmp(argv[i], "--block-info")) {
             ldBlockInfoFile = argv[++i];
-            ss << "--ld-block " << argv[i] << "\n";
+            ss << "--block-info " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--block")) {
+            includeBlock = atoi(argv[++i]);
+            ss << "--block " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--merge-block-ldm-info")) {
+            analysisType = "LDmatrix";
+            mergeLdm = true;
+            outLDmatType = "block";
+            ss << "--merge-block-ldm-info " << "\n";
         }
         else if (!strcmp(argv[i], "--per-snp-gv")) {
             perSnpGV = true;
