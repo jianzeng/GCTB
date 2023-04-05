@@ -179,7 +179,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
             else if (bayesType == "SMix")
                 return new ApproxBayesSMix(data, data.varGenotypic, data.varResidual, pi, overdispersion, estimatePS, varS, S);
             else if (bayesType == "R")
-                return new ApproxBayesR(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm);
+                return new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm);
             else if (bayesType == "Kap")
                 return new ApproxBayesKappa(data, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, icrsq, kappa);
             else if (bayesType == "RS")
@@ -626,7 +626,7 @@ void GCTB::pip2p(const Data &data, const VectorXf &pip, const float propNull, Ve
 }
 
 float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
-    cout << "Finding the best eigen cutoff from [" << opt.eigenCutoff.transpose() << "] based on pseudo summary data validation." << endl;
+    cout << "\nFinding the best eigen cutoff from [" << opt.eigenCutoff.transpose() << "] based on pseudo summary data validation." << endl;
     
     unsigned numKeptInds = data.numKeptInds;    
     data.numKeptInds = data.pseudoGwasNtrn;
@@ -646,10 +646,12 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
         data.initVariances(opt.heritability, opt.propVarRandom);
         Model *modeli;
         bool print = false;
-        if (opt.bayesType == "RC") {
+        if (opt.bayesType == "R") {
+            modeli = new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.originalModel, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, print);
+        } else if (opt.bayesType == "RC") {
             modeli = new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.originalModel, opt.perSnpGV, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, print);
         } else {
-            throw("Error: eigen cutoff tuning is only available for SBayesRC at the moment!");
+            throw("Error: eigen cutoff tuning is only available for SBayesR and SBayesRC at the moment!");
         }
         
         vector<McmcSamples*> mcmcSampleVeci;

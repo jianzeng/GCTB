@@ -1283,110 +1283,110 @@ void Data::includeMatchedBlocks(){
     cout << numKeptLDBlocks << " LD blocks are included." << endl;
 }
 
-void Data::constructWandQ(const float eigenCutoff, const bool noscale){
-    VectorXf nMinusOne;
-    snp2pq.resize(numIncdSnps);
-    D.resize(numIncdSnps);
-   // ZPZdiag.resize(numIncdSnps);
-    ZPy.resize(numIncdSnps);
-    b.resize(numIncdSnps);
-    n.resize(numIncdSnps);
-    nMinusOne.resize(numIncdSnps);
-    se.resize(numIncdSnps);
-    tss.resize(numIncdSnps);
-    SnpInfo *snp;
-    for (unsigned i=0; i<numIncdSnps; ++i) {
-        snp = incdSnpInfoVec[i];
-        snp->af = snp->gwas_af;
-        snp2pq[i] = snp->twopq = 2.0f*snp->gwas_af*(1.0f-snp->gwas_af);
-        if(snp2pq[i]==0) cout << "Error: SNP " << snp->ID << " af " << snp->af << " has 2pq = 0." << endl;
-        D[i] = snp2pq[i]*snp->gwas_n;
-        b[i] = snp->gwas_b * sqrt(snp2pq[i]); // scale the marginal effect so that it's in per genotype SD unit
-        n[i] = snp->gwas_n;
-        nMinusOne[i] = snp->gwas_n - 1;
-        se[i]= snp->gwas_se * sqrt(snp2pq[i]);
-        tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
-        ZPy[i] = n[i]*b[i];
-        //  D[i] = 1.0/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
-        //  snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
-    }
-    cout << endl;
-    LDBlockInfo * ldblock;
-    wcorrBlocks.resize(numKeptLDBlocks);
-    // Qblocks.resize(numKeptLDBlocks);
-    numSnpsBlock.resize(numKeptLDBlocks);
-    numEigenvalBlock.resize(numKeptLDBlocks);
-    Qblocks.clear();
-    VectorXf sqrtLambda;
-    // save gwas marginal effect into block
-    gwasEffectInBlock.resize(numKeptLDBlocks);
-    for (unsigned i = 0; i < numKeptLDBlocks; i++){
-        ldblock = keptLdBlockInfoVec[i];
-        gwasEffectInBlock[i] = b(ldblock->block2GwasSnpVec);
-        // calculate wbcorr and Qblocks
-        sqrtLambda = eigenValLdBlock[i].array().sqrt();
-        //cout << eigenVecLdBlock[i].transpose().rows() << " " << eigenVecLdBlock[i].transpose().cols() << " " << gwasEffectInBlock[i].size() << endl;
-        wcorrBlocks[i] = (1.0/sqrtLambda.array()).matrix().asDiagonal() * (eigenVecLdBlock[i].transpose() * gwasEffectInBlock[i] );
-        // cout << "eigenVecLdBlock[i]: " << eigenVecLdBlock[i] << endl;
-        // cout << "wcorrBlocks[i]: " << wcorrBlocks[i] << endl;
-        // cout << "sqrtLambda: " << sqrtLambda << endl;
-        // cout << gwasEffectInBlock[i] << endl;
-        MatrixXf tmpQblocks = sqrtLambda.asDiagonal() * eigenVecLdBlock[i].transpose();
-        MatrixDat matrixDat = MatrixDat(ldblock->gwasSnpNameVecInBlock,tmpQblocks );
-        // cout << "Qblock: " << endl;
-        // cout << matrixDat.values << endl;
-        Qblocks.push_back(matrixDat);
-        numSnpsBlock[i] = Qblocks[i].ncol;
-        numEigenvalBlock[i] = Qblocks[i].nrow;
-    }
-    
-    //b.array() -= b.mean();  // DO NOT CENTER b
-    // estimate phenotypic variance based on the input allele frequencies in GWAS
-
-    //  Vp_buf = h_buf * N_buf * se_buf * se_buf + h_buf * b_buf * b_buf * N_buf / (N_buf - 1.0);
-    //VectorXf ypySrt = D.array()*n.array()*se.array().square() + D.array() * b.array().square() * n.array() / nMinusOne.array();
-    VectorXf ypySrt = D.array()*(n.array()*se.array().square()+b.array().square());
-    VectorXf varpSrt = ypySrt.array()/n.array();
-    std::sort(ypySrt.data(), ypySrt.data() + ypySrt.size());
-    std::sort(varpSrt.data(), varpSrt.data() + varpSrt.size());
-    ypy = ypySrt[ypySrt.size()/2];  // median
-    varPhenotypic = varpSrt[varpSrt.size()/2];
-    //cout << "varPhenotypic: " << varPhenotypic << endl;
-    VectorXf nSrt = n;
-    std::sort(nSrt.data(), nSrt.data() + nSrt.size());
-    numKeptInds = nSrt[nSrt.size()/2]; // median
-    
-    nGWASblock.resize(numKeptLDBlocks);
-    for (unsigned i=0; i<numKeptLDBlocks; ++i) {
-        nGWASblock[i] = numKeptInds;
-    }
-
-    for (unsigned i=0; i<numIncdSnps; ++i) {
-        snp = incdSnpInfoVec[i];
-        D[i] = varPhenotypic/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
-        snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
-        tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
-        // Need to adjust R and C models X'X matrix depending scale of genotypes or not
-        if (noscale == true) {
-            D[i] = snp2pq[i]*snp->gwas_n;
-        } else {
-            D[i] = snp->gwas_n;
-        }
-    }
-    // cout << endl << "snp2pq: " << endl << snp2pq << endl;
-    //ypy = numKeptInds;
-    // NEW END
-    // data summary
-    cout << "\nData summary:" << endl;
-    cout << boost::format("%40s %8s %8s\n") %"" %"mean" %"sd";
-    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP Phenotypic variance" %Gadget::calcMean(varpSrt) %sqrt(Gadget::calcVariance(varpSrt));
-    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP heterozygosity" %Gadget::calcMean(snp2pq) %sqrt(Gadget::calcVariance(snp2pq));
-    cout << boost::format("%40s %8.0f %8.0f\n") %"GWAS SNP sample size" %Gadget::calcMean(n) %sqrt(Gadget::calcVariance(n));
-    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP effect (in genotype SD unit)" %Gadget::calcMean(b) %sqrt(Gadget::calcVariance(b));
-    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP SE" %Gadget::calcMean(se) %sqrt(Gadget::calcVariance(se));
-    cout << boost::format("%40s %8.3f %8.3f\n") %"LD block size" %Gadget::calcMean(numSnpsBlock) %sqrt(Gadget::calcVariance(numSnpsBlock));
-    cout << boost::format("%40s %8.3f %8.3f\n") %"LD block rank" %Gadget::calcMean(numEigenvalBlock) %sqrt(Gadget::calcVariance(numEigenvalBlock));
-}
+//void Data::constructWandQ(const float eigenCutoff, const bool noscale){
+//    VectorXf nMinusOne;
+//    snp2pq.resize(numIncdSnps);
+//    D.resize(numIncdSnps);
+//   // ZPZdiag.resize(numIncdSnps);
+//    ZPy.resize(numIncdSnps);
+//    b.resize(numIncdSnps);
+//    n.resize(numIncdSnps);
+//    nMinusOne.resize(numIncdSnps);
+//    se.resize(numIncdSnps);
+//    tss.resize(numIncdSnps);
+//    SnpInfo *snp;
+//    for (unsigned i=0; i<numIncdSnps; ++i) {
+//        snp = incdSnpInfoVec[i];
+//        snp->af = snp->gwas_af;
+//        snp2pq[i] = snp->twopq = 2.0f*snp->gwas_af*(1.0f-snp->gwas_af);
+//        if(snp2pq[i]==0) cout << "Error: SNP " << snp->ID << " af " << snp->af << " has 2pq = 0." << endl;
+//        D[i] = snp2pq[i]*snp->gwas_n;
+//        b[i] = snp->gwas_b * sqrt(snp2pq[i]); // scale the marginal effect so that it's in per genotype SD unit
+//        n[i] = snp->gwas_n;
+//        nMinusOne[i] = snp->gwas_n - 1;
+//        se[i]= snp->gwas_se * sqrt(snp2pq[i]);
+//        tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
+//        ZPy[i] = n[i]*b[i];
+//        //  D[i] = 1.0/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
+//        //  snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
+//    }
+//    cout << endl;
+//    LDBlockInfo * ldblock;
+//    wcorrBlocks.resize(numKeptLDBlocks);
+//    // Qblocks.resize(numKeptLDBlocks);
+//    numSnpsBlock.resize(numKeptLDBlocks);
+//    numEigenvalBlock.resize(numKeptLDBlocks);
+//    Qblocks.clear();
+//    VectorXf sqrtLambda;
+//    // save gwas marginal effect into block
+//    gwasEffectInBlock.resize(numKeptLDBlocks);
+//    for (unsigned i = 0; i < numKeptLDBlocks; i++){
+//        ldblock = keptLdBlockInfoVec[i];
+//        gwasEffectInBlock[i] = b(ldblock->block2GwasSnpVec);
+//        // calculate wbcorr and Qblocks
+//        sqrtLambda = eigenValLdBlock[i].array().sqrt();
+//        //cout << eigenVecLdBlock[i].transpose().rows() << " " << eigenVecLdBlock[i].transpose().cols() << " " << gwasEffectInBlock[i].size() << endl;
+//        wcorrBlocks[i] = (1.0/sqrtLambda.array()).matrix().asDiagonal() * (eigenVecLdBlock[i].transpose() * gwasEffectInBlock[i] );
+//        // cout << "eigenVecLdBlock[i]: " << eigenVecLdBlock[i] << endl;
+//        // cout << "wcorrBlocks[i]: " << wcorrBlocks[i] << endl;
+//        // cout << "sqrtLambda: " << sqrtLambda << endl;
+//        // cout << gwasEffectInBlock[i] << endl;
+//        MatrixXf tmpQblocks = sqrtLambda.asDiagonal() * eigenVecLdBlock[i].transpose();
+//        MatrixDat matrixDat = MatrixDat(ldblock->gwasSnpNameVecInBlock,tmpQblocks );
+//        // cout << "Qblock: " << endl;
+//        // cout << matrixDat.values << endl;
+//        Qblocks.push_back(matrixDat);
+//        numSnpsBlock[i] = Qblocks[i].ncol;
+//        numEigenvalBlock[i] = Qblocks[i].nrow;
+//    }
+//    
+//    //b.array() -= b.mean();  // DO NOT CENTER b
+//    // estimate phenotypic variance based on the input allele frequencies in GWAS
+//
+//    //  Vp_buf = h_buf * N_buf * se_buf * se_buf + h_buf * b_buf * b_buf * N_buf / (N_buf - 1.0);
+//    //VectorXf ypySrt = D.array()*n.array()*se.array().square() + D.array() * b.array().square() * n.array() / nMinusOne.array();
+//    VectorXf ypySrt = D.array()*(n.array()*se.array().square()+b.array().square());
+//    VectorXf varpSrt = ypySrt.array()/n.array();
+//    std::sort(ypySrt.data(), ypySrt.data() + ypySrt.size());
+//    std::sort(varpSrt.data(), varpSrt.data() + varpSrt.size());
+//    ypy = ypySrt[ypySrt.size()/2];  // median
+//    varPhenotypic = varpSrt[varpSrt.size()/2];
+//    //cout << "varPhenotypic: " << varPhenotypic << endl;
+//    VectorXf nSrt = n;
+//    std::sort(nSrt.data(), nSrt.data() + nSrt.size());
+//    numKeptInds = nSrt[nSrt.size()/2]; // median
+//    
+//    nGWASblock.resize(numKeptLDBlocks);
+//    for (unsigned i=0; i<numKeptLDBlocks; ++i) {
+//        nGWASblock[i] = numKeptInds;
+//    }
+//
+//    for (unsigned i=0; i<numIncdSnps; ++i) {
+//        snp = incdSnpInfoVec[i];
+//        D[i] = varPhenotypic/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
+//        snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
+//        tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
+//        // Need to adjust R and C models X'X matrix depending scale of genotypes or not
+//        if (noscale == true) {
+//            D[i] = snp2pq[i]*snp->gwas_n;
+//        } else {
+//            D[i] = snp->gwas_n;
+//        }
+//    }
+//    // cout << endl << "snp2pq: " << endl << snp2pq << endl;
+//    //ypy = numKeptInds;
+//    // NEW END
+//    // data summary
+//    cout << "\nData summary:" << endl;
+//    cout << boost::format("%40s %8s %8s\n") %"" %"mean" %"sd";
+//    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP Phenotypic variance" %Gadget::calcMean(varpSrt) %sqrt(Gadget::calcVariance(varpSrt));
+//    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP heterozygosity" %Gadget::calcMean(snp2pq) %sqrt(Gadget::calcVariance(snp2pq));
+//    cout << boost::format("%40s %8.0f %8.0f\n") %"GWAS SNP sample size" %Gadget::calcMean(n) %sqrt(Gadget::calcVariance(n));
+//    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP effect (in genotype SD unit)" %Gadget::calcMean(b) %sqrt(Gadget::calcVariance(b));
+//    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP SE" %Gadget::calcMean(se) %sqrt(Gadget::calcVariance(se));
+//    cout << boost::format("%40s %8.3f %8.3f\n") %"LD block size" %Gadget::calcMean(numSnpsBlock) %sqrt(Gadget::calcVariance(numSnpsBlock));
+//    cout << boost::format("%40s %8.3f %8.3f\n") %"LD block rank" %Gadget::calcMean(numEigenvalBlock) %sqrt(Gadget::calcVariance(numEigenvalBlock));
+//}
 
 
 void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname) {
@@ -1427,6 +1427,9 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname) {
         }
     }
     
+    if (blockIdxSet.size() == 0) {
+        throw ("Error: there is no info file to merge in folder [" + dirname + "].");
+    }
     
     unsigned nldm = blockIdxSet.size();
     

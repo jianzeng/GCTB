@@ -104,7 +104,7 @@
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--sbayes RC --annot /Users/uqjzeng1/Desktop/sbayesrc/annot --out /Users/uqjzeng1/Desktop/sbayesrc/run"
+            argument = "--sbayes R --out /Users/uqjzeng1/Desktop/sbayesrc/run"
             isEnabled = "YES">
          </CommandLineArgument>
          <CommandLineArgument

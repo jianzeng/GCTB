@@ -575,7 +575,7 @@ public:
     void includeMatchedBlocks(void);
 
     //////////// Step 2.3 build model matrix
-    void constructWandQ(const float eigenCutoff, const bool noscale);
+//    void constructWandQ(const float eigenCutoff, const bool noscale);
  
     void imputeSummaryData(void);
     
