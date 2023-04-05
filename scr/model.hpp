@@ -2443,9 +2443,12 @@ public:
     lowRankModel(lowrank)
     {
         
-//        cout << "In SBayesRC" << endl;
+//        cout << "varGenotypic " << varGenotypic << endl;
+//
+//       cout << "In SBayesRC" << endl;
 //        cout << "Q size: \n" << data.Qblocks[0].nrow << " " << data.Qblocks[0].ncol << endl << data.Qblocks[1].nrow << " " << data.Qblocks[1].ncol << endl;
 //        cout << "w size: \n" << data.wcorrBlocks[0].rows() << " " << data.wcorrBlocks[0].cols() << endl << data.wcorrBlocks[1].rows() << " " << data.wcorrBlocks[1].cols() << endl;
+//        cout << data.wcorrBlocks[0].segment(0, 5) << endl;
 
         allowPerSnpGV = perSnpGV;
         snpVarg.setConstant(data.numIncdSnps, varGenotypic);

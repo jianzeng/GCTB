@@ -302,7 +302,7 @@ void MCMC::printSummary(const vector<Parameter*> &paramToPrint, const vector<Mcm
     }
     cout << "\nPosterior statistics from MCMC samples:\n\n";
     cout << boost::format("%13s %-15s %-15s\n") %"" % "Mean" % "SD ";
-    out << "Posterior statistics from MCMC samples:\n\n";
+    //out << "Posterior statistics from MCMC samples:\n\n";
     out << boost::format("%13s %-15s %-15s\n") %"" % "Mean" % "SD ";
     for (unsigned i=0; i<paramToPrint.size(); ++i) {
         Parameter *par = paramToPrint[i];
@@ -465,7 +465,7 @@ void MCMC::convergeDiagGelmanRubin(const Model &model, vector<vector<McmcSamples
     out.open((filename + ".parRes").c_str());
     cout << "\nPosterior statistics from multiple chains:\n\n";
     cout << boost::format("%13s %-15s %-15s %-12s\n") %"" % "Mean" % "SD " % "R_GelmanRubin ";
-    out << "Posterior statistics from multiple chains:\n\n";
+    //out << "Posterior statistics from multiple chains:\n\n";
     out << boost::format("%13s %-15s %-15s %-12s\n") %"" % "Mean" % "SD " % "R_GelmanRubin ";
     long numChains = mcmcSampleVecChain.size();
     VectorXf meanVec(numChains);

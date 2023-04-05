@@ -181,7 +181,11 @@ void Options::inputOptions(const int argc, const char* argv[]){
             ss << "--ldm-eigen " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--ldm-eigen-cutoff")) {
-            eigenCutoff = atof(argv[++i]);
+            Gadget::Tokenizer strvec;
+            strvec.getTokens(argv[++i], " ,");
+            eigenCutoff.resize(strvec.size());
+            for (unsigned j=0; j<strvec.size(); ++j) eigenCutoff[j] = stof(strvec[j]);
+            std::sort(eigenCutoff.data(), eigenCutoff.data()+eigenCutoff.size());
             ss << "--ldm-eigen-cutoff " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--block-info")) {
