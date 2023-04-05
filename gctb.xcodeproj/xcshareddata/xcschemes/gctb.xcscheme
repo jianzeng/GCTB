@@ -96,16 +96,20 @@
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
-            argument = "--ldm-eigen /Users/uqjzeng1/Desktop/sbayesrc/run"
+            argument = "--bfile /Users/uqjzeng1/Desktop/sbayesrc/test --make-block-ldm --block-info /Users/uqjzeng1/Desktop/sbayesrc/sub-2-blocks-chr22-ldblock-fourier-4cM-2022-04-29.txt --out run"
             isEnabled = "YES">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--ldm-eigen /Users/uqjzeng1/Desktop/sbayesrc/run"
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--gwas-summary /Users/uqjzeng1/Desktop/sbayesrc/test10K.ma"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--sbayes R --out /Users/uqjzeng1/Desktop/sbayesrc/run"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--out-freq 1"

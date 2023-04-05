@@ -17,7 +17,7 @@ using namespace std;
 int main(int argc, const char * argv[]) {
     
     cout << "******************************************************************\n";
-    cout << "* GCTB 2.04.95                                                   *\n";
+    cout << "* GCTB 2.04.96                                                   *\n";
     cout << "* Genome-wide Complex Trait Bayesian analysis                    *\n";
     cout << "* Authors: Jian Zeng, Luke Lloyd-Jones, Zhili Zheng, Shouye Liu  *\n";
     cout << "* MIT License                                                    *\n";
@@ -76,7 +76,7 @@ int main(int argc, const char * argv[]) {
                 if (opt.outLDmatType == "shrunk") {
                     data.makeshrunkLDmatrix(opt.bedFile + ".bed", opt.outLDmatType, opt.snpRange, opt.title, opt.writeLdmTxt, opt.effpopNE, opt.cutOff, opt.genMapN);
                 } else if (opt.outLDmatType == "block") {
-                    data.makeBlockLDmatrix(opt.bedFile + ".bed", opt.outLDmatType, opt.ldBlockInfoFile, opt.includeBlock, opt.title, opt.writeLdmTxt);
+                    data.makeBlockLDmatrix(opt.bedFile + ".bed", opt.outLDmatType, opt.includeBlock, opt.title, opt.writeLdmTxt);
                 }
                 else {
                     string snpRange = opt.snpRange;

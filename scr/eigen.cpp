@@ -374,118 +374,67 @@ void Data::getEigenDataFromFullLDM(const string &filename, const float eigenCuto
     
 }
 
-void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, const string &ldBlockInfoFile, const unsigned block, const string &dirname, const bool writeLdmTxt, int ldBlockRegionWind){
-    int i,j;
-    vector<locus_bp> snpVec;
+void Data::mapSnpsToBlocks(){
+    unsigned chrCur = ldBlockInfoVec[0]->chrom;
+    unsigned chrIdx = 0;
+    unsigned snpIdx = 0;
+    int mapped = 0;
+    ChromInfo* chr;
+    LDBlockInfo *block;
     SnpInfo *snp;
-    
-    map<int, string>  chrEndSnp;
-    for (i = 1; i < numIncdSnps; i++) {
-        snp = incdSnpInfoVec[i];
-        if(incdSnpInfoVec[i]->chrom != incdSnpInfoVec[i-1]->chrom){
-            chrEndSnp.insert(pair<int, string>(incdSnpInfoVec[i - 1]->chrom,incdSnpInfoVec[i - 1]->ID ));
+    int chrEndSnpIdx = chromInfoVec[0]->endSnpIdx;
+    for (unsigned i=0; i<numLDBlocks; ++i) {
+        block = ldBlockInfoVec[i];
+        block->snpNameVec.clear();
+        block->snpInfoVec.clear();
+        if (chrCur < block->chrom) {  // move to a new chromosome
+            chrEndSnpIdx = chromInfoVec[++chrIdx]->endSnpIdx;
         }
-    }
-    chrEndSnp.insert(pair<int, string>(incdSnpInfoVec[numIncdSnps - 1]->chrom,incdSnpInfoVec[numIncdSnps - 1]->ID ));
-    //Step 1.2  Read block file
-    //readLDBlockInfoFile(ldBlockInfoFile);
-    /////////////////////////////////////////
-    // Step 2. Map snps to blocks
-    /////////////////////////////////////////
-    vector<string> block2snp_1(numLDBlocks), block2snp_2(numLDBlocks);
-    map<string,int> keptLdBlock2AllLdBlcokMap;
-    vector<locus_bp>::iterator iter;
-    map<int, string>::iterator chrIter;
-    LDBlockInfo *ldblock;
-    for (i = 0; i < numIncdSnps ; i++) {
-        snp = incdSnpInfoVec[i];
-        snpVec.push_back(locus_bp(snp->ID, snp->chrom, snp->physPos ));
-    }
-#pragma omp parallel for private(iter, chrIter)
-    for (i = 0; i < numLDBlocks; i++) {
-        // find lowest snp_name in the block
-        ldblock = ldBlockInfoVec[i];
-        
-        iter = find_if(snpVec.begin(), snpVec.end(), locus_bp( ldblock->ID ,ldblock->chrom, ldblock->startPos - ldBlockRegionWind));
-        if (iter != snpVec.end()) block2snp_1[i] = iter->locusName;
-        else block2snp_1[i] = "NA";
-    }
-#pragma omp parallel for private(iter, chrIter)
-    for (i = 0; i < numLDBlocks; i++) {
-        ldblock = ldBlockInfoVec[i];
-        if (block2snp_1[i] == "NA") {
-            block2snp_2[i] = "NA";
-            continue;
-        }
-        iter = find_if(snpVec.begin(), snpVec.end(), locus_bp(ldblock->ID, ldblock->chrom, ldblock->endPos + ldBlockRegionWind));
-        if (iter != snpVec.end()){
-            if (iter->bp ==  ldblock->endPos + ldBlockRegionWind){
-                block2snp_2[i] = iter->locusName;
-            }else {
-                if(iter!=snpVec.begin()){
-                    iter--;
-                    block2snp_2[i] = iter->locusName;
-                }
-                else block2snp_2[i] = "NA";
+        for (; snpIdx <= chrEndSnpIdx; ++snpIdx) {
+            snp = snpInfoVec[snpIdx];
+            if (snp->physPos >= block->startPos && snp->physPos < block->endPos) {
+                block->snpNameVec.push_back(snp->ID);
+                block->snpInfoVec.push_back(snp);
+            } else if (snp->physPos >= block->endPos) {
+                break;
             }
         }
-        else {
-            chrIter = chrEndSnp.find(ldblock->chrom);
-            if (chrIter == chrEndSnp.end()) block2snp_2[i] = "NA";
-            else block2snp_2[i] = chrIter->second;
-        }
-    }
-    int mapped = 0;
-    for (i = 0; i < numLDBlocks; i++) {
-        ldblock = ldBlockInfoVec[i];
-        if (block2snp_1[i] != "NA" && block2snp_2[i] != "NA")
-        {
-            mapped++;
-            // ldblock->kept = true;
-            keptLdBlock2AllLdBlcokMap.insert(pair<string, int>(ldblock->ID, i));
+        block->numSnpInBlock = block->snpInfoVec.size();
+        if (block->numSnpInBlock) {
+            block->startSnpIdx = block->snpInfoVec[0]->index;
+            block->endSnpIdx = block->snpInfoVec[block->numSnpInBlock-1]->index;
+            block->kept = true;
+            ++mapped;
         } else {
-            ldblock->kept = false;
+            block->kept = false;
         }
     }
-    
+        
     if (mapped < 1) throw(0, "No SNP can be mapped to the provided LD block list. Please check the input data regarding chromosome and bp.");
     else cout << mapped << " LD block(s) are retained." << endl;
-    
-    keptLdBlockInfoVec = makeKeptLDBlockInfoVec(ldBlockInfoVec);
-    numKeptLDBlocks = (unsigned) keptLdBlockInfoVec.size();
-    
-    map<string, int>::iterator iter1, iter2;
-    map<string, int> snp_name_map;
-    VectorXf snpNumInldblock(numKeptLDBlocks);
-    VectorXf eigenNumInldblock(numKeptLDBlocks);
-    vector<VectorXf> cumsumNonNeg(numKeptLDBlocks);
-    
-    for (i = 0; i < numIncdSnps; i++) {
-        snp = incdSnpInfoVec[i];
-        snp_name_map.insert(pair<string,int>(snp->ID, i));
-        
-    }
-    // eigenvector and eigenvalue
-    //eigenValLdBlock.resize(numKeptLDBlocks);
-    //eigenVecLdBlock.resize(numKeptLDBlocks);
+}
 
-    //    string outfilename = filename + "." + LDmatType + ".eigen" + ".bin";
-    //    FILE *out = fopen(outfilename.c_str(), "wb");
+void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, const unsigned block, const string &dirname, const bool writeLdmTxt, int ldBlockRegionWind){
+    cout << "Making block LD matricies ..." << endl;
     
     struct stat sb;
     if (stat(dirname.c_str(), &sb) != 0 || !S_ISDIR(sb.st_mode)) {
         // Folder doesn't exist, create it
         string create_cmd = "mkdir " + dirname;
         system(create_cmd.c_str());
-        cout << "Created folder [" << dirname << "] to store results." << endl;
-
+        cout << "Created folder [" << dirname << "] to store LD matrices." << endl;
     }
+    
+    mapSnpsToBlocks();
+    
+    keptLdBlockInfoVec = makeKeptLDBlockInfoVec(ldBlockInfoVec);
+    numKeptLDBlocks = (unsigned) keptLdBlockInfoVec.size();
     
     string outBinfile;
     string outTxtfile;
-    bool readBedBool = true;
-    for (i = 0; i < numKeptLDBlocks; i++) {
-        ldblock = keptLdBlockInfoVec[i];
+
+    for (unsigned i = 0; i < numKeptLDBlocks; i++) {
+        LDBlockInfo *ldblock = keptLdBlockInfoVec[i];
 
         outBinfile = dirname + "/block" + ldblock->ID + ".ldm.bin";
         FILE *outbin = fopen(outBinfile.c_str(), "wb");
@@ -496,51 +445,18 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
             outtxt.open(outTxtfile.c_str());
         }
 
-        // cout << "ldblock id: " << ldblock->ID << endl;
-        iter1 = snp_name_map.find(block2snp_1[keptLdBlock2AllLdBlcokMap.at(ldblock->ID ) ]);
-        iter2 = snp_name_map.find(block2snp_2[keptLdBlock2AllLdBlcokMap.at(ldblock->ID ) ]);
-                
-        bool skip = false;
-        if (iter1 == snp_name_map.end() || iter2 == snp_name_map.end() || iter1->second >= iter2->second) ldblock->kept = false;
-        snpNumInldblock[i] = iter2->second - iter1->second + 1;
-        // cout << "ldblock->kept: " << ldblock->kept << endl;
-        if(!ldblock->kept) continue;
-        vector<int> snp_indx;
-        SnpInfo *snp;
-        for (j = iter1->second; j <= iter2->second; j++) {
-            snp_indx.push_back(j);
-            snp = incdSnpInfoVec[j];
-            ldblock->gwasSnpNameVecInBlock.push_back(snp->ID);
-            snp->block = ldblock->ID;
-            // cout << incdSnpInfoVec[j]->ID << " ";
-        }
-        if(readBedBool) {
-            cout << "Reading PLINK BED file from [" + bedFile + "] in SNP-major format ..." << endl;
-            readBedBool = false;
-        }
-        //        MatrixXf eigenVec;
-        //        VectorXf eigenVal,cumsumNonNegPerLD;
-        MatrixXf rval = generateLDmatrixPerBlock(bedFile, ldblock->gwasSnpNameVecInBlock);
-        //        // cout << "rval: " << rval << endl;
-        //        // cout << "rval cols: " << rval.cols() << " rval rows: " << rval.rows() << endl;
-        //        eigenDecomposition(rval, eigenCutoff,eigenVal, eigenVec,cumsumNonNegPerLD);
-        //        // cout << "rval: " << rval.row(0) << endl;
-        //        // cout << " Generate and save SVD of LD matrix from LD block " << i << "\r" << flush;
-        //        // save svd matrix
-        //        int32_t numEigenValue = eigenVal.size();
-        int32_t numSnpInBlock = ldblock->gwasSnpNameVecInBlock.size();
+        if(!i) cout << "Reading PLINK BED file from [" + bedFile + "] in SNP-major format ..." << endl;
+            
+        MatrixXf rval = generateLDmatrixPerBlock(bedFile, ldblock->snpNameVec);
         
-        ldblock->startSnpIdx = snp_indx[0];
-        ldblock->endSnpIdx = snp_indx[snp_indx.size()-1];
-        
+        unsigned numSnpInBlock = ldblock->numSnpInBlock;
         uint64_t nElements = (uint64_t) numSnpInBlock * (uint64_t) numSnpInBlock;
         fwrite(rval.data(), sizeof(float), nElements, outbin);
-        //        cout << " Generate and save Eigen decomposition result for LD block " << i << ", number of SNPs " << numSnpInBlock << ", number of selected eigenvalues " << numEigenValue << "\r" << flush;
         
         if (writeLdmTxt) {
             for (unsigned ii=0; ii<numSnpInBlock; ++ii){
                 for (unsigned jj=0; jj<numSnpInBlock; ++jj) {
-                    outtxt << ldblock->ID << "\t" << ldblock->gwasSnpNameVecInBlock[ii] << "\t" << ldblock->gwasSnpNameVecInBlock[jj] << "\t" << rval(ii,jj) << endl;
+                    outtxt << ldblock->ID << "\t" << ldblock->snpNameVec[ii] << "\t" << ldblock->snpNameVec[jj] << "\t" << rval(ii,jj) << endl;
                 }
             }
         }
@@ -562,6 +478,196 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
 
 }
 
+//void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, const unsigned block, const string &dirname, const bool writeLdmTxt, int ldBlockRegionWind){
+//    int i,j;
+//    vector<locus_bp> snpVec;
+//    SnpInfo *snp;
+//
+//    map<int, string>  chrEndSnp;
+//    for (i = 1; i < numIncdSnps; i++) {
+//        snp = incdSnpInfoVec[i];
+//        if(incdSnpInfoVec[i]->chrom != incdSnpInfoVec[i-1]->chrom){
+//            chrEndSnp.insert(pair<int, string>(incdSnpInfoVec[i - 1]->chrom,incdSnpInfoVec[i - 1]->ID ));
+//        }
+//    }
+//    chrEndSnp.insert(pair<int, string>(incdSnpInfoVec[numIncdSnps - 1]->chrom,incdSnpInfoVec[numIncdSnps - 1]->ID ));
+//    //Step 1.2  Read block file
+//    //readLDBlockInfoFile(ldBlockInfoFile);
+//
+//
+//    /////////////////////////////////////////
+//    // Step 2. Map snps to blocks
+//    /////////////////////////////////////////
+//    vector<string> block2snp_1(numLDBlocks), block2snp_2(numLDBlocks);
+//    map<string,int> keptLdBlock2AllLdBlcokMap;
+//    vector<locus_bp>::iterator iter;
+//    map<int, string>::iterator chrIter;
+//    LDBlockInfo *ldblock;
+//    for (i = 0; i < numIncdSnps ; i++) {
+//        snp = incdSnpInfoVec[i];
+//        snpVec.push_back(locus_bp(snp->ID, snp->chrom, snp->physPos ));
+//    }
+//#pragma omp parallel for private(iter, chrIter)
+//    for (i = 0; i < numLDBlocks; i++) {
+//        // find lowest snp_name in the block
+//        ldblock = ldBlockInfoVec[i];
+//
+//        iter = find_if(snpVec.begin(), snpVec.end(), locus_bp( ldblock->ID ,ldblock->chrom, ldblock->startPos - ldBlockRegionWind));
+//        if (iter != snpVec.end()) block2snp_1[i] = iter->locusName;
+//        else block2snp_1[i] = "NA";
+//    }
+//#pragma omp parallel for private(iter, chrIter)
+//    for (i = 0; i < numLDBlocks; i++) {
+//        ldblock = ldBlockInfoVec[i];
+//        if (block2snp_1[i] == "NA") {
+//            block2snp_2[i] = "NA";
+//            continue;
+//        }
+//        iter = find_if(snpVec.begin(), snpVec.end(), locus_bp(ldblock->ID, ldblock->chrom, ldblock->endPos + ldBlockRegionWind));
+//        if (iter != snpVec.end()){
+//            if (iter->bp ==  ldblock->endPos + ldBlockRegionWind){
+//                block2snp_2[i] = iter->locusName;
+//            }else {
+//                if(iter!=snpVec.begin()){
+//                    iter--;
+//                    block2snp_2[i] = iter->locusName;
+//                }
+//                else block2snp_2[i] = "NA";
+//            }
+//        }
+//        else {
+//            chrIter = chrEndSnp.find(ldblock->chrom);
+//            if (chrIter == chrEndSnp.end()) block2snp_2[i] = "NA";
+//            else block2snp_2[i] = chrIter->second;
+//        }
+//    }
+//    int mapped = 0;
+//    for (i = 0; i < numLDBlocks; i++) {
+//        ldblock = ldBlockInfoVec[i];
+//        if (block2snp_1[i] != "NA" && block2snp_2[i] != "NA")
+//        {
+//            mapped++;
+//            // ldblock->kept = true;
+//            keptLdBlock2AllLdBlcokMap.insert(pair<string, int>(ldblock->ID, i));
+//        } else {
+//            ldblock->kept = false;
+//        }
+//    }
+//
+//    if (mapped < 1) throw(0, "No SNP can be mapped to the provided LD block list. Please check the input data regarding chromosome and bp.");
+//    else cout << mapped << " LD block(s) are retained." << endl;
+//
+//    keptLdBlockInfoVec = makeKeptLDBlockInfoVec(ldBlockInfoVec);
+//    numKeptLDBlocks = (unsigned) keptLdBlockInfoVec.size();
+//
+//    map<string, int>::iterator iter1, iter2;
+//    map<string, int> snp_name_map;
+//    VectorXf snpNumInldblock(numKeptLDBlocks);
+//    VectorXf eigenNumInldblock(numKeptLDBlocks);
+//    vector<VectorXf> cumsumNonNeg(numKeptLDBlocks);
+//
+//    for (i = 0; i < numIncdSnps; i++) {
+//        snp = incdSnpInfoVec[i];
+//        snp_name_map.insert(pair<string,int>(snp->ID, i));
+//
+//    }
+//    // eigenvector and eigenvalue
+//    //eigenValLdBlock.resize(numKeptLDBlocks);
+//    //eigenVecLdBlock.resize(numKeptLDBlocks);
+//
+//    //    string outfilename = filename + "." + LDmatType + ".eigen" + ".bin";
+//    //    FILE *out = fopen(outfilename.c_str(), "wb");
+//
+//    struct stat sb;
+//    if (stat(dirname.c_str(), &sb) != 0 || !S_ISDIR(sb.st_mode)) {
+//        // Folder doesn't exist, create it
+//        string create_cmd = "mkdir " + dirname;
+//        system(create_cmd.c_str());
+//        cout << "Created folder [" << dirname << "] to store results." << endl;
+//
+//    }
+//
+//    string outBinfile;
+//    string outTxtfile;
+//    bool readBedBool = true;
+//    for (i = 0; i < numKeptLDBlocks; i++) {
+//        ldblock = keptLdBlockInfoVec[i];
+//
+//        outBinfile = dirname + "/block" + ldblock->ID + ".ldm.bin";
+//        FILE *outbin = fopen(outBinfile.c_str(), "wb");
+//        ofstream outtxt;
+//        outTxtfile;
+//        if (writeLdmTxt) {
+//            outTxtfile = dirname + "/block" + ldblock->ID + ".ldm.txt";
+//            outtxt.open(outTxtfile.c_str());
+//        }
+//
+//        // cout << "ldblock id: " << ldblock->ID << endl;
+//        iter1 = snp_name_map.find(block2snp_1[keptLdBlock2AllLdBlcokMap.at(ldblock->ID ) ]);
+//        iter2 = snp_name_map.find(block2snp_2[keptLdBlock2AllLdBlcokMap.at(ldblock->ID ) ]);
+//
+//        bool skip = false;
+//        if (iter1 == snp_name_map.end() || iter2 == snp_name_map.end() || iter1->second >= iter2->second) ldblock->kept = false;
+//        snpNumInldblock[i] = iter2->second - iter1->second + 1;
+//        // cout << "ldblock->kept: " << ldblock->kept << endl;
+//        if(!ldblock->kept) continue;
+//        vector<int> snp_indx;
+//        SnpInfo *snp;
+//        for (j = iter1->second; j <= iter2->second; j++) {
+//            snp_indx.push_back(j);
+//            snp = incdSnpInfoVec[j];
+//            ldblock->snpNameVec.push_back(snp->ID);
+//            snp->block = ldblock->ID;
+//            // cout << incdSnpInfoVec[j]->ID << " ";
+//        }
+//        if(readBedBool) {
+//            cout << "Reading PLINK BED file from [" + bedFile + "] in SNP-major format ..." << endl;
+//            readBedBool = false;
+//        }
+//        //        MatrixXf eigenVec;
+//        //        VectorXf eigenVal,cumsumNonNegPerLD;
+//        MatrixXf rval = generateLDmatrixPerBlock(bedFile, ldblock->snpNameVec);
+//        //        // cout << "rval: " << rval << endl;
+//        //        // cout << "rval cols: " << rval.cols() << " rval rows: " << rval.rows() << endl;
+//        //        eigenDecomposition(rval, eigenCutoff,eigenVal, eigenVec,cumsumNonNegPerLD);
+//        //        // cout << "rval: " << rval.row(0) << endl;
+//        //        // cout << " Generate and save SVD of LD matrix from LD block " << i << "\r" << flush;
+//        //        // save svd matrix
+//        //        int32_t numEigenValue = eigenVal.size();
+//        int32_t numSnpInBlock = ldblock->snpNameVec.size();
+//
+//        ldblock->startSnpIdx = snp_indx[0];
+//        ldblock->endSnpIdx = snp_indx[snp_indx.size()-1];
+//
+//        uint64_t nElements = (uint64_t) numSnpInBlock * (uint64_t) numSnpInBlock;
+//        fwrite(rval.data(), sizeof(float), nElements, outbin);
+//        //        cout << " Generate and save Eigen decomposition result for LD block " << i << ", number of SNPs " << numSnpInBlock << ", number of selected eigenvalues " << numEigenValue << "\r" << flush;
+//
+//        if (writeLdmTxt) {
+//            for (unsigned ii=0; ii<numSnpInBlock; ++ii){
+//                for (unsigned jj=0; jj<numSnpInBlock; ++jj) {
+//                    outtxt << ldblock->ID << "\t" << ldblock->snpNameVec[ii] << "\t" << ldblock->snpNameVec[jj] << "\t" << rval(ii,jj) << endl;
+//                }
+//            }
+//        }
+//
+//        fclose(outbin);
+//        if (writeLdmTxt) outtxt.close();
+//    }
+//
+//    if (block) {
+//        cout << "Written the LD matrix into file [" << outBinfile << "]." << endl;
+//        if (writeLdmTxt) cout << "Written the LD matrix into file [" << outTxtfile << "]." << endl;
+//    }
+//    else {
+//        cout << "Written the LD matrix into folder [" << dirname << "/block*.ldm.bin]." << endl;
+//        if (writeLdmTxt) cout << "Written the LD matrix into text file [" << dirname << "/block*.ldm.txt]." << endl;
+//    }
+//
+//    outputBlockLDmatrixInfo(block, dirname);
+//
+//}
+
 
 void Data::impG(double diag_mod){
 
@@ -581,7 +687,7 @@ void Data::impG(double diag_mod){
         MatrixXf LDtt, LDit;
         VectorXf ZPerBlock(ldblock->numSnpInBlock),NPerBlock(ldblock->numSnpInBlock),VpPerBlock(ldblock->numSnpInBlock),Ztt; // typed zz
         for(unsigned j = 0; j < ldblock->numSnpInBlock; j++){
-            iterSnp = snpInfoMap.find(ldblock->gwasSnpNameVecInBlock[j]);
+            iterSnp = snpInfoMap.find(ldblock->snpNameVec[j]);
             if (iterSnp == snpInfoMap.end()) {
                 continue;
             }
@@ -615,7 +721,7 @@ void Data::impG(double diag_mod){
         float VpMedian = Vptyped[Vptyped.size()/2];  // median
         // begin impute 
         for(unsigned j = 0; j < untypedSnpIdx.size(); j++){
-            iterSnp = snpInfoMap.find(ldblock->gwasSnpNameVecInBlock[untypedSnpIdx[j]]);
+            iterSnp = snpInfoMap.find(ldblock->snpNameVec[untypedSnpIdx[j]]);
             if (iterSnp == snpInfoMap.end()) {
                 // base = 2 * snp->af *( 1- snp->af) * ( NMedian + ZPerBlock(j) * ZPerBlock(j));
                 continue;
@@ -749,7 +855,7 @@ void Data::getEigenDataForLDBlock(const string &bedFile, const string &ldBlockIn
         vector<int> snp_indx;
         for (j = iter1->second; j <= iter2->second; j++) {
             snp_indx.push_back(j);
-            ldblock->gwasSnpNameVecInBlock.push_back(incdSnpInfoVec[j]->ID);
+            ldblock->snpNameVec.push_back(incdSnpInfoVec[j]->ID);
            // cout << incdSnpInfoVec[j]->ID << " ";
         }
         if(readBedBool) {
@@ -759,7 +865,7 @@ void Data::getEigenDataForLDBlock(const string &bedFile, const string &ldBlockIn
         MatrixXf eigenVec;
         VectorXf eigenVal;
         float sumPosEigVal = 0;
-        MatrixXf rval = generateLDmatrixPerBlock(bedFile, ldblock->gwasSnpNameVecInBlock);
+        MatrixXf rval = generateLDmatrixPerBlock(bedFile, ldblock->snpNameVec);
         // cout << "rval: " << rval << endl;
         // cout << "rval cols: " << rval.cols() << " rval rows: " << rval.rows() << endl;
         eigenDecomposition(rval, eigenCutoff,eigenVal, eigenVec, sumPosEigVal);
@@ -767,7 +873,7 @@ void Data::getEigenDataForLDBlock(const string &bedFile, const string &ldBlockIn
         // cout << " Generate and save SVD of LD matrix from LD block " << i << "\r" << flush;
         // save svd matrix
         int32_t numEigenValue = eigenVal.size();
-        int32_t numSnpInBlock = ldblock->gwasSnpNameVecInBlock.size();
+        int32_t numSnpInBlock = ldblock->snpNameVec.size();
         eigenNumInldblock[i] = numEigenValue;
         // save summary
         // 1, nrow of eigenVecGene[i]
@@ -865,7 +971,7 @@ void Data::outputBlockLDmatrixInfo(const unsigned block, const string &dirname) 
         % incdSnpInfoVec[ldblock->startSnpIdx]->ID
         % ldblock->endSnpIdx
         % incdSnpInfoVec[ldblock->endSnpIdx]->ID
-        % ldblock->gwasSnpNameVecInBlock.size();
+        % ldblock->snpNameVec.size();
     }
     out2.close();
     
@@ -931,6 +1037,7 @@ void Data::readBlockLdmSnpInfoFile(const string &snpInfoFile){
         
         snp->af = allele1Freq;
         snp->ld_n = ld_n;
+        snp->block = blockID;
         snpInfoVec.push_back(snp);
         chromosomes.insert(snp->chrom);
         
@@ -939,7 +1046,7 @@ void Data::readBlockLdmSnpInfoFile(const string &snpInfoFile){
         if (ld2snpMap.insert(pair<string, int>(blockID + "_" + id, idx)).second == false) {
             throw ("Error: Duplicate LDBlock-SNP pair found: \"" + blockID + "_" + id + "\".");
         } else{
-                ldblock->gwasSnpNameVecInBlock.push_back(id);
+                ldblock->snpNameVec.push_back(id);
         }
 
         if (snpInfoMap.insert(pair<string, SnpInfo*>(id, snp)).second == false) {
@@ -1076,6 +1183,7 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
     eigenValLdBlock.resize(numLDBlocks);
     eigenVecLdBlock.resize(numLDBlocks);
         
+#pragma omp parallel for schedule(dynamic)
     for(int i = 0; i < numLDBlocks; i++){
         block = ldBlockInfoVec[i];
         int32_t cur_m = 0;
@@ -1254,21 +1362,23 @@ void Data::buildMMEeigen(const bool sampleOverlap, const float eigenCutoff, cons
 
 void Data::includeMatchedBlocks(){
     // this step is to construct gwasSnp2geneVec
-    //cout << "Construct various maps." << endl;
+//    cout << "Construct various maps." << endl;
     SnpInfo * snp;
     LDBlockInfo * ldblock;
     
-    for(unsigned j = 0; j < numLDBlocks; j++){
-        ldblock = ldBlockInfoVec[j];
+    for (unsigned i=0; i<numLDBlocks; ++i){
+        ldblock = ldBlockInfoVec[i];
         ldblock->block2GwasSnpVec.clear();
-        for(int i = 0; i < numIncdSnps; i++){
-            snp = incdSnpInfoVec[i];
-            // find if given snp belongs to ld block;
-            if (std::find(ldblock->gwasSnpNameVecInBlock.begin(), ldblock->gwasSnpNameVecInBlock.end(), snp->ID) != ldblock->gwasSnpNameVecInBlock.end()) {
-                ldblock->block2GwasSnpVec.push_back(i);
-                ldblock->memberSnpVec.push_back(snp);
-            }
-        }
+    }
+    for (unsigned j=0; j<numIncdSnps; ++j){
+        snp = incdSnpInfoVec[j];
+        ldblock = ldBlockInfoMap[snp->block];
+//        cout << j << " " << snp->ID << " " << snp->block << endl;
+        ldblock->block2GwasSnpVec.push_back(j);
+        ldblock->snpInfoVec.push_back(snp);
+    }
+    for (unsigned i=0; i<numLDBlocks; ++i){
+        ldblock = ldBlockInfoVec[i];
         if(ldblock->block2GwasSnpVec.size() == 0){
             ldblock->kept = false;
         } else {
@@ -1276,7 +1386,7 @@ void Data::includeMatchedBlocks(){
             ldblock->endSnpIdx = ldblock->block2GwasSnpVec[ldblock->numSnpInBlock-1];
         }
     }
-    
+        
     keptLdBlockInfoVec = makeKeptLDBlockInfoVec(ldBlockInfoVec);
     numKeptLDBlocks = (unsigned) keptLdBlockInfoVec.size();
 
@@ -1339,7 +1449,7 @@ void Data::includeMatchedBlocks(){
 //        // cout << "sqrtLambda: " << sqrtLambda << endl;
 //        // cout << gwasEffectInBlock[i] << endl;
 //        MatrixXf tmpQblocks = sqrtLambda.asDiagonal() * eigenVecLdBlock[i].transpose();
-//        MatrixDat matrixDat = MatrixDat(ldblock->gwasSnpNameVecInBlock,tmpQblocks );
+//        MatrixDat matrixDat = MatrixDat(ldblock->snpNameVec,tmpQblocks );
 //        // cout << "Qblock: " << endl;
 //        // cout << matrixDat.values << endl;
 //        Qblocks.push_back(matrixDat);
@@ -1593,7 +1703,7 @@ void Data::constructWandQ(const vector<VectorXf> &GWASeffects, const float nGWAS
         // cout << "sqrtLambda: " << sqrtLambda << endl;
         // cout << gwasEffectInBlock[i] << endl;
         MatrixXf tmpQblocks = sqrtLambda.asDiagonal() * eigenVecLdBlock[i].transpose();
-        MatrixDat matrixDat = MatrixDat(ldblock->gwasSnpNameVecInBlock, tmpQblocks);
+        MatrixDat matrixDat = MatrixDat(ldblock->snpNameVec, tmpQblocks);
         // cout << "Qblock: " << endl;
         // cout << matrixDat.values << endl;
         Qblocks.push_back(matrixDat);
