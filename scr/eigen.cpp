@@ -42,24 +42,24 @@ void Data::readLDBlockInfoFile(const string &ldBlockInfoFile){
     cout << numLDBlocks << " LD Blocks to be included from [" + ldBlockInfoFile + "]." << endl;
 }
 
-void Data::eigenDecomposition( const MatrixXf &X, const float &prop, VectorXf &eigenValAdjusted, MatrixXf &eigenVecAdjusted, VectorXf &cumsumNonNeg){
+void Data::eigenDecomposition( const MatrixXf &X, const float &prop, VectorXf &eigenValAdjusted, MatrixXf &eigenVecAdjusted, float &sumPosEigVal){
     // VectorXf cumsumNonNeg; // cumulative sums of non-negative values
-    float sumNonNeg = 0.0;
+    sumPosEigVal = 0.0;
 
     SelfAdjointEigenSolver<MatrixXf> eigensolver(X);
     VectorXf eigenVal = eigensolver.eigenvalues();
     MatrixXf eigenVec = eigensolver.eigenvectors();
     int revIdx = eigenVal.size();
-    cumsumNonNeg.resize(revIdx);
+    VectorXf cumsumNonNeg(revIdx);
     cumsumNonNeg.setZero();
     revIdx = revIdx -1;
     if(eigenVal(revIdx) < 0) cout << "Error, all eigenvector are negative" << endl;
     cumsumNonNeg(revIdx) = eigenVal(revIdx);
-    sumNonNeg = eigenVal(revIdx);
+    sumPosEigVal = eigenVal(revIdx);
     revIdx = revIdx -1;
     
     while( eigenVal(revIdx) > 1e-10 ){
-        sumNonNeg = sumNonNeg + eigenVal(revIdx);
+        sumPosEigVal = sumPosEigVal + eigenVal(revIdx);
         cumsumNonNeg(revIdx) = eigenVal(revIdx) + cumsumNonNeg(revIdx + 1);
         revIdx =revIdx - 1;
         if(revIdx < 0) break;
@@ -67,7 +67,7 @@ void Data::eigenDecomposition( const MatrixXf &X, const float &prop, VectorXf &e
     // cout << "revIdx: " << revIdx << endl;
     // cout << "size: " << eigenVal.size()  << " eigenVal: " << eigenVal << endl;
     // cout << "cumsumNoNeg: " << cumsumNonNeg << endl;
-    cumsumNonNeg = cumsumNonNeg/sumNonNeg;
+    cumsumNonNeg = cumsumNonNeg/sumPosEigVal;
     bool haveValue = false;
     // cout << "cumsumNonNeg: " << cumsumNonNeg << endl;
     // cout << "revIdx : " << revIdx << endl;
@@ -337,17 +337,17 @@ void Data::getEigenDataFromFullLDM(const string &filename, const float eigenCuto
     for (unsigned blk=0; blk < numKeptLDBlocks; blk++){
         
         MatrixXf eigenVec;
-        VectorXf eigenVal, cumsumNonNegPerLD;
+        VectorXf eigenVal;
+        float sumPosEigVal;
         // cout << "rval: " << rval << endl;
         // cout << "rval cols: " << rval.cols() << " rval rows: " << rval.rows() << endl;
-        eigenDecomposition(ZPZmat, eigenCutoff, eigenVal, eigenVec, cumsumNonNegPerLD);
+        eigenDecomposition(ZPZmat, eigenCutoff, eigenVal, eigenVec, sumPosEigVal);
         // cout << "rval: " << rval.row(0) << endl;
         // cout << " Generate and save SVD of LD matrix from LD block " << i << "\r" << flush;
         // save svd matrix
         
         int32_t numEigenValue = eigenVal.size();
         int32_t numSnpInBlock = keptLdBlockInfoVec[blk]->numSnpInBlock;  // TMP
-        float eigenValueSum = eigenVal.sum();
 
         cout << " Generate Eigen decomposition result for LD block " << blk << ", number of SNPs " << numSnpInBlock << ", number of selected eigenvalues " << numEigenValue << endl;
         
@@ -356,16 +356,13 @@ void Data::getEigenDataFromFullLDM(const string &filename, const float eigenCuto
         fwrite(&numSnpInBlock, sizeof(int32_t), 1, out3);
         // 2, the number of eigenvalues at with the given cutoff
         fwrite(&numEigenValue, sizeof(int32_t), 1, out3);
-        // 3. sum of the selected eigenvalues
-        fwrite(&eigenValueSum, sizeof(float), 1, out3);
-        //4. eigenvalue cutoff based on the proportion of variance explained in LD
+        // 3. sum of all the positive eigenvalues
+        fwrite(&sumPosEigVal, sizeof(float), 1, out3);
+        // 4. eigenvalue cutoff based on the proportion of variance explained in LD
         fwrite(&eigenCutoff, sizeof(float), 1, out3);
-        // 5. save the selected eigenvalues
+        // 5. the selected eigenvalues
         fwrite(eigenVal.data(), sizeof(float), numEigenValue, out3);
-        // 6. save a series of proportions of variance in LD, please note, the order of
-        // these proportions are the opposite of the order of eigenValues
-        fwrite(cumsumNonNegPerLD.data(), sizeof(float), numSnpInBlock, out3);
-        // 7. save eigen vector;
+        // 6. the selected eigenvector;
         uint64_t nElements = (uint64_t) numSnpInBlock * (uint64_t) numEigenValue;
         fwrite(eigenVec.data(), sizeof(float), nElements, out3);
         
@@ -531,31 +528,11 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
         //        // cout << " Generate and save SVD of LD matrix from LD block " << i << "\r" << flush;
         //        // save svd matrix
         //        int32_t numEigenValue = eigenVal.size();
-                int32_t numSnpInBlock = ldblock->gwasSnpNameVecInBlock.size();
+        int32_t numSnpInBlock = ldblock->gwasSnpNameVecInBlock.size();
         
         ldblock->startSnpIdx = snp_indx[0];
         ldblock->endSnpIdx = snp_indx[snp_indx.size()-1];
         
-        //        eigenNumInldblock[i] = numEigenValue;
-        //        float eigenValueSum = eigenVal.sum();
-        //        // save summary
-        //        // 1, nrow of eigenVecGene[i]
-        //        fwrite(&numSnpInBlock, sizeof(int32_t), 1, out3);
-        //        //        cout << "rval: " << rval << endl;
-        //        // cout << "eigenVec: "  << eigenVec << endl;
-        //        // cout << "";
-        //        // 2, ncol of eigenVecGene[i]
-        //        fwrite(&numEigenValue, sizeof(int32_t), 1, out3);
-        //        // 3. sum of eigen values
-        //        fwrite(&eigenValueSum, sizeof(float), 1, out3);
-        //        //4. eigenCutoff
-        //        fwrite(&eigenCutoff, sizeof(float), 1, out3);
-        //        // 5. save eigen value
-        //        fwrite(eigenVal.data(), sizeof(float), numEigenValue, out3);
-        //        // 6. save a series of proportions of variance in LD, please note, the order of
-        //        // these proportions are the opposite of the order of eigenValues
-        //        fwrite(cumsumNonNegPerLD.data(), sizeof(float), numSnpInBlock, out3);
-        //        // 7. save eigen vector;
         uint64_t nElements = (uint64_t) numSnpInBlock * (uint64_t) numSnpInBlock;
         fwrite(rval.data(), sizeof(float), nElements, outbin);
         //        cout << " Generate and save Eigen decomposition result for LD block " << i << ", number of SNPs " << numSnpInBlock << ", number of selected eigenvalues " << numEigenValue << "\r" << flush;
@@ -780,18 +757,18 @@ void Data::getEigenDataForLDBlock(const string &bedFile, const string &ldBlockIn
             readBedBool = false;
         }
         MatrixXf eigenVec;
-        VectorXf eigenVal,cumsumNonNegPerLD;
+        VectorXf eigenVal;
+        float sumPosEigVal = 0;
         MatrixXf rval = generateLDmatrixPerBlock(bedFile, ldblock->gwasSnpNameVecInBlock);
         // cout << "rval: " << rval << endl;
         // cout << "rval cols: " << rval.cols() << " rval rows: " << rval.rows() << endl;
-        eigenDecomposition(rval, eigenCutoff,eigenVal, eigenVec,cumsumNonNegPerLD);
+        eigenDecomposition(rval, eigenCutoff,eigenVal, eigenVec, sumPosEigVal);
         // cout << "rval: " << rval.row(0) << endl;
         // cout << " Generate and save SVD of LD matrix from LD block " << i << "\r" << flush;
         // save svd matrix
         int32_t numEigenValue = eigenVal.size();
         int32_t numSnpInBlock = ldblock->gwasSnpNameVecInBlock.size();
         eigenNumInldblock[i] = numEigenValue;
-        float eigenValueSum = eigenVal.sum();
         // save summary
         // 1, nrow of eigenVecGene[i]
         fwrite(&numSnpInBlock, sizeof(int32_t), 1, out3);
@@ -800,16 +777,13 @@ void Data::getEigenDataForLDBlock(const string &bedFile, const string &ldBlockIn
         // cout << "";
         // 2, ncol of eigenVecGene[i]
         fwrite(&numEigenValue, sizeof(int32_t), 1, out3);
-        // 3. sum of eigen values
-        fwrite(&eigenValueSum, sizeof(float), 1, out3);
-        //4. eigenCutoff
+        // 3. sum of all positive eigenvalues
+        fwrite(&sumPosEigVal, sizeof(float), 1, out3);
+        // 4. eigenCutoff
         fwrite(&eigenCutoff, sizeof(float), 1, out3);
-        // 5. save eigen value
+        // 5. eigenvalues
         fwrite(eigenVal.data(), sizeof(float), numEigenValue, out3);
-        // 6. save a series of proportions of variance in LD, please note, the order of
-        // these proportions are the opposite of the order of eigenValues
-        fwrite(cumsumNonNegPerLD.data(), sizeof(float), numSnpInBlock, out3);
-        // 7. save eigen vector;
+        // 6. eigenvectors;
         uint64_t nElements = (uint64_t) numSnpInBlock * (uint64_t) numEigenValue;
         fwrite(eigenVec.data(), sizeof(float), nElements, out3);
         cout << " Generate and save Eigen decomposition result for LD block " << i << ", number of SNPs " << numSnpInBlock << ", number of selected eigenvalues " << numEigenValue << "\r" << flush;
@@ -977,7 +951,7 @@ void Data::readBlockLdmSnpInfoFile(const string &snpInfoFile){
     cout << numSnps << " SNPs to be included from [" + snpInfoFile + "]." << endl;
 }
 
-void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, const unsigned block, const float &eigenCutoff, const bool writeLdmTxt){
+void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, const unsigned block, const float eigenCutoff, const bool writeLdmTxt){
     struct stat sb;
     if (stat(dirname.c_str(), &sb) != 0 || !S_ISDIR(sb.st_mode)) {
         // Folder doesn't exist, create it
@@ -1027,18 +1001,19 @@ void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, cons
         }
         
         MatrixXf eigenVec;
-        VectorXf eigenVal, cumsumNonNegPerLD;
+        VectorXf eigenVal;
+        float sumPosEigVal;  // sum of all positive eigenvalues
         // cout << "rval: " << rval << endl;
         // cout << "rval cols: " << rval.cols() << " rval rows: " << rval.rows() << endl;
-        eigenDecomposition(ldm, eigenCutoff, eigenVal, eigenVec, cumsumNonNegPerLD);
+        eigenDecomposition(ldm, eigenCutoff, eigenVal, eigenVec, sumPosEigVal);
         // cout << "rval: " << rval.row(0) << endl;
         // cout << " Generate and save SVD of LD matrix from LD block " << i << "\r" << flush;
         // save svd matrix
 
+        block->sumPosEigVal = sumPosEigVal;
         
         int32_t numEigenValue = eigenVal.size();
         int32_t numSnpInBlock = blockSize;
-        float eigenValueSum = eigenVal.sum();
 
         //cout << " Generate Eigen decomposition result for LD block " << i << ", number of SNPs " << numSnpInBlock << ", number of selected eigenvalues " << numEigenValue << endl;
         
@@ -1047,16 +1022,13 @@ void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, cons
         fwrite(&numSnpInBlock, sizeof(int32_t), 1, outbin);
         // 2, the number of eigenvalues at with the given cutoff
         fwrite(&numEigenValue, sizeof(int32_t), 1, outbin);
-        // 3. sum of the selected eigenvalues
-        fwrite(&eigenValueSum, sizeof(float), 1, outbin);
-        //4. eigenvalue cutoff based on the proportion of variance explained in LD
+        // 3. sum of all the positive eigenvalues
+        fwrite(&sumPosEigVal, sizeof(float), 1, outbin);
+        // 4. eigenvalue cutoff based on the proportion of variance explained in LD
         fwrite(&eigenCutoff, sizeof(float), 1, outbin);
-        // 5. save the selected eigenvalues
+        // 5. the selected eigenvalues
         fwrite(eigenVal.data(), sizeof(float), numEigenValue, outbin);
-        // 6. save a series of proportions of variance in LD, please note, the order of
-        // these proportions are the opposite of the order of eigenValues
-        fwrite(cumsumNonNegPerLD.data(), sizeof(float), numSnpInBlock, outbin);
-        // 7. save eigen vector;
+        // 6. the selected eigenvector;
         nElements = (uint64_t) numSnpInBlock * (uint64_t) numEigenValue;
         fwrite(eigenVec.data(), sizeof(float), nElements, outbin);
         
@@ -1064,10 +1036,9 @@ void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, cons
             outtxt << "Block " << block->ID << endl;
             outtxt << "numSnps " << numSnpInBlock << endl;
             outtxt << "numEigenvalues " << numEigenValue << endl;
-            outtxt << "EigenvalueSum " << eigenValueSum << endl;
+            outtxt << "SumPositiveEigenvalues " << sumPosEigVal << endl;
             outtxt << "EigenCutoff " << eigenCutoff << endl;
             outtxt << "Eigenvalues\n" << eigenVal.transpose() << endl;
-            outtxt << "CumsumNonNegEigenvalues\n" << cumsumNonNegPerLD.transpose() << endl;
             outtxt << "Eigenvectors\n" << eigenVec << endl;
             outtxt << endl;
         }
@@ -1104,13 +1075,13 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
     }
     eigenValLdBlock.resize(numLDBlocks);
     eigenVecLdBlock.resize(numLDBlocks);
-    
+        
     for(int i = 0; i < numLDBlocks; i++){
         block = ldBlockInfoVec[i];
         int32_t cur_m = 0;
         int32_t cur_k = 0;
-        float sumLambda = 0;
-        float svdVarProp =0;
+        float sumPosEigVal = 0;
+        float oldEigenCutoff =0;
         
         string infile = dirname + "/block" + block->ID + ".eigen.bin";
         FILE *fp = fopen(infile.c_str(), "rb");
@@ -1130,33 +1101,26 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
             // cout << "Read " << eigenBinFile << " error (k)" << endl;
             // throw("read file error");
         }
-        // 3. sum of eigen values
-        if(fread(&sumLambda, sizeof(float), 1, fp) != 1){
-            throw("In LD block " + block->ID + ", error about sumLambda in " + infile);
+        // 3. sum of all positive eigenvalues
+        if(fread(&sumPosEigVal, sizeof(float), 1, fp) != 1){
+            throw("In LD block " + block->ID + ", error about the sum of positive eigenvalues in " + infile);
             // cout << "Read " << eigenBinFile << " error sumLambda" << endl;
             // throw("read file error");
         }
         // 4. eigenCutoff
-        if(fread(&svdVarProp, sizeof(float), 1, fp) != 1){
-            throw("In LD block " + block->ID + ", error about svdVarProp used in " + infile);
+        if(fread(&oldEigenCutoff, sizeof(float), 1, fp) != 1){
+            throw("In LD block " + block->ID + ", error about eigen cutoff used in " + infile);
             // cout << "Read " << eigenBinFile << " error svdVarProp" << endl;
             // throw("read file error");
         }
-        // 5. eigen values
+        // 5. eigenvalues
         VectorXf lambda(cur_k);
         if(fread(lambda.data(), sizeof(float), cur_k, fp) != cur_k){
             throw("In LD block " + block->ID + ",size error about eigenvalues in " + infile);
             // cout << "Read " << eigenBinFile << " error (lambda)" << endl;
             // throw("read file error");
         }
-        // 6. save a series of proportions of variance in LD
-        VectorXf cumsumNonNeg(cur_m);
-        if(fread(cumsumNonNeg.data(), sizeof(float), cur_m, fp) != cur_m){
-            throw("In LD block " + block->ID + ",size error cumsum of non-negative eigenvalues in " + infile);
-            // cout << "Read " << eigenBinFile << " error (cumsumNonNeg)" << endl;
-            // throw("read file error");
-        }
-        //7. read eigen vector
+        // 6. eigenvector
         MatrixXf U(cur_m, cur_k);
         uint64_t nElements = (uint64_t)cur_m * (uint64_t)cur_k;
         if(fread(U.data(), sizeof(float), nElements, fp) != nElements){
@@ -1168,27 +1132,68 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
         }
         bool haveValue = false;
         int revIdx = 0;
-        if(svdVarProp != eigenCutoff & i == 0){
-            cout << "Warning: current proportion of variance in LD block is set as " + to_string(eigenCutoff)+ ". But the proportion of variance is set as "<< to_string(svdVarProp) + " in "  + infile + ".\n";
+        if(oldEigenCutoff < eigenCutoff & i == 0){
+            cout << "Warning: current proportion of variance in LD block is set as " + to_string(eigenCutoff)+ ". But the proportion of variance is set as "<< to_string(oldEigenCutoff) + " in "  + infile + ".\n";
             // throw("");
         }
         // cout << "lambda: " << lambda << endl;
         // cout << "U: " << U << endl;
         // eigenVecLdBlock[i] = U;
         // eigenValLdBlock[i] = lambda;
-        for (;revIdx < cur_m; revIdx ++ ){
-            if(cumsumNonNeg(revIdx) < 1e-10 || cumsumNonNeg(revIdx) == 0 ) {continue;}
-            if(eigenCutoff >= cumsumNonNeg(revIdx) ){
-                revIdx = revIdx -1;
-                haveValue = true;
-                break;
-            }
+        
+        if (eigenCutoff < oldEigenCutoff) {
+            truncateEigenMatrix(sumPosEigVal, eigenCutoff, lambda, U, eigenValLdBlock[i], eigenVecLdBlock[i]);
+        } else {
+            eigenValLdBlock[i] = lambda;
+            eigenVecLdBlock[i] = U;
         }
-        if(!haveValue) revIdx = cur_m - 1;
-        eigenVecLdBlock[i] = U.rightCols(cur_m - revIdx);
-        eigenValLdBlock[i] = lambda.tail(cur_m - revIdx);
-        // cout << "U: " <<  U << endl;
+        block->sumPosEigVal = sumPosEigVal;
+        block->eigenvalues = lambda;
     }
+}
+
+void Data::truncateEigenMatrix(const float sumPosEigVal, const float eigenCutoff, const VectorXf &oriEigenVal, const MatrixXf &oriEigenVec, VectorXf &newEigenVal, MatrixXf &newEigenVec){
+    int revIdx = oriEigenVal.size();
+    VectorXf cumsumNonNeg(revIdx);
+    cumsumNonNeg.setZero();
+    revIdx = revIdx -1;
+    if(oriEigenVal(revIdx) < 0) cout << "Error, all eigenvector are negative" << endl;
+    cumsumNonNeg(revIdx) = oriEigenVal(revIdx);
+    revIdx = revIdx -1;
+    
+    while(oriEigenVal(revIdx) > 1e-10 ){
+        cumsumNonNeg(revIdx) = oriEigenVal(revIdx) + cumsumNonNeg(revIdx + 1);
+        revIdx =revIdx - 1;
+        if(revIdx < 0) break;
+    }
+    // cout << "revIdx: " << revIdx << endl;
+    // cout << "size: " << eigenVal.size()  << " eigenVal: " << eigenVal << endl;
+    // cout << "cumsumNoNeg: " << cumsumNonNeg << endl;
+    cumsumNonNeg = cumsumNonNeg/sumPosEigVal;  // calcualte the cumulative proportion of variance explained
+    bool haveValue = false;
+    // cout << "cumsumNonNeg: " << cumsumNonNeg << endl;
+    // cout << "revIdx : " << revIdx << endl;
+    // cout << "revIdx: "  << revIdx  << endl;
+    for (revIdx = revIdx + 1; revIdx < oriEigenVal.size(); revIdx ++ ){
+        // cout << "revIdx: " << revIdx << " cumsumNonNeg: " << cumsumNonNeg(revIdx) << endl;
+        if(eigenCutoff >= cumsumNonNeg(revIdx) ){
+            revIdx = revIdx -1;
+            haveValue = true;
+            break;
+        }
+    }
+    // cout << "revIdx : " << revIdx << endl;
+    if(!haveValue) revIdx = oriEigenVal.size() - 1;
+    // cout << "cumsumNonNeg: " << cumsumNonNeg.size() << endl;
+    // cout << "cumsumNoNeg: " << cumsumNonNeg << endl;
+    // cout << "revIdx: "  << revIdx  << endl;
+
+    newEigenVec = oriEigenVec.rightCols(oriEigenVal.size() - revIdx);
+    newEigenVal = oriEigenVal.tail(oriEigenVal.size() - revIdx);
+    // cout << "eigenValAdjusted size: " << eigenValAdjusted.size() << " eigenValue eventually: " << eigenValAdjusted << endl;
+    //eigenvalueNum = eigenVal.size() - revIdx;
+    // cout << endl;
+
 }
 
 void Data::readBlockLDmatrixAndDoEigenDecomposition(const string &dirname, const unsigned block, const float eigenCutoff, const bool writeLdmTxt){
@@ -1218,12 +1223,26 @@ vector<LDBlockInfo*> Data::makeKeptLDBlockInfoVec(const vector<LDBlockInfo*> &ld
     return keptLDBlock;
 }
 
-void Data::buildMMEeigen(const bool sampleOverlap, const bool noscale){
+void Data::buildMMEeigen(const bool sampleOverlap, const float eigenCutoff, const bool noscale){
     includeMatchedBlocks();
-    // update gwas information
-    if (numIncdSnps!=0) constructWandQ(noscale);
+    scaleGwasEffects();
+    constructPseudoSummaryData();  // for finding the best eigen cutoff by pseudo validation
+    if (numIncdSnps!=0) constructWandQ(gwasEffectInBlock, numKeptInds);
+    //if (numIncdSnps!=0) constructWandQ(eigenCutoff, noscale);
+
+    cout << "\nData summary:" << endl;
+    cout << boost::format("%40s %8s %8s\n") %"" %"mean" %"sd";
+    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP Phenotypic variance" %Gadget::calcMean(varySnp) %sqrt(Gadget::calcVariance(varySnp));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP heterozygosity" %Gadget::calcMean(snp2pq) %sqrt(Gadget::calcVariance(snp2pq));
+    cout << boost::format("%40s %8.0f %8.0f\n") %"GWAS SNP sample size" %Gadget::calcMean(n) %sqrt(Gadget::calcVariance(n));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP effect (in genotype SD unit)" %Gadget::calcMean(b) %sqrt(Gadget::calcVariance(b));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP SE" %Gadget::calcMean(se) %sqrt(Gadget::calcVariance(se));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"LD block size" %Gadget::calcMean(numSnpsBlock) %sqrt(Gadget::calcVariance(numSnpsBlock));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"LD block rank" %Gadget::calcMean(numEigenvalBlock) %sqrt(Gadget::calcVariance(numEigenvalBlock));
+
     if (numAnnos) setAnnoInfoVec();
     lowRankModel = true;
+
 }
 
 void Data::includeMatchedBlocks(){
@@ -1264,7 +1283,7 @@ void Data::includeMatchedBlocks(){
     cout << numKeptLDBlocks << " LD blocks are included." << endl;
 }
 
-void Data::constructWandQ(const bool noscale){
+void Data::constructWandQ(const float eigenCutoff, const bool noscale){
     VectorXf nMinusOne;
     snp2pq.resize(numIncdSnps);
     D.resize(numIncdSnps);
@@ -1285,8 +1304,9 @@ void Data::constructWandQ(const bool noscale){
         b[i] = snp->gwas_b * sqrt(snp2pq[i]); // scale the marginal effect so that it's in per genotype SD unit
         n[i] = snp->gwas_n;
         nMinusOne[i] = snp->gwas_n - 1;
-        se[i]= snp->gwas_se;
+        se[i]= snp->gwas_se * sqrt(snp2pq[i]);
         tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
+        ZPy[i] = n[i]*b[i];
         //  D[i] = 1.0/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
         //  snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
     }
@@ -1299,18 +1319,18 @@ void Data::constructWandQ(const bool noscale){
     Qblocks.clear();
     VectorXf sqrtLambda;
     // save gwas marginal effect into block
-    gwasMarginEffectInBlock.resize(numKeptLDBlocks);
+    gwasEffectInBlock.resize(numKeptLDBlocks);
     for (unsigned i = 0; i < numKeptLDBlocks; i++){
         ldblock = keptLdBlockInfoVec[i];
-        gwasMarginEffectInBlock[i] = b(ldblock->block2GwasSnpVec);
+        gwasEffectInBlock[i] = b(ldblock->block2GwasSnpVec);
         // calculate wbcorr and Qblocks
         sqrtLambda = eigenValLdBlock[i].array().sqrt();
-        //cout << eigenVecLdBlock[i].transpose().rows() << " " << eigenVecLdBlock[i].transpose().cols() << " " << gwasMarginEffectInBlock[i].size() << endl;
-        wcorrBlocks[i] = (1.0/sqrtLambda.array()).matrix().asDiagonal() * (eigenVecLdBlock[i].transpose() * gwasMarginEffectInBlock[i] );
+        //cout << eigenVecLdBlock[i].transpose().rows() << " " << eigenVecLdBlock[i].transpose().cols() << " " << gwasEffectInBlock[i].size() << endl;
+        wcorrBlocks[i] = (1.0/sqrtLambda.array()).matrix().asDiagonal() * (eigenVecLdBlock[i].transpose() * gwasEffectInBlock[i] );
         // cout << "eigenVecLdBlock[i]: " << eigenVecLdBlock[i] << endl;
         // cout << "wcorrBlocks[i]: " << wcorrBlocks[i] << endl;
         // cout << "sqrtLambda: " << sqrtLambda << endl;
-        // cout << gwasMarginEffectInBlock[i] << endl;
+        // cout << gwasEffectInBlock[i] << endl;
         MatrixXf tmpQblocks = sqrtLambda.asDiagonal() * eigenVecLdBlock[i].transpose();
         MatrixDat matrixDat = MatrixDat(ldblock->gwasSnpNameVecInBlock,tmpQblocks );
         // cout << "Qblock: " << endl;
@@ -1512,3 +1532,109 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname) {
     cout << "Written " << ldmIdx << " LDMs info into file [" + outldmInfoFile + "]." << endl;
     
 }
+
+void Data::constructPseudoSummaryData(){
+    cout << "Constructing pseudo summary statistics for training and validation data sets, with 90% sample size for training and 10% for validation." << endl;
+    
+    pseudoGwasEffectTrn.resize(numKeptLDBlocks);
+    pseudoGwasEffectVal.resize(numKeptLDBlocks);
+    
+    float n_trn = 0.9*float(numKeptInds);
+    float n_val = numKeptInds - n_trn;
+    pseudoGwasNtrn = n_trn;
+    b_val.resize(numIncdSnps);
+
+    for (unsigned i=0; i<numKeptLDBlocks; ++i) {
+        LDBlockInfo* block = keptLdBlockInfoVec[i];
+        
+        long size = eigenValLdBlock[i].size();
+        VectorXf rnd(size);
+        for (unsigned j=0; j<size; ++j) {
+            rnd[j] = Stat::snorm();
+        }
+        
+        pseudoGwasEffectTrn[i] = gwasEffectInBlock[i] + sqrt(1.0/n_trn - 1.0/nGWASblock[i]) * eigenVecLdBlock[i] * eigenValLdBlock[i].array().sqrt().matrix().asDiagonal() * rnd;
+
+        pseudoGwasEffectVal[i] = nGWASblock[i]/n_val * gwasEffectInBlock[i] - n_trn/n_val * pseudoGwasEffectTrn[i];
+        b_val.segment(block->startSnpIdx, block->numSnpInBlock) = pseudoGwasEffectVal[i];
+    }
+    
+    
+}
+
+void Data::constructWandQ(const vector<VectorXf> &GWASeffects, const float nGWAS) {
+    wcorrBlocks.resize(numKeptLDBlocks);
+    numSnpsBlock.resize(numKeptLDBlocks);
+    numEigenvalBlock.resize(numKeptLDBlocks);
+    Qblocks.clear();
+    VectorXf sqrtLambda;
+
+    for (unsigned i = 0; i < numKeptLDBlocks; i++){
+        LDBlockInfo *ldblock = keptLdBlockInfoVec[i];
+        // calculate wbcorr and Qblocks
+        sqrtLambda = eigenValLdBlock[i].array().sqrt();
+        //cout << eigenVecLdBlock[i].transpose().rows() << " " << eigenVecLdBlock[i].transpose().cols() << " " << gwasEffectInBlock[i].size() << endl;
+        wcorrBlocks[i] = (1.0/sqrtLambda.array()).matrix().asDiagonal() * (eigenVecLdBlock[i].transpose() * GWASeffects[i] );
+        // cout << "eigenVecLdBlock[i]: " << eigenVecLdBlock[i] << endl;
+        // cout << "wcorrBlocks[i]: " << wcorrBlocks[i] << endl;
+        // cout << "sqrtLambda: " << sqrtLambda << endl;
+        // cout << gwasEffectInBlock[i] << endl;
+        MatrixXf tmpQblocks = sqrtLambda.asDiagonal() * eigenVecLdBlock[i].transpose();
+        MatrixDat matrixDat = MatrixDat(ldblock->gwasSnpNameVecInBlock, tmpQblocks);
+        // cout << "Qblock: " << endl;
+        // cout << matrixDat.values << endl;
+        Qblocks.push_back(matrixDat);
+        numSnpsBlock[i] = Qblocks[i].ncol;
+        numEigenvalBlock[i] = Qblocks[i].nrow;
+        
+        eigenVecLdBlock[i].resize(0,0);
+    }
+    
+    nGWASblock.resize(numKeptLDBlocks);
+    for (unsigned i = 0; i < numKeptLDBlocks; i++){
+        LDBlockInfo *ldblock = keptLdBlockInfoVec[i];
+        nGWASblock[i] = nGWAS;
+    }
+}
+
+void Data::scaleGwasEffects(){
+    snp2pq.resize(numIncdSnps);
+    b.resize(numIncdSnps);
+    n.resize(numIncdSnps);
+    se.resize(numIncdSnps);
+    tss.resize(numIncdSnps); // only used in SBayesC
+    ZPy.resize(numIncdSnps);
+    SnpInfo *snp;
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+        snp = incdSnpInfoVec[i];
+        snp->af = snp->gwas_af;
+        snp2pq[i] = snp->twopq = 2.0f*snp->gwas_af*(1.0f-snp->gwas_af);
+        if(snp2pq[i]==0) cout << "Error: SNP " << snp->ID << " af " << snp->af << " has 2pq = 0." << endl;
+        b[i] = snp->gwas_b * sqrt(snp2pq[i]); // scale the marginal effect so that it's in per genotype SD unit
+        n[i] = snp->gwas_n;
+        se[i]= snp->gwas_se * sqrt(snp2pq[i]);
+        tss[i] = n[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
+        ZPy[i] = n[i]*b[i];
+    }
+
+    // estimate phenotypic variance
+    varySnp = (n.array()*(n.array()*se.array().square()+b.array().square()))/n.array();
+    VectorXf varpSrt = varySnp;
+    std::sort(varpSrt.data(), varpSrt.data() + varpSrt.size());
+    varPhenotypic = varpSrt[varpSrt.size()/2];
+    //cout << "varPhenotypic: " << varPhenotypic << endl;
+    VectorXf nSrt = n;
+    std::sort(nSrt.data(), nSrt.data() + nSrt.size());
+    numKeptInds = nSrt[nSrt.size()/2]; // median
+    
+    // map to blocks
+    gwasEffectInBlock.resize(numKeptLDBlocks);
+    nGWASblock.resize(numKeptLDBlocks);
+    for (unsigned i = 0; i < numKeptLDBlocks; i++){
+        LDBlockInfo *ldblock = keptLdBlockInfoVec[i];
+        gwasEffectInBlock[i] = b(ldblock->block2GwasSnpVec);
+        nGWASblock[i] = numKeptInds;
+    }
+}
+
+

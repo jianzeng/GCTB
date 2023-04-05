@@ -514,7 +514,7 @@ void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){
 }
 
 void Data::initVariances(const float heritability, const float propVarRandom){
-    float varPhenotypic = ypy/numKeptInds;;
+//    float varPhenotypic = ypy/numKeptInds;;
     varGenotypic = varPhenotypic * heritability;
     varResidual  = varPhenotypic - varGenotypic;
     varRandom    = varPhenotypic * propVarRandom;

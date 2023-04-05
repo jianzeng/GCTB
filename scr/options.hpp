@@ -23,6 +23,7 @@
 #include <omp.h>
 #include <Eigen/Core>
 #include <Eigen/Eigen>
+#include <Eigen/Dense>
 #include <boost/format.hpp>
 #include "gadgets.hpp"
 
@@ -77,7 +78,6 @@ public:
     float lambda;  // for conjugate gradient
     float rsqThreshold;
     float pValueThreshold;
-    float eigenCutoff;
     
     bool estimatePi;
     bool estimateSigmaSq; // variance of SNP effects
@@ -120,6 +120,9 @@ public:
     VectorXf piPar;
     Vector2f piNDCpar;
     
+    // for low-rank model
+    VectorXf eigenCutoff;
+    
     string title;
     string analysisType;
     string bayesType;
@@ -154,7 +157,7 @@ public:
     
     Options(){
         numChains               = 1;
-        chainLength             = 10000;
+        chainLength             = 5000;
         burnin                  = 2000;
         outputFreq              = 100;
         seed                    = 0;
@@ -196,7 +199,6 @@ public:
         lambda                  = 1e6;
         rsqThreshold            = 1.0;
         pValueThreshold         = 1.0;
-        eigenCutoff             = 0.995;
 
         // Bayes R defaults
         ndists                  = 4;
@@ -209,6 +211,9 @@ public:
         
         piPar.setOnes(ndists);
         piNDCpar.setOnes(2);
+        
+        eigenCutoff.resize(4);
+        eigenCutoff             << 0.995, 0.99, 0.95, 0.9;
 
         estimatePi              = true;
         estimateSigmaSq         = true;

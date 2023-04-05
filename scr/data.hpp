@@ -24,6 +24,7 @@
 #include <boost/format.hpp>
 #include <omp.h>
 #include "gadgets.hpp"
+#include "stat.hpp"
 
 using namespace std;
 using namespace Eigen;
@@ -153,6 +154,9 @@ public:
     vector<SnpInfo*> memberSnpVec;
     vector<int> block2GwasSnpVec; // store snps that belong to this block;
     int numSnpInBlock;
+    
+    VectorXf eigenvalues;
+    float sumPosEigVal; // sum of all positive eigenvalues
 
     LDBlockInfo(const int idx, const string id, const int chr) : index(idx), ID(id), chrom(chr)
     {
@@ -172,6 +176,7 @@ public:
         postBlock = -999;
         numSnpInBlock = -999;
         kept = true;
+        sumPosEigVal = 0;
     }
 };
 
@@ -333,6 +338,7 @@ public:
     VectorXf Dratio;         // GWAS ZPZdiag over reference ZPZdiag for each SNP
     VectorXf DratioSqrt;     // square root of GWAS ZPZdiag over reference ZPZdiag for each SNP
     VectorXf chisq;          // GWAS chi square statistics = D*b^2
+    VectorXf varySnp;        // per-SNP phenotypic variance
     
     VectorXi windStart;      // leading snp position for each window
     VectorXi windSize;       // number of snps in each window
@@ -409,9 +415,13 @@ public:
     ///
     map<int, vector<int>> ldblock2gwasSnpMap;
 
-    vector<VectorXf> gwasMarginEffectInBlock;  // gwas marginal effect;
-
+    vector<VectorXf> gwasEffectInBlock;  // gwas marginal effect;
     
+    vector<VectorXf> pseudoGwasEffectTrn;
+    vector<VectorXf> pseudoGwasEffectVal;
+    float pseudoGwasNtrn;
+    VectorXf b_val;
+
     unsigned numFixedEffects;
     unsigned numRandomEffects;
     unsigned numSnps;
@@ -533,12 +543,12 @@ public:
     void readLDBlockInfoFile(const string &ldBlockInfoFile);
     void getEigenDataFromFullLDM(const string &filename, const float eigenCutoff);
 
-    void eigenDecomposition(const MatrixXf &X, const float &prop, VectorXf &eigenValAdjusted, MatrixXf &eigenVecAdjusted, VectorXf &cumsumNonNeg);
+    void eigenDecomposition(const MatrixXf &X, const float &prop, VectorXf &eigenValAdjusted, MatrixXf &eigenVecAdjusted, float &sumPosEigVal);
     MatrixXf generateLDmatrixPerBlock(const string &bedFile, const vector<string> &snplists); // generate full LDM for block
     
     void makeBlockLDmatrix(const string &bedFile, const string &LDmatType, const string &ldBlockInfoFile, const unsigned block, const string &filename, const bool writeLdmTxt, int ldBlockRegionWind = 0);
 
-    void readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, const unsigned block, const float &eigenCutoff, const bool writeLdmTxt);
+    void readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, const unsigned block, const float eigenCutoff, const bool writeLdmTxt);
     
     void getEigenDataForLDBlock(const string &bedFile, const string &ldBlockInfoFile, int ldBlockRegionWind, const string &filename, const float eigenCutoff);
     void outputBlockLDmatrixInfo(const unsigned block, const string &filename) const;
@@ -546,7 +556,7 @@ public:
     void impG(double diag_mod = 0.1);
 
     ///////////// read LD matrix eigen-decomposition data for LD blocks
-    void readEigenMatrix(const string &eigenMatrixFile, const float eigenCutoff = 1);
+    void readEigenMatrix(const string &eigenMatrixFile, const float eigenCutoff);
     void readBlockLDmatrixAndDoEigenDecomposition(const string &LDmatrixFile, const unsigned block, const float eigenCutoff, const bool writeLdmTxt);
     void readBlockLdmInfoFile(const string &infoFile);
     void readBlockLdmSnpInfoFile(const string &snpInfoFile);
@@ -560,14 +570,20 @@ public:
     void mergeMultiEigenLDMatrices(const string & infoFile, const string &filename, const string LDmatType);
 
     //////////// Step 2.2 Build multiple maps
-    void buildMMEeigen(const bool sampleOverlap, const bool noscale); // for eigen decomposition
+    void buildMMEeigen(const bool sampleOverlap, const float eigenCutoff, const bool noscale); // for eigen decomposition
     void includeMatchedBlocks(void);
 
     //////////// Step 2.3 build model matrix
-    void constructWandQ(const bool noscale);
+    void constructWandQ(const float eigenCutoff, const bool noscale);
  
     void imputeSummaryData(void);
     
+    void truncateEigenMatrix(const float sumPosEigVal, const float eigenCutoff, const VectorXf &oriEigenVal, const MatrixXf &oriEigenVec, VectorXf &newEigenVal, MatrixXf &newEigenVec);
+    void constructPseudoSummaryData(void);
+    
+    void constructWandQ(const vector<VectorXf> &GWASeffects, const float nGWAS);
+    
+    void scaleGwasEffects(void);
 };
 
 #endif /* data_hpp */

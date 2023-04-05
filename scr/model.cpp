@@ -5930,6 +5930,8 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, cons
             ArrayXf logDelta = 0.5*(logInvLhsMsigma + uhat*rhs) + logPi.row(i).transpose().array();
             logDelta[0] = logPi(i,0);
             
+//            cout << i << " rhs " << rhs << " vareDn " << vareDn << " invWtdSigmaSq " << invWtdSigmaSq.transpose() << " uhat " << uhat.transpose() << endl;
+            
             ArrayXf probDelta(ndist);
             for (unsigned k=0; k<ndist; ++k) {
                 probDelta[k] = 1.0f/(logDelta-logDelta[k]).exp().sum();
@@ -6426,11 +6428,11 @@ void ApproxBayesRC::BlockResidualVar::sampleFromFC(vector<VectorXf> &wcorrBlocks
         float dfTilde = df + numEigenvalBlock[i];
         float scaleTilde = sse + df*scale;
         float sample = InvChiSq::sample(dfTilde, scaleTilde);
-        //if (ssqBlocks[i]/sample > threshold) {
+        if (ssqBlocks[i]/sample > threshold) {
             values[i] = sample;
-        //} else {
-        //    values[i] = vary;
-        //}
+        } else {
+            values[i] = vary;
+        }
         //cout << "vare " << i << " " << values[i] << endl;
     }
     mean = values.mean();
@@ -6446,6 +6448,7 @@ void ApproxBayesRC::sampleUnknowns(){
             snpEffects.sampleFromFC(wcorrBlocks, data.Qblocks, whatBlocks,
                                     data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
                                     snpPi, gamma.values, varg.value, deltaPi);
+            //cout << snpEffects.values << endl;
         }
         else if (allowPerSnpGV) {
             computeSnpVarg(data.annoMat, annoPerSnpHsqEnrich.values, varg.value, data.numIncdSnps);

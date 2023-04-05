@@ -125,7 +125,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     /// partition ld into blocks
 //    if(!ldBlockInfoFile.empty()) data.readLDBlockInfoFile(ldBlockInfoFile);
 
-    if(!gwasSummaryFile.empty()) data.buildMMEeigen(sampleOverlap, noscale);
+    if(!gwasSummaryFile.empty()) data.buildMMEeigen(sampleOverlap, eigenCutoff, noscale);
 }
 
 
@@ -625,3 +625,71 @@ void GCTB::pip2p(const Data &data, const VectorXf &pip, const float propNull, Ve
     }
 }
 
+float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
+    cout << "Finding the best eigen cutoff from [" << opt.eigenCutoff.transpose() << "] based on pseudo summary data validation." << endl;
+    
+    unsigned numKeptInds = data.numKeptInds;    
+    data.numKeptInds = data.pseudoGwasNtrn;
+    
+    unsigned size = opt.eigenCutoff.size();
+    VectorXf cor(size);
+    VectorXf rel(size);
+    
+    cout << boost::format("%10s %20s %20s\n") % "Cutoff" % "Prediction accuracy (r)" % "Relative accuracy";
+    
+    for (unsigned i=0; i<size; ++i) {
+        float cutoff = opt.eigenCutoff[i];
+
+        data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, cutoff);
+        data.constructWandQ(data.pseudoGwasEffectTrn, data.pseudoGwasNtrn);
+
+        data.initVariances(opt.heritability, opt.propVarRandom);
+        Model *modeli;
+        bool print = false;
+        if (opt.bayesType == "RC") {
+            modeli = new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.originalModel, opt.perSnpGV, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, print);
+        } else {
+            throw("Error: eigen cutoff tuning is only available for SBayesRC at the moment!");
+        }
+        
+        vector<McmcSamples*> mcmcSampleVeci;
+        MCMC mcmc;
+        unsigned chainLength = 150;
+        unsigned burnin = 100;
+        unsigned thin = 1;
+        mcmcSampleVeci = mcmc.run(*modeli, chainLength, burnin, thin, print, opt.outputFreq, opt.title, print, print);
+
+        VectorXf betaMean;
+        for (unsigned i=0; i<mcmcSampleVeci.size(); ++i) {
+            McmcSamples *mcmcSamples = mcmcSampleVeci[i];
+            if (mcmcSamples->label == "SnpEffects") {
+                betaMean = mcmcSamples->posteriorMean;
+            }
+        }
+        
+        // compute prediction accuracy
+        cor[i] = betaMean.dot(data.b_val) / sqrt(betaMean.squaredNorm());
+        rel[i] = cor[i]/cor[0];
+        
+        cout << boost::format("%10s %20s %20s\n") % cutoff % cor[i] % rel[i];
+
+    }
+    
+    data.numKeptInds = numKeptInds;
+    
+    int bestCutoff_index;
+    cor.maxCoeff(&bestCutoff_index);
+    float bestCutoff = opt.eigenCutoff[bestCutoff_index];
+
+    if (cor[0] < 0) {
+        if (rel.maxCoeff() > -1.25)
+            bestCutoff = opt.eigenCutoff[0];
+    } else {
+        if (rel.maxCoeff() < 1.25)
+            bestCutoff = opt.eigenCutoff[0];
+    }
+    
+    cout << bestCutoff << " is selected to be the eigen cutoff for the analysis." << endl;
+    
+    return bestCutoff;
+}
