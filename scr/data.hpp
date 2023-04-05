@@ -23,6 +23,7 @@
 #include <Eigen/Sparse>
 #include <boost/format.hpp>
 #include <omp.h>
+#include <cstdio>
 #include "gadgets.hpp"
 #include "stat.hpp"
 

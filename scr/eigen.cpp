@@ -1523,6 +1523,9 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname) {
         in2.close();
         
         ++it;
+        
+        remove(snpInfoFile.c_str());
+        remove(ldmInfoFile.c_str());
     }
     
     out1.close();
