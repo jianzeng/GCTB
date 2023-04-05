@@ -5,8 +5,8 @@
 OUTPUT = gctb
 
 # Set the path to dependent libraries
-EIGEN_PATH = /Users/uqjzeng1/XCode/eigen-3.4.0
-BOOST_PATH = /Users/uqjzeng1/XCode/boost_1_81_0
+EIGEN_PATH = ../../eigen-3.4.0
+BOOST_PATH = ../../boost_1_81_0
 
 # Set the C++ compiler based on the system
 ifeq ($(shell uname -s),Linux)
