@@ -151,8 +151,8 @@ public:
     int preBlock;
     int postBlock;
     //
-    vector<string> gwasSnpNameVecInBlock;
-    vector<SnpInfo*> memberSnpVec;
+    vector<string> snpNameVec;
+    vector<SnpInfo*> snpInfoVec;
     vector<int> block2GwasSnpVec; // store snps that belong to this block;
     int numSnpInBlock;
     
@@ -547,7 +547,7 @@ public:
     void eigenDecomposition(const MatrixXf &X, const float &prop, VectorXf &eigenValAdjusted, MatrixXf &eigenVecAdjusted, float &sumPosEigVal);
     MatrixXf generateLDmatrixPerBlock(const string &bedFile, const vector<string> &snplists); // generate full LDM for block
     
-    void makeBlockLDmatrix(const string &bedFile, const string &LDmatType, const string &ldBlockInfoFile, const unsigned block, const string &filename, const bool writeLdmTxt, int ldBlockRegionWind = 0);
+    void makeBlockLDmatrix(const string &bedFile, const string &LDmatType, const unsigned block, const string &filename, const bool writeLdmTxt, int ldBlockRegionWind = 0);
 
     void readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, const unsigned block, const float eigenCutoff, const bool writeLdmTxt);
     
@@ -585,6 +585,7 @@ public:
     void constructWandQ(const vector<VectorXf> &GWASeffects, const float nGWAS);
     
     void scaleGwasEffects(void);
+    void mapSnpsToBlocks(void);
 };
 
 #endif /* data_hpp */
