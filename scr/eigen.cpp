@@ -1203,9 +1203,16 @@ void Data::readBlockLDmatrixAndDoEigenDecomposition(const string &dirname, const
 }
 
 void Data::readEigenMatrix(const string &dirname, const float eigenCutoff){
+    cout << "Reading LD matrix eigen-decomposition data..." << endl;
+    Gadget::Timer timer;
+    timer.setTime();
+    
     readBlockLdmInfoFile(dirname + "/ldm.info");
     readBlockLdmSnpInfoFile(dirname + "/snp.info");
     readEigenMatrixBinaryFile(dirname, eigenCutoff);
+    
+    timer.getTime();
+    cout << "Read LD data completed (time used: " << timer.format(timer.getElapse()) << ")." << endl;
 }
 
 vector<LDBlockInfo*> Data::makeKeptLDBlockInfoVec(const vector<LDBlockInfo*> &ldBlockInfoVec){
