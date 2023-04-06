@@ -670,14 +670,33 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
 
 
 void Data::impG(double diag_mod){
-
     LDBlockInfo *ldblock;
     SnpInfo *snp;
-    map<string, SnpInfo*>::iterator iterSnp;
     int numImpSnp = 0;
     for (unsigned i = 0; i < numLDBlocks; i++ ){
-        /// Step 1. construct LD 
         ldblock = ldBlockInfoVec[i];
+        for (unsigned j=0; j<ldblock->numSnpInBlock; ++j) {
+            snp = ldblock->snpInfoVec[j];
+            if (!snp->included) {
+                ++numImpSnp;
+            }
+        }
+    }
+    
+    if (!numImpSnp) return;
+    
+    cout << "Imputing summary statistics for " << to_string(numImpSnp) << " SNPs in the LD reference but not in GWAS data file..." << endl;
+
+    Gadget::Timer timer;
+    timer.setTime();
+
+    map<string, SnpInfo*>::iterator iterSnp;
+    Stat::Normal normal;
+    
+#pragma omp parallel for schedule(dynamic)
+    for (unsigned i = 0; i < numLDBlocks; i++ ){
+        /// Step 1. construct LD 
+        LDBlockInfo *ldblock = ldBlockInfoVec[i];
         MatrixXf LDPerBlock = eigenVecLdBlock[i] * eigenValLdBlock[i].asDiagonal() * eigenVecLdBlock[i].transpose();
 
         LDPerBlock.diagonal().array() += (float)diag_mod;
@@ -733,13 +752,33 @@ void Data::impG(double diag_mod){
                 snp->gwas_se = sqrt(VpMedian) / base1;
                 snp->gwas_n = NMedian;
                 snp->gwas_af = snp->af;
-                //snp->gwas_pvalue = ;
+                snp->gwas_pvalue = normal.cdf_01(-abs(snp->gwas_b/snp->gwas_se));
                 snp->included = true;
+            
+                cout << "b " << snp->gwas_b << " se " << snp->gwas_se << " z " << snp->gwas_b/snp->gwas_se << " p " << snp->gwas_pvalue << endl;
             }
         }
-        numImpSnp += untypedSnpIdx.size();
     }
-    if (numImpSnp) cout << "Imputed the summary statistics for " << to_string(numImpSnp) << " SNPs." << endl;
+
+    string outfile = title + ".imputed_sumstats.ma";
+    ofstream out(outfile.c_str());
+    out << boost::format("%15s %10s %10s %15s %15s %15s %15s %15s\n") % "SNP" % "A1" % "A2" % "freq" % "b" % "se" % "p" % "N";
+    for (unsigned i=0; i<numSnps; ++i) {
+        snp = snpInfoVec[i];
+        out << boost::format("%15s %10s %10s %15s %15s %15s %15s %15s\n")
+        % snp->ID
+        % snp->a1
+        % snp->a2
+        % snp->af
+        % snp->gwas_b
+        % snp->gwas_se
+        % snp->gwas_pvalue
+        % snp->gwas_n;
+    }
+    out.close();
+
+    timer.getTime();
+    cout << "Imputation of summary statistics is completed (time used: " << timer.format(timer.getElapse()) << ")." << endl;
 }
 
 
@@ -1046,7 +1085,8 @@ void Data::readBlockLdmSnpInfoFile(const string &snpInfoFile){
         if (ld2snpMap.insert(pair<string, int>(blockID + "_" + id, idx)).second == false) {
             throw ("Error: Duplicate LDBlock-SNP pair found: \"" + blockID + "_" + id + "\".");
         } else{
-                ldblock->snpNameVec.push_back(id);
+            ldblock->snpNameVec.push_back(id);
+            ldblock->snpInfoVec.push_back(snp);
         }
 
         if (snpInfoMap.insert(pair<string, SnpInfo*>(id, snp)).second == false) {
@@ -1362,7 +1402,7 @@ void Data::buildMMEeigen(const bool sampleOverlap, const float eigenCutoff, cons
 
 void Data::includeMatchedBlocks(){
     // this step is to construct gwasSnp2geneVec
-//    cout << "Construct various maps." << endl;
+//    cout << "Matching blocks..." << endl;
     SnpInfo * snp;
     LDBlockInfo * ldblock;
     
@@ -1391,7 +1431,7 @@ void Data::includeMatchedBlocks(){
     numKeptLDBlocks = (unsigned) keptLdBlockInfoVec.size();
 
     ldblock2gwasSnpMap.clear();
-    // Construct map from ld to snp
+//    cout << "Construct map from ld to snp" << endl;
     for(unsigned i = 0; i < numKeptLDBlocks; i++){
         ldblock = keptLdBlockInfoVec[i];
         ldblock2gwasSnpMap.insert(pair<int, vector<int> > (i,ldblock->block2GwasSnpVec));

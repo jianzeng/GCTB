@@ -6191,6 +6191,7 @@ void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(MatrixXf &z, const MatrixXf 
         
         // sample latent variables
         for (unsigned j=0; j<numDP; ++j) {
+//            cout << j << " mean[j] " << mean[j] << " anno " << annoMati.row(j) << endl;
             if (zi[j]) y[j] = TruncatedNormal::sample_lower_truncated(mean[j], 1.0, 0.0);
             else y[j] = TruncatedNormal::sample_upper_truncated(mean[j], 1.0, 0.0);
         }
@@ -6596,7 +6597,7 @@ void ApproxBayesRC::sampleUnknowns(){
         }
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);
-                
+                   
     if (robustMode) {
         if (noscale) {
             sigmaSq.value = varg.value/(data.snp2pq.array().sum()*gamma.values.dot(Pis.values));
@@ -6625,9 +6626,7 @@ void ApproxBayesRC::sampleUnknowns(){
         computePiFromP(snpP, snpPi);
         annoJointProb.compute(annoCondProb);
     }
-        
-//    cout << "check 1 " << endl;
-    
+            
     numSnps.getValues(snpEffects.numSnpMix);
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
