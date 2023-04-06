@@ -4037,7 +4037,7 @@ void Data::setAnnoInfoVec() {
         annoMean[i] = annoMat.col(i).mean();
         //if (i) annoMat.col(i).array() -= annoMean[i];  // center the annotation matrix
     }
-    APA = annoMat.transpose()*annoMat;
+    APA = annoMat.transpose()*annoMat;    
 }
 
 
@@ -4438,7 +4438,7 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
         it = snpInfoMap.find(id);
         if (it != end) {
             snp = it->second;
-            snp->annoValues.resize(size-1);
+            snp->annoValues.setZero(size-1);
             for (unsigned j=1; j<size; ++j) {
                 if (atof(colData[j].c_str())) {
                     snp->annoVec.push_back(annoInfoVec[j-1]);

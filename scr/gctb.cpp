@@ -628,6 +628,9 @@ void GCTB::pip2p(const Data &data, const VectorXf &pip, const float propNull, Ve
 float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
     cout << "\nFinding the best eigen cutoff from [" << opt.eigenCutoff.transpose() << "] based on pseudo summary data validation." << endl;
     
+    Gadget::Timer timer;
+    timer.setTime();
+    
     unsigned numKeptInds = data.numKeptInds;    
     data.numKeptInds = data.pseudoGwasNtrn;
     
@@ -635,10 +638,12 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
     VectorXf cor(size);
     VectorXf rel(size);
     
-    cout << boost::format("%10s %20s %20s\n") % "Cutoff" % "Prediction accuracy (r)" % "Relative accuracy";
+    cout << boost::format("%10s %25s %20s\n") % "Cutoff" % "Prediction accuracy (r)" % "Relative accuracy";
     
     for (unsigned i=0; i<size; ++i) {
         float cutoff = opt.eigenCutoff[i];
+        cout << boost::format("%10s") % cutoff;
+
 
         data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, cutoff);
         data.constructWandQ(data.pseudoGwasEffectTrn, data.pseudoGwasNtrn);
@@ -670,10 +675,10 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
         }
         
         // compute prediction accuracy
-        cor[i] = betaMean.dot(data.b_val) / sqrt(betaMean.squaredNorm());
+        cor[i] = betaMean.dot(data.b_val) / sqrt(betaMean.squaredNorm() * data.varPhenotypic);
         rel[i] = cor[i]/cor[0];
         
-        cout << boost::format("%10s %20s %20s\n") % cutoff % cor[i] % rel[i];
+        cout << boost::format("%25s %20s\n") % cor[i] % rel[i];
 
     }
     
@@ -691,7 +696,15 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
             bestCutoff = opt.eigenCutoff[0];
     }
     
-    cout << bestCutoff << " is selected to be the eigen cutoff for the analysis." << endl;
+    timer.getTime();
+
+    if (bestCutoff == opt.eigenCutoff.minCoeff()) {
+        cout << "==============================================" << endl;
+        cout << "Warning: the best eigen cutoff is the minimum value in the tuning set. We suggest expand the tuning set by including lower candidate values, e.g. --ldm-eigen-cutoff 0.995,0.9,0.8,0.7,0.6  (time used: " << timer.format(timer.getElapse()) << ")." << endl;
+        cout << "==============================================" << endl;
+    } else {
+        cout << bestCutoff << " is selected to be the eigen cutoff to continue the analysis (time used: " << timer.format(timer.getElapse()) << ")."  << endl;
+    }
     
     return bestCutoff;
 }
