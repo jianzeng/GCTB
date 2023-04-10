@@ -5,14 +5,14 @@
 OUTPUT = gctb
 
 # Set the path to dependent libraries
-EIGEN_PATH = ../../eigen-3.4.0
-BOOST_PATH = ../../boost_1_81_0
+EIGEN_PATH = $(EIGEN3_INCLUDE_DIR)
+BOOST_PATH = $(BOOST_LIB)
 
 # Set the C++ compiler based on the system
 ifeq ($(shell uname -s),Linux)
     CXX = g++
     CXXFLAGS = -I $(EIGEN_PATH) -I $(BOOST_PATH) -DUNIX -m64 -fopenmp -O3 -std=c++11 -Wall -w
-    LIB = -static -ldl
+    LIB = -ldl
 else ifeq ($(shell uname -s),Darwin)
     CXX = /usr/local/opt/llvm/bin/clang++
     CXXFLAGS = -I /usr/local/include -I $(EIGEN_PATH) -I $(BOOST_PATH) -DUNIX -Dfopen64=fopen -stdlib=libc++ -m64 -fopenmp -O3 -std=c++11 -Wall -w

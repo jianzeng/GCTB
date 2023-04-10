@@ -644,7 +644,6 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
         float cutoff = opt.eigenCutoff[i];
         cout << boost::format("%10s") % cutoff;
 
-
         data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, cutoff);
         data.constructWandQ(data.pseudoGwasEffectTrn, data.pseudoGwasNtrn);
 
@@ -661,6 +660,7 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
         
         vector<McmcSamples*> mcmcSampleVeci;
         MCMC mcmc;
+
         unsigned chainLength = 150;
         unsigned burnin = 100;
         unsigned thin = 1;
