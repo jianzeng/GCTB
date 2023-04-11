@@ -5744,6 +5744,7 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
                                             const float varg, const float ps, const float overdispersion,
                                             const bool originalModel, DeltaPi &deltaPi){
 
+
     long numChr = chromInfoVec.size();
 
     float ssq[numChr], s2pq[numChr], nnz[numChr];
@@ -5785,7 +5786,7 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
     }
 
 
-//#pragma omp parallel for  // openmp is not working for SBayesR
+    #pragma omp parallel for  // openmp is not working for SBayesR
     for (unsigned chr=0; chr<numChr; ++chr)
     {
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -5921,7 +5922,7 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
     // Cycle over all variants in the window and sample the genetics effects
     // --------------------------------------------------------------------------------
 
-//#pragma omp parallel for  // openmp is not working for SBayesR
+    #pragma omp parallel for  // openmp is not working for SBayesR
     for (unsigned chr=0; chr<numChr; ++chr)
     {
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -6061,7 +6062,8 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, cons
     // Cycle over all variants in the window and sample the genetics effects
     // --------------------------------------------------------------------------------
 
-//#pragma omp parallel for schedule(dynamic)
+    //cout << "Run 1.1" << std::endl;
+    #pragma omp parallel for schedule(dynamic)
     for(unsigned blk = 0; blk < nBlocks; blk++){
         Ref<const MatrixXf> Q = Qblocks[blk].values;
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
@@ -6095,11 +6097,14 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, cons
                 if(isnan(probDelta[k])) probDelta[k] = 0;
                 deltaPi[k]->values[i] = probDelta[k];
             }
-                        
-            unsigned delta = bernoulli.sample(probDelta);
-            
-            snpset[delta].push_back(i);
-            numSnpMix[delta]++;
+
+            unsigned delta;
+            #pragma omp critical
+            {
+                delta = bernoulli.sample(probDelta);
+                snpset[delta].push_back(i);
+                numSnpMix[delta]++;
+            }
             
             if (delta) {
                 valuesPtr[i] = uhat[delta] + nrnd[i]*sqrtf(invLhs[delta]);
@@ -6182,6 +6187,7 @@ void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(MatrixXf &z, const MatrixXf 
             annoDiagi = annoDiag;
         } else {
             annoDiagi[0] = numOnes[i-1];
+            #pragma omp parallel for
             for (unsigned k=1; k<numAnno; ++k) {
                 annoDiagi[k] = annoMati.col(k).squaredNorm();
             }
@@ -6223,6 +6229,7 @@ void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(MatrixXf &z, const MatrixXf 
         }
        //cout << i << " " << alphai.transpose() << endl;
         
+        #pragma omp parallel for
         for (unsigned j=0; j<numSnps; ++j) {
             snpP(j,i) = Normal::cdf_01(annoMat.row(j).dot(alphai));
         }
