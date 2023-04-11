@@ -748,7 +748,7 @@ void Data::impG(double diag_mod){
             }
             SnpInfo *snp = iterSnp->second;
             if(!snp->included){
-                float base1 = 2 * snp->af *( 1- snp->af) * (NMedian + ZPerBlock(j) * ZPerBlock(j));
+                float base1 = sqrt(2 * snp->af *(1- snp->af) * (NMedian + ZPerBlock(j) * ZPerBlock(j)));
                 snp->gwas_b = ZPerBlock(j) * sqrt(VpMedian)/base1;
                 snp->gwas_se = sqrt(VpMedian) / base1;
                 snp->gwas_n = NMedian;
