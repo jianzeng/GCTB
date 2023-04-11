@@ -71,6 +71,28 @@ void Gadget::fileExist(const string &filename){
     if(!file) throw("Error: can not open the file ["+filename+"] to read.");
 }
 
+bool Gadget::directoryExist(const string& dirname)
+{
+    struct stat info;
+
+    if (stat(dirname.c_str(), &info) != 0)
+        return false;
+    else if (info.st_mode & S_IFDIR)
+        return true;
+    else
+        return false;
+}
+
+bool Gadget::createDirectory(const string& dirname)
+{
+    int status = mkdir(dirname.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH);
+
+    if (status == -1)
+        return false;
+    else
+        return true;
+}
+
 float Gadget::calcMean(const VectorXf &vec){
     VectorXd vec_double = vec.cast<double>();
     return vec_double.mean();

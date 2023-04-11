@@ -465,7 +465,7 @@ public:
     void readPhenotypeFile(const string &phenFile, const unsigned mphen);
     void readCovariateFile(const string &covarFile);
     void readRandomCovariateFile(const string &covarFile);
-    void readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool imputeN, const bool imputeG = false);
+    void readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool imputeN);
     void readLDmatrixInfoFileOld(const string &ldmatrixFile);
     void readLDmatrixInfoFile(const string &ldmatrixFile);
     void readLDmatrixBinFile(const string &ldmatrixFile);
@@ -565,13 +565,15 @@ public:
     vector<LDBlockInfo *> makeKeptLDBlockInfoVec(const vector<LDBlockInfo *> &ldBlockInfoVec);
     
     void readEigenMatrixBinaryFile(const string &eigenMatrixFile, const float eigenCutoff);
+    
+    void readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const float nGWAS, const bool makePseudoSummary);
 
     
     ///////////// merge eigen matrices
     void mergeMultiEigenLDMatrices(const string & infoFile, const string &filename, const string LDmatType);
 
     //////////// Step 2.2 Build multiple maps
-    void buildMMEeigen(const bool sampleOverlap, const float eigenCutoff, const bool noscale); // for eigen decomposition
+    void buildMMEeigen(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale); // for eigen decomposition
     void includeMatchedBlocks(void);
 
     //////////// Step 2.3 build model matrix

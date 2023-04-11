@@ -56,7 +56,7 @@ public:
         ncol = npar;
         if (storage_mode == "dense") {
             storageMode = dense;
-            datMat.resize(nrow, ncol);
+            datMat.setZero(nrow, ncol);
         } else if (storage_mode == "sparse") {
             storageMode = sparse;
             //if (myMPI::rank==0) datMatSp.reserve(VectorXi::Constant(ncol,nrow));  // for faster filling the matrix

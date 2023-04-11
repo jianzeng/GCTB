@@ -17,7 +17,7 @@ using namespace std;
 int main(int argc, const char * argv[]) {
     
     cout << "******************************************************************\n";
-    cout << "* GCTB 2.04.97                                                   *\n";
+    cout << "* GCTB 2.04.99                                                   *\n";
     cout << "* Genome-wide Complex Trait Bayesian analysis                    *\n";
     cout << "* Authors: Jian Zeng, Luke Lloyd-Jones, Zhili Zheng, Shouye Liu  *\n";
     cout << "* MIT License                                                    *\n";
@@ -132,6 +132,20 @@ int main(int argc, const char * argv[]) {
                 //gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, "", opt.eigenMatrixFile, opt.ldBlockInfoFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile, opt.eigenCutoff, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold, opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt);
             }
         }
+        else if (opt.analysisType == "ImputeSumStats") {
+            readGenotypes = false;
+            if (opt.eigenMatrixFile.empty()) {
+                throw("Error: --impute-summary requires the results of eigen-decomposition of LD matrices as input.");
+            }
+            gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile,
+                              opt.gwasSummaryFile, opt.eigenMatrixFile, opt.ldBlockInfoFile,
+                              opt.includeChr, opt.excludeAmbiguousSNP,
+                              opt.annotationFile, opt.transpose,
+                              opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
+                              opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
+                              opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
+                              opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary);
+        }
         else if (opt.analysisType == "SBayes") {
             if (!opt.ldmatrixFile.empty()) {
                 gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.genMapN, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile, opt.windowFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold, opt.sampleOverlap, opt.imputeN, opt.noscale, opt.binSnp, opt.readLdmTxt);
@@ -143,10 +157,11 @@ int main(int argc, const char * argv[]) {
                                   opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
                                   opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
                                   opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
-                                  opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt);
+                                  opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary);
                 float bestEigenCutoff = gctb.tuneEigenCutoff(data, opt);
-                data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, bestEigenCutoff);
-                data.constructWandQ(data.gwasEffectInBlock, data.numKeptInds);
+                data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, bestEigenCutoff, data.gwasEffectInBlock, data.numKeptInds, true);
+                //data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, bestEigenCutoff);
+                //data.constructWandQ(data.gwasEffectInBlock, data.numKeptInds);
             } else {
                 gctb.inputSnpInfo(data, opt.bedFile, opt.gwasSummaryFile, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.sampleOverlap, opt.imputeN, opt.noscale);
             }

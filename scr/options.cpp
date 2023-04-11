@@ -174,7 +174,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
         }
         else if (!strcmp(argv[i], "--make-ldm-eigen")) {
             analysisType = "LDmatrixEigen";
-            ss << "--make-ldm-eigen " << argv[i] << "\n";
+            ss << "--make-ldm-eigen " << "\n";
         }
         else if (!strcmp(argv[i], "--ldm-eigen")) {
             eigenMatrixFile = argv[++i];
@@ -201,6 +201,11 @@ void Options::inputOptions(const int argc, const char* argv[]){
             mergeLdm = true;
             outLDmatType = "block";
             ss << "--merge-block-ldm-info " << "\n";
+        }
+        else if (!strcmp(argv[i], "--impute-summary")) {
+            analysisType = "ImputeSumStats";
+            imputeSummary = true;
+            ss << "--impute-summary " << "\n";
         }
         else if (!strcmp(argv[i], "--per-snp-gv")) {
             perSnpGV = true;

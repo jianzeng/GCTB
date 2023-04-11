@@ -103,7 +103,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
                         const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile,
                         const float eigenCutoff, const bool excludeMHC,
                         const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const float rsqThreshold,
-                        const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile){
+                        const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile, const bool imputeSummary){
     data.readEigenMatrix(eigenMatrixFile, eigenCutoff);
     if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
@@ -117,15 +117,20 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
         data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000, eQTLFile);
     if (!ldscoreFile.empty()) data.readLDscoreFile(ldscoreFile);
     if (!gwasSummaryFile.empty()) {
-        bool imputeSumStats = true;
-        data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, pValueThreshold, imputeN, imputeSumStats);
+        data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, pValueThreshold, imputeN);
+        if (imputeSummary) {
+            data.readEigenMatrixBinaryFile(eigenMatrixFile, eigenCutoff);
+            data.impG();
+            return;
+        }
         data.includeMatchedSnp();
     }
+    
 
     /// partition ld into blocks
 //    if(!ldBlockInfoFile.empty()) data.readLDBlockInfoFile(ldBlockInfoFile);
-
-    if(!gwasSummaryFile.empty()) data.buildMMEeigen(sampleOverlap, eigenCutoff, noscale);
+        
+    if(!gwasSummaryFile.empty()) data.buildMMEeigen(eigenMatrixFile, sampleOverlap, eigenCutoff, noscale);
 }
 
 
@@ -326,7 +331,7 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
                 data.outputSnpResults(mcmcSamples->posteriorMean, mcmcSamples->posteriorSqrMean, mcmcSamples->lastSample, pip->posteriorMean, noscale, filename + ".snpRes");
         }
         else if (mcmcSamples->label == "CovEffects") {
-            data.outputFixedEffects(mcmcSamples->datMat, filename + ".covRes");
+            if (mcmcSamples->datMat.size()) data.outputFixedEffects(mcmcSamples->datMat, filename + ".covRes");
         }
         else if (mcmcSamples->label == "RandCovEffects") {
             data.outputRandomEffects(mcmcSamples->datMat, filename + ".randCovRes");
@@ -374,22 +379,14 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
     }
     if (bayesType == "RC") {
         McmcSamples *snpEffects = NULL;
-        McmcSamples *deltaPi1 = NULL;
-        McmcSamples *deltaPi2 = NULL;
-        McmcSamples *deltaPi3 = NULL;
-        McmcSamples *deltaPi4 = NULL;
-        McmcSamples *deltaPi5 = NULL;
+        vector<McmcSamples*> deltaPiVec;
         for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
             if (mcmcSampleVec[i]->label == "SnpEffects") snpEffects = mcmcSampleVec[i];
-            if (mcmcSampleVec[i]->label == "DeltaPi1") deltaPi1 = mcmcSampleVec[i];
-            if (mcmcSampleVec[i]->label == "DeltaPi2") deltaPi2 = mcmcSampleVec[i];
-            if (mcmcSampleVec[i]->label == "DeltaPi3") deltaPi3 = mcmcSampleVec[i];
-            if (mcmcSampleVec[i]->label == "DeltaPi4") deltaPi4 = mcmcSampleVec[i];
-            if (mcmcSampleVec[i]->label == "DeltaPi5") deltaPi5 = mcmcSampleVec[i];
+            if (mcmcSampleVec[i]->label.substr(0, 7) == "DeltaPi") deltaPiVec.push_back(mcmcSampleVec[i]);
         }
-        string newfilename = filename + ".snpRes_RC";
+        string newfilename = filename + ".snpRes";
         ofstream out(newfilename.c_str());
-        out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s")
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s")
         % "Id"
         % "Name"
         % "Chrom"
@@ -398,17 +395,15 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
         % "A2"
         % "A1Frq"
         % "A1Effect"
-        % "SE"
-        % "Pi1";
-        if (deltaPi2) out << boost::format("%12s") % "Pi2";
-        if (deltaPi3) out << boost::format("%12s") % "Pi3";
-        if (deltaPi4) out << boost::format("%12s") % "Pi4";
-        if (deltaPi5) out << boost::format("%12s") % "Pi5";
+        % "SE";
+        for (unsigned i=0; i<deltaPiVec.size(); ++i) {
+            out << boost::format(" %12s") % deltaPiVec[i]->label.substr(5);
+        }
         out << boost::format(" %14s %14s") % "PIP" % "Pvalue";
         out << endl;
         
         // estimate P value from PIP
-        VectorXf pip_vec = 1.0 - deltaPi1->posteriorMean.array();
+        VectorXf pip_vec = 1.0 - deltaPiVec[0]->posteriorMean.array();
         McmcSamples *numSnp1 = NULL;
         for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
             McmcSamples *mcmcSamples = mcmcSampleVec[i];
@@ -425,7 +420,7 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
             float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
             float effect = (snp->flipped ? - snpEffects->posteriorMean[idx] : snpEffects->posteriorMean[idx]);
             float se = sqrt(snpEffects->posteriorSqrMean[idx]-snpEffects->posteriorMean[idx]*snpEffects->posteriorMean[idx]);
-            out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6f")
+            out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f")
             % (i+1)
             % snp->ID
             % snp->chrom
@@ -434,19 +429,16 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
             % (snp->flipped ? snp->a1 : snp->a2)
             % (snp->flipped ? 1.0-snp->af : snp->af)
             % (noscale ? effect : effect/sqrt2pq)
-            % (noscale ? se : se/sqrt2pq)
-            % deltaPi1->posteriorMean[idx];
-            if (deltaPi2) out << boost::format("%12.6f") % deltaPi2->posteriorMean[idx];
-            if (deltaPi3) out << boost::format("%12.6f") % deltaPi3->posteriorMean[idx];
-            if (deltaPi4) out << boost::format("%12.6f") % deltaPi4->posteriorMean[idx];
-            if (deltaPi5) out << boost::format("%12.6f") % deltaPi5->posteriorMean[idx];
-            out << " " << setw(14) << (1.0 - deltaPi1->posteriorMean[idx]) << " " << setw(14) << pval[idx];
+            % (noscale ? se : se/sqrt2pq);
+            for (unsigned j = 0; j < deltaPiVec.size(); ++j) {
+                out << boost::format(" %12.6f") % deltaPiVec[j]->posteriorMean[idx];
+            }
+            out << " " << setw(14) << (pip_vec[idx]) << " " << setw(14) << pval[idx];
             out << endl;
             ++idx;
         }
         out.close();
     }
-
 }
 
 McmcSamples* GCTB::inputMcmcSamples(const string &mcmcSampleFile, const string &label, const string &fileformat){
@@ -644,20 +636,13 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
         float cutoff = opt.eigenCutoff[i];
         cout << boost::format("%10s") % cutoff;
 
-
-        data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, cutoff);
-        data.constructWandQ(data.pseudoGwasEffectTrn, data.pseudoGwasNtrn);
+        data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, cutoff, data.pseudoGwasEffectTrn, data.pseudoGwasNtrn, false);
+        //data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, cutoff);
+        //data.constructWandQ(data.pseudoGwasEffectTrn, data.pseudoGwasNtrn);
 
         data.initVariances(opt.heritability, opt.propVarRandom);
-        Model *modeli;
         bool print = false;
-        if (opt.bayesType == "R") {
-            modeli = new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.originalModel, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, print);
-        } else if (opt.bayesType == "RC") {
-            modeli = new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.originalModel, opt.perSnpGV, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, print);
-        } else {
-            throw("Error: eigen cutoff tuning is only available for SBayesR and SBayesRC at the moment!");
-        }
+        Model *modeli = new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.originalModel, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, print);
         
         vector<McmcSamples*> mcmcSampleVeci;
         MCMC mcmc;
