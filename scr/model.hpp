@@ -1601,7 +1601,7 @@ public:
                           const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare,
                           VectorXf &snpStore, VectorXf &ghat, const float varg, const bool originalModel);
 
-        void sampleFromFC(vector<VectorXf> &wcorrBlocks, const vector<MatrixDat> &Qblocks, vector<VectorXf> &whatBlocks,
+        void sampleFromFC(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                           const vector<LDBlockInfo*> keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                           const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore, const float varg,
                           const bool originalModel);
@@ -2251,7 +2251,7 @@ public:
                           const float sigmaSq, const MatrixXf &snpPi, const VectorXf &gamma, const float vare,
                           const VectorXf &snpVarg, const float vary, const float ps, const float overdispersion,
                           const bool originalModel, DeltaPi &deltaPi);
-        void sampleFromFC(vector<VectorXf> &wcorrBlocks, const vector<MatrixDat> &Qblocks, vector<VectorXf> &whatBlocks,
+        void sampleFromFC(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                           const vector<LDBlockInfo*> keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                           const MatrixXf &snpPi, const VectorXf &gamma, const float varg,
                           DeltaPi &deltaPi);

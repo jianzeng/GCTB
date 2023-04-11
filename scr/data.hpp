@@ -411,7 +411,7 @@ public:
      vector<VectorXf> eigenValLdBlock; // store lambda  (per LD block matrix = U * diag(lambda)* V')  per gene LD
      vector<MatrixXf> eigenVecLdBlock; // store U   (per  LD block matrix = U * diag(lambda)* V')  per gene LD
      vector<VectorXf> wcorrBlocks;
-     vector<MatrixDat> Qblocks;
+     vector<MatrixXf> Qblocks;
      ///////// ld block end  ////////
     ///
     map<int, vector<int>> ldblock2gwasSnpMap;

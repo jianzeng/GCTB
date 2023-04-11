@@ -4388,7 +4388,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(const VectorXf &ZPy, const SpMat &ZP
     rcorr = ZPy - ZPZsp * values;
 }
 
-void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const vector<MatrixDat> &Qblocks, vector<VectorXf> &whatBlocks,
+void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                                             const vector<LDBlockInfo*> keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                             const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore, const float varg,
                                             const bool originalModel) {
@@ -4445,7 +4445,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
 
 //#pragma omp parallel for schedule(dynamic)
     for(unsigned blk = 0; blk < nBlocks; blk++){
-        Ref<const MatrixXf> Q = Qblocks[blk].values;
+        Ref<const MatrixXf> Q = Qblocks[blk];
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
         Ref<VectorXf> what = whatBlocks[blk];
 
@@ -6008,7 +6008,7 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
     values = VectorXf::Map(valuesPtr, size);
 }
 
-void ApproxBayesRC::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const vector<MatrixDat> &Qblocks, vector<VectorXf> &whatBlocks,
+void ApproxBayesRC::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                                              const vector<LDBlockInfo*> keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                              const MatrixXf &snpPi, const VectorXf &gamma, const float varg,
                                              DeltaPi &deltaPi){
@@ -6065,7 +6065,7 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, cons
     //cout << "Run 1.1" << std::endl;
     #pragma omp parallel for schedule(dynamic)
     for(unsigned blk = 0; blk < nBlocks; blk++){
-        Ref<const MatrixXf> Q = Qblocks[blk].values;
+        Ref<const MatrixXf> Q = Qblocks[blk];
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
         Ref<VectorXf> what = whatBlocks[blk];
 
