@@ -202,11 +202,11 @@ public:
         pValueThreshold         = 1.0;
 
         // Bayes R defaults
-        ndists                  = 4;
+        ndists                  = 5;
         gamma.resize(ndists);
-        gamma                   << 0.0, 0.01, 0.1, 1;  
+        gamma                   << 0.0, 0.001, 0.01, 0.1, 1;
         pis.resize(ndists);                      
-        pis                     << 0.95, 0.03, 0.015, 0.005;
+        pis                     << 0.95, 0.02, 0.01, 0.01, 0.01;
         // Kappa defaults
         kappa                   = 10;
         
