@@ -763,7 +763,7 @@ void Data::impG(double diag_mod){
         }
     }
 
-    string outfile = title + ".imputedSumStats.ma";
+    string outfile = title + ".imputed.ma";
     ofstream out(outfile.c_str());
     out << boost::format("%15s %10s %10s %15s %15s %15s %15s %15s\n") % "SNP" % "A1" % "A2" % "freq" % "b" % "se" % "p" % "N";
     for (unsigned i=0; i<numSnps; ++i) {
@@ -1310,10 +1310,9 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
     }
     
     vector<int>numSnpInRegion(numKeptLDBlocks);
-    LDBlockInfo * block;
     
     for(int i = 0; i < numKeptLDBlocks;i++){
-        block = keptLdBlockInfoVec[i];
+        LDBlockInfo *block = keptLdBlockInfoVec[i];
         numSnpInRegion[i] = block->numSnpInBlock;
     }
     eigenValLdBlock.resize(numLDBlocks);
@@ -1321,11 +1320,17 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
     wcorrBlocks.resize(numKeptLDBlocks);
     numSnpsBlock.resize(numKeptLDBlocks);
     numEigenvalBlock.resize(numKeptLDBlocks);
-    Qblocks.clear();
-    VectorXf sqrtLambda;
+    Qblocks.resize(numKeptLDBlocks);
+
     
     //Constructing pseudo summary statistics for training and validation data sets, with 90% sample size for training and 10% for validation
+    
+    float n_trn, n_val;
     if (makePseudoSummary) {
+        n_trn = 0.9*float(numKeptInds);
+        n_val = numKeptInds - n_trn;
+        pseudoGwasNtrn = n_trn;
+
         pseudoGwasEffectTrn.resize(numKeptLDBlocks);
         pseudoGwasEffectVal.resize(numKeptLDBlocks);
         b_val.setZero(numIncdSnps);
@@ -1333,7 +1338,7 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
 
 #pragma omp parallel for schedule(dynamic)
     for(int i = 0; i < numKeptLDBlocks; i++){
-        block = keptLdBlockInfoVec[i];
+        LDBlockInfo *block = keptLdBlockInfoVec[i];
         int32_t cur_m = 0;
         int32_t cur_k = 0;
         float sumPosEigVal = 0;
@@ -1407,20 +1412,16 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
         block->eigenvalues = lambda;
         
         // make w and Q
-        sqrtLambda = eigenValLdBlock[i].array().sqrt();
+        VectorXf sqrtLambda = eigenValLdBlock[i].array().sqrt();
         wcorrBlocks[i] = (1.0/sqrtLambda.array()).matrix().asDiagonal() * (eigenVecLdBlock[i].transpose() * GWASeffects[i] );
-        MatrixXf tmpQblocks = sqrtLambda.asDiagonal() * eigenVecLdBlock[i].transpose();
-        MatrixDat matrixDat = MatrixDat(block->snpNameVec, tmpQblocks);
-        Qblocks.push_back(matrixDat);
-        numSnpsBlock[i] = Qblocks[i].ncol;
-        numEigenvalBlock[i] = Qblocks[i].nrow;
+        //MatrixXf tmpQblocks = sqrtLambda.asDiagonal() * eigenVecLdBlock[i].transpose();
+        //MatrixDat matrixDat = MatrixDat(block->snpNameVec, tmpQblocks);
+        Qblocks[i] = sqrtLambda.asDiagonal() * eigenVecLdBlock[i].transpose();
+        numSnpsBlock[i] = Qblocks[i].cols();
+        numEigenvalBlock[i] = Qblocks[i].rows();
         
         // make pseudo summary data
         if (makePseudoSummary) {
-            float n_trn = 0.9*float(numKeptInds);
-            float n_val = numKeptInds - n_trn;
-            pseudoGwasNtrn = n_trn;
-
             long size = eigenValLdBlock[i].size();
             VectorXf rnd(size);
             for (unsigned j=0; j<size; ++j) {
@@ -1893,13 +1894,14 @@ void Data::constructWandQ(const vector<VectorXf> &GWASeffects, const float nGWAS
         // cout << "wcorrBlocks[i]: " << wcorrBlocks[i] << endl;
         // cout << "sqrtLambda: " << sqrtLambda << endl;
         // cout << gwasEffectInBlock[i] << endl;
-        MatrixXf tmpQblocks = sqrtLambda.asDiagonal() * eigenVecLdBlock[i].transpose();
-        MatrixDat matrixDat = MatrixDat(ldblock->snpNameVec, tmpQblocks);
-        // cout << "Qblock: " << endl;
-        // cout << matrixDat.values << endl;
-        Qblocks.push_back(matrixDat);
-        numSnpsBlock[i] = Qblocks[i].ncol;
-        numEigenvalBlock[i] = Qblocks[i].nrow;
+//        MatrixXf tmpQblocks = sqrtLambda.asDiagonal() * eigenVecLdBlock[i].transpose();
+//        MatrixDat matrixDat = MatrixDat(ldblock->snpNameVec, tmpQblocks);
+//        // cout << "Qblock: " << endl;
+//        // cout << matrixDat.values << endl;
+//        Qblocks.push_back(matrixDat);
+        Qblocks[i] = sqrtLambda.asDiagonal() * eigenVecLdBlock[i].transpose();
+        numSnpsBlock[i] = Qblocks[i].cols();
+        numEigenvalBlock[i] = Qblocks[i].rows();
         
         eigenVecLdBlock[i].resize(0,0);
     }
