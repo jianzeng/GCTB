@@ -108,6 +108,7 @@ public:
     bool robustMode;  // use the robust parameterisation in SBayes models
     bool perSnpGV;
     bool mergeLdm;
+    bool imputeSummary;
     
     string eigCutMethod = "value";
     float eigThreshold = 0.001;
@@ -157,8 +158,8 @@ public:
     
     Options(){
         numChains               = 1;
-        chainLength             = 5000;
-        burnin                  = 2000;
+        chainLength             = 3000;
+        burnin                  = 1000;
         outputFreq              = 100;
         seed                    = 0;
         numThread               = 1;
@@ -244,6 +245,7 @@ public:
         robustMode              = false;
         perSnpGV                = false;
         mergeLdm                = false;
+        imputeSummary           = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";

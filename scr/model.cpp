@@ -6092,6 +6092,7 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, cons
             ArrayXf probDelta(ndist);
             for (unsigned k=0; k<ndist; ++k) {
                 probDelta[k] = 1.0f/(logDelta-logDelta[k]).exp().sum();
+                if(isnan(probDelta[k])) probDelta[k] = 0;
                 deltaPi[k]->values[i] = probDelta[k];
             }
                         

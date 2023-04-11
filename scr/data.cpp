@@ -1237,7 +1237,7 @@ void Data::outputWindowResults(const VectorXf &posteriorMean, const string &file
     out.close();
 }
 
-void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool imputeN, const bool imputeSumStats){
+void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool imputeN){
     ifstream in(gwasFile.c_str());
     if (!in) throw ("Error: can not open the GWAS summary data file [" + gwasFile + "] to read.");
     cout << "Reading GWAS summary data from [" + gwasFile + "]." << endl;
@@ -1249,7 +1249,7 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
     map<string, SnpInfo*>::iterator it;
     string id, allele1, allele2, freq, b, se, pval, n;
     unsigned line=0, match=0;
-    unsigned numInconAllele=0, numInconAf=0, numFixed=0, numMafMin=0, numMafMax=0;
+    unsigned numInconAllele=0, numInconAf=0, numFixed=0, numMafMin=0, numMafMax=0, numOutlierN=0;
     unsigned numPvalPruned=0;
     unsigned numFlip=0;
     bool inconAllele, inconAf, fixed, ismafmin, ismafmax, isPvalPruned;
@@ -1321,6 +1321,30 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
     }
     in.close();
     
+    unsigned size = 0;
+    for (unsigned i=0; i<numSnps; ++i) {
+        snp = snpInfoVec[i];
+        if (snp->included) ++size;
+    }
+    ArrayXf perSnpN(size);
+    for (unsigned i=0; i<numSnps; ++i) {
+        snp = snpInfoVec[i];
+        if (snp->included) perSnpN[i] = snp->gwas_n;
+    }
+        
+    float n_med = Gadget::findMedian(perSnpN);
+    float sd = sqrt(Gadget::calcVariance(perSnpN));
+    for (unsigned i=0; i<numSnps; ++i) {
+        snp = snpInfoVec[i];
+        if (!snp->included) continue;
+        if (perSnpN[i] < n_med - 3*sd || perSnpN[i] > n_med + 3*sd) {
+            snp->included = false;
+            ++numOutlierN;
+        }
+    }
+    
+    match -= numOutlierN;
+    
     numIncdSnps = 0;
     for (unsigned i=0; i<numSnps; ++i) {
         snp = snpInfoVec[i];
@@ -1331,7 +1355,7 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
             ++numIncdSnps;
         }
     }
-    
+
     if (numFlip) cout << "flipped " << numFlip << " SNPs according to the minor allele in the reference and GWAS samples." << endl;
     if (numInconAllele) cout << "removed " << numInconAllele << " SNPs with inconsistent allele coding in between the reference and GWAS samples." << endl;
     if (numInconAf) cout << "removed " << numInconAf << " SNPs with differences in allele frequency between the reference and GWAS samples > " << afDiff << "." << endl;
@@ -1339,12 +1363,10 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
     if (mafmin) cout << "removed " << numMafMin << " SNPs with MAF below " << mafmin << " in either reference and GWAS samples." << endl;
     if (mafmax) cout << "removed " << numMafMax << " SNPs with MAF above " << mafmax << " in either reference and GWAS samples." << endl;
     if (pValueThreshold < 1.0) cout << "removed " << numPvalPruned << " SNPs with GWAS P value greater than " << pValueThreshold << "." << endl;
+    if (numOutlierN) cout << "removed " << numOutlierN << " SNPs with per-SNP sample size beyond 3 SD around the median value." << endl;
     cout << match << " matched SNPs in the GWAS summary data (in total " << line << " SNPs)." << endl;
     
     if (imputeN) imputePerSnpSampleSize(snpInfoVec, numIncdSnps, 0);
-
-    if (imputeSumStats) impG();
-    
 }
 
 void Data::imputePerSnpSampleSize(vector<SnpInfo*> &snpInfoVec, unsigned &numIncdSnps, float sd) {

@@ -13,6 +13,7 @@ void McmcSamples::getSample(const unsigned iter, const VectorXf &sample, const b
         if (writeTxtPosterior) tout << sample.transpose() << endl;
     }
     if (iter % thin) return;
+//    if (!sample.size()) return;
     unsigned thin_iter = iter/thin;
     unsigned thin_iter_post_burnin = thin_iter - burnin/thin;
     if (storageMode == dense) {
@@ -47,7 +48,7 @@ void McmcSamples::getSample(const unsigned iter, const VectorXf &sample, const b
         if (iter >= burnin) {
             pip.array() += (delta - pip.array())/(thin_iter_post_burnin+1);
             posteriorMean.array() += (sample - posteriorMean).array()/(thin_iter_post_burnin+1);
-            posteriorSqrMean.array() += (sample.array().square() - posteriorSqrMean.array())/(thin_iter_post_burnin+1);
+            posteriorSqrMean.array() += (sample.array().square() - posteriorSqrMean.array())/(thin_iter_post_burnin+1);            
         }
     }
 }
@@ -86,7 +87,11 @@ VectorXf McmcSamples::sd(){
 }
 
 void McmcSamples::initBinFile(const string &title){
-    filename = title + ".mcmcsamples." + label;
+    string dirname = title + ".mcmcsamples";
+    if (!Gadget::directoryExist(dirname)) {
+        throw("Error: cannot find directory " + dirname);
+    }
+    filename = dirname + "/" + label + ".mcmcsamples.bin";
     bout = fopen(filename.c_str(), "wb");
     if (!bout) {
         throw("Error: cannot open file " + filename);
@@ -97,7 +102,11 @@ void McmcSamples::initBinFile(const string &title){
 }
 
 void McmcSamples::initTxtFile(const string &title){
-    filename = title + ".mcmcsamples." + label;
+    string dirname = title + ".mcmcsamples";
+    if (!Gadget::directoryExist(dirname)) {
+        throw("Error: cannot find directory " + dirname);
+    }
+    filename = dirname + "/" + label + ".mcmcsamples.txt";
     tout.open(filename.c_str());
     if (!tout) {
         throw("Error: cannot open file " + filename);
@@ -105,7 +114,11 @@ void McmcSamples::initTxtFile(const string &title){
 }
 
 void McmcSamples::writeDataBin(const string &title){
-    filename = title+ ".mcmcsamples." + label ;
+    string dirname = title + ".mcmcsamples";
+    if (!Gadget::directoryExist(dirname)) {
+        throw("Error: cannot find directory " + dirname);
+    }
+    filename = dirname + "/" + label + ".mcmcsamples.bin";
     FILE *out = fopen(filename.c_str(), "wb");
     if (!out) {
         throw("Error: cannot open file " + filename);
@@ -126,7 +139,12 @@ void McmcSamples::writeDataBin(const string &title){
     fclose(out);
 }
 
-void McmcSamples::readDataBin(const string &filename){
+void McmcSamples::readDataBin(const string &title){
+    string dirname = title + ".mcmcsamples";
+    if (!Gadget::directoryExist(dirname)) {
+        throw("Error: cannot find directory " + dirname);
+    }
+    filename = dirname + "/" + label + ".mcmcsamples.bin";
     FILE *in = fopen(filename.c_str(), "rb");
     if (!in) {
         throw("Error: cannot open file " + filename);
@@ -165,7 +183,12 @@ void McmcSamples::readDataBin(const string &filename){
     storageMode = sparse;
 }
 
-void McmcSamples::readDataTxt(const string &filename){
+void McmcSamples::readDataTxt(const string &title){
+    string dirname = title + ".mcmcsamples";
+    if (!Gadget::directoryExist(dirname)) {
+        throw("Error: cannot find directory " + dirname);
+    }
+    filename = dirname + "/" + label + ".mcmcsamples.txt";
     ifstream in(filename.c_str());
     string inputStr;
     vector<float> tmp;
@@ -179,7 +202,12 @@ void McmcSamples::readDataTxt(const string &filename){
     storageMode = dense;
 }
 
-void McmcSamples::readDataTxt(const string &filename, const string &label){
+void McmcSamples::readDataTxt(const string &title, const string &label){
+    string dirname = title + ".mcmcsamples";
+    if (!Gadget::directoryExist(dirname)) {
+        throw("Error: cannot find directory " + dirname);
+    }
+    filename = dirname + "/" + label + ".mcmcsamples.txt";
     ifstream in(filename.c_str());
     Gadget::Tokenizer colData;
     Gadget::Tokenizer header;
@@ -207,14 +235,22 @@ void McmcSamples::readDataTxt(const string &filename, const string &label){
 }
 
 void McmcSamples::writeDataTxt(const string &title){
-    filename = title+ ".mcmcsamples." + label ;
+    string dirname = title + ".mcmcsamples";
+    if (!Gadget::directoryExist(dirname)) {
+        throw("Error: cannot find directory " + dirname);
+    }
+    filename = dirname + "/" + label + ".mcmcsamples.txt";
     ofstream out(filename);
     out << datMat << endl;
     out.close();
 }
 
 void MCMC::initTxtFile(const vector<Parameter*> &paramVec, const string &title){
-    outfilename = title + ".mcmcsamples.Par";
+    string dirname = title + ".mcmcsamples";
+    if (!Gadget::directoryExist(dirname)) {
+        throw("Error: cannot find directory " + dirname);
+    }
+    outfilename = dirname + "/CoreParameters.mcmcsamples.txt";
     out.open(outfilename.c_str());
     if (!out) {
         throw("Error: cannot open file " + outfilename);
@@ -411,6 +447,13 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const u
         cout << "MCMC launched ..." << endl;
         cout << "  Chain length: " << chainLength << " iterations" << endl;
         cout << "  Burn-in: " << burnin << " iterations" << endl << endl;
+    }
+    
+    if (writeBinPosterior || writeTxtPosterior) {
+        if (!Gadget::directoryExist(title + ".mcmcsamples")){
+            Gadget::createDirectory(title + ".mcmcsamples");
+            if (print) cout << "  Created directory [" << title << ".mcmcsamples] to store MCMC samples.\n\n";
+        }
     }
 
     vector<McmcSamples*> mcmcSampleVec = initMcmcSamples(model, chainLength, burnin, thin, title, writeBinPosterior, writeTxtPosterior);
