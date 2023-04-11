@@ -1227,6 +1227,7 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
         
 #pragma omp parallel for schedule(dynamic)
     for(int i = 0; i < numLDBlocks; i++){
+        LDBlockInfo * block;
         block = ldBlockInfoVec[i];
         int32_t cur_m = 0;
         int32_t cur_k = 0;
@@ -1280,6 +1281,7 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
             // cout << "Read " << eigenBinFile << " error (U)" << endl;
             // throw("read file error");
         }
+        fclose(fp);
         bool haveValue = false;
         int revIdx = 0;
         if(oldEigenCutoff < eigenCutoff & i == 0){
@@ -1866,7 +1868,7 @@ void Data::constructPseudoSummaryData(){
             rnd[j] = Stat::snorm();
         }
         
-        pseudoGwasEffectTrn[i] = gwasEffectInBlock[i] + sqrt(1.0/n_trn - 1.0/nGWASblock[i]) * eigenVecLdBlock[i] * eigenValLdBlock[i].array().sqrt().matrix().asDiagonal() * rnd;
+        pseudoGwasEffectTrn[i] = gwasEffectInBlock[i] + sqrt(1.0/n_trn - 1.0/nGWASblock[i]) * eigenVecLdBlock[i] * (eigenValLdBlock[i].array().sqrt().matrix().asDiagonal() * rnd);
 
         pseudoGwasEffectVal[i] = nGWASblock[i]/n_val * gwasEffectInBlock[i] - n_trn/n_val * pseudoGwasEffectTrn[i];
         b_val.segment(block->startSnpIdx, block->numSnpInBlock) = pseudoGwasEffectVal[i];
@@ -1880,12 +1882,11 @@ void Data::constructWandQ(const vector<VectorXf> &GWASeffects, const float nGWAS
     numSnpsBlock.resize(numKeptLDBlocks);
     numEigenvalBlock.resize(numKeptLDBlocks);
     Qblocks.clear();
-    VectorXf sqrtLambda;
 
     for (unsigned i = 0; i < numKeptLDBlocks; i++){
         LDBlockInfo *ldblock = keptLdBlockInfoVec[i];
         // calculate wbcorr and Qblocks
-        sqrtLambda = eigenValLdBlock[i].array().sqrt();
+        VectorXf sqrtLambda = eigenValLdBlock[i].array().sqrt();
         //cout << eigenVecLdBlock[i].transpose().rows() << " " << eigenVecLdBlock[i].transpose().cols() << " " << gwasEffectInBlock[i].size() << endl;
         wcorrBlocks[i] = (1.0/sqrtLambda.array()).matrix().asDiagonal() * (eigenVecLdBlock[i].transpose() * GWASeffects[i] );
         // cout << "eigenVecLdBlock[i]: " << eigenVecLdBlock[i] << endl;

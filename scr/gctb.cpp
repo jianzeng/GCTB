@@ -646,6 +646,7 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
         
         vector<McmcSamples*> mcmcSampleVeci;
         MCMC mcmc;
+
         unsigned chainLength = 150;
         unsigned burnin = 100;
         unsigned thin = 1;
