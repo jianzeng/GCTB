@@ -670,13 +670,11 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
 
 
 void Data::impG(double diag_mod){
-    LDBlockInfo *ldblock;
-    SnpInfo *snp;
     int numImpSnp = 0;
     for (unsigned i = 0; i < numLDBlocks; i++ ){
-        ldblock = ldBlockInfoVec[i];
+        LDBlockInfo *ldblock = ldBlockInfoVec[i];
         for (unsigned j=0; j<ldblock->numSnpInBlock; ++j) {
-            snp = ldblock->snpInfoVec[j];
+            SnpInfo *snp = ldblock->snpInfoVec[j];
             if (!snp->included) {
                 ++numImpSnp;
             }
@@ -692,12 +690,12 @@ void Data::impG(double diag_mod){
 
     Gadget::Timer timer;
     timer.setTime();
-
-    map<string, SnpInfo*>::iterator iterSnp;
-    Stat::Normal normal;
     
 #pragma omp parallel for schedule(dynamic)
     for (unsigned i = 0; i < numLDBlocks; i++ ){
+        map<string, SnpInfo*>::iterator iterSnp;
+        Stat::Normal normal;
+
         /// Step 1. construct LD 
         LDBlockInfo *ldblock = ldBlockInfoVec[i];
         MatrixXf LDPerBlock = eigenVecLdBlock[i] * eigenValLdBlock[i].asDiagonal() * eigenVecLdBlock[i].transpose();
@@ -713,7 +711,7 @@ void Data::impG(double diag_mod){
             if (iterSnp == snpInfoMap.end()) {
                 continue;
             }
-            snp = iterSnp->second;
+            SnpInfo *snp = iterSnp->second;
             if(snp->included){
                 // typed snp
                 typedSnpIdx.push_back(j);
@@ -748,7 +746,7 @@ void Data::impG(double diag_mod){
                 // base = 2 * snp->af *( 1- snp->af) * ( NMedian + ZPerBlock(j) * ZPerBlock(j));
                 continue;
             }
-            snp = iterSnp->second;
+            SnpInfo *snp = iterSnp->second;
             if(!snp->included){
                 float base1 = 2 * snp->af *( 1- snp->af) * (NMedian + ZPerBlock(j) * ZPerBlock(j));
                 snp->gwas_b = ZPerBlock(j) * sqrt(VpMedian)/base1;
@@ -767,7 +765,7 @@ void Data::impG(double diag_mod){
     ofstream out(outfile.c_str());
     out << boost::format("%15s %10s %10s %15s %15s %15s %15s %15s\n") % "SNP" % "A1" % "A2" % "freq" % "b" % "se" % "p" % "N";
     for (unsigned i=0; i<numSnps; ++i) {
-        snp = snpInfoVec[i];
+        SnpInfo *snp = snpInfoVec[i];
         out << boost::format("%15s %10s %10s %15s %15s %15s %15s %15s\n")
         % snp->ID
         % snp->a1
@@ -809,7 +807,6 @@ void Data::getEigenDataForLDBlock(const string &bedFile, const string &ldBlockIn
     map<string,int> keptLdBlock2AllLdBlcokMap;
     vector<locus_bp>::iterator iter;
     map<int, string>::iterator chrIter;
-    LDBlockInfo *ldblock;
     for (i = 0; i < numIncdSnps ; i++) {
         snp = incdSnpInfoVec[i];
         snpVec.push_back(locus_bp(snp->ID, snp->chrom, snp->physPos ));
@@ -817,7 +814,7 @@ void Data::getEigenDataForLDBlock(const string &bedFile, const string &ldBlockIn
 #pragma omp parallel for private(iter, chrIter)
     for (i = 0; i < numLDBlocks; i++) {
         // find lowest snp_name in the block
-        ldblock = ldBlockInfoVec[i];
+        LDBlockInfo *ldblock = ldBlockInfoVec[i];
 
         iter = find_if(snpVec.begin(), snpVec.end(), locus_bp( ldblock->ID ,ldblock->chrom, ldblock->startPos - ldBlockRegionWind));
         if (iter != snpVec.end()) block2snp_1[i] = iter->locusName;
@@ -825,7 +822,7 @@ void Data::getEigenDataForLDBlock(const string &bedFile, const string &ldBlockIn
     }
 #pragma omp parallel for private(iter, chrIter)
     for (i = 0; i < numLDBlocks; i++) {
-        ldblock = ldBlockInfoVec[i];
+        LDBlockInfo *ldblock = ldBlockInfoVec[i];
         if (block2snp_1[i] == "NA") {
             block2snp_2[i] = "NA";
             continue;
@@ -850,7 +847,7 @@ void Data::getEigenDataForLDBlock(const string &bedFile, const string &ldBlockIn
     }
     int mapped = 0;
     for (i = 0; i < numLDBlocks; i++) {
-        ldblock = ldBlockInfoVec[i];
+        LDBlockInfo *ldblock = ldBlockInfoVec[i];
         if (block2snp_1[i] != "NA" && block2snp_2[i] != "NA")
         {
             mapped++;
@@ -873,7 +870,7 @@ void Data::getEigenDataForLDBlock(const string &bedFile, const string &ldBlockIn
     vector<VectorXf> cumsumNonNeg(numKeptLDBlocks);
     
     for (i = 0; i < numIncdSnps; i++) {
-        snp = incdSnpInfoVec[i];
+        SnpInfo *snp = incdSnpInfoVec[i];
         snp_name_map.insert(pair<string,int>(snp->ID, i));
         
     }
@@ -886,7 +883,7 @@ void Data::getEigenDataForLDBlock(const string &bedFile, const string &ldBlockIn
 
     bool readBedBool = true;
     for (i = 0; i < numKeptLDBlocks; i++) {
-        ldblock = keptLdBlockInfoVec[i];
+        LDBlockInfo *ldblock = keptLdBlockInfoVec[i];
         // cout << "ldblock id: " << ldblock->ID << endl;
         iter1 = snp_name_map.find(block2snp_1[keptLdBlock2AllLdBlcokMap.at(ldblock->ID ) ]);
         iter2 = snp_name_map.find(block2snp_2[keptLdBlock2AllLdBlcokMap.at(ldblock->ID ) ]);
