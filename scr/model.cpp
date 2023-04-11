@@ -4443,7 +4443,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
     // Cycle over all variants in the window and sample the genetics effects
     // --------------------------------------------------------------------------------
 
-//#pragma omp parallel for schedule(dynamic)
+    #pragma omp parallel for schedule(dynamic)
     for(unsigned blk = 0; blk < nBlocks; blk++){
         Ref<const MatrixXf> Q = Qblocks[blk];
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
@@ -4474,10 +4474,15 @@ void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
                 probDelta[k] = 1.0f/(logDelta-logDelta[k]).exp().sum();
             }
                         
-            unsigned delta = bernoulli.sample(probDelta);
-            
-            snpset[delta].push_back(i);
-            snpStore[delta]++;
+
+            unsigned delta;
+            #pragma omp critical
+            {
+                delta = bernoulli.sample(probDelta);
+
+                snpset[delta].push_back(i);
+                snpStore[delta]++;
+            }
             
             if (delta) {
                 valuesPtr[i] = uhat[delta] + nrnd[i]*sqrtf(invLhs[delta]);
