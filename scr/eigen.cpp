@@ -736,7 +736,7 @@ void Data::impG(double diag_mod){
         std::sort(Ntyped.data(), Ntyped.data() + Ntyped.size());
         float NMedian = Ntyped[Ntyped.size()/2];  // median
         // calcuate median of phenotypic variance 
-        VectorXf Vptyped = NPerBlock(typedSnpIdx);
+        VectorXf Vptyped = VpPerBlock(typedSnpIdx);
         std::sort(Vptyped.data(), Vptyped.data() + Vptyped.size());
         float VpMedian = Vptyped[Vptyped.size()/2];  // median
         // begin impute 
@@ -748,12 +748,12 @@ void Data::impG(double diag_mod){
             }
             SnpInfo *snp = iterSnp->second;
             if(!snp->included){
-                float base1 = 2 * snp->af *( 1- snp->af) * (NMedian + ZPerBlock(j) * ZPerBlock(j));
+                float base1 = sqrt(2.0 * snp->af *( 1- snp->af) * (NMedian + ZPerBlock(j) * ZPerBlock(j)));
                 snp->gwas_b = ZPerBlock(j) * sqrt(VpMedian)/base1;
                 snp->gwas_se = sqrt(VpMedian) / base1;
                 snp->gwas_n = NMedian;
                 snp->gwas_af = snp->af;
-                snp->gwas_pvalue = 2*(1.0-normal.cdf_01(abs(snp->gwas_b/snp->gwas_se)));
+                snp->gwas_pvalue = 2.0*(1.0-normal.cdf_01(abs(snp->gwas_b/snp->gwas_se)));
                 snp->included = true;
             
 //                cout << "b " << snp->gwas_b << " se " << snp->gwas_se << " z " << snp->gwas_b/snp->gwas_se << " p " << snp->gwas_pvalue << endl;
