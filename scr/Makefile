@@ -11,7 +11,7 @@ BOOST_PATH = $(BOOST_LIB)
 # Set the C++ compiler based on the system
 ifeq ($(shell uname -s),Linux)
     CXX = g++
-    CXXFLAGS = -I $(EIGEN_PATH) -I $(BOOST_PATH) -DUNIX -m64 -fopenmp -O3 -std=c++11 -Wall -w
+    CXXFLAGS = -I $(EIGEN_PATH) -I $(BOOST_PATH) -DUNIX -DNDEBUG -msse2 -m64 -fopenmp -O3 -std=c++11 -Wall -w
     LIB = -ldl
 else ifeq ($(shell uname -s),Darwin)
     CXX = /usr/local/opt/llvm/bin/clang++

@@ -6151,6 +6151,7 @@ void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(MatrixXf &z, const MatrixXf 
 //    static unsigned iter=0;
     
     VectorXf numOnes(numComp);
+    #pragma omp parallel for
     for (unsigned i=0; i<numComp; ++i) {
         numOnes[i] = z.col(i).sum();
     }
@@ -6160,79 +6161,89 @@ void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(MatrixXf &z, const MatrixXf 
     unsigned numSnps = z.rows();
     for (unsigned i=0; i<numComp; ++i) {
         VectorXf &alphai = (*this)[i]->values;
-        MatrixXf annoMati;
         VectorXf y, zi;
         unsigned numDP;  // number of data points for each component
         if (i==0) numDP = numSnps;
         else numDP = numOnes[i-1];
-        annoMati.setZero(numDP, numAnno);
-        y.setZero(numDP);
-        zi.setZero(numDP);
 
-        // get annotation coefficient matrix for component i
-        if (i==0) {
-            annoMati = annoMat;
-            zi = z.col(i);
-        } else {
-            for (unsigned j=0, idx=0; j<numSnps; ++j) {
-                if (z(j,i-1)) {
-                    annoMati.row(idx) = annoMat.row(j);
-                    zi[idx] = z(j,i);
-                    ++idx;
+        if(numDP == 0){
+            alphai.setZero();
+            alphai[0] = -10.0;
+            ssq[i] = 0;
+        }else{
+            y.setZero(numDP);
+            zi.setZero(numDP);
+            const MatrixXf *annotMatP;
+            MatrixXf annoMatPO;
+            // get annotation coefficient matrix for component i
+            if (i==0) {
+                annotMatP = &annoMat;
+                zi = z.col(i);
+            } else {
+                annoMatPO.setZero(numDP, numAnno);
+                for (unsigned j=0, idx=0; j<numSnps; ++j) {
+                    if (z(j,i-1)) {
+                        annoMatPO.row(idx) = annoMat.row(j);
+                        zi[idx] = z(j,i);
+                        ++idx;
+                    }
+                }
+                annotMatP = &annoMatPO;
+            }
+            const MatrixXf &annoMati = (*annotMatP);
+
+
+            VectorXf annoDiagi(numAnno);
+            //        for (unsigned k=1; k<numAnno; ++k) {   // skip the first annotation because the first annotation is the intercept
+            //            annoMean[i][k] = annoMati.col(k).mean();
+            //            annoMati.col(k).array() -= annoMean[i][k];
+            //        }
+            if (i==0) {
+                annoDiagi = annoDiag;
+            } else {
+                annoDiagi[0] = numOnes[i-1];
+                #pragma omp parallel for
+                for (unsigned k=1; k<numAnno; ++k) {
+                    annoDiagi[k] = annoMati.col(k).squaredNorm();
                 }
             }
-        }
-        
-        VectorXf annoDiagi(numAnno);
-//        for (unsigned k=1; k<numAnno; ++k) {   // skip the first annotation because the first annotation is the intercept
-//            annoMean[i][k] = annoMati.col(k).mean();
-//            annoMati.col(k).array() -= annoMean[i][k];
-//        }
-        if (i==0) {
-            annoDiagi = annoDiag;
-        } else {
-            annoDiagi[0] = numOnes[i-1];
-            #pragma omp parallel for
+
+            // compute the mean of truncated normal distribution
+            VectorXf mean = annoMati * alphai;
+
+            // sample latent variables
+            for (unsigned j=0; j<numDP; ++j) {
+                //            cout << j << " mean[j] " << mean[j] << " anno " << annoMati.row(j) << endl;
+                if (zi[j]) y[j] = TruncatedNormal::sample_lower_truncated(mean[j], 1.0, 0.0);
+                else y[j] = TruncatedNormal::sample_upper_truncated(mean[j], 1.0, 0.0);
+            }
+
+            // adjust the latent variable by all annotation effects;
+            y -= mean;
+
+            // intercept is fitted with a flat prior
+            float oldSample = alphai[0];
+            float rhs = y.sum() + annoDiagi[0]*oldSample;
+            float invLhs = 1.0/annoDiagi[0];
+            float ahat = invLhs*rhs;
+            alphai[0] = Normal::sample(ahat, invLhs);
+            y.array() += oldSample - alphai[0];
+            //        cout << i << " alphai[0] " << alphai[0] << endl;
+
+            // annotations are fitted with a normal prior
+            ssq[i] = 0;
             for (unsigned k=1; k<numAnno; ++k) {
-                annoDiagi[k] = annoMati.col(k).squaredNorm();
+                oldSample = alphai[k];
+                rhs = annoMati.col(k).dot(y) + annoDiagi[k]*oldSample;
+                invLhs = 1.0/(annoDiagi[k] + 1.0/sigmaSq[i]);
+                ahat = invLhs*rhs;
+                alphai[k] = Normal::sample(ahat, invLhs);
+                y += annoMati.col(k) * (oldSample - alphai[k]);
+                ssq[i] += alphai[k] * alphai[k];
+                //            cout << i << " " << k << " " << alphai[k] << " " << ahat << " " << invLhs << " " << annoDiagi[k] << " " << sigmaSq[i] << endl;
             }
         }
-
-        // compute the mean of truncated normal distribution
-        VectorXf mean = annoMati * alphai;
-        
-        // sample latent variables
-        for (unsigned j=0; j<numDP; ++j) {
-//            cout << j << " mean[j] " << mean[j] << " anno " << annoMati.row(j) << endl;
-            if (zi[j]) y[j] = TruncatedNormal::sample_lower_truncated(mean[j], 1.0, 0.0);
-            else y[j] = TruncatedNormal::sample_upper_truncated(mean[j], 1.0, 0.0);
-        }
-        
-        // adjust the latent variable by all annotation effects;
-        y -= mean;
-        
-        // intercept is fitted with a flat prior
-        float oldSample = alphai[0];
-        float rhs = y.sum() + annoDiagi[0]*oldSample;
-        float invLhs = 1.0/annoDiagi[0];
-        float ahat = invLhs*rhs;
-        alphai[0] = Normal::sample(ahat, invLhs);
-        y.array() += oldSample - alphai[0];
-//        cout << i << " alphai[0] " << alphai[0] << endl;
-        
-        // annotations are fitted with a normal prior
-        ssq[i] = 0;
-        for (unsigned k=1; k<numAnno; ++k) {
-            oldSample = alphai[k];
-            rhs = annoMati.col(k).dot(y) + annoDiagi[k]*oldSample;
-            invLhs = 1.0/(annoDiagi[k] + 1.0/sigmaSq[i]);
-            ahat = invLhs*rhs;
-            alphai[k] = Normal::sample(ahat, invLhs);
-            y += annoMati.col(k) * (oldSample - alphai[k]);
-            ssq[i] += alphai[k] * alphai[k];
-//            cout << i << " " << k << " " << alphai[k] << " " << ahat << " " << invLhs << " " << annoDiagi[k] << " " << sigmaSq[i] << endl;
-        }
-       //cout << i << " " << alphai.transpose() << endl;
+        //cout << i << " " << alphai.transpose() << endl;
         
         #pragma omp parallel for
         for (unsigned j=0; j<numSnps; ++j) {
