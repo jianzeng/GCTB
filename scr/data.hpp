@@ -552,7 +552,7 @@ public:
     void readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, const unsigned block, const float eigenCutoff, const bool writeLdmTxt);
     
     void getEigenDataForLDBlock(const string &bedFile, const string &ldBlockInfoFile, int ldBlockRegionWind, const string &filename, const float eigenCutoff);
-    void outputBlockLDmatrixInfo(const unsigned block, const string &filename) const;
+    void outputBlockLDmatrixInfo(const LDBlockInfo &block, const string &outSnpfile, const string &outldmfile) const;
 
     void impG(double diag_mod = 0.1);
 

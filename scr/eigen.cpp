@@ -185,7 +185,7 @@ MatrixXf Data::generateLDmatrixPerBlock(const string &bedFile, const vector<stri
         snpj->af = 0.5f*mean;
         snp2pq[incj] = snpj->twopq = 2.0f*snpj->af*(1.0f-snpj->af);
         
-        if (snp2pq[incj]==0) throw ("Error: " + snpj->ID + " is a fixed SNP!");
+        if (snp2pq[incj]==0) throw ("Error: " + snpj->ID + " is a fixed SNP (MAF=0)!");
         
         Dtmp[incj] = Gadget::calcVariance(ZP.row(incj))*numKeptInds;
         
@@ -261,7 +261,7 @@ MatrixXf Data::generateLDmatrixPerBlock(const string &bedFile, const vector<stri
             snpk->af = 0.5f*mean;
             snp2pq[inck] = snpk->twopq = 2.0f*snpk->af*(1.0f-snpk->af);
             
-            if (snp2pq[inck]==0) throw ("Error: " + snpk->ID + " is a fixed SNP!");
+            if (snp2pq[inck]==0) throw ("Error: " + snpk->ID + " is a fixed SNP (MAF=0)!");
             Dtmp[inck] = Gadget::calcVariance(Zk.row(inck))*numKeptInds;
             Zk = (Zk.array() - Zk.mean())/sqrt(Dtmp[inck]);
             denseZPZ.col(inck) = ZP * Zk;
@@ -312,7 +312,7 @@ MatrixXf Data::generateLDmatrixPerBlock(const string &bedFile, const vector<stri
             snpk->af = 0.5f*mean;
             snp2pq[inck] = snpk->twopq = 2.0f*snpk->af*(1.0f-snpk->af);
             
-            if (snp2pq[inck]==0) throw ("Error: " + snpk->ID + " is a fixed SNP!");
+            if (snp2pq[inck]==0) throw ("Error: " + snpk->ID + " is a fixed SNP (MAF=0)!");
 
             Dtmp[inck] = Gadget::calcVariance(Zk)*numKeptInds;
 
@@ -375,31 +375,53 @@ void Data::getEigenDataFromFullLDM(const string &filename, const float eigenCuto
 }
 
 void Data::mapSnpsToBlocks(){
-    unsigned chrCur = ldBlockInfoVec[0]->chrom;
-    unsigned chrIdx = 0;
     unsigned snpIdx = 0;
     int mapped = 0;
     ChromInfo* chr;
     LDBlockInfo *block;
     SnpInfo *snp;
-    int chrEndSnpIdx = chromInfoVec[0]->endSnpIdx;
+    vector<ChromInfo*>::iterator it = chromInfoVec.begin(), end = chromInfoVec.end();
+    unsigned chrCur = (*it)->id;
+    int chrEndSnpIdx = (*it)->endSnpIdx;
+    
     for (unsigned i=0; i<numLDBlocks; ++i) {
         block = ldBlockInfoVec[i];
         block->snpNameVec.clear();
         block->snpInfoVec.clear();
-        if (chrCur < block->chrom) {  // move to a new chromosome
-            chrEndSnpIdx = chromInfoVec[++chrIdx]->endSnpIdx;
+        
+        //cout << i << " " << numLDBlocks << " " << block->chrom << endl;
+        
+        if (block->chrom > chrCur) {  // move to a new chromosome
+            if (it != end) ++it;
+            if (it == end) {
+                block->kept = false;
+                continue;
+            }
+            chrEndSnpIdx = (*it)->endSnpIdx;
+            chrCur = (*it)->id;
         }
+        if (block->chrom != chrCur) {
+            block->kept = false;
+            continue;
+        }
+        
+        //cout << i << " " << numLDBlocks << " " << block->chrom << " " << block->startPos << " " << block->endPos << endl;
+
         for (; snpIdx <= chrEndSnpIdx; ++snpIdx) {
+            //cout << "snpIdx " << snpIdx << " chrEndSnpIdx " << chrEndSnpIdx << endl;
             snp = snpInfoVec[snpIdx];
+            //cout << snp->ID << " " << snp->chrom << " " << snp->physPos << " " << block->startPos << " " << block->endPos << endl;
+            if (!snp->included) continue;
             if (snp->physPos >= block->startPos && snp->physPos < block->endPos) {
                 block->snpNameVec.push_back(snp->ID);
                 block->snpInfoVec.push_back(snp);
+                snp->block = block->ID;
             } else if (snp->physPos >= block->endPos) {
                 break;
             }
         }
         block->numSnpInBlock = block->snpInfoVec.size();
+        //cout << "block->numSnpInBlock " << block->numSnpInBlock << endl;
         if (block->numSnpInBlock) {
             block->startSnpIdx = block->snpInfoVec[0]->index;
             block->endSnpIdx = block->snpInfoVec[block->numSnpInBlock-1]->index;
@@ -408,6 +430,8 @@ void Data::mapSnpsToBlocks(){
         } else {
             block->kept = false;
         }
+        //cout << i << " " << numLDBlocks << " " << block->numSnpInBlock << endl;
+
     }
         
     if (mapped < 1) throw(0, "No SNP can be mapped to the provided LD block list. Please check the input data regarding chromosome and bp.");
@@ -430,20 +454,20 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
     keptLdBlockInfoVec = makeKeptLDBlockInfoVec(ldBlockInfoVec);
     numKeptLDBlocks = (unsigned) keptLdBlockInfoVec.size();
     
-    string outBinfile;
-    string outTxtfile;
-
+#pragma omp parallel for schedule(dynamic)
     for (unsigned i = 0; i < numKeptLDBlocks; i++) {
         LDBlockInfo *ldblock = keptLdBlockInfoVec[i];
 
-        outBinfile = dirname + "/block" + ldblock->ID + ".ldm.bin";
+        string outBinfile = dirname + "/block" + ldblock->ID + ".ldm.bin";
         FILE *outbin = fopen(outBinfile.c_str(), "wb");
         ofstream outtxt;
-        outTxtfile;
+        string outTxtfile;
         if (writeLdmTxt) {
             outTxtfile = dirname + "/block" + ldblock->ID + ".ldm.txt";
             outtxt.open(outTxtfile.c_str());
         }
+        string outSnpfile = dirname + "/block" + ldblock->ID + ".snp.info";
+        string outldmfile = dirname + "/block" + ldblock->ID + ".ldm.info";
 
         if(!i) cout << "Reading PLINK BED file from [" + bedFile + "] in SNP-major format ..." << endl;
             
@@ -463,20 +487,161 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
         
         fclose(outbin);
         if (writeLdmTxt) outtxt.close();
+        
+        outputBlockLDmatrixInfo(*ldblock, outSnpfile, outldmfile);
+        
+        if(!(i%1)) cout << " computed block " << ldblock->ID << "\r" << flush;
+
+        if (block) {
+            cout << "Written the LD matrix into file [" << outBinfile << "]." << endl;
+            if (writeLdmTxt) cout << "Written the LD matrix into file [" << outTxtfile << "]." << endl;
+            cout << "Written the LD matrix SNP info into file [" << outSnpfile << "]." << endl;
+            cout << "Written the LD matrix ldm info into file [" << outldmfile << "]." << endl;
+        }
     }
     
-    if (block) {
-        cout << "Written the LD matrix into file [" << outBinfile << "]." << endl;
-        if (writeLdmTxt) cout << "Written the LD matrix into file [" << outTxtfile << "]." << endl;
-    }
-    else {
+    if (!block) {
         cout << "Written the LD matrix into folder [" << dirname << "/block*.ldm.bin]." << endl;
         if (writeLdmTxt) cout << "Written the LD matrix into text file [" << dirname << "/block*.ldm.txt]." << endl;
+        
+        if (chromInfoVec.size() >= 22) {  // genome-wide build of LD matrices
+            mergeLdmInfo(LDmatType, dirname);
+        } else {
+            cout << "Written the LD matrix into folder [" << dirname << "/block*.snp.info]." << endl;
+            cout << "Written the LD matrix into folder [" << dirname << "/block*.ldm.info]." << endl;
+        }
     }
-    
-    outputBlockLDmatrixInfo(block, dirname);
-
 }
+
+void Data::outputBlockLDmatrixInfo(const LDBlockInfo &block, const string &outSnpfile, const string &outldmfile) const {
+    // write snp info
+    ofstream out1(outSnpfile.c_str());
+    out1 << boost::format("%6s %15s %10s %10s %15s %6s %6s %12s %10s %10s\n")
+    % "Chrom"
+    % "ID"
+    % "Index"
+    % "GenPos"
+    % "PhysPos"
+    % "A1"
+    % "A2"
+    % "A1Freq"
+    % "N"
+    % "Block";
+    SnpInfo *snp;
+    for (unsigned i=0; i < block.numSnpInBlock; ++i) {
+        snp = block.snpInfoVec[i];
+        out1 << boost::format("%6s %15s %10s %10s %15s %6s %6s %12f %10s %10s\n")
+        % snp->chrom
+        % snp->ID
+        % snp->index
+        % snp->genPos
+        % snp->physPos
+        % snp->a1
+        % snp->a2
+        % snp->af
+        % numKeptInds
+        % snp->block;
+    }
+    out1.close();
+
+    // svd matrix for ld blocks here.
+    ofstream out2(outldmfile.c_str());
+    out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
+    % "Block"
+    % "Chrom"
+    % "StartSnpIdx"
+    % "StartSnpID"
+    % "EndSnpIdx"
+    % "EndSnpID"
+    % "NumSnps";
+    out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
+    % block.ID
+    % block.chrom
+    % block.startSnpIdx
+    % incdSnpInfoVec[block.startSnpIdx]->ID
+    % block.endSnpIdx
+    % incdSnpInfoVec[block.endSnpIdx]->ID
+    % block.numSnpInBlock;
+    out2.close();
+}
+
+//void Data::outputBlockLDmatrixInfo(const unsigned block, const string &dirname) const {
+//    struct stat sb;
+//    if (stat(dirname.c_str(), &sb) != 0 || !S_ISDIR(sb.st_mode)) {
+//        throw("Error: Folder " + dirname + " does not exist!");
+//    }
+//
+//    string outSnpfile;
+//    string outldmfile;
+//
+//    if (block) {
+//        LDBlockInfo *blockinfo = keptLdBlockInfoVec[0];
+//        outSnpfile = dirname + "/block" + blockinfo->ID + ".snp.info";
+//        outldmfile = dirname + "/block" + blockinfo->ID + ".ldm.info";
+//    } else {
+//        outSnpfile = dirname + "/snp.info";
+//        outldmfile = dirname + "/ldm.info";
+//    }
+//
+//    // write snp info
+//    ofstream out1(outSnpfile.c_str());
+//    out1 << boost::format("%6s %15s %10s %10s %15s %6s %6s %12s %10s %10s\n")
+//    % "Chrom"
+//    % "ID"
+//    % "Index"
+//    % "GenPos"
+//    % "PhysPos"
+//    % "A1"
+//    % "A2"
+//    % "A1Freq"
+//    % "N"
+//    % "Block";
+//    SnpInfo *snp;
+//    for (unsigned i=0; i < numIncdSnps ; ++i) {
+//        snp = incdSnpInfoVec[i];
+//        out1 << boost::format("%6s %15s %10s %10s %15s %6s %6s %12f %10s %10s\n")
+//        % snp->chrom
+//        % snp->ID
+//        % snp->index
+//        % snp->genPos
+//        % snp->physPos
+//        % snp->a1
+//        % snp->a2
+//        % snp->af
+//        % numKeptInds
+//        % snp->block;
+//    }
+//    out1.close();
+//
+//    // svd matrix for ld blocks here.
+//    ofstream out2(outldmfile.c_str());
+//    out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
+//    % "Block"
+//    % "Chrom"
+//    % "StartSnpIdx"
+//    % "StartSnpID"
+//    % "EndSnpIdx"
+//    % "EndSnpID"
+//    % "NumSnps";
+//    LDBlockInfo * ldblock;
+//    for (unsigned i=0; i < numKeptLDBlocks ; ++i) {
+//        ldblock = keptLdBlockInfoVec[i];
+//        //cout << "ldblock id: " << ldblock->ID << endl;
+//        out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
+//        % ldblock->ID
+//        % ldblock->chrom
+//        % ldblock->startSnpIdx
+//        % incdSnpInfoVec[ldblock->startSnpIdx]->ID
+//        % ldblock->endSnpIdx
+//        % incdSnpInfoVec[ldblock->endSnpIdx]->ID
+//        % ldblock->snpNameVec.size();
+//    }
+//    out2.close();
+//
+//    cout << "Written the LD matrix SNP info into file [" << outSnpfile << "]." << endl;
+//    cout << "Written the LD matrix ldm info into file [" << outldmfile << "]." << endl;
+//}
+
 
 //void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, const unsigned block, const string &dirname, const bool writeLdmTxt, int ldBlockRegionWind){
 //    int i,j;
@@ -939,83 +1104,6 @@ void Data::getEigenDataForLDBlock(const string &bedFile, const string &ldBlockIn
 
 }
 
-void Data::outputBlockLDmatrixInfo(const unsigned block, const string &dirname) const {
-    struct stat sb;
-    if (stat(dirname.c_str(), &sb) != 0 || !S_ISDIR(sb.st_mode)) {
-        throw("Error: Folder " + dirname + " does not exist!");
-    }
-        
-    string outSnpfile;
-    string outldmfile;
-    
-    if (block) {
-        LDBlockInfo *blockinfo = keptLdBlockInfoVec[0];
-        outSnpfile = dirname + "/block" + blockinfo->ID + ".snp.info";
-        outldmfile = dirname + "/block" + blockinfo->ID + ".ldm.info";
-    } else {
-        outSnpfile = dirname + "/snp.info";
-        outldmfile = dirname + "/ldm.info";
-    }
-    
-    // write snp info
-    ofstream out1(outSnpfile.c_str());
-    out1 << boost::format("%6s %15s %10s %10s %15s %6s %6s %12s %10s %10s\n")
-    % "Chrom"
-    % "ID"
-    % "Index"
-    % "GenPos"
-    % "PhysPos"
-    % "A1"
-    % "A2"
-    % "A1Freq"
-    % "N"
-    % "Block";
-    SnpInfo *snp;
-    for (unsigned i=0; i < numIncdSnps ; ++i) {
-        snp = incdSnpInfoVec[i];
-        out1 << boost::format("%6s %15s %10s %10s %15s %6s %6s %12f %10s %10s\n")
-        % snp->chrom
-        % snp->ID
-        % snp->index
-        % snp->genPos
-        % snp->physPos
-        % snp->a1
-        % snp->a2
-        % snp->af
-        % numKeptInds
-        % snp->block;
-    }
-    out1.close();
-
-    // svd matrix for ld blocks here.
-    ofstream out2(outldmfile.c_str());
-    out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
-    % "Block"
-    % "Chrom"
-    % "StartSnpIdx"
-    % "StartSnpID"
-    % "EndSnpIdx"
-    % "EndSnpID"
-    % "NumSnps";
-    LDBlockInfo * ldblock;
-    for (unsigned i=0; i < numKeptLDBlocks ; ++i) {
-        ldblock = keptLdBlockInfoVec[i];
-        //cout << "ldblock id: " << ldblock->ID << endl;
-        out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
-        % ldblock->ID
-        % ldblock->chrom
-        % ldblock->startSnpIdx
-        % incdSnpInfoVec[ldblock->startSnpIdx]->ID
-        % ldblock->endSnpIdx
-        % incdSnpInfoVec[ldblock->endSnpIdx]->ID
-        % ldblock->snpNameVec.size();
-    }
-    out2.close();
-    
-    cout << "Written the LD matrix SNP info into file [" << outSnpfile << "]." << endl;
-    cout << "Written the LD matrix ldm info into file [" << outldmfile << "]." << endl;
-}
-
 
 void Data::readBlockLdmInfoFile(const string &infoFile){
     // Read bim file: recombination rate is defined between SNP i and SNP i-1
@@ -1104,35 +1192,35 @@ void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, cons
     }
     
     vector<int> numSnpInRegion;
-    LDBlockInfo * ldblock;
     numSnpInRegion.resize(numLDBlocks);
     for(int i = 0; i < numLDBlocks;i++){
-        ldblock = ldBlockInfoVec[i];
-        numSnpInRegion[i] = ldblock->numSnpInBlock;
+        LDBlockInfo *block = ldBlockInfoVec[i];
+        numSnpInRegion[i] = block->numSnpInBlock;
     }
         
     keptLdBlockInfoVec = ldBlockInfoVec;
-    string outBinfile;
-    string outTxtfile;
+    
+#pragma omp parallel for schedule(dynamic)
     for(int i = 0; i < numLDBlocks; i++){
         if (block && i != block - 1) continue;
         
-        LDBlockInfo *block = keptLdBlockInfoVec[i];
+        LDBlockInfo *blockInfo = keptLdBlockInfoVec[i];
 
-        string infile = dirname + "/block" + block->ID + ".ldm.bin";
+        string infile = dirname + "/block" + blockInfo->ID + ".ldm.bin";
         FILE *fp = fopen(infile.c_str(), "rb");
         if(!fp){throw ("Error: can not open the file [" + infile + "] to read.");}
 
-        outBinfile = dirname + "/block" + block->ID + ".eigen.bin";
+        string outBinfile = dirname + "/block" + blockInfo->ID + ".eigen.bin";
         FILE *outbin = fopen(outBinfile.c_str(), "wb");
 
+        string outTxtfile;
         ofstream outtxt;
         if (writeLdmTxt) {
-            outTxtfile = dirname + "/block" + block->ID + ".eigen.txt";
+            outTxtfile = dirname + "/block" + blockInfo->ID + ".eigen.txt";
             outtxt.open(outTxtfile.c_str());
         }
         
-        int32_t blockSize = block->numSnpInBlock;
+        int32_t blockSize = blockInfo->numSnpInBlock;
         
         MatrixXf ldm(blockSize, blockSize);
         uint64_t nElements = (uint64_t)blockSize * (uint64_t)blockSize;
@@ -1140,7 +1228,7 @@ void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, cons
         if(fread(ldm.data(), sizeof(float), nElements, fp) != nElements){
             cout << "fread(U.data(), sizeof(float), nElements, fp): " << fread(ldm.data(), sizeof(float), nElements, fp) << endl;
             cout << "nEle: " << nElements << " ldm.size: " << ldm.size() <<  " ldm.col: " << ldm.cols() << " row: " << ldm.rows() << endl;
-            throw("In LD block " + block->ID + ",size error in " + outBinfile);
+            throw("In LD block " + blockInfo->ID + ",size error in " + outBinfile);
             // cout << "Read " << svdLDfile << " error (U)" << endl;
             // throw("read file error");
         }
@@ -1155,7 +1243,7 @@ void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, cons
         // cout << " Generate and save SVD of LD matrix from LD block " << i << "\r" << flush;
         // save svd matrix
 
-        block->sumPosEigVal = sumPosEigVal;
+        blockInfo->sumPosEigVal = sumPosEigVal;
         
         int32_t numEigenValue = eigenVal.size();
         int32_t numSnpInBlock = blockSize;
@@ -1178,7 +1266,7 @@ void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, cons
         fwrite(eigenVec.data(), sizeof(float), nElements, outbin);
         
         if (writeLdmTxt) {
-            outtxt << "Block " << block->ID << endl;
+            outtxt << "Block " << blockInfo->ID << endl;
             outtxt << "numSnps " << numSnpInBlock << endl;
             outtxt << "numEigenvalues " << numEigenValue << endl;
             outtxt << "SumPositiveEigenvalues " << sumPosEigVal << endl;
@@ -1191,15 +1279,17 @@ void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, cons
         fclose(outbin);
         if (writeLdmTxt) outtxt.close();
 
+        if(!(i%1)) cout << " computed block " << blockInfo->ID << "\r" << flush;
+        
+        if (block) {
+            cout << "Written the eigen data for block LD matrix into file [" << outBinfile << "]." << endl;
+            if (writeLdmTxt) cout << "Written the eigen data for block LD matrix into file [" << outTxtfile << "]." << endl;
+        }
     }
 
-    if (block) {
-        cout << "Written the eigen data for block LD matrix into file [" << outBinfile << "]." << endl;
-        if (writeLdmTxt) cout << "Written the eigen data for block LD matrix into file [" << outTxtfile << "]." << endl;
-    }
-    else {
-    cout << "Written the eigen data for block LD matrix into file [" << dirname << "/block*.eigen.bin]." << endl;
-    if (writeLdmTxt) cout << "Written the eigen data for block LD matrix into file [" << dirname << "/block*.eigen.txt]." << endl;
+    if (!block) {
+        cout << "Written the eigen data for block LD matrix into file [" << dirname << "/block*.eigen.bin]." << endl;
+        if (writeLdmTxt) cout << "Written the eigen data for block LD matrix into file [" << dirname << "/block*.eigen.txt]." << endl;
     }
 
 }
