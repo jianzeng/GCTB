@@ -495,6 +495,7 @@ void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){
     }
     y.array() *= RinverseSqrt.array();
     ypy = (y.array()-y.mean()).square().sum();
+    varPhenotypic = ypy/numKeptInds;
     
     X.resize(numKeptInds, numFixedEffects);
     for (unsigned i=0; i<numKeptInds; ++i) {
@@ -1593,7 +1594,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
         snpj->af = 0.5f*mean;
         snp2pq[incj] = snpj->twopq = 2.0f*snpj->af*(1.0f-snpj->af);
         
-        if (snp2pq[incj]==0) throw ("Error: " + snpj->ID + " is a fixed SNP!");
+        if (snp2pq[incj]==0) throw ("Error: " + snpj->ID + " is a fixed SNP (MAF=0)!");
         
         // standardize genotypes
         //D[incj] = snp2pq[incj]*snpj->sampleSize;
@@ -1696,7 +1697,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
             snpk->af = 0.5f*mean;
             snp2pq[inck] = snpk->twopq = 2.0f*snpk->af*(1.0f-snpk->af);
             
-            if (snp2pq[inck]==0) throw ("Error: " + snpk->ID + " is a fixed SNP!");
+            if (snp2pq[inck]==0) throw ("Error: " + snpk->ID + " is a fixed SNP (MAF=0)!");
             
             // standardize genotypes
             //D[inck] = snp2pq[inck]*snpk->sampleSize;
@@ -1762,7 +1763,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
             snpk->af = 0.5f*mean;
             snp2pq[inck] = snpk->twopq = 2.0f*snpk->af*(1.0f-snpk->af);
             
-            if (snp2pq[inck]==0) throw ("Error: " + snpk->ID + " is a fixed SNP!");
+            if (snp2pq[inck]==0) throw ("Error: " + snpk->ID + " is a fixed SNP (MAF=0)!");
             
             // standardize genotypes
             //D[inck] = snp2pq[inck]*snpk->sampleSize;
@@ -3510,7 +3511,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
         snpj->af = 0.5f*mean;
         snp2pq[incj] = 2.0f*snpj->af*(1.0f-snpj->af);
         
-        if (snp2pq[incj]==0) throw ("Error: " + snpj->ID + " is a fixed SNP!");
+        if (snp2pq[incj]==0) throw ("Error: " + snpj->ID + " is a fixed SNP (MAF=0)!");
         
         // standardize genotypes
         //D[incj] = snp2pq[incj]*snpj->sampleSize;
@@ -3577,7 +3578,7 @@ void Data::makeshrunkLDmatrix(const string &bedFile, const string &LDmatType, co
         snpk->af = 0.5f*mean;
         snp2pq[inck] = 2.0f*snpk->af*(1.0f-snpk->af);
         
-        if (snp2pq[inck]==0) throw ("Error: " + snpk->ID + " is a fixed SNP!");
+        if (snp2pq[inck]==0) throw ("Error: " + snpk->ID + " is a fixed SNP (MAF=0)!");
         
         // standardize genotypes
         //D[inck] = snp2pq[inck]*snpk->sampleSize;
