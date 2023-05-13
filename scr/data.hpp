@@ -465,7 +465,7 @@ public:
     void readPhenotypeFile(const string &phenFile, const unsigned mphen);
     void readCovariateFile(const string &covarFile);
     void readRandomCovariateFile(const string &covarFile);
-    void readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool imputeN);
+    void readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool imputeN, const bool removeOutlierN);
     void readLDmatrixInfoFileOld(const string &ldmatrixFile);
     void readLDmatrixInfoFile(const string &ldmatrixFile);
     void readLDmatrixBinFile(const string &ldmatrixFile);
@@ -554,7 +554,7 @@ public:
     void getEigenDataForLDBlock(const string &bedFile, const string &ldBlockInfoFile, int ldBlockRegionWind, const string &filename, const float eigenCutoff);
     void outputBlockLDmatrixInfo(const LDBlockInfo &block, const string &outSnpfile, const string &outldmfile) const;
 
-    void impG(double diag_mod = 0.1);
+    void impG(const unsigned block, double diag_mod = 0.1);
 
     ///////////// read LD matrix eigen-decomposition data for LD blocks
     void readEigenMatrix(const string &eigenMatrixFile, const float eigenCutoff);
@@ -588,6 +588,8 @@ public:
     
     void scaleGwasEffects(void);
     void mapSnpsToBlocks(void);
+    
+    void mergeBlockGwasSummary(const string &gwasSummaryFile, const string &title);
 };
 
 #endif /* data_hpp */
