@@ -43,7 +43,7 @@ public:
                             const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile,
                             const float eigenCutoff, const bool excludeMHC,
                             const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const float rsqThreshold,
-                      const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile, const bool imputeSummary);
+                      const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile, const bool imputeSummary, const unsigned includeBlock);
     
     void truncBlockEigen(float cutShresh=1e-6);
     

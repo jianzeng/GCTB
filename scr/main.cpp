@@ -144,7 +144,12 @@ int main(int argc, const char * argv[]) {
                               opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
                               opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
                               opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
-                              opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary);
+                              opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock);
+        }
+        else if (opt.analysisType == "MergeGwasSummary") {
+            if (opt.outLDmatType == "block") {
+                data.mergeBlockGwasSummary(opt.gwasSummaryFile, opt.title);
+            }
         }
         else if (opt.analysisType == "SBayes") {
             if (!opt.ldmatrixFile.empty()) {
@@ -157,7 +162,7 @@ int main(int argc, const char * argv[]) {
                                   opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
                                   opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
                                   opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
-                                  opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary);
+                                  opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock);
                 float bestEigenCutoff = gctb.tuneEigenCutoff(data, opt);
                 data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, bestEigenCutoff, data.gwasEffectInBlock, data.numKeptInds, true);
                 //data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, bestEigenCutoff);

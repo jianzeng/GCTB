@@ -834,13 +834,14 @@ void Data::outputBlockLDmatrixInfo(const LDBlockInfo &block, const string &outSn
 //}
 
 
-void Data::impG(double diag_mod){
+void Data::impG(const unsigned block, double diag_mod){
     VectorXi numImpSnp;
     VectorXi numTypSnp;
     numImpSnp.setZero(numLDBlocks);
     numTypSnp.setZero(numLDBlocks);
     for (unsigned i = 0; i < numLDBlocks; i++ ){
         LDBlockInfo *ldblock = ldBlockInfoVec[i];
+        if (!ldblock->kept) continue;
         for (unsigned j=0; j<ldblock->numSnpInBlock; ++j) {
             SnpInfo *snp = ldblock->snpInfoVec[j];
             if (snp->included) {
@@ -864,10 +865,12 @@ void Data::impG(double diag_mod){
     
 #pragma omp parallel for schedule(dynamic)
     for (unsigned i = 0; i < numLDBlocks; i++ ){
+        LDBlockInfo *ldblock = ldBlockInfoVec[i];
+        if (!ldblock->kept) continue;
+        
         Stat::Normal normal;
 
         /// Step 1. construct LD 
-        LDBlockInfo *ldblock = ldBlockInfoVec[i];
         MatrixXf LDPerBlock = eigenVecLdBlock[i] * eigenValLdBlock[i].asDiagonal() * eigenVecLdBlock[i].transpose();
 
         LDPerBlock.diagonal().array() += (float)diag_mod;
@@ -920,9 +923,35 @@ void Data::impG(double diag_mod){
         }
         
         if(!(i%10)) cout << " imputed block " << i << "\r" << flush;
+        
+        if (block) {
+            string outfile = title + ".block" + ldblock->ID + ".imputed.ma";
+            ofstream out(outfile.c_str());
+            out << boost::format("%15s %10s %10s %15s %15s %15s %15s %15s\n") % "SNP" % "A1" % "A2" % "freq" % "b" % "se" % "p" % "N";
+            for (unsigned i=0; i<ldblock->numSnpInBlock; ++i) {
+                SnpInfo *snp = ldblock->snpInfoVec[i];
+                out << boost::format("%15s %10s %10s %15s %15s %15s %15s %15s\n")
+                % snp->ID
+                % snp->a1
+                % snp->a2
+                % snp->af
+                % snp->gwas_b
+                % snp->gwas_se
+                % snp->gwas_pvalue
+                % snp->gwas_n;
+            }
+            out.close();
+
+            timer.getTime();
+            cout << "Imputation of summary statistics is completed (time used: " << timer.format(timer.getElapse()) << ")." << endl;
+            cout << "Summary statistics of all SNPs are save into file [" + outfile + "]." << endl;
+
+        }
 
     }
 
+    if (block) return;
+    
     string outfile = title + ".imputed.ma";
     ofstream out(outfile.c_str());
     out << boost::format("%15s %10s %10s %15s %15s %15s %15s %15s\n") % "SNP" % "A1" % "A2" % "freq" % "b" % "se" % "p" % "N";
@@ -1313,6 +1342,9 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
     for(int i = 0; i < numLDBlocks; i++){
         LDBlockInfo * block;
         block = ldBlockInfoVec[i];
+        
+        if (!block->kept) continue;
+        
         int32_t cur_m = 0;
         int32_t cur_k = 0;
         float sumPosEigVal = 0;
@@ -1609,9 +1641,9 @@ vector<LDBlockInfo*> Data::makeKeptLDBlockInfoVec(const vector<LDBlockInfo*> &ld
 void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale){
     includeMatchedBlocks();
     
-    for (unsigned i=0; i<numSnps; ++i) {
-        SnpInfo *snp = snpInfoVec[i];
-        if (!snp->included) {
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+        SnpInfo *snp = incdSnpInfoVec[i];
+        if (snp->gwas_b == -999) {
             throw("Error: SNP " + snp->ID + " in the LD reference has no summary data. Run --impute-summary first.");
         }
     }
@@ -1661,6 +1693,7 @@ void Data::includeMatchedBlocks(){
         } else {
             ldblock->startSnpIdx = ldblock->block2GwasSnpVec[0];
             ldblock->endSnpIdx = ldblock->block2GwasSnpVec[ldblock->numSnpInBlock-1];
+            ldblock->kept = true;
         }
     }
         
@@ -1931,6 +1964,94 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname) {
     cout << "Written " << snpIdx << " SNPs info into file [" + outSnpInfoFile + "]." << endl;
     cout << "Written " << ldmIdx << " LDMs info into file [" + outldmInfoFile + "]." << endl;
     
+}
+
+void Data::mergeBlockGwasSummary(const string &gwasSummaryFile, const string &title) {
+    string dir_path = "."; // Replace with your folder path
+    string search_str1 = gwasSummaryFile + ".block";
+    string search_str2 = ".ma";
+    DIR* dirp = opendir(dir_path.c_str());
+    
+    if (dirp == NULL) {
+        throw("Error opening directory [" + dir_path + "]");
+    }
+    
+    // find out all .ma files in the folder
+    vector<string> file_list;
+    
+    dirent* dp;
+    while ((dp = readdir(dirp)) != NULL) {
+        string file_name = dp->d_name;
+        if (file_name.find(search_str1) != string::npos && file_name.find(search_str2) != string::npos) {
+            file_list.push_back(file_name);
+        }
+    }
+    
+    closedir(dirp);
+    
+    map<unsigned, string> blockIdxMap;
+    blockIdxMap.clear();
+    
+    for (vector<string>::iterator it = file_list.begin(); it != file_list.end(); ++it) {
+        size_t block_pos = it->find(search_str1);
+        size_t dot_pos = it->find_first_of(".", block_pos);
+        if (block_pos != string::npos && dot_pos != string::npos) {
+            string block_num_str = it->substr(block_pos + search_str1.size(), dot_pos - block_pos - search_str1.size());
+            int block_num = atoi(block_num_str.c_str());
+            blockIdxMap[block_num] = *it;
+        }
+    }
+    
+    if (blockIdxMap.size() == 0) {
+        throw ("Error: there is no info file to merge in folder [" + dir_path + "].");
+    }
+    
+    unsigned nBlk = blockIdxMap.size();
+    
+    cout << "Merging GWAS summary statistics files across " + to_string(nBlk) + " blocks..." << endl;
+    
+    map<unsigned, string>::iterator it = blockIdxMap.begin();
+    
+    string outMaFile = dir_path + "/" + title + ".ma";
+    
+    ofstream out(outMaFile.c_str());
+    out << boost::format("%15s %10s %10s %15s %15s %15s %15s %15s\n") % "SNP" % "A1" % "A2" % "freq" % "b" % "se" % "p" % "N";
+    
+    unsigned snpIdx = 0;
+    
+    for (unsigned i=0; i<nBlk; ++i) {
+        
+        string mafile = it->second;
+        
+        // read snp info file
+        ifstream in(mafile.c_str());
+        if (!in) throw ("Error: can not open the file [" + mafile + "] to read.");
+        cout << "Reading summary statistics from file [" + mafile + "]." << endl;
+
+        string header;
+        getline(in, header);
+
+        string id, allele1, allele2, freq, b, se, pval, n;
+        while (in >> id >> allele1 >> allele2 >> freq >> b >> se >> pval >> n) {
+            out << boost::format("%15s %10s %10s %15s %15s %15s %15s %15s\n")
+            % id
+            % allele1
+            % allele2
+            % freq
+            % b
+            % se
+            % pval
+            % n;
+            ++snpIdx;
+        }
+        in.close();
+        
+        ++it;
+    }
+    
+    out.close();
+    
+    cout << "Written " << snpIdx << " SNPs info into file [" + outMaFile + "]." << endl;
 }
 
 void Data::constructPseudoSummaryData(){

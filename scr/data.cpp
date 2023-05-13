@@ -563,13 +563,34 @@ void Data::includeChr(const unsigned chr){
 
 void Data::includeBlock(const unsigned block){
     if (!block) return;
-    LDBlockInfo *blockInfo = ldBlockInfoVec[block-1];
-    for (unsigned i=0; i<numSnps; ++i){
-        SnpInfo *snpInfo = snpInfoVec[i];
-        if (snpInfo->chrom != blockInfo->chrom) snpInfo->included = false;
-        else if (snpInfo->physPos < blockInfo->startPos) snpInfo->included = false;
-        else if (snpInfo->physPos > blockInfo->endPos) snpInfo->included = false;
+    if (block > ldBlockInfoVec.size()) throw("Error: Reqest to include block " + to_string(block) + " but there are only " + to_string(ldBlockInfoVec.size()) + " in total!");
+    for (unsigned i=0; i<numLDBlocks; ++i) {
+        LDBlockInfo *blockInfo = ldBlockInfoVec[i];
+        if (block != i+1) blockInfo->kept = false;
     }
+    LDBlockInfo *blockInfo = ldBlockInfoVec[block-1];
+    unsigned cnt = 0;
+    if (blockInfo->numSnpInBlock) {
+        for (unsigned i=0; i<numSnps; ++i){
+            SnpInfo *snpInfo = snpInfoVec[i];
+            snpInfo->included = false;
+        }
+        for (unsigned i=0; i<blockInfo->numSnpInBlock; ++i) {
+            SnpInfo *snpInfo = blockInfo->snpInfoVec[i];
+            snpInfo->included = true;
+            ++cnt;
+        }
+    }
+    else {
+        for (unsigned i=0; i<numSnps; ++i){
+            SnpInfo *snpInfo = snpInfoVec[i];
+            if (snpInfo->chrom != blockInfo->chrom) snpInfo->included = false;
+            else if (snpInfo->physPos < blockInfo->startPos) snpInfo->included = false;
+            else if (snpInfo->physPos > blockInfo->endPos) snpInfo->included = false;
+            else ++cnt;
+        }
+    }
+    cout << "Included " << cnt << " SNPs in block " << blockInfo->ID << endl;
 }
 
 void Data::includeSkeletonSnp(const string &skeletonSnpFile){
@@ -1238,7 +1259,7 @@ void Data::outputWindowResults(const VectorXf &posteriorMean, const string &file
     out.close();
 }
 
-void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool imputeN){
+void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool imputeN, const bool removeOutlierN){
     ifstream in(gwasFile.c_str());
     if (!in) throw ("Error: can not open the GWAS summary data file [" + gwasFile + "] to read.");
     cout << "Reading GWAS summary data from [" + gwasFile + "]." << endl;
@@ -1321,30 +1342,36 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
         } else ++match;
     }
     in.close();
-    
-    unsigned size = 0;
-    for (unsigned i=0; i<numSnps; ++i) {
-        snp = snpInfoVec[i];
-        if (snp->included) ++size;
-    }
-    ArrayXf perSnpN(size);
-    for (unsigned i=0; i<numSnps; ++i) {
-        snp = snpInfoVec[i];
-        if (snp->included) perSnpN[i] = snp->gwas_n;
-    }
         
-    float n_med = Gadget::findMedian(perSnpN);
-    float sd = sqrt(Gadget::calcVariance(perSnpN));
-    for (unsigned i=0; i<numSnps; ++i) {
-        snp = snpInfoVec[i];
-        if (!snp->included) continue;
-        if (perSnpN[i] < n_med - 3*sd || perSnpN[i] > n_med + 3*sd) {
-            snp->included = false;
-            ++numOutlierN;
+    if (removeOutlierN){
+        unsigned size = 0;
+        for (unsigned i=0; i<numSnps; ++i) {
+            snp = snpInfoVec[i];
+            if (snp->included && snp->gwas_n != -999) ++size;
         }
+        ArrayXf perSnpN(size);
+        vector<SnpInfo*> snpvec(size);
+        for (unsigned i=0, j=0; i<numSnps; ++i) {
+            snp = snpInfoVec[i];
+            if (snp->included && snp->gwas_n != -999) {
+                perSnpN[j] = snp->gwas_n;
+                snpvec[j] = snp;
+                ++j;
+            }
+        }
+        
+        float n_med = Gadget::findMedian(perSnpN);
+        float sd = sqrt(Gadget::calcVariance(perSnpN));
+        for (unsigned i=0; i<size; ++i) {
+            snp = snpvec[i];
+            if (perSnpN[i] < n_med - 3*sd || perSnpN[i] > n_med + 3*sd) {
+                snp->included = false;
+                ++numOutlierN;
+            }
+        }
+        
+        match -= numOutlierN;
     }
-    
-    match -= numOutlierN;
     
     numIncdSnps = 0;
     for (unsigned i=0; i<numSnps; ++i) {

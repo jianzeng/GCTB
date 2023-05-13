@@ -207,6 +207,11 @@ void Options::inputOptions(const int argc, const char* argv[]){
             imputeSummary = true;
             ss << "--impute-summary " << "\n";
         }
+        else if (!strcmp(argv[i], "--merge-block-gwas-summary")) {
+            analysisType = "MergeGwasSummary";
+            outLDmatType = "block";
+            ss << "--merge-block-gwas-summary " << "\n";
+        }
         else if (!strcmp(argv[i], "--per-snp-gv")) {
             perSnpGV = true;
             ss << "--per-snp-gv " << "\n";

@@ -58,7 +58,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
         data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000, eQTLFile);
     if (!ldscoreFile.empty()) data.readLDscoreFile(ldscoreFile);
     if (!windowFile.empty()) data.readWindowFile(windowFile);
-    if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, pValueThreshold, imputeN);
+    if (!gwasSummaryFile.empty()) data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, pValueThreshold, imputeN, true);
     data.includeMatchedSnp();
     if (readLDMfromTxtFile) {
         data.readLDmatrixTxtFile(ldmatrixFile + ".txt");
@@ -103,11 +103,12 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
                         const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile,
                         const float eigenCutoff, const bool excludeMHC,
                         const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const float rsqThreshold,
-                        const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile, const bool imputeSummary){
+                        const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile, const bool imputeSummary, const unsigned includeBlock){
     data.readEigenMatrix(eigenMatrixFile, eigenCutoff);
     if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
     if (includeChr) data.includeChr(includeChr);
+    if (includeBlock) data.includeBlock(includeBlock);
     if (excludeAmbiguousSNP) data.excludeAmbiguousSNP();
     if (!excludeRegionFile.empty()) data.excludeRegion(excludeRegionFile);
     if (excludeMHC) data.excludeMHC();
@@ -117,10 +118,11 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
         data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000, eQTLFile);
     if (!ldscoreFile.empty()) data.readLDscoreFile(ldscoreFile);
     if (!gwasSummaryFile.empty()) {
-        data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, pValueThreshold, imputeN);
+        bool removeOutlierN = imputeSummary;
+        data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, pValueThreshold, imputeN, removeOutlierN);
         if (imputeSummary) {
             data.readEigenMatrixBinaryFile(eigenMatrixFile, eigenCutoff);
-            data.impG();
+            data.impG(includeBlock);
             return;
         }
         data.includeMatchedSnp();
@@ -141,7 +143,7 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSum
     data.keptIndInfoVec = data.makeKeptIndInfoVec(data.indInfoVec);
     data.numKeptInds =  (unsigned) data.keptIndInfoVec.size();
     
-    data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, pValueThreshold, imputeN);
+    data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, pValueThreshold, imputeN, true);
     data.includeMatchedSnp();
     data.readBedFile(noscale, bedFile + ".bed");
     data.buildSparseMME(sampleOverlap, noscale);
@@ -485,7 +487,7 @@ void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDma
         data.readAnnotationFile(annotationFile, transpose, true);
     else
         data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000, eQTLFile);
-    data.readGwasSummaryFile(gwasSummaryFile, 1, 0, 0, pValueThreshold, imputeN);
+    data.readGwasSummaryFile(gwasSummaryFile, 1, 0, 0, pValueThreshold, imputeN, true);
     data.includeMatchedSnp();
     if (geneticMapFile.empty()) {
         if (multiLDmat)
@@ -694,3 +696,5 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
     
     return bestCutoff;
 }
+
+void mergeBlockGwasSummary(Data &data, const string &gwasSummaryFile, const string &title);
