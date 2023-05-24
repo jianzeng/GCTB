@@ -269,11 +269,11 @@ public:
     
     enum {linear, mixture} model;
     
-    StratApproxBayesS(const Data &data, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi,
+    StratApproxBayesS(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi,
                       const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation,
                       const float varS, const vector<float> &svalue,
                       const string &algorithm, const bool robustMode, const bool randomStart = false, const bool message = true):
-    ApproxBayesS(data, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, svalue, "HMC", false, robustMode, randomStart, false),
+    ApproxBayesS(data, lowrank, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, svalue, "HMC", false, robustMode, randomStart, false),
     snpEffects(data.snpEffectNames, data.snp2pq, pival, data.annoInfoVec),
     snpAnnoMembership(data.snpAnnoPairNames, data.numAnnoPerSnpVec),
     sigmaSqStrat(data.annoNames, data.annoInfoVec, varGenotypic, pival),
@@ -296,7 +296,11 @@ public:
         paramSetVec = {&snpEffects, &piStrat, &piEnrich, &sigmaSqStrat, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &Sstrat, &Senrich, &snpAnnoMembership};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
         paramSetToPrint = {&piStrat, &piEnrich, &sigmaSqStrat, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &Sstrat, &Senrich, &snpAnnoMembership};
-        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq, &rounding};
+        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
+        if (lowRankModel) {
+            paramSetVec.push_back(&vargBlk);
+            paramSetVec.push_back(&vareBlk);
+        }
         if (modelPS) {
             paramVec.push_back(&ps);
             paramToPrint.push_back(&ps);
@@ -308,7 +312,10 @@ public:
         if (message) {
 //            string alg = algorithm;
 //            if (alg!="RWMH" && alg!="Reg") alg = "HMC";
-            cout << "\nAnnotation-stratified summary-data-based BayesS model fitted." << endl;
+            cout << "\nAnnotation-stratified SBayesS" << endl;
+            if (lowRankModel) {
+                cout << "Using the low-rank model" << endl;
+            }
             if (model == linear) cout << "  Linear model" << endl;
             if (model == mixture) cout << "  Mixture model" << endl;
         }
@@ -366,8 +373,8 @@ public:
     
     unsigned iter;
     
-    PostHocStratifyS(const Data &data, const McmcSamples &snpEffectsMcmc, const McmcSamples &hsqMcmc, const unsigned thin, const float hsqhat, const bool message = true):
-    StratApproxBayesS(data, hsqhat, 1.0-hsqhat, 0.01, 1, 1, true, 0, 0, 0, 0, 0, 1, vector<float>(1,0), "HMC", false),
+    PostHocStratifyS(const Data &data, const bool lowrank, const McmcSamples &snpEffectsMcmc, const McmcSamples &hsqMcmc, const unsigned thin, const float hsqhat, const bool message = true):
+    StratApproxBayesS(data, lowrank, hsqhat, 1.0-hsqhat, 0.01, 1, 1, true, 0, 0, 0, 0, 0, 1, vector<float>(1,0), "HMC", false),
     snpEffects(data.snpEffectNames, data.snp2pq, data.annoInfoVec),
     piStrat(data.annoNames),
     sigmaSqStrat(data.annoNames, data.annoInfoVec, hsqhat),
@@ -428,8 +435,8 @@ public:
     
     const McmcSamples &deltaSmcmc;
 
-    PostHocStratifySMix(const Data &data, const McmcSamples &snpEffectsMcmc, const McmcSamples &hsqMcmc, const McmcSamples &deltaSmcmc, const unsigned thin, const float hsqhat, const bool message = true):
-    PostHocStratifyS(data, snpEffectsMcmc, hsqMcmc, thin, hsqhat, false),
+    PostHocStratifySMix(const Data &data, const bool lowrank, const McmcSamples &snpEffectsMcmc, const McmcSamples &hsqMcmc, const McmcSamples &deltaSmcmc, const unsigned thin, const float hsqhat, const bool message = true):
+    PostHocStratifyS(data, lowrank, snpEffectsMcmc, hsqMcmc, thin, hsqhat, false),
     deltaSmcmc(deltaSmcmc),
     deltaS(data.snpEffectNames),
     piSstrat(data.annoNames),
