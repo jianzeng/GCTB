@@ -852,12 +852,7 @@ void Data::impG(const unsigned block, double diag_mod){
         }
     }
     unsigned totalNumImpSnp = numImpSnp.sum();
-    
-    if (!totalNumImpSnp) {
-        cout << "\nNo SNP needs to be imputed for summary statistics!" << endl;
-        return;
-    }
-    
+        
     cout << "Imputing summary statistics for " << to_string(totalNumImpSnp) << " SNPs in the LD reference but not in the GWAS data file..." << endl;
 
     Gadget::Timer timer;
@@ -868,58 +863,61 @@ void Data::impG(const unsigned block, double diag_mod){
         LDBlockInfo *ldblock = ldBlockInfoVec[i];
         if (!ldblock->kept) continue;
         
-        Stat::Normal normal;
-
-        /// Step 1. construct LD 
-        MatrixXf LDPerBlock = eigenVecLdBlock[i] * eigenValLdBlock[i].asDiagonal() * eigenVecLdBlock[i].transpose();
-
-        LDPerBlock.diagonal().array() += (float)diag_mod;
-        /// Step 2. Construct the LD correlation matrix among the typed SNPs(LDtt) and the LD correlation matrix among the missing SNPs and typed SNPs (LDit).
-        // Step 2.1 divide SNPs into typed and untyped SNPs
-        VectorXi typedSnpIdx(numTypSnp[i]);
-        VectorXi untypedSnpIdx(numImpSnp[i]);
-        VectorXf zTypSnp(numTypSnp[i]);
-        VectorXf nTypSnp(numTypSnp[i]);
-        VectorXf varyTypSnp(numTypSnp[i]);
-        for(unsigned j=0, idxTyp=0, idxImp=0; j < ldblock->numSnpInBlock; j++){
-            SnpInfo *snp = ldblock->snpInfoVec[j];
-            if(snp->included){
-                // typed snp
-                typedSnpIdx[idxTyp] = j;
-                zTypSnp[idxTyp] = snp->gwas_b / snp->gwas_se;
-                nTypSnp[idxTyp] = snp->gwas_n;
-                float hetj = 2.0 * snp->gwas_af * (1.0 - snp->gwas_af);
-                varyTypSnp[idxTyp] = hetj * (snp->gwas_n * snp->gwas_se * snp->gwas_se + snp->gwas_b * snp->gwas_b);
-                ++idxTyp;
-            } else {
-                untypedSnpIdx[idxImp] = j;
-                ++idxImp;
+        if (numImpSnp[i]) {
+            
+            Stat::Normal normal;
+            
+            /// Step 1. construct LD
+            MatrixXf LDPerBlock = eigenVecLdBlock[i] * eigenValLdBlock[i].asDiagonal() * eigenVecLdBlock[i].transpose();
+            
+            LDPerBlock.diagonal().array() += (float)diag_mod;
+            /// Step 2. Construct the LD correlation matrix among the typed SNPs(LDtt) and the LD correlation matrix among the missing SNPs and typed SNPs (LDit).
+            // Step 2.1 divide SNPs into typed and untyped SNPs
+            VectorXi typedSnpIdx(numTypSnp[i]);
+            VectorXi untypedSnpIdx(numImpSnp[i]);
+            VectorXf zTypSnp(numTypSnp[i]);
+            VectorXf nTypSnp(numTypSnp[i]);
+            VectorXf varyTypSnp(numTypSnp[i]);
+            for(unsigned j=0, idxTyp=0, idxImp=0; j < ldblock->numSnpInBlock; j++){
+                SnpInfo *snp = ldblock->snpInfoVec[j];
+                if(snp->included){
+                    // typed snp
+                    typedSnpIdx[idxTyp] = j;
+                    zTypSnp[idxTyp] = snp->gwas_b / snp->gwas_se;
+                    nTypSnp[idxTyp] = snp->gwas_n;
+                    float hetj = 2.0 * snp->gwas_af * (1.0 - snp->gwas_af);
+                    varyTypSnp[idxTyp] = hetj * (snp->gwas_n * snp->gwas_se * snp->gwas_se + snp->gwas_b * snp->gwas_b);
+                    ++idxTyp;
+                } else {
+                    untypedSnpIdx[idxImp] = j;
+                    ++idxImp;
+                }
             }
-        }
-        // Step 2.2 construct LDtt and LDit and Ztt.
-        MatrixXf LDtt = LDPerBlock(typedSnpIdx,typedSnpIdx);
-        MatrixXf LDit = LDPerBlock(untypedSnpIdx,typedSnpIdx);
-        // Step 2.3 //  The Z score for the missing SNPs; 
-        VectorXf LDi_Z = LDtt.colPivHouseholderQr().solve(zTypSnp);
-        VectorXf zImpSnp = LDit * LDi_Z;
-        // Step 3. re-calcualte beta and se
-        // if snp is missing use median to replace N
-        std::sort(nTypSnp.data(), nTypSnp.data() + nTypSnp.size());
-        float nMedian = nTypSnp[nTypSnp.size()/2];  // median
-        // calcuate median of phenotypic variance 
-        std::sort(varyTypSnp.data(), varyTypSnp.data() + varyTypSnp.size());
-        float varyMedian = varyTypSnp[varyTypSnp.size()/2];  // median
-        // begin impute 
-        for(unsigned j = 0; j < numImpSnp[i]; j++){
-            SnpInfo *snp = ldblock->snpInfoVec[untypedSnpIdx[j]];
-            float base = sqrt(2.0 * snp->af *(1.0 - snp->af) * (nMedian + zImpSnp[j] * zImpSnp[j]));
-            snp->gwas_b = zImpSnp[j] * sqrt(varyMedian)/base;
-            snp->gwas_se = sqrt(varyMedian) / base;
-            snp->gwas_n = nMedian;
-            snp->gwas_af = snp->af;
-            snp->gwas_pvalue = 2*(1.0-normal.cdf_01(abs(snp->gwas_b/snp->gwas_se)));
-            snp->included = true;
-            //cout << "b " << snp->gwas_b << " se " << snp->gwas_se << " z " << snp->gwas_b/snp->gwas_se << " p " << snp->gwas_pvalue << endl;
+            // Step 2.2 construct LDtt and LDit and Ztt.
+            MatrixXf LDtt = LDPerBlock(typedSnpIdx,typedSnpIdx);
+            MatrixXf LDit = LDPerBlock(untypedSnpIdx,typedSnpIdx);
+            // Step 2.3 //  The Z score for the missing SNPs;
+            VectorXf LDi_Z = LDtt.ldlt().solve(zTypSnp);
+            VectorXf zImpSnp = LDit * LDi_Z;
+            // Step 3. re-calcualte beta and se
+            // if snp is missing use median to replace N
+            std::sort(nTypSnp.data(), nTypSnp.data() + nTypSnp.size());
+            float nMedian = nTypSnp[nTypSnp.size()/2];  // median
+            // calcuate median of phenotypic variance
+            std::sort(varyTypSnp.data(), varyTypSnp.data() + varyTypSnp.size());
+            float varyMedian = varyTypSnp[varyTypSnp.size()/2];  // median
+            // begin impute
+            for(unsigned j = 0; j < numImpSnp[i]; j++){
+                SnpInfo *snp = ldblock->snpInfoVec[untypedSnpIdx[j]];
+                float base = sqrt(2.0 * snp->af *(1.0 - snp->af) * (nMedian + zImpSnp[j] * zImpSnp[j]));
+                snp->gwas_b = zImpSnp[j] * sqrt(varyMedian)/base;
+                snp->gwas_se = sqrt(varyMedian) / base;
+                snp->gwas_n = nMedian;
+                snp->gwas_af = snp->af;
+                snp->gwas_pvalue = 2*(1.0-normal.cdf_01(abs(snp->gwas_b/snp->gwas_se)));
+                snp->included = true;
+                //cout << "b " << snp->gwas_b << " se " << snp->gwas_se << " z " << snp->gwas_b/snp->gwas_se << " p " << snp->gwas_pvalue << endl;
+            }
         }
         
         if(!(i%10)) cout << " imputed block " << i << "\r" << flush;
@@ -934,7 +932,7 @@ void Data::impG(const unsigned block, double diag_mod){
                 % snp->ID
                 % snp->a1
                 % snp->a2
-                % snp->af
+                % snp->gwas_af
                 % snp->gwas_b
                 % snp->gwas_se
                 % snp->gwas_pvalue
@@ -961,7 +959,7 @@ void Data::impG(const unsigned block, double diag_mod){
         % snp->ID
         % snp->a1
         % snp->a2
-        % snp->af
+        % snp->gwas_af
         % snp->gwas_b
         % snp->gwas_se
         % snp->gwas_pvalue
@@ -2149,12 +2147,14 @@ void Data::scaleGwasEffects(){
     numKeptInds = nSrt[nSrt.size()/2]; // median
     
     // map to blocks
-    gwasEffectInBlock.resize(numKeptLDBlocks);
-    nGWASblock.resize(numKeptLDBlocks);
-    for (unsigned i = 0; i < numKeptLDBlocks; i++){
-        LDBlockInfo *ldblock = keptLdBlockInfoVec[i];
-        gwasEffectInBlock[i] = b(ldblock->block2GwasSnpVec);
-        nGWASblock[i] = numKeptInds;
+    if (numKeptLDBlocks) {
+        gwasEffectInBlock.resize(numKeptLDBlocks);
+        nGWASblock.resize(numKeptLDBlocks);
+        for (unsigned i = 0; i < numKeptLDBlocks; i++){
+            LDBlockInfo *ldblock = keptLdBlockInfoVec[i];
+            gwasEffectInBlock[i] = b(ldblock->block2GwasSnpVec);
+            nGWASblock[i] = numKeptInds;
+        }
     }
 }
 
