@@ -375,21 +375,22 @@ void Data::getEigenDataFromFullLDM(const string &filename, const float eigenCuto
 }
 
 void Data::mapSnpsToBlocks(){
-    unsigned snpIdx = 0;
+    //unsigned snpIdx = 0;
     int mapped = 0;
     ChromInfo* chr;
     LDBlockInfo *block;
     SnpInfo *snp;
     vector<ChromInfo*>::iterator it = chromInfoVec.begin(), end = chromInfoVec.end();
     unsigned chrCur = (*it)->id;
-    int chrEndSnpIdx = (*it)->endSnpIdx;
+//    int chrStartSnpIdx = (*it)->startSnpIdx;
+//    int chrEndSnpIdx = (*it)->endSnpIdx;
     
     for (unsigned i=0; i<numLDBlocks; ++i) {
         block = ldBlockInfoVec[i];
         block->snpNameVec.clear();
         block->snpInfoVec.clear();
         
-        //cout << i << " " << numLDBlocks << " " << block->chrom << endl;
+//        cout << i << " " << numLDBlocks << " " << block->chrom << " " << chrCur << endl;
         
         if (block->chrom > chrCur) {  // move to a new chromosome
             if (it != end) ++it;
@@ -397,7 +398,8 @@ void Data::mapSnpsToBlocks(){
                 block->kept = false;
                 continue;
             }
-            chrEndSnpIdx = (*it)->endSnpIdx;
+//            chrStartSnpIdx = (*it)->startSnpIdx;
+//            chrEndSnpIdx = (*it)->endSnpIdx;
             chrCur = (*it)->id;
         }
         if (block->chrom != chrCur) {
@@ -405,23 +407,21 @@ void Data::mapSnpsToBlocks(){
             continue;
         }
         
-        //cout << i << " " << numLDBlocks << " " << block->chrom << " " << block->startPos << " " << block->endPos << endl;
+//        cout << i << " " << numLDBlocks << " " << block->chrom << " " << block->startPos << " " << block->endPos << endl;
 
-        for (; snpIdx <= chrEndSnpIdx; ++snpIdx) {
+        for (unsigned snpIdx = 0; snpIdx < numSnps; ++snpIdx) {
             //cout << "snpIdx " << snpIdx << " chrEndSnpIdx " << chrEndSnpIdx << endl;
             snp = snpInfoVec[snpIdx];
-            //cout << snp->ID << " " << snp->chrom << " " << snp->physPos << " " << block->startPos << " " << block->endPos << endl;
             if (!snp->included) continue;
-            if (snp->physPos >= block->startPos && snp->physPos < block->endPos) {
-                block->snpNameVec.push_back(snp->ID);
-                block->snpInfoVec.push_back(snp);
-                snp->block = block->ID;
-            } else if (snp->physPos >= block->endPos) {
-                break;
-            }
+            if (snp->chrom != chrCur) continue;
+            if (snp->physPos < block->startPos) continue;
+            else if (snp->physPos >= block->endPos) break;
+            block->snpNameVec.push_back(snp->ID);
+            block->snpInfoVec.push_back(snp);
+            snp->block = block->ID;
+//            cout << snpIdx << " " << snp->ID << " " << snp->chrom << " " << snp->physPos << " " << block->startPos << " " << block->endPos << " " << snp->included << endl;
         }
         block->numSnpInBlock = block->snpInfoVec.size();
-        //cout << "block->numSnpInBlock " << block->numSnpInBlock << endl;
         if (block->numSnpInBlock) {
             block->startSnpIdx = block->snpInfoVec[0]->index;
             block->endSnpIdx = block->snpInfoVec[block->numSnpInBlock-1]->index;
@@ -1418,7 +1418,7 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
     }
 }
 
-void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const float nGWAS, const bool makePseudoSummary){
+void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const float nGWAS, const bool noscale, const bool makePseudoSummary){
     if (!Gadget::directoryExist(dirname)) {
         throw("Error: cannot find the folder [" + dirname + "]");
     }
@@ -1531,6 +1531,16 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
         //MatrixXf tmpQblocks = sqrtLambda.asDiagonal() * eigenVecLdBlock[i].transpose();
         //MatrixDat matrixDat = MatrixDat(block->snpNameVec, tmpQblocks);
         Qblocks[i] = sqrtLambda.asDiagonal() * eigenVecLdBlock[i].transpose();
+        
+        if (noscale) {
+            VectorXf Dsqrt(block->numSnpInBlock);
+            for (unsigned j=0; j<block->numSnpInBlock; ++j) {
+                SnpInfo *snp = block->snpInfoVec[j];
+                Dsqrt[j] = sqrt(snp->twopq);
+            }
+            Qblocks[i] = Qblocks[i] * Dsqrt.asDiagonal();
+        }
+
         numSnpsBlock[i] = Qblocks[i].cols();
         numEigenvalBlock[i] = Qblocks[i].rows();
         
@@ -1647,7 +1657,7 @@ void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const 
     }
     
     scaleGwasEffects();
-    readEigenMatrixBinaryFileAndMakeWandQ(dirname, eigenCutoff, gwasEffectInBlock, numKeptInds, true);
+    readEigenMatrixBinaryFileAndMakeWandQ(dirname, eigenCutoff, gwasEffectInBlock, numKeptInds, noscale, true);
     //constructPseudoSummaryData();  // for finding the best eigen cutoff by pseudo validation
     //if (numIncdSnps!=0) constructWandQ(gwasEffectInBlock, numKeptInds);
     //if (numIncdSnps!=0) constructWandQ(eigenCutoff, noscale);
@@ -2081,7 +2091,7 @@ void Data::constructPseudoSummaryData(){
     
 }
 
-void Data::constructWandQ(const vector<VectorXf> &GWASeffects, const float nGWAS) {
+void Data::constructWandQ(const vector<VectorXf> &GWASeffects, const float nGWAS, const bool noscale) {
     wcorrBlocks.resize(numKeptLDBlocks);
     numSnpsBlock.resize(numKeptLDBlocks);
     numEigenvalBlock.resize(numKeptLDBlocks);
@@ -2103,6 +2113,16 @@ void Data::constructWandQ(const vector<VectorXf> &GWASeffects, const float nGWAS
 //        // cout << matrixDat.values << endl;
 //        Qblocks.push_back(matrixDat);
         Qblocks[i] = sqrtLambda.asDiagonal() * eigenVecLdBlock[i].transpose();
+        
+        if (noscale) {
+            VectorXf Dsqrt(ldblock->numSnpInBlock);
+            for (unsigned j=0; j<ldblock->numSnpInBlock; ++j) {
+                SnpInfo *snp = ldblock->snpInfoVec[j];
+                Dsqrt[j] = sqrt(snp->twopq);
+            }
+            Qblocks[i] = Qblocks[i] * Dsqrt.asDiagonal();
+        }
+        
         numSnpsBlock[i] = Qblocks[i].cols();
         numEigenvalBlock[i] = Qblocks[i].rows();
         

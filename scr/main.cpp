@@ -164,7 +164,7 @@ int main(int argc, const char * argv[]) {
                                   opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
                                   opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock);
                 float bestEigenCutoff = gctb.tuneEigenCutoff(data, opt);
-                data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, bestEigenCutoff, data.gwasEffectInBlock, data.numKeptInds, true);
+                data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, bestEigenCutoff, data.gwasEffectInBlock, data.numKeptInds, opt.noscale, true);
                 //data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, bestEigenCutoff);
                 //data.constructWandQ(data.gwasEffectInBlock, data.numKeptInds);
             } else {

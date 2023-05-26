@@ -1779,7 +1779,10 @@ void ApproxBayesC::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
                 
             }
             
-            //cout << rhs << " " << invLhs << " " << logDelta1 << " " << logSigmaSq << " " << sigmaSq << endl;
+//            cout << i << " " << rhs << " " << invLhs << " " << uhat << " " << probDelta1 << " " << sigmaSq << endl;
+//            int tmp;
+//            cin >> tmp;
+
 //            if (bernoulli.sample(probDelta1)) {
             if (urnd[i] < probDelta1) {
 //                valuesPtr[i] = normal.sample(uhat, invLhs);
@@ -2067,20 +2070,23 @@ void ApproxBayesC::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
         unsigned blockStart = blockInfo->startSnpIdx;
         unsigned blockEnd   = blockInfo->endSnpIdx;
         
-        float vareDn = nGWASblocks[blk] / vareBlocks[blk];
+        float invVareDn = nGWASblocks[blk] / vareBlocks[blk];
 
-        float invLhs = 1.0/(vareDn + invSigmaSq);
+        float invLhs = 1.0/(invVareDn + invSigmaSq);
         float logInvLhsMsigma = logf(invLhs) - logSigmaSq;
 
         for(unsigned i = blockStart; i <= blockEnd; i++){
             float oldSample = valuesPtr[i];
             Ref<const VectorXf> Qi = Q.col(i - blockStart);
-            float rhs = (Qi.dot(wcorr) + oldSample)*vareDn;
+            float rhs = (Qi.dot(wcorr) + oldSample)*invVareDn;
             float uhat = invLhs * rhs;
             float logDelta1 = 0.5*(logInvLhsMsigma + uhat*rhs) + logPi;
             float logDelta0 = logPiComp;
             float probDelta1 = 1.0f/(1.0f + expf(logDelta0-logDelta1));
-            //cout << rhs << " " << invLhs << " " << logDelta1 << " " << logSigmaSq << " " << sigmaSq << endl;
+            
+//            cout << i << " " << rhs << " " << invLhs << " " << uhat << " " << probDelta1 << " " << sigmaSq << endl;
+//            int tmp;
+//            cin >> tmp;
             
 //            if (bernoulli.sample(probDelta1)) {
             if (urnd[i] < probDelta1) {
@@ -2109,6 +2115,7 @@ void ApproxBayesC::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
         sum2pq += s2pq[blk];
         numNonZeros += nnz[blk];
         nnzPerBlk[blk] = nnz[blk];
+        ssqBlocks[blk] = ssq[blk];
     }
     
     values = VectorXf::Map(valuesPtr, size);
@@ -2519,7 +2526,11 @@ void ApproxBayesC::sampleUnknowns(){
 
     if (estimatePi) pi.sampleFromFC(data.numIncdSnps, snpEffects.numNonZeros);
     nnzSnp.getValue(snpEffects.numNonZeros);
-    sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
+    if (noscale) {
+        sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
+    } else {
+        sigmaSqG.value = sigmaSq.value * snpEffects.numNonZeros;
+    }
 
     if (lowRankModel) {
         vargBlk.compute(whatBlocks);
@@ -2843,13 +2854,13 @@ void ApproxBayesB::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
         unsigned blockStart = blockInfo->startSnpIdx;
         unsigned blockEnd   = blockInfo->endSnpIdx;
         
-        float vareDn = nGWASblocks[blk] / vareBlocks[blk];
+        float invVareDn = nGWASblocks[blk] / vareBlocks[blk];
 
         for(unsigned i = blockStart; i <= blockEnd; i++){
             float oldSample = valuesPtr[i];
             Ref<const VectorXf> Qi = Q.col(i - blockStart);
-            float rhs = (Qi.dot(wcorr) + oldSample)*vareDn;
-            float invLhs = 1.0/(vareDn + 1.0f/sigmaSq[i]);
+            float rhs = (Qi.dot(wcorr) + oldSample)*invVareDn;
+            float invLhs = 1.0/(invVareDn + 1.0f/sigmaSq[i]);
             float uhat = invLhs * rhs;
             float logInvLhsMsigma = logf(invLhs) - logf(sigmaSq[i]);
             float logDelta1 = 0.5*(logInvLhsMsigma + uhat*rhs) + logPi;
@@ -2884,6 +2895,7 @@ void ApproxBayesB::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
         sum2pq += s2pq[blk];
         numNonZeros += nnz[blk];
         nnzPerBlk[blk] = nnz[blk];
+        ssqBlocks[blk] = ssq[blk];
     }
     
     values = VectorXf::Map(valuesPtr, size);
@@ -2918,7 +2930,11 @@ void ApproxBayesB::sampleUnknowns() {
 
     if (estimatePi) pi.sampleFromFC(data.numIncdSnps, snpEffects.numNonZeros);
     nnzSnp.getValue(snpEffects.numNonZeros);
-    sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
+    if (noscale) {
+        sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
+    } else {
+        sigmaSqG.value = sigmaSq.value * snpEffects.numNonZeros;
+    }
     
     if (lowRankModel) {
         vargBlk.compute(whatBlocks);
@@ -3037,6 +3053,14 @@ void ApproxBayesS::SnpEffects::sampleFromFC(VectorXf &rcorr,const vector<SparseV
                 probDelta1 = 1.0f/(1.0f + expf(logDelta0-logDelta1));
                 
             }
+            
+//            if (!(i%100000)) {
+//                cout << i << " " << rhs << " " << invLhs << " " << ZPZdiag[i]/varei << " " << snp2pqPowS[i] << " " << uhat << " " << probDelta1 << " " << sigmaSq << endl;
+//                cout << " " << ZPZdiag[i]/varei << " " << ZPZdiag[i] << " " << varei << endl;
+//                //            int tmp;
+//                //            cin >> tmp;
+//            }
+
             
 //            if (bernoulli.sample(probDelta1)) {
             if (urnd[i] < probDelta1) {
@@ -3382,13 +3406,13 @@ void ApproxBayesS::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
         unsigned blockStart = blockInfo->startSnpIdx;
         unsigned blockEnd   = blockInfo->endSnpIdx;
         
-        float vareDn = nGWASblocks[blk] / vareBlocks[blk];
+        float invVareDn = nGWASblocks[blk] / vareBlocks[blk];
 
         for(unsigned i = blockStart; i <= blockEnd; i++){
             float oldSample = valuesPtr[i];
             Ref<const VectorXf> Qi = Q.col(i - blockStart);
-            float rhs = (Qi.dot(wcorr) + oldSample)*vareDn;
-            float invLhs = 1.0/(vareDn + invSigmaSq/snp2pqPowS[i]);
+            float rhs = (Qi.dot(wcorr) + snp2pq[i]*oldSample)*invVareDn; // times 2pq because the diagonal of ZPZ is not 1 but the variance of genptypes in the case of unstandardised genotypes
+            float invLhs = 1.0/(invVareDn*snp2pq[i] + invSigmaSq/snp2pqPowS[i]); // times 2pq because the diagonal of ZPZ is not 1 but the variance of genptypes in the case of unstandardised genotypes
             float uhat = invLhs * rhs;
             float logInvLhsMsigma = logf(invLhs) - logf(snp2pqPowS[i]*sigmaSq);
             float logDelta1 = 0.5*(logInvLhsMsigma + uhat*rhs) + logPi;
@@ -3396,6 +3420,13 @@ void ApproxBayesS::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
             float probDelta1 = 1.0f/(1.0f + expf(logDelta0-logDelta1));
             //cout << rhs << " " << invLhs << " " << logDelta1 << " " << logSigmaSq << " " << sigmaSq << endl;
             
+//            if (!(i%100000)) {
+//                cout << i << " " << rhs << " " << invLhs << " " << invVareDn*snp2pq[i] << " " << snp2pqPowS[i] << " " << uhat << " " << probDelta1 << " " << sigmaSq << endl;
+//                cout << " " << invVareDn*snp2pq[i] << " " << nGWASblocks[blk]*snp2pq[i] << " " << vareBlocks[blk] << endl;
+////                int tmp;
+////                cin >> tmp;
+//            }
+
 //            if (bernoulli.sample(probDelta1)) {
             if (urnd[i] < probDelta1) {
 //                valuesPtr[i] = normal.sample(uhat, invLhs);
@@ -3420,6 +3451,7 @@ void ApproxBayesS::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
         wtdSumSq += ssq[blk];
         numNonZeros += nnz[blk];
         nnzPerBlk[blk] = nnz[blk];
+        ssqBlocks[blk] = ssq[blk];
     }
     
     values = VectorXf::Map(valuesPtr, size);
@@ -3563,7 +3595,7 @@ void ApproxBayesS::sampleUnknowns(){
 //        rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
 //    else
 //        rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
-    
+        
     if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, data.chisq);
     
 //    if (!(iter % 100)) vareiMean += varei;  ///TMP
@@ -3577,7 +3609,7 @@ void ApproxBayesS::sampleUnknowns(){
 //        nnzgwas.compute(snpEffects.values, data.ZPZsp, data.ZPZdiag);
 //        pigwas.compute(nnzgwas.value, data.numIncdSnps);
 //    }
-    
+
 }
 
 
@@ -3997,7 +4029,11 @@ void ApproxBayesR::sampleUnknowns(){
     if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, data.chisq);
 
     nnzSnp.getValue(snpEffects.numNonZeros);
-    sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
+    if (noscale) {
+        sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
+    } else {
+        sigmaSqG.value = sigmaSq.value * snpEffects.numNonZeros;
+    }
 
 //    numSnpVg.compute(snpEffects.values, data.ZPZdiag, varg.value, vare.nobs);
     if (originalModel) {
@@ -4783,15 +4819,15 @@ void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
         unsigned blockStart = blockInfo->startSnpIdx;
         unsigned blockEnd   = blockInfo->endSnpIdx;
         
-        float vareDn = nGWASblocks[blk] / vareBlocks[blk];
+        float invVareDn = nGWASblocks[blk] / vareBlocks[blk];
 
-        ArrayXf invLhs = 1.0/(vareDn + invWtdSigmaSq);
+        ArrayXf invLhs = 1.0/(invVareDn + invWtdSigmaSq);
         ArrayXf logInvLhsMsigma = invLhs.log() - logWtdSigmaSq;
 
         for(unsigned i = blockStart; i <= blockEnd; i++){
             float oldSample = valuesPtr[i];
             Ref<const VectorXf> Qi = Q.col(i - blockStart);
-            float rhs = (Qi.dot(wcorr) + oldSample)*vareDn;
+            float rhs = (Qi.dot(wcorr) + oldSample)*invVareDn;
             ArrayXf uhat = invLhs * rhs;
             ArrayXf logDelta = 0.5*(logInvLhsMsigma + uhat*rhs) + logPis;
             logDelta[0] = logPis[0];
@@ -6381,20 +6417,20 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, cons
         unsigned blockStart = blockInfo->startSnpIdx;
         unsigned blockEnd   = blockInfo->endSnpIdx;
         
-        float vareDn = nGWASblocks[blk] / vareBlocks[blk];
+        float invVareDn = nGWASblocks[blk] / vareBlocks[blk];
 
-        ArrayXf invLhs = 1.0/(vareDn + invWtdSigmaSq);
+        ArrayXf invLhs = 1.0/(invVareDn + invWtdSigmaSq);
         ArrayXf logInvLhsMsigma = invLhs.log() - logWtdSigmaSq;
 
         for(unsigned i = blockStart; i <= blockEnd; i++){
             float oldSample = valuesPtr[i];
             Ref<const VectorXf> Qi = Q.col(i - blockStart);
-            float rhs = (Qi.dot(wcorr) + oldSample)*vareDn;
+            float rhs = (Qi.dot(wcorr) + oldSample)*invVareDn;
             ArrayXf uhat = invLhs * rhs;
             ArrayXf logDelta = 0.5*(logInvLhsMsigma + uhat*rhs) + logPi.row(i).transpose().array();
             logDelta[0] = logPi(i,0);
             
-//            cout << i << " rhs " << rhs << " vareDn " << vareDn << " invWtdSigmaSq " << invWtdSigmaSq.transpose() << " uhat " << uhat.transpose() << endl;
+//            cout << i << " rhs " << rhs << " invVareDn " << invVareDn << " invWtdSigmaSq " << invWtdSigmaSq.transpose() << " uhat " << uhat.transpose() << endl;
             
             ArrayXf probDelta(ndist);
             for (unsigned k=0; k<ndist; ++k) {
