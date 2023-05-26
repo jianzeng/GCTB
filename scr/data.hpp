@@ -175,7 +175,7 @@ public:
         //idxEnd = -999;
         preBlock = -999;
         postBlock = -999;
-        numSnpInBlock = -999;
+        numSnpInBlock = 0;
         kept = true;
         sumPosEigVal = 0;
     }
@@ -566,7 +566,7 @@ public:
     
     void readEigenMatrixBinaryFile(const string &eigenMatrixFile, const float eigenCutoff);
     
-    void readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const float nGWAS, const bool makePseudoSummary);
+    void readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const float nGWAS, const bool noscale, const bool makePseudoSummary);
 
     
     ///////////// merge eigen matrices
@@ -584,7 +584,7 @@ public:
     void truncateEigenMatrix(const float sumPosEigVal, const float eigenCutoff, const VectorXf &oriEigenVal, const MatrixXf &oriEigenVec, VectorXf &newEigenVal, MatrixXf &newEigenVec);
     void constructPseudoSummaryData(void);
     
-    void constructWandQ(const vector<VectorXf> &GWASeffects, const float nGWAS);
+    void constructWandQ(const vector<VectorXf> &GWASeffects, const float nGWAS, const bool noscale);
     
     void scaleGwasEffects(void);
     void mapSnpsToBlocks(void);

@@ -519,7 +519,7 @@ void Data::initVariances(const float heritability, const float propVarRandom){
     varGenotypic = varPhenotypic * heritability;
     varResidual  = varPhenotypic - varGenotypic;
     varRandom    = varPhenotypic * propVarRandom;
-//    cout <<ypy<<" "<<numKeptInds<<" "<<varPhenotypic<<" " <<varGenotypic << " " <<varResidual << endl;
+    //cout <<ypy<<" "<<numKeptInds<<" "<<varPhenotypic<<" " <<varGenotypic << " " <<varResidual << " " << varRandom << endl;
 }
 
 void Data::includeSnp(const string &includeSnpFile){
@@ -570,6 +570,7 @@ void Data::includeBlock(const unsigned block){
     }
     LDBlockInfo *blockInfo = ldBlockInfoVec[block-1];
     unsigned cnt = 0;
+        
     if (blockInfo->numSnpInBlock) {
         for (unsigned i=0; i<numSnps; ++i){
             SnpInfo *snpInfo = snpInfoVec[i];
@@ -587,7 +588,10 @@ void Data::includeBlock(const unsigned block){
             if (snpInfo->chrom != blockInfo->chrom) snpInfo->included = false;
             else if (snpInfo->physPos < blockInfo->startPos) snpInfo->included = false;
             else if (snpInfo->physPos > blockInfo->endPos) snpInfo->included = false;
-            else ++cnt;
+            else {
+                snpInfo->included = true;
+                ++cnt;
+            }
         }
     }
     cout << "Included " << cnt << " SNPs in block " << blockInfo->ID << endl;

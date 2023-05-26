@@ -1200,7 +1200,7 @@ public:
     vector<VectorXf> wcorrBlocks;
     vector<VectorXf> whatBlocks;
    
-    ApproxBayesC(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi, const bool noscale,
+    ApproxBayesC(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const float varRandom, const float pival, const float piAlpha, const float piBeta, const bool estimatePi, const bool noscale,
                  const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation,
                  const bool diagnosticMode, const bool robustMode, const bool randomStart = false, const bool message = true)
     : BayesC(data, varGenotypic, varResidual, 0.0, pival, piAlpha, piBeta, estimatePi, noscale, "Gibbs", false)
@@ -1270,7 +1270,10 @@ public:
             }
             if (robustMode) cout << "Using a more robust parameterisation " << endl;
         }
-        if (randomStart) sampleStartVal();
+        if (randomStart) {
+            cout << "sampling starting values for parameters..." << endl;
+            sampleStartVal();
+        }
     }
     
     void sampleUnknowns(void);
@@ -1768,7 +1771,7 @@ public:
         
     
     ApproxBayesR(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool originalModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool message = true):
-    ApproxBayesC(data, lowrank, varGenotypic, varResidual, (1-pis[0]), piPar[0], piPar[1], estimatePi, noscale, 0, overdispersion, estimatePS, 0, spouseCorrelation, diagnosticMode, robustMode, false, false),
+    ApproxBayesC(data, lowrank, varGenotypic, varResidual, 0.0, (1-pis[0]), piPar[0], piPar[1], estimatePi, noscale, 0, overdispersion, estimatePS, 0, spouseCorrelation, diagnosticMode, robustMode, false, false),
     Pis(pis,piPar),
     numSnps(pis),
     Vgs(gamma),
