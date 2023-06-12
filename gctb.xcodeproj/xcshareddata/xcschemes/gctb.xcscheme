@@ -97,7 +97,7 @@
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--bfile /Users/uqjzeng1/Desktop/sbayesrc/test --make-block-ldm --block-info /Users/uqjzeng1/Desktop/sbayesrc/sub-2-blocks-chr22-ldblock-fourier-4cM-2022-04-29.txt --out run"
-            isEnabled = "YES">
+            isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
             argument = "--ldm-eigen /Users/uqjzeng1/Desktop/sbayesrc/run"
@@ -118,6 +118,10 @@
          <CommandLineArgument
             argument = "--ldm /Users/uqjzeng1/Desktop/sbayesrc/run --make-ldm-eigen --block 1 --ldm-eigen-cutoff 0.995 --write-ldm-txt --out /Users/uqjzeng1/Desktop/sbayesrc/run"
             isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
+            argument = "--sbayes R --ldm /Users/uqjzeng1/Work/Course/WinterSchool2023/Module5_QG2/data/sim/ldm --gwas-summary /Users/uqjzeng1/Work/Course/WinterSchool2023/Module5_QG2/data/sim/gwas.ma --out /Users/uqjzeng1/Work/Course/WinterSchool2023/Module5_QG2/data/prac5/sbayesr"
+            isEnabled = "YES">
          </CommandLineArgument>
       </CommandLineArguments>
    </LaunchAction>

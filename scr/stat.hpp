@@ -79,6 +79,7 @@ namespace Stat {
     public:
         unsigned sample(const float p);
         unsigned sample(const VectorXf &p); // multivariate sampling, return the index of component.
+        unsigned sample(const VectorXf &p, const float rnd); // sampling with a given random number.
     };
 
     class Dirichlet {

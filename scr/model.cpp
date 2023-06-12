@@ -4164,11 +4164,15 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
         gp = gamma * 0.01 * varg;
     else
         gp = gamma * sigmaSq;
-    snpset.resize(ndist);
-    for (unsigned k=0; k<ndist; ++k) {
-        snpset[k].resize(0);
-    }
     
+    vector<vector<vector<unsigned> > > snpsetChr(numChr);
+    for (unsigned i=0; i<numChr; ++i) {
+        snpsetChr[i].resize(ndist);
+        for (unsigned k=0; k<ndist; ++k) {
+            snpsetChr[i][k].resize(0);
+        }
+    }
+
     VectorXf invGamma = gamma.array().inverse();
     invGamma[0] = 0.0;
     
@@ -4184,7 +4188,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
     // Cycle over all variants in the window and sample the genetics effects
     // --------------------------------------------------------------------------------
 
-//#pragma omp parallel for  // openmp is not working for SBayesR
+#pragma omp parallel for schedule(dynamic)
     for (unsigned chr=0; chr<numChr; ++chr) 
     {
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -4251,11 +4255,10 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
                 if (r < ssculm)
                 {
                     indistflag = kk + 1;
-                    snpStore(kk) = snpStore(kk) + 1; 
                     break;
                 }
             }
-            snpset[indistflag-1].push_back(i);
+            snpsetChr[chr][indistflag-1].push_back(i);
             // --------------------------------------------------------------
             // Sample the effect given the group and adjust the rhs                                                                                                                 
             // --------------------------------------------------------------                                                                                                       
@@ -4277,7 +4280,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
                 if (oldSample) {                                                                                                                                                    
                     for (SparseVector<float>::InnerIterator it(ZPZ[i]); it; ++it) {                                                                                                 
                         rcorr[it.index()] += it.value() * oldSample;                                                                                                                
-                    }                                                                                                                                                               
+                    }
                 }                                                                                                                                                                   
                 valuesPtr[i] = 0.0;                                                                                                                                                 
             }
@@ -4294,11 +4297,22 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
     sum2pq = 0.0;                                                                                                                                                                   
     numNonZeros = 0;                                                                                                                                                                
     nnzPerChr.setZero(numChr);                                                                                                                                                      
+    snpStore.setZero(ndist);
+    snpset.resize(ndist);
+    for (unsigned k=0; k<ndist; ++k) {
+        snpset[k].resize(0);
+    }
     for (unsigned i=0; i<numChr; ++i) {
         sumSq += ssq[i];
         sum2pq += s2pq[i];                                                                                                                                                          
         numNonZeros += nnz[i];                                                                                                                                                      
         nnzPerChr[i] = nnz[i];                                                                                                                                                      
+        for (unsigned k=0; k<ndist; ++k) {
+            for (unsigned j=0; j<snpsetChr[i][k].size(); ++j) {
+                snpset[k].push_back(snpsetChr[i][k][j]);
+                snpStore[k]++;
+            }
+        }
     }
     ++iter;
 
@@ -4347,15 +4361,20 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
         gp = gamma * 0.01 * varg;
     else
         gp = gamma * sigmaSq;
-    snpset.resize(ndist);
-    for (unsigned k=0; k<ndist; ++k) {
-        snpset[k].resize(0);
+
+    vector<vector<vector<unsigned> > > snpsetChr(numChr);
+    for (unsigned i=0; i<numChr; ++i) {
+        snpsetChr[i].resize(ndist);
+        for (unsigned k=0; k<ndist; ++k) {
+            snpsetChr[i][k].resize(0);
+        }
     }
+
     // --------------------------------------------------------------------------------
     // Cycle over all variants in the window and sample the genetics effects
     // --------------------------------------------------------------------------------
 
-#pragma omp parallel for
+#pragma omp parallel for schedule(dynamic)
     for (unsigned chr=0; chr<numChr; ++chr) 
     {
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -4420,11 +4439,10 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
                 if (r < ssculm)
                 {
                     indistflag = kk + 1;
-                    snpStore(kk) = snpStore(kk) + 1; 
                     break;
                 }
             }
-            snpset[indistflag-1].push_back(i);
+            snpsetChr[chr][indistflag-1].push_back(i);
             // --------------------------------------------------------------
             // Sample the effect given the group and adjust the rhs
             // --------------------------------------------------------------
@@ -4450,11 +4468,22 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
     sum2pq = 0.0;                                                                                                                                                                   
     numNonZeros = 0.0;                                                                                                                                                              
     nnzPerChr.setZero(numChr);                                                                                                                                                      
-    for (unsigned i=0; i<numChr; ++i) {                                                                                                                                             
+    snpStore.setZero(ndist);
+    snpset.resize(ndist);
+    for (unsigned k=0; k<ndist; ++k) {
+        snpset[k].resize(0);
+    }
+    for (unsigned i=0; i<numChr; ++i) {
         sumSq += ssq[i];                                                                                                                                                            
         sum2pq += s2pq[i];                                                                                                                                                          
         numNonZeros += nnz[i];                                                                                                                                                      
         nnzPerChr[i] = nnz[i];                                                                                                                                                      
+        for (unsigned k=0; k<ndist; ++k) {
+            for (unsigned j=0; j<snpsetChr[i][k].size(); ++j) {
+                snpset[k].push_back(snpsetChr[i][k][j]);
+                snpStore[k]++;
+            }
+        }
     }
     ++iter;
     
@@ -4761,7 +4790,6 @@ void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
     long nBlocks = keptLdBlockInfoVec.size();
     
     whatBlocks.resize(nBlocks);
-    ssqBlocks.resize(nBlocks);
     for (unsigned i=0; i<nBlocks; ++i) {
         whatBlocks[i].resize(wcorrBlocks[i].size());
     }
@@ -4770,7 +4798,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
     memset(ssq,0, sizeof(float)*nBlocks);
     memset(s2pq,0,sizeof(float)*nBlocks);
     memset(nnz,0, sizeof(float)*nBlocks);
-
+    
     float *valuesPtr = values.data(); // for openmp, otherwise when one thread writes to the vector, the vector locking prevents the writing from other threads
 
     vector<float> urnd(size), nrnd(size);
@@ -4791,17 +4819,18 @@ void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
     } else {
         wtdSigmaSq = gamma * sigmaSq;
     }
-
-    snpStore.setZero(pis.size());
     
     invWtdSigmaSq = wtdSigmaSq.inverse();
     logWtdSigmaSq = wtdSigmaSq.log();
 
-    snpset.resize(ndist);
-    for (unsigned k=0; k<ndist; ++k) {
-        snpset[k].resize(0);
+    vector<vector<vector<unsigned> > > snpsetBlocks(nBlocks);
+    for (unsigned i=0; i<nBlocks; ++i) {
+        snpsetBlocks[i].resize(ndist);
+        for (unsigned k=0; k<ndist; ++k) {
+            snpsetBlocks[i][k].resize(0);
+        }
     }
-    
+
     // --------------------------------------------------------------------------------
     // Cycle over all variants in the window and sample the genetics effects
     // --------------------------------------------------------------------------------
@@ -4837,15 +4866,11 @@ void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
                 probDelta[k] = 1.0f/(logDelta-logDelta[k]).exp().sum();
             }
                         
-
-            unsigned delta;
-            #pragma omp critical
-            {
-                delta = bernoulli.sample(probDelta);
-
-                snpset[delta].push_back(i);
-                snpStore[delta]++;
-            }
+//            #pragma omp critical
+//            {
+            unsigned delta = bernoulli.sample(probDelta, urnd[i]);
+            snpsetBlocks[blk][delta].push_back(i);
+//            }
             
             if (delta) {
                 valuesPtr[i] = uhat[delta] + nrnd[i]*sqrtf(invLhs[delta]);
@@ -4868,14 +4893,26 @@ void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
     sumSq = 0.0;
     numNonZeros = 0;
     nnzPerBlk.setZero(nBlocks);
+    ssqBlocks.setZero(nBlocks);
+    snpStore.setZero(ndist);
+    snpset.resize(ndist);
+    for (unsigned k=0; k<ndist; ++k) {
+        snpset[k].resize(0);
+    }
     for (unsigned blk=0; blk<nBlocks; ++blk) {
         sumSq += ssq[blk];
         numNonZeros += nnz[blk];
         nnzPerBlk[blk] = nnz[blk];
         ssqBlocks[blk] = ssq[blk];
+        for (unsigned k=0; k<ndist; ++k) {
+            for (unsigned j=0; j<snpsetBlocks[blk][k].size(); ++j) {
+                snpset[k].push_back(snpsetBlocks[blk][k][j]);
+                snpStore[k]++;
+            }
+        }
     }
     values = VectorXf::Map(valuesPtr, size);
- 
+
 }
 
 
@@ -6118,16 +6155,20 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
     invWtdSigmaSq = wtdSigmaSq.inverse();
     logWtdSigmaSq = wtdSigmaSq.log();
     
-    numSnpMix.setZero(ndist);
-    snpset.resize(ndist);
-    
+    vector<vector<vector<unsigned> > > snpsetChr(numChr);
+    for (unsigned i=0; i<numChr; ++i) {
+        snpsetChr[i].resize(ndist);
+        for (unsigned k=0; k<ndist; ++k) {
+            snpsetChr[i][k].resize(0);
+        }
+    }
+
     for (unsigned k=0; k<ndist; ++k) {
-        snpset[k].resize(0);
         deltaPi[k]->values.setZero(size);
     }
 
 
-    #pragma omp parallel for  // openmp is not working for SBayesR
+    #pragma omp parallel for schedule(dynamic)
     for (unsigned chr=0; chr<numChr; ++chr)
     {
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -6165,10 +6206,8 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
                 probDelta[k] = 1.0f/(logDelta-logDelta[k]).exp().sum();
                 deltaPi[k]->values[i] = probDelta[k];
             }
-            delta = bernoulli.sample(probDelta);
-            
-            snpset[delta].push_back(i);
-            numSnpMix[delta]++;
+            delta = bernoulli.sample(probDelta, urnd[i]);
+            snpsetChr[chr][delta].push_back(i);
             
             if (delta) {
                 valuesPtr[i] = uhat[delta] + nrnd[i]*sqrtf(invLhs[delta]);
@@ -6196,10 +6235,21 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
     sumSq = 0.0;
     numNonZeros = 0;
     nnzPerChr.setZero(numChr);
+    numSnpMix.setZero(ndist);
+    snpset.resize(ndist);
+    for (unsigned k=0; k<ndist; ++k) {
+        snpset[k].resize(0);
+    }
     for (unsigned i=0; i<numChr; ++i) {
         sumSq += ssq[i];
         numNonZeros += nnz[i];
         nnzPerChr[i] = nnz[i];
+        for (unsigned k=0; k<ndist; ++k) {
+            for (unsigned j=0; j<snpsetChr[i][k].size(); ++j) {
+                snpset[k].push_back(snpsetChr[i][k][j]);
+                numSnpMix[k]++;
+            }
+        }
     }
     values = VectorXf::Map(valuesPtr, size);
 }
@@ -6249,13 +6299,16 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
 //    cout << "wtdSigmaSq " << wtdSigmaSq.row(0) << endl;
 //    cout << "invWtdSigmaSq " << invWtdSigmaSq.row(0) << endl;
 //    cout << "logWtdSigmaSq " << logWtdSigmaSq.row(0) << endl;
+    
+    vector<vector<vector<unsigned> > > snpsetChr(numChr);
+    for (unsigned i=0; i<numChr; ++i) {
+        snpsetChr[i].resize(ndist);
+        for (unsigned k=0; k<ndist; ++k) {
+            snpsetChr[i][k].resize(0);
+        }
+    }
 
-    
-    numSnpMix.setZero(ndist);
-    snpset.resize(ndist);
-    
     for (unsigned k=0; k<ndist; ++k) {
-        snpset[k].resize(0);
         deltaPi[k]->values.setZero(size);
     }
 
@@ -6263,7 +6316,7 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
     // Cycle over all variants in the window and sample the genetics effects
     // --------------------------------------------------------------------------------
 
-    #pragma omp parallel for  // openmp is not working for SBayesR
+    #pragma omp parallel for schedule(dynamic)
     for (unsigned chr=0; chr<numChr; ++chr)
     {
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -6307,10 +6360,8 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
                 deltaPi[k]->values[i] = probDelta[k];
             }
                         
-            delta = bernoulli.sample(probDelta);
-            
-            snpset[delta].push_back(i);
-            numSnpMix[delta]++;
+            delta = bernoulli.sample(probDelta, urnd[i]);
+            snpsetChr[chr][delta].push_back(i);
             
             if (delta) {
                 valuesPtr[i] = uhat[delta] + nrnd[i]*sqrtf(invLhs[delta]);
@@ -6341,10 +6392,21 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
     sumSq = 0.0;
     numNonZeros = 0;
     nnzPerChr.setZero(numChr);
+    numSnpMix.setZero(ndist);
+    snpset.resize(ndist);
+    for (unsigned k=0; k<ndist; ++k) {
+        snpset[k].resize(0);
+    }
     for (unsigned i=0; i<numChr; ++i) {
         sumSq += ssq[i];
         numNonZeros += nnz[i];
         nnzPerChr[i] = nnz[i];
+        for (unsigned k=0; k<ndist; ++k) {
+            for (unsigned j=0; j<snpsetChr[i][k].size(); ++j) {
+                snpset[k].push_back(snpsetChr[i][k][j]);
+                numSnpMix[k]++;
+            }
+        }
     }
     values = VectorXf::Map(valuesPtr, size);
 }
@@ -6359,7 +6421,6 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, cons
     long nBlocks = keptLdBlockInfoVec.size();
     
     whatBlocks.resize(nBlocks);
-    ssqBlocks.resize(nBlocks);
     for (unsigned i=0; i<nBlocks; ++i) {
         whatBlocks[i].resize(wcorrBlocks[i].size());
     }
@@ -6385,17 +6446,21 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, cons
     
     MatrixXf logPi = snpPi.array().log().matrix();
         
-    
-//    cout << "wtdSigmaSq " << wtdSigmaSq.row(0) << endl;
-//    cout << "invWtdSigmaSq " << invWtdSigmaSq.row(0) << endl;
+//    cout << "varg " << varg << endl;
+//    cout << "gamma " << gamma.transpose() << endl;
+//    cout << "wtdSigmaSq " << wtdSigmaSq.transpose() << endl;
+//    cout << "invWtdSigmaSq " << invWtdSigmaSq.transpose() << endl;
 //    cout << "logWtdSigmaSq " << logWtdSigmaSq.row(0) << endl;
+    
+    vector<vector<vector<unsigned> > > snpsetBlocks(nBlocks);
+    for (unsigned i=0; i<nBlocks; ++i) {
+        snpsetBlocks[i].resize(ndist);
+        for (unsigned k=0; k<ndist; ++k) {
+            snpsetBlocks[i][k].resize(0);
+        }
+    }
 
-    
-    numSnpMix.setZero(ndist);
-    snpset.resize(ndist);
-    
     for (unsigned k=0; k<ndist; ++k) {
-        snpset[k].resize(0);
         deltaPi[k]->values.setZero(size);
     }
 
@@ -6430,7 +6495,7 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, cons
             ArrayXf logDelta = 0.5*(logInvLhsMsigma + uhat*rhs) + logPi.row(i).transpose().array();
             logDelta[0] = logPi(i,0);
             
-//            cout << i << " rhs " << rhs << " invVareDn " << invVareDn << " invWtdSigmaSq " << invWtdSigmaSq.transpose() << " uhat " << uhat.transpose() << endl;
+//            if (i==0) cout << i << " rhs " << rhs << " invVareDn " << invVareDn << " invWtdSigmaSq " << invWtdSigmaSq.transpose() << " uhat " << uhat.transpose() << endl;
             
             ArrayXf probDelta(ndist);
             for (unsigned k=0; k<ndist; ++k) {
@@ -6439,13 +6504,12 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, cons
                 deltaPi[k]->values[i] = probDelta[k];
             }
 
-            unsigned delta;
-            #pragma omp critical
-            {
-                delta = bernoulli.sample(probDelta);
-                snpset[delta].push_back(i);
-                numSnpMix[delta]++;
-            }
+//            unsigned delta;
+//            #pragma omp critical
+//            {
+                unsigned delta = bernoulli.sample(probDelta, urnd[i]);
+                snpsetBlocks[blk][delta].push_back(i);
+//            }
             
             if (delta) {
                 valuesPtr[i] = uhat[delta] + nrnd[i]*sqrtf(invLhs[delta]);
@@ -6471,14 +6535,26 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, cons
     sumSq = 0.0;
     numNonZeros = 0;
     nnzPerBlk.setZero(nBlocks);
+    ssqBlocks.setZero(nBlocks);
+    numSnpMix.setZero(ndist);
+    snpset.resize(ndist);
+    for (unsigned k=0; k<ndist; ++k) {
+        snpset[k].resize(0);
+    }
     for (unsigned blk=0; blk<nBlocks; ++blk) {
         sumSq += ssq[blk];
         numNonZeros += nnz[blk];
         nnzPerBlk[blk] = nnz[blk];
         ssqBlocks[blk] = ssq[blk];
+        for (unsigned k=0; k<ndist; ++k) {
+            for (unsigned j=0; j<snpsetBlocks[blk][k].size(); ++j) {
+                snpset[k].push_back(snpsetBlocks[blk][k][j]);
+                numSnpMix[k]++;
+            }
+        }
     }
     values = VectorXf::Map(valuesPtr, size);
- 
+
 }
 
 void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(MatrixXf &z, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP) {

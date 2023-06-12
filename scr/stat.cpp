@@ -70,6 +70,22 @@ unsigned Stat::Bernoulli::sample(const VectorXf &p){
     return ret;
 }
 
+unsigned Stat::Bernoulli::sample(const VectorXf &p, const float rnd){
+    // sampler with a given random number
+    float cum = 0;
+    //float rnd = ranf();
+    long size = p.size();
+    unsigned ret = 0;
+    for (unsigned i=0; i<size; ++i) {
+        if (!std::isnan(p[i])) cum += p[i];
+        if (rnd < cum) {
+            ret = i;
+            break;
+        }
+    }
+    return ret;
+}
+
 float Stat::NormalZeroMixture::sample(const float mean, const float variance, const float p){
     return bernoulli.sample(p) ? normal.sample(mean, variance) : 0;
 }
