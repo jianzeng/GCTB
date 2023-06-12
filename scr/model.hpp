@@ -1543,7 +1543,7 @@ public:
             if (robustMode) cout << "Using a more robust parameterisation " << endl;
         }
 
-        if (randomStart) sampleStartVal();
+        //if (randomStart) sampleStartVal();
 
 //        MatrixXf X(data.numIncdSnps, 2);
 //        X.col(0) = VectorXf::Ones(data.numIncdSnps);
@@ -2641,7 +2641,7 @@ public:
             if (lowRankModel) {
                 cout << "Using the low-rank model" << endl;
             }
-            //cout << "scale factor: " << sigmaSq.scale << endl;
+            cout << "scale factor: " << sigmaSq.scale << endl;
             cout << "Gamma: " << gamma.transpose() << endl;
             if (noscale)
             {

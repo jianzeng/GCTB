@@ -4130,7 +4130,7 @@ void Data::buildSparseMME(const bool sampleOverlap, const bool noscale){
 //}
 
 void Data::setAnnoInfoVec() {
-    bool print = numAnnos > 50 ? false : true;
+    bool print = true; //numAnnos > 50 ? false : true;
     if (print) cout << "\nAnnotation info:" << endl;
     numSnpAnnoVec.resize(numAnnos);
     for (unsigned i=0; i<numAnnos; ++i) {
