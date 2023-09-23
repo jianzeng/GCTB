@@ -100,13 +100,13 @@ float Gadget::calcMean(const VectorXf &vec){
 
 float Gadget::calcVariance(const VectorXf &vec){
     VectorXd vec_double = vec.cast<double>();
-    return (vec_double.array() - vec_double.mean()).square().sum()/vec_double.size();
+    return (vec_double.array() - vec_double.mean()).square().sum()/(vec_double.size() - 1);
 }
 
 float Gadget::calcCovariance(const VectorXf &vec1, const VectorXf &vec2){
     if (vec1.size() != vec2.size()) {
         throw("Error: Gadget::calcCovariance: the two vectors have different sizes.");
-    }
+    }.
     VectorXd vec1_double = vec1.cast<double>();
     VectorXd vec2_double = vec2.cast<double>();
     return (vec1_double.array()-vec1_double.mean()).cwiseProduct(vec2_double.array()-vec2_double.mean()).sum()/vec1_double.size();
