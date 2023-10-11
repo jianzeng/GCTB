@@ -106,7 +106,7 @@ float Gadget::calcVariance(const VectorXf &vec){
 float Gadget::calcCovariance(const VectorXf &vec1, const VectorXf &vec2){
     if (vec1.size() != vec2.size()) {
         throw("Error: Gadget::calcCovariance: the two vectors have different sizes.");
-    }.
+    }
     VectorXd vec1_double = vec1.cast<double>();
     VectorXd vec2_double = vec2.cast<double>();
     return (vec1_double.array()-vec1_double.mean()).cwiseProduct(vec2_double.array()-vec2_double.mean()).sum()/vec1_double.size();
