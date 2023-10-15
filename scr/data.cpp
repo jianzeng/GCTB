@@ -474,7 +474,8 @@ void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){
             if (ind->phenotype != -9) {
                 ind->kept = true;
             } else {
-                throw("Error: Individual " + ind->famID + " " + ind->indID + " from file [" + keepIndFile + "] does not have phenotype!");
+                ind->kept = false;
+                // throw("Error: Individual " + ind->famID + " " + ind->indID + " from file [" + keepIndFile + "] does not have phenotype!");
             }
         }
     }

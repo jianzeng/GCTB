@@ -100,7 +100,7 @@ float Gadget::calcMean(const VectorXf &vec){
 
 float Gadget::calcVariance(const VectorXf &vec){
     VectorXd vec_double = vec.cast<double>();
-    return (vec_double.array() - vec_double.mean()).square().sum()/vec_double.size();
+    return (vec_double.array() - vec_double.mean()).square().sum()/(vec_double.size() - 1);
 }
 
 float Gadget::calcCovariance(const VectorXf &vec1, const VectorXf &vec2){
