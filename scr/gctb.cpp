@@ -446,7 +446,8 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
 McmcSamples* GCTB::inputMcmcSamples(const string &mcmcSampleFile, const string &label, const string &fileformat){
     cout << "reading MCMC samples for " << label << endl;
     McmcSamples *mcmcSamples = new McmcSamples(label);
-    if (fileformat == "bin") mcmcSamples->readDataBin(mcmcSampleFile + "." + label);
+//    if (fileformat == "bin") mcmcSamples->readDataBin(mcmcSampleFile + "." + label);
+    if (fileformat == "bin") mcmcSamples->readDataBin(mcmcSampleFile);
 //    if (fileformat == "txt") mcmcSamples->readDataTxt(mcmcSampleFile + "." + label);
     if (fileformat == "txt") mcmcSamples->readDataTxt(mcmcSampleFile + ".Par", label);
     return mcmcSamples;
@@ -471,6 +472,90 @@ void GCTB::predict(const Data &data, const string &filename){
     Predict pred;
     pred.getAccuracy(data, filename + ".predRes");
     pred.writeRes(data, filename + ".ghat");
+}
+
+void GCTB::getWindowPIP(Data &data, McmcSamples &snpEffects, const string &snpResFile, const int windowWidth, const int stepSize, const string &title){
+    string filename1 = title + ".snpEffectSamples.txt";
+    string filename2 = title + ".windowPIP";
+    string filename3 = title + ".credibleSet";
+    ofstream out1(filename1.c_str());
+    ofstream out2(filename2.c_str());
+    ofstream out3(filename3.c_str());
+
+    data.inputSnpResultsOnly(snpResFile);
+    data.getOverlapWindows(windowWidth, stepSize);
+    
+    MatrixXf windowDelta;
+    windowDelta.setZero(snpEffects.nrow, data.numWindows);
+        
+    //cout << snpEffects.datMatSp.nonZeros() << endl;
+    
+    VectorXf snpPip;
+    snpPip.setZero(data.numSnps);
+    
+    out1 << boost::format("%8s %8s %12s\n") % "Iter" % "SnpIdx" % "Effect";
+    
+    for (int k=0; k<snpEffects.datMatSp.outerSize(); ++k) {
+        for (SpMat::InnerIterator it(snpEffects.datMatSp,k); it; ++it) {
+            //it.value();
+            unsigned iter = it.row();   // row index
+            unsigned snpIdx = it.col();   // col index (here it is equal to k)
+            unsigned winIdx = data.snpInfoVec[snpIdx]->window;
+            //cout << "iter " << iter << " snpIdx " << snpIdx << " winIdx " << winIdx << " value " << it.value() << endl;
+            windowDelta(iter, winIdx) = 1;
+            snpPip[snpIdx]++;
+            out1 << boost::format("%8s %8s %12s\n") % iter % snpIdx % it.value();
+        }
+    }
+    
+    snpPip /= snpEffects.nrow;
+        
+    VectorXf windowPip = windowDelta.colwise().mean();
+    
+    //cout << "windowPip " << endl << windowPip.block(0,10,0,10) << endl;
+    //cout << windowPip.head(10).transpose() << endl << endl;
+    //cout << snpPip.head(10).transpose() << endl;
+
+    out2 << boost::format("%6s %12s %12s %8s %8s\n")
+    % "Id"
+    % "Start"
+    % "End"
+    % "Size"
+    % "PIP";
+    for (unsigned i=0; i<data.numWindows; ++i) {
+        out2 << boost::format("%6s %12s %12s %8s %8.6f\n")
+        % (i+1)
+        % data.snpInfoVec[data.windStart[i]]->ID
+        % data.snpInfoVec[data.windStart[i] + data.windSize[i] - 1]->ID
+        % data.windSize[i]
+        % windowPip[i];
+    }
+    out2.close();
+
+    out3 << boost::format("%6s %12s %12s\n") % "Window" % "90_Credible_Set" % "SNP_PIP";
+
+    map<int, vector<SnpInfo*> > credibleSet;
+    for (unsigned i=0; i<data.numWindows; ++i) {
+        if (windowPip[i] > 0.9) {
+            VectorXf snpPipWin = snpPip.segment(data.windStart[i], data.windSize[i]);
+            std::sort(snpPipWin.data(), snpPipWin.data() + snpPipWin.size(), std::greater<float>());
+            float cumPip = 0.0;
+            for (unsigned j=0; j<data.windSize[i]; ++j){
+                cumPip += snpPipWin[j];
+                unsigned snpIdx = data.windStart[i] + j;
+                credibleSet[i].push_back(data.snpInfoVec[snpIdx]);
+                out3 << boost::format("%6s %12s %12s\n")
+                % (i+1)
+                % data.snpInfoVec[snpIdx]->ID
+                % snpPipWin[j];
+                //cout << i << " " << snpIdx << " " << snpPipWin[j] << " " << data.windSize[i] << endl;
+                if (cumPip > 0.9) {
+                    break;
+                }
+            }
+        }
+    }
+    out3.close();
 }
 
 void GCTB::clearGenotypes(Data &data){
@@ -636,7 +721,6 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
     
     for (unsigned i=0; i<size; ++i) {
         float cutoff = opt.eigenCutoff[i];
-        cout << boost::format("%10s") % cutoff;
 
         data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, cutoff, data.pseudoGwasEffectTrn, data.pseudoGwasNtrn, false, false);
         //data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, cutoff);
@@ -666,7 +750,7 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
         cor[i] = betaMean.dot(data.b_val) / sqrt(betaMean.squaredNorm() * data.varPhenotypic);
         rel[i] = cor[i]/cor[0];
         
-        cout << boost::format("%25s %20s\n") % cor[i] % rel[i];
+        cout << boost::format("%10s %25s %20s\n") % cutoff % cor[i] % rel[i];
 
     }
     

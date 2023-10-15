@@ -74,6 +74,7 @@ public:
     void pip2p(const Data &data, const VectorXf &pip, const float propNull, VectorXf &pval);
     
     float tuneEigenCutoff(Data &data, const Options &opt);
+    void getWindowPIP(Data &data, McmcSamples &snpEffects, const string &snpResFile, const int windowWidth, const int stepSize, const string &filename);
 };
 
 #endif /* amber_hpp */

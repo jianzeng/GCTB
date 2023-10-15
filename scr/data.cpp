@@ -865,6 +865,43 @@ void Data::getNonoverlapWindowInfo(const unsigned windowWidth){
     cout << "Created " << numWindows << " non-overlapping " << windowWidth/1e3 << "kb windows with average size of " << windSize.sum()/float(numWindows) << " SNPs." << endl;
 }
 
+void Data::getOverlapWindows(const unsigned windowWidth, const unsigned stepSize){
+    if (!windowWidth) throw("Error: Did you forget to set window width by --wind [Mb]?");
+    unsigned window = 0;
+    unsigned currChr = snpInfoVec[0]->chrom;
+    unsigned long startPos = snpInfoVec[0]->physPos;
+    vector<int> windStartVec = {0};
+    vector<int> windEndVec = {0};
+    windEndVec.push_back(0);
+    SnpInfo *snp;
+    for (unsigned i=0; i<numSnps; ++i) {
+        snp = snpInfoVec[i];
+        if (snp->physPos - startPos > windowWidth || snp->chrom > currChr) {
+            currChr = snp->chrom;
+            startPos = snp->physPos - stepSize;
+            if (startPos < 0) startPos = 0;
+            windStartVec.push_back(i);
+            windEndVec.push_back(i);
+            ++window;
+        }
+        windEndVec[window] = i;
+        snp->window = window;
+    }
+    windEndVec.push_back(numSnps-1);
+    
+    numWindows = windStartVec.size();
+    
+    windStart = VectorXi::Map(&windStartVec[0], numWindows);
+    windSize.setZero(numWindows);
+
+    for (unsigned i=0; i<numWindows; ++i) {
+        windSize[i] = windEndVec[i] - windStartVec[i];
+        //cout << i << " windSize " << windSize[i] << " " << windStartVec[i] << " " << windEndVec[i] << endl;
+    }
+    
+    cout << "Created " << numWindows << " " << windowWidth/1e3 << "kb windows with a step of " << stepSize/1e3 << "kb step and an average size of " << windSize.sum()/float(numWindows) << " SNPs." << endl;
+}
+
 
 void Data::buildSparseMME(const string &bedFile, const unsigned windowWidth){
     cout << "Building sparse MME ..." << endl;
@@ -1132,6 +1169,49 @@ void Data::inputSnpResults(const string &snpResFile){
     cout << match << " matched SNPs in the SNP result file (in total " << line << " SNPs)." << endl;
 }
 
+void Data::inputSnpResultsOnly(const string &snpResFile){
+    ifstream in(snpResFile.c_str());
+    if (!in) throw ("Error: can not open the SNP result file [" + snpResFile + "] to read.");
+    cout << "Reading SNP results from [" + snpResFile + "]." << endl;
+    snpInfoVec.clear();
+    Gadget::Tokenizer colData;
+    string inputStr;
+    string sep(" \t");
+    string name, a1, a2;
+    int id, chrom, pos;
+    float a1frq, a1effect, se, pip;
+    getline(in, inputStr);
+    Gadget::Tokenizer header;
+    header.getTokens(inputStr, sep);
+    unsigned pipIdx = header.getIndex("PIP");
+    unsigned line=0;
+    while (getline(in,inputStr)) {
+        colData.getTokens(inputStr, sep);
+        id = atoi(colData[0].c_str());
+        name = colData[1];
+        chrom = atoi(colData[2].c_str());
+        pos = atoi(colData[3].c_str());
+        a1 = colData[4];
+        a2 = colData[5];
+        a1frq = atof(colData[6].c_str());
+        a1effect = atof(colData[7].c_str());
+        se = atof(colData[8].c_str());
+        pip = atof(colData[pipIdx].c_str());
+        
+        SnpInfo *snp = new SnpInfo(id, name, a1, a2, chrom, 0, pos);
+        snp->af = a1frq;
+        snp->effect = a1effect;
+        snp->pip = pip;
+        snpInfoVec.push_back(snp);
+        
+        ++line;
+    }
+    in.close();
+    numSnps = (unsigned) snpInfoVec.size();
+    
+    cout << "Read " << numSnps << " SNPs from the SNP result file [" + snpResFile + "]." << endl;
+}
+
 void Data::inputSnpInfoAndResults(const string &snpResFile, const string &bayesType){
     ifstream in(snpResFile.c_str());
     if (!in) throw ("Error: can not open the SNP result file [" + snpResFile + "] to read.");
@@ -1342,7 +1422,7 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
         }
         if (inconAllele || inconAf || fixed || ismafmin || ismafmax || isPvalPruned) {
             snp->included = false;
-            cout << snp->index << " " << snp->ID << endl;
+//            cout << snp->index << " " << snp->ID << endl;
         } else ++match;
     }
     in.close();

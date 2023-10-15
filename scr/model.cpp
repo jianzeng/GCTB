@@ -6920,6 +6920,7 @@ void ApproxBayesRC::AnnoGenVar::compute(const VectorXf &snpEffects, const vector
             for (unsigned k=0; k<numAnno; ++k) {
                 if (annoMat(snpIdx,k) > 0) {  // for centered annotations
                     (*this)[i]->values[k] += varj;
+                    //cout << i << " " << j << " " << k << " " << varj << " " << snpEffects[snpIdx] << " " << ZPy[snpIdx] << " " << rcorr[snpIdx] << endl;
                 }
             }
         }
@@ -7013,7 +7014,7 @@ void ApproxBayesRC::sampleUnknowns(){
     static int iter = 0;    
 //    fixedEffects.sampleFromFC(data.XPX, data.XPXdiag, data.ZPX, data.XPy, snpEffects.values, vare.value, rcorr);
     unsigned cnt=0;
-    do {
+//    do {
         if (lowRankModel) {
             snpEffects.sampleFromFC(wcorrBlocks, data.Qblocks, whatBlocks,
                                     data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
@@ -7031,8 +7032,8 @@ void ApproxBayesRC::sampleUnknowns(){
             snpEffects.sampleFromFC(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, data.tss, varei, data.n, data.LDsamplVar, sigmaSq.value, snpPi, gamma.values, vare.value,
                 varg.value, ps.value, overdispersion, originalModel, deltaPi);
         }
-        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-    } while (snpEffects.numNonZeros == 0);
+//        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+//    } while (snpEffects.numNonZeros == 0);
                    
     if (robustMode) {
         if (noscale) {
@@ -7086,7 +7087,8 @@ void ApproxBayesRC::sampleUnknowns(){
     
 //    cout << "check 3 " << endl;
 
-    annoGenVar.compute(snpEffects.values, snpEffects.snpset, data.ZPy, rcorr, data.annoMat);
+    //annoGenVar.compute(snpEffects.values, snpEffects.snpset, data.ZPy, rcorr, data.annoMat);
+    annoGenVar.compute(snpEffects.values, snpEffects.snpset, data.annoMat);
 //    cout << "check 4 " << endl;
     annoTotalGenVar.compute(annoGenVar);
 //    cout << "check 5 " << endl;
