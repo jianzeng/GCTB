@@ -260,6 +260,10 @@ int main(int argc, const char * argv[]) {
             McmcSamples *genVar = gctb.inputMcmcSamples(opt.mcmcSampleFile, "GenVar", "txt");
             gctb.estimatePi(data, *snpEffects, *genVar, opt.title, opt.outputFreq);
         }
+        else if (opt.analysisType == "WindowPIP") {
+            McmcSamples *snpEffects = gctb.inputMcmcSamples(opt.mcmcSampleFile, "SnpEffects", "bin");
+            gctb.getWindowPIP(data, *snpEffects, opt.mcmcSampleFile + ".snpRes", opt.windowWidth, 0.5*opt.windowWidth, opt.title);
+        }
         else if (opt.analysisType == "Predict") {
             readGenotypes = true;
             gctb.inputIndInfo(data, opt.bedFile, opt.phenotypeFile, opt.keepIndFile, opt.keepIndMax,

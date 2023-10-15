@@ -48,6 +48,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             analysisType = "Pi";
             ss << "--estimate-pi " << "\n";
         }
+        else if (!strcmp(argv[i], "--get-wind-pip")) {
+            analysisType = "WindowPIP";
+            ss << "--get-wind-pip " << "\n";
+        }
 //        else if (!strcmp(argv[i], "--make-ldm")) {
 //            analysisType = "LDmatrix";
 //            ss << "--make-ldm " << "\n";

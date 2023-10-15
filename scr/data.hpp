@@ -72,6 +72,7 @@ public:
     VectorXf annoValues;
     
     float effect;   // estimated effect
+    float pip;
     
     // GWAS summary statistics
     float gwas_b;
@@ -538,7 +539,8 @@ public:
     void makeWindowAnno(const string &annoFile, const float windowWidth);
     
     void mergeLdmInfo(const string &outLDmatType, const string &dirname);
-
+    void inputSnpResultsOnly(const string &snpResFile);
+    void getOverlapWindows(const unsigned windowWidth, const unsigned stepSize);
     
     /////////// eigen decomposition for LD blocks
     void readLDBlockInfoFile(const string &ldBlockInfoFile);
