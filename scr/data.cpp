@@ -483,6 +483,8 @@ void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){
     keptIndInfoVec = makeKeptIndInfoVec(indInfoVec);
     numKeptInds =  (unsigned) keptIndInfoVec.size();
     
+    if (numKeptInds == 0) throw ("Error: No individual is retained for analysis,please check individual difference between phenotype and kept files");
+
     RinverseSqrt.setOnes(numKeptInds);
     Rsqrt.setOnes(numKeptInds);
     for (unsigned i=0; i<numKeptInds; ++i) {
