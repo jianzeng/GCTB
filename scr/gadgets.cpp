@@ -128,6 +128,7 @@ float Gadget::calcRegression(const VectorXf &y, const VectorXf &x){
 float Gadget::findMedian(const VectorXf &vec){
     VectorXf tmp = vec;
     std::sort(tmp.data(), tmp.data() + tmp.size());
-    return tmp[tmp.size()/2];
+    // return tmp[tmp.size()/2];
+    return tmp.size() % 2 == 0 ? tmp.segment( (tmp.size()-2)/2, 2 ).mean() : tmp( tmp.size()/2 );
 }
 
