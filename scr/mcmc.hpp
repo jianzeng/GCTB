@@ -28,7 +28,9 @@ class McmcSamples {
 public:
     const string label;
     string filename;
+
     enum {dense, sparse} storageMode;
+    enum {bin, txt, txt_combine_others, no_output} outputMode;
     
     unsigned chainLength;
     unsigned burnin;
@@ -48,9 +50,9 @@ public:
     
     FILE *bout;
     ofstream tout;
-    
+        
     McmcSamples(const string &label, const unsigned chainLength, const unsigned burnin, const unsigned thin,
-                const unsigned npar, const string &storage_mode = "dense"):
+                const unsigned npar, const string &storage_mode, const string &output_mode, const string &title):
     label(label), chainLength(chainLength), burnin(burnin), thin(thin) {
         nrow = chainLength/thin - burnin/thin;
         ncol = npar;
@@ -61,7 +63,20 @@ public:
             storageMode = sparse;
             //if (myMPI::rank==0) datMatSp.reserve(VectorXi::Constant(ncol,nrow));  // for faster filling the matrix
         } else {
-            cerr << "Error: Unrecognized storage mode: " << storage_mode << endl;
+            cerr << "Error: Unrecognized storage mode: " << storage_mode << ". Option is 'dense' or 'sparse'." << endl;
+        }
+        if (output_mode == "bin") {
+            outputMode = bin;
+            initBinFile(title);
+        } else if (output_mode == "txt") {
+            outputMode = txt;
+            initTxtFile(title);
+        } else if (output_mode == "txt_combine_others") {
+            outputMode = txt_combine_others;
+        } else if (output_mode == "no_output") {
+            outputMode = no_output;
+        } else {
+            cerr << "Error: Unrecognized output mode: " << output_mode << ". Option is 'bin', 'txt', 'txt_combine_others' or 'no_output'." << endl;
         }
         posteriorMean.setZero(ncol);
         posteriorSqrMean.setZero(ncol);
@@ -71,8 +86,8 @@ public:
     
     McmcSamples(const string &label): label(label) {}
     
-    void getSample(const unsigned iter, const VectorXf &sample, const bool writeBinPosterior, const bool writeTxtPosterior);
-    void getSample(const unsigned iter, const float sample, const bool writeTxtPosterior, ofstream &out);
+    void getSample(const unsigned iter, const VectorXf &sample);
+    void getSample(const unsigned iter, const float sample, ofstream &out);
     void writeSampleBin(const unsigned iter, const VectorXf &sample, const string &title);
     void writeSampleTxt(const unsigned iter, const float sample, const string &title);
     VectorXf mean(void);
@@ -85,6 +100,7 @@ public:
     void readDataBin(const string &filename);
     void readDataTxt(const string &filename);
     void readDataTxt(const string &filename, const string &label);
+    void writeMatSpTxt(const string &title);
 };
 
 class MCMC {

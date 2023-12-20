@@ -73,6 +73,7 @@ public:
     
     float effect;   // estimated effect
     float pip;
+    float varExplained;
     
     // GWAS summary statistics
     float gwas_b;
@@ -110,6 +111,7 @@ public:
         flipped = false;
         sampleSize = 0;
         effect = 0;
+        varExplained = 0;
         gwas_b  = -999;
         gwas_se = -999;
         gwas_n  = -999;

@@ -879,7 +879,7 @@ void Data::getOverlapWindows(const unsigned windowWidth, const unsigned stepSize
         snp = snpInfoVec[i];
         if (snp->physPos - startPos > windowWidth || snp->chrom > currChr) {
             currChr = snp->chrom;
-            startPos = snp->physPos - stepSize;
+            startPos = snp->physPos - stepSize;  // BUG to be fixed
             if (startPos < 0) startPos = 0;
             windStartVec.push_back(i);
             windEndVec.push_back(i);
@@ -1209,6 +1209,9 @@ void Data::inputSnpResultsOnly(const string &snpResFile){
     }
     in.close();
     numSnps = (unsigned) snpInfoVec.size();
+    
+    incdSnpInfoVec = snpInfoVec;
+    numIncdSnps = numSnps;
     
     cout << "Read " << numSnps << " SNPs from the SNP result file [" + snpResFile + "]." << endl;
 }
@@ -1730,7 +1733,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
     ZPZdiag = ZP.rowwise().squaredNorm();
     
 //    cout << ZP.rowwise().mean() << endl << endl;
-//    cout << ZP.block(0, 0, 10, 10) << endl;
+//    cout << "ZP " << endl << ZP.block(0, 0, 10, 10) << endl;
     
     // then read in the bed file again to compute Z'Z
     
@@ -1828,7 +1831,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
     else {
         for (k = 0, inck = 0; k < numSnps; k++) {
             snpk = snpInfoVec[k];
-            
+                        
             if (!snpk->included) {
                 skipk += size;
                 continue;
@@ -1837,11 +1840,14 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
             if (windowWidth) {
                 if (inck < firstWindStart) {
                     skipk += size;
+                    ++inck;
                     continue;
                 } else if (inck > lastWindEnd) {
                     break;
                 }
             }
+            
+//            cout << inck << " snpk " << snpk->index << " numSnps " << numSnps << " included " << snpk->included << " firstWindStart " << firstWindStart << " lastWindEnd " << lastWindEnd << endl;
             
             if (skipk) fseek(in2, skipk, SEEK_CUR);
             skipk = 0;
@@ -1902,7 +1908,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
 
     fclose(in2);
     
-    //cout << denseZPZ.block(0, 0, 10, 10) << endl;
+//    cout << "denseZPZ " << endl << denseZPZ.block(0, 0, 10, 10) << endl;
     
 
     // find out per-SNP window position
@@ -1928,6 +1934,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
             for (unsigned i=0; i<numSnpInRange; ++i) {
                 SnpInfo *snp = incdSnpInfoVec[start+i];
                 ZPZ[i] = denseZPZ.row(i).segment(snp->windStart, snp->windSize);
+                //if (i < 2) cout << "snpi " << i << " ZPZi " << ZPZ[i].transpose() << endl;
                 snp->ldSamplVar = (1.0 - ZPZ[i].array().square()).square().sum()/numKeptInds;
                 snp->ldSum = ZPZ[i].sum();
             }

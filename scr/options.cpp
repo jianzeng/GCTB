@@ -52,6 +52,16 @@ void Options::inputOptions(const int argc, const char* argv[]){
             analysisType = "WindowPIP";
             ss << "--get-wind-pip " << "\n";
         }
+        else if (!strcmp(argv[i], "--cs")) {
+            analysisType = "CS";
+            csThreshold = atof(argv[++i]);
+            ss << "--cs " << argv[i]  << "\n";
+        }
+        else if (!strcmp(argv[i], "--bin2txt")) {
+            analysisType = "Bin2Txt";
+            label = argv[++i];
+            ss << "--bin2txt " << argv[i] << "\n";
+        }
 //        else if (!strcmp(argv[i], "--make-ldm")) {
 //            analysisType = "LDmatrix";
 //            ss << "--make-ldm " << "\n";
@@ -305,6 +315,14 @@ void Options::inputOptions(const int argc, const char* argv[]){
             writeTxtPosterior = false;
             ss << "--no-mcmc-txt " << "\n";
         }
+        else if (!strcmp(argv[i], "--write-mcmc-bin")) {
+            writeBinPosterior = true;
+            ss << "--write-mcmc-bin " << "\n";
+        }
+        else if (!strcmp(argv[i], "--write-mcmc-txt")) {
+            writeTxtPosterior = true;
+            ss << "--write-mcmc-txt " << "\n";
+        }
         else if (!strcmp(argv[i], "--thin")) {
             thin = atoi(argv[++i]);
             ss << "--thin " << argv[i] << "\n";
@@ -540,6 +558,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             originalModel = true;
             ss << "--original-model " << "\n";
         }
+        else if (!strcmp(argv[i], "--hsq-percentage-model")) {
+            originalModel = true;
+            ss << "--hsq-percentage-model " << "\n";
+        }
         else if (!strcmp(argv[i], "--lambda")) {
             lambda = atof(argv[++i]);
             ss << "--lambda " << argv[i] << "\n";
@@ -551,6 +573,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--robust")) {
             robustMode = true;
             ss << "--robust " << "\n";
+        }
+        else if (!strcmp(argv[i], "--n-dist-auto")) {
+            nDistAuto = true;
+            ss << "--n-dist-auto " << "\n";
         }
         else {
             stringstream errmsg;
