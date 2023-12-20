@@ -54,7 +54,7 @@ public:
                       const VectorXf &pis, const VectorXf &piPar, const VectorXf &gamma, const bool estimateSigmaSq,
                       const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow,
                       const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS,
-                      const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool originalModel, const bool perSnpGV, const bool robustMode);
+                      const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool originalModel, const bool perSnpGV, const bool robustMode, const bool nDistAuto);
     vector<McmcSamples*> runMcmc(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior);
     void saveMcmcSamples(const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
     void outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &bayesType, const bool noscale, const string &filename);
@@ -75,6 +75,14 @@ public:
     
     float tuneEigenCutoff(Data &data, const Options &opt);
     void getWindowPIP(Data &data, McmcSamples &snpEffects, const string &snpResFile, const int windowWidth, const int stepSize, const string &filename);
+    void calcCredibleSets(Data &data, const string &snpResFile, McmcSamples &snpEffects, const float csThreshold, const int windowWidth, const string &title);
+
+    static bool comparePIP(const SnpInfo* snpi, const SnpInfo* snpj){
+        return snpi->pip > snpj->pip;
+    };
+    
+//    void autoDetermineNumComponents(Data &data, Options &opt, const VectorXf &pis, const VectorXf &gamma, const unsigned numiters);
+
 };
 
 #endif /* amber_hpp */

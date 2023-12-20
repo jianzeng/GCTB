@@ -78,6 +78,7 @@ public:
     float lambda;  // for conjugate gradient
     float rsqThreshold;
     float pValueThreshold;
+    float csThreshold;
     
     bool estimatePi;
     bool estimateSigmaSq; // variance of SNP effects
@@ -109,6 +110,7 @@ public:
     bool perSnpGV;
     bool mergeLdm;
     bool imputeSummary;
+    bool nDistAuto;  // automatically determine the number of mixture distributions
     
     string eigCutMethod = "value";
     float eigThreshold = 0.001;
@@ -155,6 +157,7 @@ public:
     string residualDiagFile;
     string eigenMatrixFile;
     string ldBlockInfoFile;
+    string label;
     
     Options(){
         numChains               = 1;
@@ -171,7 +174,7 @@ public:
         includeBlock            = 0;
                 
         windowWidth             = 0*Megabase;
-        pi                      = 0.05;
+        pi                      = 0.01;
         piAlpha                 = 1;
         piBeta                  = 1;
         heritability            = 0.1;
@@ -200,13 +203,14 @@ public:
         lambda                  = 1e6;
         rsqThreshold            = 1.0;
         pValueThreshold         = 1.0;
+        csThreshold             = 0.9;
 
         // Bayes R defaults
         ndists                  = 5;
         gamma.resize(ndists);
         gamma                   << 0.0, 0.001, 0.01, 0.1, 1;
         pis.resize(ndists);                      
-        pis                     << 0.95, 0.02, 0.01, 0.01, 0.01;
+        pis                     << 0.99, 0.004, 0.003, 0.002, 0.001;
         // Kappa defaults
         kappa                   = 10;
         
@@ -221,8 +225,8 @@ public:
         estimatePiNDC           = true;
         estimatePiGxE           = true;
         estimateScale           = false;
-        writeBinPosterior       = true;
-        writeTxtPosterior       = true;
+        writeBinPosterior       = false;
+        writeTxtPosterior       = false;
         outputResults           = true;
         multiLDmat              = false;
         multiThreadEigen        = false;
@@ -246,6 +250,7 @@ public:
         perSnpGV                = false;
         mergeLdm                = false;
         imputeSummary           = false;
+        nDistAuto               = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";
@@ -278,6 +283,7 @@ public:
         eigenMatrixFile         = "";
         ldBlockInfoFile         = "";
         outLDmatType            = "sparse";
+        label                   = "";
     }
     
     void inputOptions(const int argc, const char* argv[]);

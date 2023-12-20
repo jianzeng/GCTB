@@ -8,16 +8,16 @@
 
 #include "mcmc.hpp"
 
-void McmcSamples::getSample(const unsigned iter, const VectorXf &sample, const bool writeBinPosterior, const bool writeTxtPosterior){
-    if (storageMode == dense) {
-        if (writeTxtPosterior) tout << sample.transpose() << endl;
-    }
+void McmcSamples::getSample(const unsigned iter, const VectorXf &sample){
+//    if (storageMode == dense) {
+//        if (outputFormat == txt) tout << sample.transpose() << endl;
+//    }
     if (iter % thin) return;
 //    if (!sample.size()) return;
     unsigned thin_iter = iter/thin;
     unsigned thin_iter_post_burnin = thin_iter - burnin/thin;
     if (storageMode == dense) {
-//        if (writeTxtPosterior) tout << sample.transpose() << endl;
+        if (outputMode == txt) tout << sample.transpose() << endl;
         if (iter >= burnin) {
             datMat.row(thin_iter_post_burnin) = sample;
             posteriorMean.array() += (sample - posteriorMean).array()/(thin_iter_post_burnin+1);
@@ -27,7 +27,7 @@ void McmcSamples::getSample(const unsigned iter, const VectorXf &sample, const b
         lastSample = sample;
         //SparseVector<float>::InnerIterator it(sample.sparseView());
         SparseVector<float> spvec = sample.sparseView();
-        if (writeBinPosterior) {
+        if (outputMode == bin) {
             for (SparseVector<float>::InnerIterator it(spvec); it; ++it) {
                 unsigned rc[2] = {thin_iter, (unsigned)it.index()};
                 fwrite(rc, sizeof(unsigned), 2, bout);
@@ -53,9 +53,9 @@ void McmcSamples::getSample(const unsigned iter, const VectorXf &sample, const b
     }
 }
 
-void McmcSamples::getSample(const unsigned iter, const float sample, const bool writeTxtPosterior, ofstream &out){
-    if (writeTxtPosterior) out << boost::format("%12s ") %sample;
+void McmcSamples::getSample(const unsigned iter, const float sample, ofstream &out){
     if (iter % thin) return;
+    if (outputMode == txt_combine_others) out << boost::format("%12s ") %sample;
     unsigned thin_iter_post_burnin = iter/thin - burnin/thin;
     if (iter >= burnin) {
         datMat(thin_iter_post_burnin,0) = sample;
@@ -245,6 +245,26 @@ void McmcSamples::writeDataTxt(const string &title){
     out.close();
 }
 
+void McmcSamples::writeMatSpTxt(const string &title){
+    string dirname = title + ".mcmcsamples";
+    if (!Gadget::directoryExist(dirname)) {
+        throw("Error: cannot find directory " + dirname);
+    }
+    filename = dirname + "/" + label + ".mcmcsamples.txt";
+    ofstream out(filename);
+    out << boost::format("%8s %8s %12s\n") % "Row" % "Col" % "Value";
+    
+    for (int k=0; k<datMatSp.outerSize(); ++k) {
+        for (SpMat::InnerIterator it(datMatSp,k); it; ++it) {
+            out << boost::format("%8s %8s %12s\n")
+            % it.row()
+            % it.col()
+            % it.value();
+        }
+    }
+    out.close();
+}
+
 void MCMC::initTxtFile(const vector<Parameter*> &paramVec, const string &title){
     string dirname = title + ".mcmcsamples";
     if (!Gadget::directoryExist(dirname)) {
@@ -269,22 +289,27 @@ vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned ch
         ParamSet *parSet = model.paramSetVec[i];
         McmcSamples *mcmcSamples;
         if (parSet->label.find("SnpEffects") != string::npos) {
-            mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "sparse");
-            if (writeBinPosterior) mcmcSamples->initBinFile(title);
-//            mcmcSamples->initTxtFile(title);
+            if (writeBinPosterior) {
+                mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "sparse", "bin", title);
+            } else {
+                mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "sparse", "no_output", title);
+            }
+        } else if (parSet->label.find("DeltaPi") != string::npos) {
+            mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "dense", "no_output", title);
         } else if (parSet->label.find("Delta") != string::npos) {
-            mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "sparse");
-            if (writeBinPosterior) mcmcSamples->initBinFile(title);
+            mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "sparse", "no_output", title);
         } else {
-            mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size);
-            if (writeTxtPosterior) mcmcSamples->initTxtFile(title);
+            if (writeTxtPosterior) {
+                mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "dense", "txt", title);
+            } else {
+                mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "dense", "no_output", title);
+            }
         }
         mcmcSampleVec.push_back(mcmcSamples);
     }
     for (unsigned i=0; i<model.paramVec.size(); ++i) {
         Parameter *par = model.paramVec[i];
-        McmcSamples *mcmcSamples = new McmcSamples(par->label, chainLength, burnin, thin, 1);
-        //mcmcSamples->initTxtFile(title);
+        McmcSamples *mcmcSamples = new McmcSamples(par->label, chainLength, burnin, thin, 1, "dense", "txt_combine_others", title);
         mcmcSampleVec.push_back(mcmcSamples);
     }
     if (writeTxtPosterior) initTxtFile(model.paramVec, title);
@@ -296,12 +321,12 @@ void MCMC::collectSamples(const Model &model, vector<McmcSamples*> &mcmcSampleVe
     for (unsigned j=0; j<model.paramSetVec.size(); ++j) {
         McmcSamples *mcmcSamples = mcmcSampleVec[i++];
         ParamSet *parSet = model.paramSetVec[j];
-        mcmcSamples->getSample(iteration, parSet->values, writeBinPosterior, writeTxtPosterior);
+        mcmcSamples->getSample(iteration, parSet->values);
     }
     for (unsigned j=0; j<model.paramVec.size(); ++j) {
         McmcSamples *mcmcSamples = mcmcSampleVec[i++];
         Parameter *par = model.paramVec[j];
-        mcmcSamples->getSample(iteration, par->value, writeTxtPosterior, out);
+        mcmcSamples->getSample(iteration, par->value, out);
     }
     out << endl;
 }

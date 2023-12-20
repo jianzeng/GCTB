@@ -1734,6 +1734,7 @@ public:
         }
         
         void compute(const VectorXf &snpEffects, const VectorXf &ZPy, const VectorXf &rcorr, const vector<vector<unsigned> > snpset, const float varg, const float nobs);
+        void compute(const VectorXf &snpEffects, const vector<vector<unsigned> > snpset);
         //void compute(const VectorXf &snpEffects, const vector<SparseVector<float> > &ZPZsp, const vector<vector<unsigned> > snpset, const float varg, const float nobs);
         //void compute(const VectorXf &snpEffects, const vector<VectorXf> &ZPZ, const vector<vector<unsigned> > snpset, const float varg, const float nobs);
     };
@@ -2314,6 +2315,12 @@ public:
                           const float sigmaSq, const MatrixXf &snpPi, const VectorXf &gamma, const float vare,
                           const float varg, const float ps, const float overdispersion,
                           const bool originalModel, DeltaPi &deltaPi);
+//        void sampleFromFCvariational(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
+//                          const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
+//                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &LDsamplVar,
+//                          const float sigmaSq, const MatrixXf &snpPi, const VectorXf &gamma, const float vare,
+//                          const float varg, const float ps, const float overdispersion,
+//                          const bool originalModel, DeltaPi &deltaPi);
         void sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &LDsamplVar,
@@ -2547,14 +2554,16 @@ public:
     MatrixXf snpP;    // p = Pr(k>i | k>i-1); p2 = pi2+pi3+pi4; p3 = (pi3+pi4)/(pi2+pi3+pi4); p4 = pi4/(pi3+pi4)
     MatrixXf snpPi;   // pi1 = 1-p2; pi2 = (1-p3)*p2; pi3 = (1-p4)*p2*p3; pi4 = p2*p3*p4
     VectorXf snpVarg; // per-SNP GV based on annotation enrichment
+    VectorXf VgMean;  // running mean of variance explained by each component
     
 //    vector<VectorXf> wcorrBlocks;
 //    vector<VectorXf> whatBlocks;
     
     bool allowPerSnpGV;
     bool lowRankModel;
+    bool nDistAuto;
     
-    ApproxBayesRC(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool originalModel, const bool perSnpGV, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool message = true):
+    ApproxBayesRC(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool originalModel, const bool perSnpGV, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool nDistAuto, const bool message = true):
     ApproxBayesR(data, lowrank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, false, robustMode, alg, false),
     snpEffects(data.snpEffectNames, pis),
     annoEffects(data.annoNames, pis.size(), data.annoMat),
@@ -2568,8 +2577,12 @@ public:
     annoDist(data.annoNames, pis.size()),
 //    vargBlk(data.ldblockNames, varGenotypic, data.numKeptInds),
 //    vareBlk(data.ldblockNames, data.varPhenotypic),
-    lowRankModel(lowrank)
+    lowRankModel(lowrank),
+    nDistAuto(nDistAuto)
     {
+        
+        //bool nDistAuto = true;
+        VgMean = Vgs.values;
         
 //        cout << "varGenotypic " << varGenotypic << endl;
 //
@@ -2653,6 +2666,7 @@ public:
             if (robustMode) cout << "Using a more robust parameterisation " << endl;
             //cout << "Algorithm: " << alg << endl;
             if (allowPerSnpGV) cout << "Allow per-SNP genetic variance!" << endl;
+            if (nDistAuto) cout << "The number of mixture components will be automatically assessed at iteration 500." << endl;
         }
     }
 

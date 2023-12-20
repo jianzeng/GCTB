@@ -154,7 +154,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
                         const VectorXf &pis, const VectorXf &piPar, const VectorXf &gamma, const bool estimateSigmaSq,
                         const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow,
                         const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS,
-                        const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool originalModel, const bool perSnpGV, const bool robustMode){
+                        const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool originalModel, const bool perSnpGV, const bool robustMode, const bool nDistAuto){
     data.initVariances(heritability, propVarRandom);
 //    if (!bedFile.empty()) {   // TMP_JZ
 //        unsigned n_gwas = data.numKeptInds;
@@ -168,7 +168,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
             if (bayesType == "S")
                 return new StratApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, S, algorithm, robustMode);
             else if (bayesType == "RC")
-                return new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, perSnpGV, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm);
+                return new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, perSnpGV, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm, nDistAuto);
             else
                 throw(" Error: Wrong bayes type: " + bayesType + " in the annotation-stratified summary-data-based Bayesian analysis.");
         }
@@ -558,6 +558,160 @@ void GCTB::getWindowPIP(Data &data, McmcSamples &snpEffects, const string &snpRe
     out3.close();
 }
 
+void GCTB::calcCredibleSets(Data &data, const string &snpResFile, McmcSamples &snpEffects, const float csThreshold, const int windowWidth, const string &title){
+    string alphaStr = to_string(int(csThreshold*100));
+    string windowWidthStr = to_string(int(windowWidth/1000));
+    
+    string filename1 = title + "." + windowWidthStr + "kb_" + alphaStr + "_CS";
+    string filename2 = title + ".genomewide_" + alphaStr + "_CS";
+    string filename3 = title + ".genomewide_CS_summary";
+    ofstream out1(filename1.c_str());
+    ofstream out2(filename2.c_str());
+    ofstream out3(filename3.c_str());
+
+    data.inputSnpResultsOnly(snpResFile);
+    data.getNonoverlapWindowInfo(windowWidth);
+
+    // calculate variance explained by each SNP
+    VectorXf totalVar;
+    totalVar.setZero(snpEffects.nrow);
+
+    for (int k=0; k<snpEffects.datMatSp.outerSize(); ++k) {
+        for (SpMat::InnerIterator it(snpEffects.datMatSp,k); it; ++it) {
+            totalVar(it.row()) += it.value() * it.value();
+        }
+    }
+    for (unsigned j=0; j<data.numSnps; ++j) {
+        SnpInfo *snpj = data.snpInfoVec[j];
+        VectorXf betaj = snpEffects.datMatSp.col(j);
+        snpj->varExplained = (betaj.array().square()/totalVar.array()).mean();
+    }
+    
+    float vg = 0;
+    for (unsigned j=0; j<data.numSnps; ++j){
+        SnpInfo *snp = data.snpInfoVec[j];
+        vg += 2.0*snp->af*(1.0-snp->af)*snp->effect*snp->effect;
+    }
+
+    VectorXf windowVar;
+    VectorXf windowVarImproper;
+    windowVar.setZero(data.numWindows);
+    windowVarImproper.setZero(data.numWindows);
+    for (unsigned i=0; i<data.numWindows; ++i) {
+        for (unsigned j=0; j<data.windSize[i]; ++j){
+            SnpInfo *snp = data.snpInfoVec[data.windStart[i]+j];
+            windowVar[i] += snp->varExplained;
+            windowVarImproper[i] += 2.0*snp->af*(1.0-snp->af)*snp->effect*snp->effect;
+        }
+    }
+    windowVarImproper /= vg;
+        
+    out1 << boost::format("%6s %12s %12s %12s %12s %12s %12s\n")
+    % "Window"
+    % "TotalNumSnps"
+    % "PropVar"
+    % "PropVarImproper"
+    % (alphaStr + "_CS_size")
+    % (alphaStr + "_CS_PropVar")
+    % (alphaStr + "_CS_SNPs");
+    
+    unsigned nCS10CV = 0;
+    
+    map<int, vector<SnpInfo*> > credibleSet;
+    for (unsigned i=0; i<data.numWindows; ++i) {
+        //cout << "i " << i << " " << data.windSize[i] << " " << data.windStart[i] << endl;
+        vector<SnpInfo*> snpveci(data.windSize[i]);
+        for (unsigned j=0; j<data.windSize[i]; ++j) {
+            snpveci[j] = data.snpInfoVec[data.windStart[i]+j];
+        }
+        //cout << "snpveci.size " << snpveci.size() << endl;
+        std::sort(snpveci.begin(), snpveci.end(), &GCTB::comparePIP);
+        float cumPip = 0.0;
+        float propVar = 0.0;
+        for (unsigned j=0; j<data.windSize[i]; ++j){
+            cumPip += snpveci[j]->pip;
+            propVar += snpveci[j]->varExplained;
+            credibleSet[i].push_back(snpveci[j]);
+            //cout << i << " " << j << " " << snpveci[j]->pip << endl;
+
+            if (cumPip > csThreshold) {
+                out1 << boost::format("%6s %12s %12s %12s %12s %12s ")
+                % (i+1)
+                % data.windSize[i]
+                % windowVar[i]
+                % windowVarImproper[i]
+                % credibleSet[i].size()
+                % propVar;
+                vector<SnpInfo*>::iterator it, begin = credibleSet[i].begin();
+                for (it=begin; it!=credibleSet[i].end(); ++it) {
+                    if (it == begin) out1 << "\t" << (*it)->ID;
+                    else out1 << "," << (*it)->ID;
+                }
+                out1 << endl;
+                if (credibleSet[i].size() <= 10) ++nCS10CV;
+                break;
+            }
+        }
+    }
+    out1.close();
+    
+    out2 << boost::format("%12s %12s %12s\n") % "SNP" % "PIP" % "PropVar";
+        
+    VectorXf snpPip(data.numSnps);
+    for (unsigned i=0; i<data.numSnps; ++i) {
+        snpPip[i] = data.snpInfoVec[i]->pip;
+    }
+
+    float nnz = data.numSnps * snpPip.mean();
+    
+    cout << "The estimated total number of causal variants is " << nnz << "." << endl;
+    cout << "There are " << nCS10CV << " 100kb windows with credible set size up to 10." << endl;
+        
+    std::sort(data.snpInfoVec.begin(), data.snpInfoVec.end(), &GCTB::comparePIP);
+
+    float cumPip = 0.0;
+    for (unsigned j=0; j<data.numSnps; ++j){
+        SnpInfo *snp = data.snpInfoVec[j];
+        cumPip += snp->pip;
+        out2 << boost::format("%12s %12s %12s\n") % snp->ID % snp->pip % snp->varExplained;
+        if (cumPip > csThreshold*nnz) break;
+    }
+    out2.close();
+    
+    out3 << boost::format("%8s %12s %12s\n") % "Threshold" % "CS_size" % "Prop_hsq";
+        
+    VectorXf threshold_vec(12);
+    threshold_vec << 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1;
+    for (unsigned k=0; k<threshold_vec.size(); ++k) {
+        float cumPip = 0.0;
+        float propVar = 0.0;
+        int cs_size = 0;
+        for (unsigned j=0; j<data.numSnps; ++j){
+            SnpInfo *snp = data.snpInfoVec[j];
+            cumPip += snp->pip;
+            propVar += snp->varExplained;
+            ++cs_size;
+            if (cumPip > threshold_vec[k]*nnz) {
+                out3 << boost::format("%8s %12s %12.6f\n")
+                % threshold_vec[k]
+                % cs_size
+                % propVar;
+                break;
+            }
+            if (j == (data.numSnps-1)) {
+                out3 << boost::format("%8s %12s %12.6f\n")
+                % threshold_vec[k]
+                % data.numSnps
+                % 1.0;
+            }
+        }
+    }
+    
+    cout << "Output window credible set results into [" + filename1 + "]." << endl;
+    cout << "Output genome-wide credible set result into [" + filename2 + "]." << endl;
+    cout << "Output genome-wide credible set result summary into [" + filename3 + "]." << endl;
+}
+
 void GCTB::clearGenotypes(Data &data){
     data.X.resize(0,0);
 }
@@ -781,4 +935,9 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
     return bestCutoff;
 }
 
-void mergeBlockGwasSummary(Data &data, const string &gwasSummaryFile, const string &title);
+//void GCTB::autoDetermineNumComponents(Data &data, Options &opt, const VectorXf &pis, const VectorXf &gamma, const unsigned numiters){
+//    vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
+//                                                  opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
+//
+//}
+
