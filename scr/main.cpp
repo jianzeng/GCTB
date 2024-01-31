@@ -324,6 +324,7 @@ int main(int argc, const char * argv[]) {
         }
         else if (opt.analysisType == "CS") {
             int windowWidth = 100000;
+            if (opt.windowWidth) windowWidth = opt.windowWidth;
             McmcSamples *snpEffects = gctb.inputMcmcSamples(opt.mcmcSampleFile, "SnpEffects", "bin");
             gctb.calcCredibleSets(data, opt.mcmcSampleFile + ".snpRes", *snpEffects, opt.csThreshold, windowWidth, opt.title);
         }

@@ -558,21 +558,24 @@ void GCTB::getWindowPIP(Data &data, McmcSamples &snpEffects, const string &snpRe
     out3.close();
 }
 
+
 void GCTB::calcCredibleSets(Data &data, const string &snpResFile, McmcSamples &snpEffects, const float csThreshold, const int windowWidth, const string &title){
     string alphaStr = to_string(int(csThreshold*100));
     string windowWidthStr = to_string(int(windowWidth/1000));
     
-    string filename1 = title + "." + windowWidthStr + "kb_" + alphaStr + "_CS";
-    string filename2 = title + ".genomewide_" + alphaStr + "_CS";
-    string filename3 = title + ".genomewide_CS_summary";
+    string filename1 = title + "." + windowWidthStr + "kb_" + alphaStr + "_CS.txt";
+    string filename2 = title + "." + windowWidthStr + "kb_" + alphaStr + "_CS_summary.txt";
+    string filename3 = title + ".genomewide_" + alphaStr + "_CS.txt";
+    string filename4 = title + ".genomewide_CS_summary.txt";
     ofstream out1(filename1.c_str());
     ofstream out2(filename2.c_str());
     ofstream out3(filename3.c_str());
+    ofstream out4(filename4.c_str());
 
     data.inputSnpResultsOnly(snpResFile);
     data.getNonoverlapWindowInfo(windowWidth);
-
-    // calculate variance explained by each SNP
+    
+    // get total genetic variance over MCMC iterations
     VectorXf totalVar;
     totalVar.setZero(snpEffects.nrow);
 
@@ -581,43 +584,62 @@ void GCTB::calcCredibleSets(Data &data, const string &snpResFile, McmcSamples &s
             totalVar(it.row()) += it.value() * it.value();
         }
     }
+    
+    // calculate variance explained by each SNP
     for (unsigned j=0; j<data.numSnps; ++j) {
         SnpInfo *snpj = data.snpInfoVec[j];
         VectorXf betaj = snpEffects.datMatSp.col(j);
-        snpj->varExplained = (betaj.array().square()/totalVar.array()).mean();
+        snpj->varExplained = (betaj.array().square()/totalVar.array()).mean();  // per-SNP variance explained is the mean of MCMC samples of variance explained
     }
     
-    float vg = 0;
+    // a parsimonous way of calculating per-SNP variance explained using posterior mean of SNP effects.
+    // But this is wrong! The calculation is only for comparison purpose.
+    double vg = 0;
     for (unsigned j=0; j<data.numSnps; ++j){
         SnpInfo *snp = data.snpInfoVec[j];
         vg += 2.0*snp->af*(1.0-snp->af)*snp->effect*snp->effect;
     }
 
+    // calculate per-window variance explained and the probability of per-window heritability enrichment
     VectorXf windowVar;
     VectorXf windowVarImproper;
     windowVar.setZero(data.numWindows);
     windowVarImproper.setZero(data.numWindows);
+    vector<WindowInfo*> windowInfoVec;
+    windowInfoVec.resize(data.numWindows);
     for (unsigned i=0; i<data.numWindows; ++i) {
+        vector<SnpInfo*> snpveci(data.windSize[i]);
+        VectorXf windowVarMcmc;
+        windowVarMcmc.setZero(snpEffects.nrow);
         for (unsigned j=0; j<data.windSize[i]; ++j){
             SnpInfo *snp = data.snpInfoVec[data.windStart[i]+j];
+            //if (i==952) cout << "SNP " << j << " " << snp->index << " " << snp->ID << " " << data.windSize[i] << " " << data.numSnps << endl;
+            snpveci[j] = snp;
             windowVar[i] += snp->varExplained;
             windowVarImproper[i] += 2.0*snp->af*(1.0-snp->af)*snp->effect*snp->effect;
+
+            VectorXf betaj = snpEffects.datMatSp.col(snp->index);
+            VectorXf varj = betaj.array().square();
+            windowVarMcmc += varj;
         }
+        windowVarMcmc = windowVarMcmc.array()/totalVar.array();
+        WindowInfo *window = new WindowInfo(i+1, snpveci);
+        window->propGenVarMcmc = windowVarMcmc;
+        window->calcVarEnrichPP(float(data.numWindows));
+        windowInfoVec[i] = window;
     }
     windowVarImproper /= vg;
+    
+    //cout << "windowVarEnrichPP\n" << windowVarEnrichPP << endl;
         
-    out1 << boost::format("%6s %12s %12s %12s %12s %12s %12s\n")
-    % "Window"
-    % "TotalNumSnps"
-    % "PropVar"
-    % "PropVarImproper"
-    % (alphaStr + "_CS_size")
-    % (alphaStr + "_CS_PropVar")
-    % (alphaStr + "_CS_SNPs");
-    
-    unsigned nCS10CV = 0;
-    
-    map<int, vector<SnpInfo*> > credibleSet;
+    // Calculate credible sets per window.
+    // first select individual SNPs with PIP > csThreshold (1-SNP CS). Can be as many as 1-SNP CS per window.
+    // then find secondary CS conditional on the 1-SNP CS. Max 1 secondary CS per window, and max 10 SNPs per CS.
+    map<unsigned, vector<CredibleSetInfo*> > winCSmap;
+    vector<CredibleSetInfo*> CSvec;
+    unsigned numSingleSnpCS = 0;
+    unsigned numCS = 0;
+    unsigned sumCSsize = 0;
     for (unsigned i=0; i<data.numWindows; ++i) {
         //cout << "i " << i << " " << data.windSize[i] << " " << data.windStart[i] << endl;
         vector<SnpInfo*> snpveci(data.windSize[i]);
@@ -626,65 +648,168 @@ void GCTB::calcCredibleSets(Data &data, const string &snpResFile, McmcSamples &s
         }
         //cout << "snpveci.size " << snpveci.size() << endl;
         std::sort(snpveci.begin(), snpveci.end(), &GCTB::comparePIP);
-        float cumPip = 0.0;
-        float propVar = 0.0;
+        // find out individual SNPs with PIP > csThreshold
+        WindowInfo *window = windowInfoVec[i];
+        unsigned sumCSsnpWindowi = 0;
+        double cumPip = 0.0;
+        double propVar = 0.0;
+        vector<SnpInfo*> topSnps;
+        unsigned topSnpSize = 0;
         for (unsigned j=0; j<data.windSize[i]; ++j){
-            cumPip += snpveci[j]->pip;
-            propVar += snpveci[j]->varExplained;
-            credibleSet[i].push_back(snpveci[j]);
-            //cout << i << " " << j << " " << snpveci[j]->pip << endl;
+            SnpInfo *snp = snpveci[j];
+            
+//            if (snp->ID == "rs6952746") cout << "rs6952746: window_index " << window->index << " window_size " << window->size << " window_var " << window->propGenVar << " window_var_enrich " << window->genVarEnrich << " window_var_enrich_PP " << window->genVarEnrichPP << endl;
+//            if (snp->ID == "rs7374952") cout << "rs7374952: window_index " << window->index << " window_size " << window->size << " window_var " << window->propGenVar << " window_var_enrich " << window->genVarEnrich << " window_var_enrich_PP " << window->genVarEnrichPP << endl;
+//            if (snp->ID == "rs38304") cout << "rs38304: window_index " << window->index << " window_size " << window->size << " window_var " << window->propGenVar << " window_var_enrich " << window->genVarEnrich << " window_var_enrich_PP " << window->genVarEnrichPP << endl;
+            //if (window->index == 11411) cout << snp->ID << endl;
+            
+            VectorXf betaj = snpEffects.datMatSp.col(snp->index);
+            VectorXf varj = betaj.array().square()/totalVar.array();
+            window->propGenVarMcmc -= varj;
+                        
+            if (snp->pip > csThreshold) {  // single-SNP CS
+                vector<SnpInfo*> singleSnp;
+                singleSnp.push_back(snp);
+                CredibleSetInfo *cs = new CredibleSetInfo(++numCS, csThreshold, snp->pip, snp->varExplained, singleSnp);
+                winCSmap[i].push_back(cs);
+                CSvec.push_back(cs);
+                ++numSingleSnpCS;
+                ++sumCSsize;
+                
+                cs->windSize = data.windSize[i] - sumCSsnpWindowi;
+                cs->windPropGenVar = window->propGenVar;
+                cs->windGenVarEnrich = window->genVarEnrich;
+                cs->windGenVarEnrichPP = window->genVarEnrichPP;
+                window->calcVarEnrichPP(float(data.numWindows));
+                ++sumCSsnpWindowi;
 
-            if (cumPip > csThreshold) {
-                out1 << boost::format("%6s %12s %12s %12s %12s %12s ")
-                % (i+1)
-                % data.windSize[i]
-                % windowVar[i]
-                % windowVarImproper[i]
-                % credibleSet[i].size()
-                % propVar;
-                vector<SnpInfo*>::iterator it, begin = credibleSet[i].begin();
-                for (it=begin; it!=credibleSet[i].end(); ++it) {
-                    if (it == begin) out1 << "\t" << (*it)->ID;
-                    else out1 << "," << (*it)->ID;
-                }
-                out1 << endl;
-                if (credibleSet[i].size() <= 10) ++nCS10CV;
-                break;
+            } else { // find multi-SNP credible sets using an iterative approach that tests if the remaining window is still enriched in variance explained
+                if (window->genVarEnrichPP > csThreshold) {
+                    cumPip += snpveci[j]->pip;
+                    propVar += snpveci[j]->varExplained;
+                    topSnps.push_back(snpveci[j]);
+                    ++topSnpSize;
+                    
+                    if (cumPip > csThreshold) { // && topSnpSize <= 5) {  // secondary multi-SNP CS
+                        CredibleSetInfo *cs = new CredibleSetInfo(++numCS, csThreshold, cumPip, propVar, topSnps);
+                        winCSmap[i].push_back(cs);
+                        CSvec.push_back(cs);
+                        sumCSsize += cs->size;
+                        
+                        cs->windSize = data.windSize[i] - sumCSsnpWindowi;
+                        cs->windPropGenVar = window->propGenVar;
+                        cs->windGenVarEnrich = window->genVarEnrich;
+                        cs->windGenVarEnrichPP = window->genVarEnrichPP;
+                        window->calcVarEnrichPP(float(data.numWindows));
+                        sumCSsnpWindowi += cs->size;
+                        
+                        cumPip = 0.0;
+                        propVar = 0.0;
+                        topSnps.resize(0);
+                        topSnpSize = 0;
+                        
+                        break;
+                    }
+                    //else if (topSnpSize > 5) break;
+                } else break;
             }
         }
     }
-    out1.close();
     
-    out2 << boost::format("%12s %12s %12s\n") % "SNP" % "PIP" % "PropVar";
+    out1 << boost::format("%12s %12s %12s %12s %12s %16s %12s %12s %12s %12s %12s\n")
+    % "Window"
+    % "Size"
+    % "PVE"
+    % "PVE_Faulty"
+    % "PVE_Enrich"
+    % "PVE_Enrich_PP"
+    % "CS_Index"
+    % "CS_Size"
+    % "CS_PIP"
+    % "CS_PVE"
+    % "CS_SNPs";
+    
+    map<unsigned, vector<CredibleSetInfo*> >::iterator it, end = winCSmap.end();
+    for (it=winCSmap.begin(); it!=end; ++it) {
+        unsigned winIdx = it->first;
+        for (unsigned i=0; i<it->second.size(); ++i) {
+            CredibleSetInfo *cs = it->second[i];
+            out1 << boost::format("%12s %12s %12.6f %12.6f %12.4f %16.4f %12s %12s %12.6f %12.6f ")
+            % (winIdx + 1)
+            % cs->windSize
+            % cs->windPropGenVar
+            % windowVarImproper[winIdx]
+            % cs->windGenVarEnrich //(windowVar[winIdx]*(data.numIncdSnps/float(data.windSize[winIdx])))
+            % cs->windGenVarEnrichPP
+            % cs->index
+            % cs->size
+            % cs->sumPIP
+            % cs->propVar;
+            for (unsigned k=0; k<cs->size; ++k) {
+                SnpInfo *snpk = cs->snpVec[k];
+                if (k==0) out1 << "\t" << snpk->ID;
+                else out1 << "," << snpk->ID;
+            }
+            out1 << endl;
+        }
+    }
+    out1.close();
         
-    VectorXf snpPip(data.numSnps);
+    
+    // summarise the window CS results
+    // calculate the power, CS size, and prop hsq for all local credible sets
+    
+    VectorXd snpPip(data.numSnps);
     for (unsigned i=0; i<data.numSnps; ++i) {
         snpPip[i] = data.snpInfoVec[i]->pip;
     }
 
-    float nnz = data.numSnps * snpPip.mean();
+    double nnz = data.numSnps * snpPip.mean();
     
-    cout << "The estimated total number of causal variants is " << nnz << "." << endl;
-    cout << "There are " << nCS10CV << " 100kb windows with credible set size up to 10." << endl;
+
+    std::sort(CSvec.begin(), CSvec.end(), &GCTB::compareCS);
+    
+    double cumsumPip = 0.0;
+    double cumsumPropVar = 0.0;
+    for (unsigned i=0; i<CSvec.size(); ++i) {
+        CredibleSetInfo *cs = CSvec[i];
+        cumsumPip += cs->sumPIP;
+        cumsumPropVar += cs->propVar;
+    }
+
+    out2 << boost::format("%50s %12s\n") % "Number of 1-SNP credible sets: " % numSingleSnpCS;
+    out2 << boost::format("%50s %12s\n") % "Number of multi-SNP credible sets: " % (numCS-numSingleSnpCS);
+    out2 << boost::format("%50s %12s\n") % "Total number of SNPs in credible sets: " % sumCSsize;
+    out2 << boost::format("%50s %12.1f\n") % "Average credible set size: " % (sumCSsize/float(numCS));
+    out2 << boost::format("%50s %12.1f\n") % "Estimated total number of causal variants: " %nnz;
+    out2 << boost::format("%50s %12.4f\n") % "Estimated power: " % (cumsumPip/nnz);
+    out2 << boost::format("%50s %12.1f\n") % "Estimated number of identified causal variants: " % cumsumPip;
+    out2 << boost::format("%50s %12.4f\n") % "Estimated proportion of variance explained: " % cumsumPropVar;
         
+    out2.close();
+
+    
+    out3 << boost::format("%12s %12s %12s\n") % "SNP" % "PIP" % "PropVar";
+
     std::sort(data.snpInfoVec.begin(), data.snpInfoVec.end(), &GCTB::comparePIP);
 
-    float cumPip = 0.0;
+    double cumPip = 0.0;
     for (unsigned j=0; j<data.numSnps; ++j){
         SnpInfo *snp = data.snpInfoVec[j];
         cumPip += snp->pip;
-        out2 << boost::format("%12s %12s %12s\n") % snp->ID % snp->pip % snp->varExplained;
+        out3 << boost::format("%12s %12s %12s\n") % snp->ID % snp->pip % snp->varExplained;
         if (cumPip > csThreshold*nnz) break;
     }
-    out2.close();
+    out3.close();
     
-    out3 << boost::format("%8s %12s %12s\n") % "Threshold" % "CS_size" % "Prop_hsq";
-        
+    
+    out4 << boost::format("%8s %12s %12s\n") % "Threshold" % "CS_size" % "Prop_hsq";
+    
     VectorXf threshold_vec(12);
     threshold_vec << 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1;
     for (unsigned k=0; k<threshold_vec.size(); ++k) {
-        float cumPip = 0.0;
-        float propVar = 0.0;
+        double cumPip = 0.0;
+        double propVar = 0.0;
         int cs_size = 0;
         for (unsigned j=0; j<data.numSnps; ++j){
             SnpInfo *snp = data.snpInfoVec[j];
@@ -692,25 +817,43 @@ void GCTB::calcCredibleSets(Data &data, const string &snpResFile, McmcSamples &s
             propVar += snp->varExplained;
             ++cs_size;
             if (cumPip > threshold_vec[k]*nnz) {
-                out3 << boost::format("%8s %12s %12.6f\n")
+                //cout << threshold_vec[k] << " " << cs_size << " " << propVar << " " << cumPip << " " << nnz << " " << threshold_vec[k]*nnz << " " << snpPip.sum() << " " << snpPip[0] << endl;
+                out4 << boost::format("%8s %12s %12.6f\n")
                 % threshold_vec[k]
                 % cs_size
                 % propVar;
                 break;
             }
             if (j == (data.numSnps-1)) {
-                out3 << boost::format("%8s %12s %12.6f\n")
+                out4 << boost::format("%8s %12s %12.6f\n")
                 % threshold_vec[k]
                 % data.numSnps
                 % 1.0;
             }
         }
     }
+    out4.close();
     
-    cout << "Output window credible set results into [" + filename1 + "]." << endl;
-    cout << "Output genome-wide credible set result into [" + filename2 + "]." << endl;
-    cout << "Output genome-wide credible set result summary into [" + filename3 + "]." << endl;
+    
+    cout << "The estimated total number of causal variants is " << nnz << "." << endl;
+    cout << "Identified " << numCS << " credible sets in " << data.numWindows << " " << windowWidthStr << "kb windows (including " << numSingleSnpCS << " single-SNP credible sets)." << endl;
+        
+    cout << "Output " << windowWidthStr << "kb window credible set results into [" + filename1 + "]." << endl;
+    cout << "Output " << windowWidthStr << "kb window credible set result summary into [" + filename2 + "]." << endl;
+    cout << "Output genome-wide credible set result into [" + filename3 + "]." << endl;
+    cout << "Output genome-wide credible set result summary into [" + filename4 + "]." << endl;
+    
+    cout << endl << "Summary:" << endl;
+    cout << boost::format("%50s %12s\n") % "Number of 1-SNP credible sets: " % numSingleSnpCS;
+    cout << boost::format("%50s %12s\n") % "Number of multi-SNP credible sets: " % (numCS-numSingleSnpCS);
+    cout << boost::format("%50s %12s\n") % "Total number of SNPs in credible sets: " % sumCSsize;
+    cout << boost::format("%50s %12.1f\n") % "Average credible set size: " % (sumCSsize/float(numCS));
+    cout << boost::format("%50s %12.1f\n") % "Estimated total number of causal variants: " %nnz;
+    cout << boost::format("%50s %12.4f\n") % "Estimated power: " % (cumsumPip/nnz);
+    cout << boost::format("%50s %12.1f\n") % "Estimated number of identified causal variants: " % cumsumPip;
+    cout << boost::format("%50s %12.4f\n") % "Estimated proportion of variance explained: " % cumsumPropVar;
 }
+
 
 void GCTB::clearGenotypes(Data &data){
     data.X.resize(0,0);
