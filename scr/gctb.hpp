@@ -81,6 +81,10 @@ public:
         return snpi->pip > snpj->pip;
     };
     
+    static bool compareCS(const CredibleSetInfo* csi, const CredibleSetInfo* csj){
+        return csi->propVar > csj->propVar;
+    };
+
 //    void autoDetermineNumComponents(Data &data, Options &opt, const VectorXf &pis, const VectorXf &gamma, const unsigned numiters);
 
 };

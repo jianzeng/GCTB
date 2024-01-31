@@ -51,6 +51,18 @@ void AnnoInfo::print() {
     % fraction;
 }
 
+void WindowInfo::calcVarEnrichPP(float numWindows) {
+    unsigned numPositives = 0;
+    float average = 1.0/numWindows; // float(size)/numSnps;
+    unsigned numMcmcSamples = propGenVarMcmc.size();
+    for (unsigned k=0; k<numMcmcSamples; ++k) {
+        if (propGenVarMcmc[k] > average) ++numPositives;
+    }
+    genVarEnrichPP = numPositives/float(numMcmcSamples);
+    propGenVar = propGenVarMcmc.mean();
+    genVarEnrich = propGenVar*numWindows; // numSnps/float(size);
+}
+
 void Data::readFamFile(const string &famFile){
     // ignore phenotype column
     ifstream in(famFile.c_str());
@@ -1181,7 +1193,7 @@ void Data::inputSnpResultsOnly(const string &snpResFile){
     string inputStr;
     string sep(" \t");
     string name, a1, a2;
-    int id, chrom, pos;
+    int idx, chrom, pos;
     float a1frq, a1effect, se, pip;
     getline(in, inputStr);
     Gadget::Tokenizer header;
@@ -1190,7 +1202,7 @@ void Data::inputSnpResultsOnly(const string &snpResFile){
     unsigned line=0;
     while (getline(in,inputStr)) {
         colData.getTokens(inputStr, sep);
-        id = atoi(colData[0].c_str());
+        idx = atoi(colData[0].c_str());
         name = colData[1];
         chrom = atoi(colData[2].c_str());
         pos = atoi(colData[3].c_str());
@@ -1201,13 +1213,11 @@ void Data::inputSnpResultsOnly(const string &snpResFile){
         se = atof(colData[8].c_str());
         pip = atof(colData[pipIdx].c_str());
         
-        SnpInfo *snp = new SnpInfo(id, name, a1, a2, chrom, 0, pos);
+        SnpInfo *snp = new SnpInfo(++line, name, a1, a2, chrom, 0, pos);
         snp->af = a1frq;
         snp->effect = a1effect;
         snp->pip = pip;
-        snpInfoVec.push_back(snp);
-        
-        ++line;
+        snpInfoVec.push_back(snp);        
     }
     in.close();
     numSnps = (unsigned) snpInfoVec.size();

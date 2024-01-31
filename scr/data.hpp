@@ -267,6 +267,60 @@ public:
     }
 };
 
+class WindowInfo {
+public:
+    int index;
+    int size;
+    int start;
+    int end;
+    
+    double propGenVar;
+    double genVarEnrich;
+    double genVarEnrichPP;
+    
+    VectorXf propGenVarMcmc;
+    
+    vector<SnpInfo*> snpVec;
+    
+    WindowInfo(const int index, const vector<SnpInfo*> &snpVec): index(index), snpVec(snpVec) {
+        size = snpVec.size();
+        start = snpVec[0]->index;
+        end = snpVec[size-1]->index;
+        propGenVar = 0.0;
+        genVarEnrich = 0.0;
+        genVarEnrichPP = 0.0;
+    }
+    
+    void calcVarEnrichPP(float numWindows);
+};
+
+class CredibleSetInfo {
+public:
+    int index;
+    int size;
+    float threshold;
+    double sumPIP;
+    double propVar;
+        
+    VectorXf PVEmcmc;
+
+    vector<SnpInfo*> snpVec;
+    
+    int windSize;
+    double windPropGenVar;
+    double windGenVarEnrich;
+    double windGenVarEnrichPP;
+    
+    CredibleSetInfo(const int index, const float threshold, const float sumPIP, const float propVar, const vector<SnpInfo*> &snpVec)
+    : index(index), threshold(threshold), sumPIP(sumPIP), propVar(propVar), snpVec(snpVec){
+        size = snpVec.size();
+        windSize = 0;
+        windPropGenVar = 0.0;
+        windGenVarEnrich = 0.0;
+        windGenVarEnrichPP = 0.0;
+    }
+};
+
 struct MatrixDat
 {
 public:
