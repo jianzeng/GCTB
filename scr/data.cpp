@@ -1093,6 +1093,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         if(!fullSnpFlag[i]) continue;
         //        if(snp->isQTL) continue;)
         float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
+        if (snp->gwas_scalar) sqrt2pq = snp->gwas_scalar;
         float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
         float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
         out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %8.8f")
@@ -1134,6 +1135,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         if(!fullSnpFlag[i]) continue;
         //        if(snp->isQTL) continue;)
         float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
+        if (snp->gwas_scalar) sqrt2pq = snp->gwas_scalar;
         float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
         float lastBeta = (snp->flipped ? -lastSample[idx] : lastSample[idx]);
         float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
@@ -1376,7 +1378,20 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
     unsigned numFlip=0;
     bool inconAllele, inconAf, fixed, ismafmin, ismafmax, isPvalPruned;
     float gwas_af;
-    while (in >> id >> allele1 >> allele2 >> freq >> b >> se >> pval >> n) {
+    
+    Gadget::Tokenizer colData;
+    string inputStr;
+    string sep(" \t");
+    while (getline(in,inputStr)) {
+        colData.getTokens(inputStr, sep);
+        id = colData[0];
+        allele1 = colData[1];
+        allele2 = colData[2];
+        freq = colData[3];
+        b = colData[4];
+        se = colData[5];
+        pval = colData[6];
+        n = colData[7];
         ++line;
         it = snpInfoMap.find(id);
         if (it == snpInfoMap.end()) {
@@ -4690,6 +4705,9 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
         if (it != end) {
             snp = it->second;
             snp->annoValues.setZero(size-1);
+            if (atof(colData[1].c_str()) != 1) {
+                throw("\nError: did you forget to include a column of 1 for all SNPs after SNP ID in the annotation file?\n");
+            }
             for (unsigned j=1; j<size; ++j) {
                 if (atof(colData[j].c_str())) {
                     snp->annoVec.push_back(annoInfoVec[j-1]);
@@ -4738,6 +4756,7 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
     }
     
     cout << line << " matched SNPs in the annotation file (" << numAnnos << " annotations and " << numMultiAnno << " SNPs have more than one annotation)." << endl;
+    if (line < numSnps) cout << "\nWarning: " << numSnps - line << " SNPs in the GWAS file do not have annotation. This may cause a problem if using SBayesRC!\n" << endl;
 }
 
 void Data::makeWindowAnno(const string &annoFile, const float windowWidth){

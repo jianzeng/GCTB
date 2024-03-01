@@ -420,6 +420,7 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
             SnpInfo *snp = data.snpInfoVec[i];
             if(!data.fullSnpFlag[i]) continue;
             float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
+            if (snp->gwas_scalar) sqrt2pq = snp->gwas_scalar;
             float effect = (snp->flipped ? - snpEffects->posteriorMean[idx] : snpEffects->posteriorMean[idx]);
             float se = sqrt(snpEffects->posteriorSqrMean[idx]-snpEffects->posteriorMean[idx]*snpEffects->posteriorMean[idx]);
             out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f")
