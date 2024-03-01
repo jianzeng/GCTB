@@ -1580,7 +1580,7 @@ void Data::truncateEigenMatrix(const float sumPosEigVal, const float eigenCutoff
     while(oriEigenVal(revIdx) > 1e-10 ){
         cumsumNonNeg(revIdx) = oriEigenVal(revIdx) + cumsumNonNeg(revIdx + 1);
         revIdx =revIdx - 1;
-        if(revIdx < 0) break;
+        if(revIdx <= 0) break;
     }
     // cout << "revIdx: " << revIdx << endl;
     // cout << "size: " << eigenVal.size()  << " eigenVal: " << eigenVal << endl;
