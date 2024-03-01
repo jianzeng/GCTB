@@ -81,6 +81,7 @@ public:
     float gwas_n;
     float gwas_af;
     float gwas_pvalue;
+    float gwas_scalar;
 
     float ldSamplVar;    // sum of sampling variance of LD with other SNPs for summary-bayes method
     float ldSum;         // sum of LD with other SNPs
@@ -117,6 +118,7 @@ public:
         gwas_n  = -999;
         gwas_af = -1;
         gwas_pvalue = 1.0;
+        gwas_scalar = 0.0;
         ldSamplVar = 0.0;
         ldSum = 0.0;
         ldsc = 0.0;
@@ -397,6 +399,7 @@ public:
     VectorXf DratioSqrt;     // square root of GWAS ZPZdiag over reference ZPZdiag for each SNP
     VectorXf chisq;          // GWAS chi square statistics = D*b^2
     VectorXf varySnp;        // per-SNP phenotypic variance
+    VectorXf scalar;         // scaling factor for GWAS b
     
     VectorXi windStart;      // leading snp position for each window
     VectorXi windSize;       // number of snps in each window

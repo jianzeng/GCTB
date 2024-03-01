@@ -2141,6 +2141,7 @@ void Data::scaleGwasEffects(){
     b.resize(numIncdSnps);
     n.resize(numIncdSnps);
     se.resize(numIncdSnps);
+    scalar.resize(numIncdSnps);
     tss.resize(numIncdSnps); // only used in SBayesC
     ZPy.resize(numIncdSnps);
     SnpInfo *snp;
@@ -2149,22 +2150,34 @@ void Data::scaleGwasEffects(){
         snp->af = snp->gwas_af;
         snp2pq[i] = snp->twopq = 2.0f*snp->gwas_af*(1.0f-snp->gwas_af);
         if(snp2pq[i]==0) cout << "Error: SNP " << snp->ID << " af " << snp->af << " has 2pq = 0." << endl;
-        b[i] = snp->gwas_b * sqrt(snp2pq[i]); // scale the marginal effect so that it's in per genotype SD unit
+        b[i] = snp->gwas_b;
         n[i] = snp->gwas_n;
-        se[i]= snp->gwas_se * sqrt(snp2pq[i]);
-        tss[i] = n[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
-        ZPy[i] = n[i]*b[i];
+        se[i]= snp->gwas_se;
+        snp->gwas_scalar = 1.0/sqrt(n[i]*se[i]*se[i] + b[i]*b[i]);
+        scalar[i] = snp->gwas_scalar;
+//        b[i] = snp->gwas_b * sqrt(snp2pq[i]); // scale the marginal effect so that it's in per genotype SD unit
+//        n[i] = snp->gwas_n;
+//        se[i]= snp->gwas_se * sqrt(snp2pq[i]);
+//        tss[i] = n[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
+//        ZPy[i] = n[i]*b[i];
     }
 
     // estimate phenotypic variance
-    varySnp = (n.array()*(n.array()*se.array().square()+b.array().square()))/n.array();
+    varySnp = snp2pq.array()*(n.array()*se.array().square()+b.array().square());
     VectorXf varpSrt = varySnp;
     std::sort(varpSrt.data(), varpSrt.data() + varpSrt.size());
-    varPhenotypic = varpSrt[varpSrt.size()/2];
+//    varPhenotypic = varpSrt[varpSrt.size()/2];
+    varPhenotypic = 1.0;
     //cout << "varPhenotypic: " << varPhenotypic << endl;
     VectorXf nSrt = n;
     std::sort(nSrt.data(), nSrt.data() + nSrt.size());
     numKeptInds = nSrt[nSrt.size()/2]; // median
+    
+    // scale GWAS effects
+    b.array() *= scalar.array();
+    se.array() *= scalar.array();
+    tss.array() = n.array()*(n.array()*se.array().square() + b.array().square());
+    ZPy.array() = n.array()*b.array();
     
     // map to blocks
     if (numKeptLDBlocks) {

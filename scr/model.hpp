@@ -2315,18 +2315,6 @@ public:
                           const float sigmaSq, const MatrixXf &snpPi, const VectorXf &gamma, const float vare,
                           const float varg, const float ps, const float overdispersion,
                           const bool originalModel, DeltaPi &deltaPi);
-//        void sampleFromFCvariational(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
-//                          const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
-//                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &LDsamplVar,
-//                          const float sigmaSq, const MatrixXf &snpPi, const VectorXf &gamma, const float vare,
-//                          const float varg, const float ps, const float overdispersion,
-//                          const bool originalModel, DeltaPi &deltaPi);
-        void sampleFromFC(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
-                          const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
-                          const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &LDsamplVar,
-                          const float sigmaSq, const MatrixXf &snpPi, const VectorXf &gamma, const float vare,
-                          const VectorXf &snpVarg, const float vary, const float ps, const float overdispersion,
-                          const bool originalModel, DeltaPi &deltaPi);
         void sampleFromFC(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                           const vector<LDBlockInfo*> keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                           const MatrixXf &snpPi, const VectorXf &gamma, const float varg,
@@ -2501,43 +2489,7 @@ public:
         
         void compute(const MatrixXf &z, const MatrixXf &annoMat, const ArrayXf &numSnpMix);
     };
-    
-//    class BlockGenotypicVar : public ParamSet, public ApproxBayesC::GenotypicVar {
-//    public:
-//        unsigned numBlocks;
-//        float total;
-//
-//        BlockGenotypicVar(const vector<string> &header, const float varg, const unsigned n, const string &lab = "BlockGenVar"):
-//        ParamSet(lab, header), ApproxBayesC::GenotypicVar(varg, n){
-//            numBlocks = header.size();
-//            total = 0.0;
-//        }
-//
-//        void compute(const vector<VectorXf> &whatBlocks);
-//    };
-//
-//    class BlockResidualVar : public ParamSet, public Stat::InvChiSq {
-//    public:
-//        const float df;      // hyperparameter
-//        const float scale;   // hyperparameter
-//
-//        const float vary;
-//
-//        unsigned numBlocks;
-//        float threshold;
-//        float mean;
-//
-//        BlockResidualVar(const vector<string> &header, const float varPhenotypic, const string &lab = "BlockResVar"):
-//        ParamSet(lab, header), df(4), scale(0.5f*varPhenotypic), vary(varPhenotypic) {
-//            values.setConstant(size, varPhenotypic);
-//            numBlocks = header.size();
-//            threshold = 1.1;
-//            mean = varPhenotypic;
-//        }
-//
-//        void sampleFromFC(vector<VectorXf> &wcorrBlocks, VectorXf &ssqBlocks, const VectorXf &nGWASblocks, const VectorXf &numEigenvalBlock);
-//    };
-        
+            
     SnpEffects snpEffects;
     AnnoEffects annoEffects;
     VarAnnoEffects sigmaSqAnno;
@@ -2548,18 +2500,14 @@ public:
     AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
     DeltaPi deltaPi;
     AnnoDistribution annoDist;
-//    BlockGenotypicVar vargBlk;
-//    BlockResidualVar vareBlk;
     
     MatrixXf snpP;    // p = Pr(k>i | k>i-1); p2 = pi2+pi3+pi4; p3 = (pi3+pi4)/(pi2+pi3+pi4); p4 = pi4/(pi3+pi4)
     MatrixXf snpPi;   // pi1 = 1-p2; pi2 = (1-p3)*p2; pi3 = (1-p4)*p2*p3; pi4 = p2*p3*p4
-    VectorXf snpVarg; // per-SNP GV based on annotation enrichment
     VectorXf VgMean;  // running mean of variance explained by each component
     
 //    vector<VectorXf> wcorrBlocks;
 //    vector<VectorXf> whatBlocks;
     
-    bool allowPerSnpGV;
     bool lowRankModel;
     bool nDistAuto;
     
@@ -2575,8 +2523,6 @@ public:
     annoPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
     deltaPi(data.snpEffectNames, pis.size()),
     annoDist(data.annoNames, pis.size()),
-//    vargBlk(data.ldblockNames, varGenotypic, data.numKeptInds),
-//    vareBlk(data.ldblockNames, data.varPhenotypic),
     lowRankModel(lowrank),
     nDistAuto(nDistAuto)
     {
@@ -2590,9 +2536,6 @@ public:
 //        cout << "Q size: \n" << data.Qblocks[0].nrow << " " << data.Qblocks[0].ncol << endl << data.Qblocks[1].nrow << " " << data.Qblocks[1].ncol << endl;
 //        cout << "w size: \n" << data.wcorrBlocks[0].rows() << " " << data.wcorrBlocks[0].cols() << endl << data.wcorrBlocks[1].rows() << " " << data.wcorrBlocks[1].cols() << endl;
 //        cout << data.wcorrBlocks[0].segment(0, 5) << endl;
-
-        allowPerSnpGV = perSnpGV;
-        snpVarg.setConstant(data.numIncdSnps, varGenotypic);
         
         initSnpPandPi(pis, data.numIncdSnps, snpP, snpPi);
         if (algorithm == gibbs) annoEffects.initIntercept_probit(pis);
@@ -2665,7 +2608,6 @@ public:
             }
             if (robustMode) cout << "Using a more robust parameterisation " << endl;
             //cout << "Algorithm: " << alg << endl;
-            if (allowPerSnpGV) cout << "Allow per-SNP genetic variance!" << endl;
             if (nDistAuto) cout << "The number of mixture components will be automatically assessed at iteration 500." << endl;
         }
     }
@@ -2674,7 +2616,6 @@ public:
     void computePfromPi(const MatrixXf &snpPi, MatrixXf &snpP);
     void computePiFromP(const MatrixXf &snpP, MatrixXf &snpPi);
     void initSnpPandPi(const VectorXf &pis, const unsigned numSnps, MatrixXf &snpP, MatrixXf &snpPi);
-    void computeSnpVarg(const MatrixXf &annoMat, const VectorXf &annoPerSnpHsqEnrich, const float varg, const unsigned numSnps);
 };
 
 
