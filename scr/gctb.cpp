@@ -154,7 +154,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
                         const VectorXf &pis, const VectorXf &piPar, const VectorXf &gamma, const bool estimateSigmaSq,
                         const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow,
                         const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS,
-                        const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool originalModel, const bool perSnpGV, const bool robustMode, const bool nDistAuto){
+                        const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool hsqPercModel, const bool perSnpGV, const bool robustMode, const bool nDistAuto){
     data.initVariances(heritability, propVarRandom);
 //    if (!bedFile.empty()) {   // TMP_JZ
 //        unsigned n_gwas = data.numKeptInds;
@@ -168,7 +168,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
             if (bayesType == "S")
                 return new StratApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, S, algorithm, robustMode);
             else if (bayesType == "RC")
-                return new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, perSnpGV, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm, nDistAuto);
+                return new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, hsqPercModel, perSnpGV, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm, nDistAuto);
             else
                 throw(" Error: Wrong bayes type: " + bayesType + " in the annotation-stratified summary-data-based Bayesian analysis.");
         }
@@ -186,11 +186,11 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
             else if (bayesType == "SMix")
                 return new ApproxBayesSMix(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, overdispersion, estimatePS, varS, S);
             else if (bayesType == "R")
-                return new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm);
+                return new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, hsqPercModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm);
             else if (bayesType == "Kap")
-                return new ApproxBayesKappa(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, originalModel, icrsq, kappa);
+                return new ApproxBayesKappa(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, icrsq, kappa);
             else if (bayesType == "RS")
-                return new ApproxBayesRS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, varS, S, algorithm, noscale, originalModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm);
+                return new ApproxBayesRS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, varS, S, algorithm, noscale, hsqPercModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm);
             else
                 throw(" Error: Wrong bayes type: " + bayesType + " in the summary-data-based Bayesian analysis.");
         }
@@ -198,7 +198,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
     if (data.numAnnos) {
         if (bayesType == "RC") {
             data.readBedFile(noscale, bedFile + ".bed");
-            return new BayesRC(data, data.varGenotypic, data.varResidual, data.varRandom, pis, piPar, gamma, estimatePi, noscale, originalModel, algorithm);
+            return new BayesRC(data, data.varGenotypic, data.varResidual, data.varRandom, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, algorithm);
         }
         else
             throw(" Error: Wrong bayes type: " + bayesType + " in the annotation-stratified Bayesian analysis.");
@@ -213,7 +213,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
     } 
     if (bayesType == "R") {
         data.readBedFile(noscale, bedFile + ".bed");
-        return new BayesR(data, data.varGenotypic, data.varResidual, data.varRandom, pis, piPar, gamma, estimatePi, noscale, originalModel, algorithm);
+        return new BayesR(data, data.varGenotypic, data.varResidual, data.varRandom, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, algorithm);
     }
     else if (bayesType == "S") {
         data.readBedFile(noscale, bedFile + ".bed");
@@ -235,7 +235,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
     }
     else if (bayesType == "RS") {
         data.readBedFile(noscale, bedFile + ".bed");
-        return new BayesRS(data, data.varGenotypic, data.varResidual, data.varRandom, pis, piPar, gamma, estimatePi, varS, S, noscale, originalModel, algorithm);
+        return new BayesRS(data, data.varGenotypic, data.varResidual, data.varRandom, pis, piPar, gamma, estimatePi, varS, S, noscale, hsqPercModel, algorithm);
     }
     else if (bayesType == "Cap") {
         //data.readBedFile(bedFile + ".bed");
@@ -312,7 +312,12 @@ void GCTB::saveMcmcSamples(const vector<McmcSamples*> &mcmcSampleVec, const stri
     }
 }
 
-void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &bayesType, const bool noscale, const string &filename){
+void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &bayesType, const bool noscale, const string &filename){
+    
+    string unconvergedSnpFile = filename + ".badSNPlist";
+    ifstream in(unconvergedSnpFile.c_str());
+    if (in) data.readUnconvergedSnplist(unconvergedSnpFile);
+        
     vector<McmcSamples*> mcmcSamplesPar;
     for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
         McmcSamples *mcmcSamples = mcmcSampleVec[i];
@@ -354,19 +359,20 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
         }
         string newfilename = filename + ".snpRes";
         ofstream out(newfilename.c_str());
-        out << boost::format("%6s %20s %6s %12s %8s %12s %12s %8s %8s\n")
-        % "Id"
+        out << boost::format("%6s %20s %6s %12s %8s %12s %12s %12s %8s %8s\n")
+        % "Index"
         % "Name"
         % "Chrom"
         % "Position"
         % "GeneFrq"
         % "Effect"
         % "SE"
+        % "VarExplained"
         % "PIP"
         % "PiS";
         for (unsigned i=0; i<data.numIncdSnps; ++i) {
             SnpInfo *snp = data.incdSnpInfoVec[i];
-            out << boost::format("%6s %20s %6s %12s %8.3f %12.6f %12.6f %8.3f %8.3f\n")
+            out << boost::format("%6s %20s %6s %12s %8.3f %12.6f %12.6f %12.6f %8.3f %8.3f\n")
             % (i+1)
             % snp->ID
             % snp->chrom
@@ -374,6 +380,7 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
             % snp->af
             % snpEffects->posteriorMean[i]
             % sqrt(snpEffects->posteriorSqrMean[i]-snpEffects->posteriorMean[i]*snpEffects->posteriorMean[i])
+            % (2.0*snp->af*(1.0-snp->af)*snpEffects->posteriorSqrMean[i])
             % snpEffects->pip[i]
             % delta->posteriorMean[i];
         }
@@ -388,8 +395,8 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
         }
         string newfilename = filename + ".snpRes";
         ofstream out(newfilename.c_str());
-        out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s")
-        % "Id"
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s")
+        % "Index"
         % "Name"
         % "Chrom"
         % "Position"
@@ -397,7 +404,8 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
         % "A2"
         % "A1Frq"
         % "A1Effect"
-        % "SE";
+        % "SE"
+        % "VarExplained";
         for (unsigned i=0; i<deltaPiVec.size(); ++i) {
             out << boost::format(" %12s") % deltaPiVec[i]->label.substr(5);
         }
@@ -423,7 +431,7 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
             if (snp->gwas_scalar) sqrt2pq = snp->gwas_scalar;
             float effect = (snp->flipped ? - snpEffects->posteriorMean[idx] : snpEffects->posteriorMean[idx]);
             float se = sqrt(snpEffects->posteriorSqrMean[idx]-snpEffects->posteriorMean[idx]*snpEffects->posteriorMean[idx]);
-            out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f")
+            out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6f")
             % (i+1)
             % snp->ID
             % snp->chrom
@@ -432,7 +440,8 @@ void GCTB::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampl
             % (snp->flipped ? snp->a1 : snp->a2)
             % (snp->flipped ? 1.0-snp->af : snp->af)
             % (noscale ? effect : effect/sqrt2pq)
-            % (noscale ? se : se/sqrt2pq);
+            % (noscale ? se : se/sqrt2pq)
+            % (noscale ? sqrt2pq*effect*sqrt2pq*effect : effect*effect);
             for (unsigned j = 0; j < deltaPiVec.size(); ++j) {
                 out << boost::format(" %12.6f") % deltaPiVec[j]->posteriorMean[idx];
             }
@@ -483,7 +492,7 @@ void GCTB::getWindowPIP(Data &data, McmcSamples &snpEffects, const string &snpRe
     ofstream out2(filename2.c_str());
     ofstream out3(filename3.c_str());
 
-    data.inputSnpResultsOnly(snpResFile);
+    data.inputNewSnpResults(snpResFile);
     data.getOverlapWindows(windowWidth, stepSize);
     
     MatrixXf windowDelta;
@@ -518,7 +527,7 @@ void GCTB::getWindowPIP(Data &data, McmcSamples &snpEffects, const string &snpRe
     //cout << snpPip.head(10).transpose() << endl;
 
     out2 << boost::format("%6s %12s %12s %8s %8s\n")
-    % "Id"
+    % "Index"
     % "Start"
     % "End"
     % "Size"
@@ -568,13 +577,23 @@ void GCTB::calcCredibleSets(Data &data, const string &snpResFile, McmcSamples &s
     string filename2 = title + "." + windowWidthStr + "kb_" + alphaStr + "_CS_summary.txt";
     string filename3 = title + ".genomewide_" + alphaStr + "_CS.txt";
     string filename4 = title + ".genomewide_CS_summary.txt";
+    string filename5 = title + "." + windowWidthStr + "kb_WPEP.txt";
     ofstream out1(filename1.c_str());
     ofstream out2(filename2.c_str());
     ofstream out3(filename3.c_str());
     ofstream out4(filename4.c_str());
+    ofstream out5(filename5.c_str());
 
-    data.inputSnpResultsOnly(snpResFile);
+    data.inputNewSnpResults(snpResFile);
     data.getNonoverlapWindowInfo(windowWidth);
+    
+    string unconvergedSnpFile = title + ".badSNPlist";
+    ifstream in(unconvergedSnpFile.c_str());
+    if (in) data.readUnconvergedSnplist(unconvergedSnpFile);
+    for (unsigned j=0; j<data.numSnps; ++j) {
+        SnpInfo *snpj = data.snpInfoVec[j];
+        if (snpj->unconverged) snpEffects.datMatSp.col(j) *= 0;
+    }
     
     // get total genetic variance over MCMC iterations
     VectorXf totalVar;
@@ -600,6 +619,13 @@ void GCTB::calcCredibleSets(Data &data, const string &snpResFile, McmcSamples &s
         SnpInfo *snp = data.snpInfoVec[j];
         vg += 2.0*snp->af*(1.0-snp->af)*snp->effect*snp->effect;
     }
+    
+    out5 << boost::format("%12s %12s %12s %12s %12s\n")
+    % "Window"
+    % "Size"
+    % "PVE"
+    % "PVE_Enrich"
+    % "PVE_Enrich_PP";
 
     // calculate per-window variance explained and the probability of per-window heritability enrichment
     VectorXf windowVar;
@@ -628,8 +654,17 @@ void GCTB::calcCredibleSets(Data &data, const string &snpResFile, McmcSamples &s
         window->propGenVarMcmc = windowVarMcmc;
         window->calcVarEnrichPP(float(data.numWindows));
         windowInfoVec[i] = window;
+        
+        out5 << boost::format("%12s %12s %12.6f %12.6f %12.6f\n")
+        % window->index
+        % window->size
+        % window->propGenVar
+        % window->genVarEnrich
+        % window->genVarEnrichPP;
     }
     windowVarImproper /= vg;
+    
+    out5.close();
     
     //cout << "windowVarEnrichPP\n" << windowVarEnrichPP << endl;
         
@@ -839,6 +874,7 @@ void GCTB::calcCredibleSets(Data &data, const string &snpResFile, McmcSamples &s
     cout << "The estimated total number of causal variants is " << nnz << "." << endl;
     cout << "Identified " << numCS << " credible sets in " << data.numWindows << " " << windowWidthStr << "kb windows (including " << numSingleSnpCS << " single-SNP credible sets)." << endl;
         
+    cout << "Output " << windowWidthStr << "kb window WPEP results into [" + filename5 + "]." << endl;
     cout << "Output " << windowWidthStr << "kb window credible set results into [" + filename1 + "]." << endl;
     cout << "Output " << windowWidthStr << "kb window credible set result summary into [" + filename2 + "]." << endl;
     cout << "Output genome-wide credible set result into [" + filename3 + "]." << endl;
@@ -960,7 +996,7 @@ void GCTB::solveSnpEffectsByConjugateGradientMethod(Data &data, const float lamb
     
     ofstream out(filename.c_str());
     out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s\n")
-    % "Id"
+    % "Index"
     % "Name"
     % "Chrom"
     % "Position"
@@ -1008,8 +1044,8 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
     Gadget::Timer timer;
     timer.setTime();
     
-    unsigned numKeptInds = data.numKeptInds;    
-    data.numKeptInds = data.pseudoGwasNtrn;
+    VectorXf nGWASblock = data.nGWASblock;
+    data.nGWASblock = data.pseudoGwasNtrnBlock;
     
     unsigned size = opt.eigenCutoff.size();
     VectorXf cor(size);
@@ -1020,13 +1056,13 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
     for (unsigned i=0; i<size; ++i) {
         float cutoff = opt.eigenCutoff[i];
 
-        data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, cutoff, data.pseudoGwasEffectTrn, data.pseudoGwasNtrn, false, false);
+        data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, cutoff, data.pseudoGwasEffectTrn, data.pseudoGwasNtrnBlock, false, false);
         //data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, cutoff);
         //data.constructWandQ(data.pseudoGwasEffectTrn, data.pseudoGwasNtrn);
 
         data.initVariances(opt.heritability, opt.propVarRandom);
         bool print = false;
-        Model *modeli = new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.originalModel, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, print);
+        Model *modeli = new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.hsqPercModel, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, print);
         
         vector<McmcSamples*> mcmcSampleVeci;
         MCMC mcmc;
@@ -1052,7 +1088,7 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
 
     }
     
-    data.numKeptInds = numKeptInds;
+    data.nGWASblock = nGWASblock;
     
     int bestCutoff_index;
     cor.maxCoeff(&bestCutoff_index);

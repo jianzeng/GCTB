@@ -60,7 +60,7 @@ int main(int argc, const char * argv[]) {
             
             Model *model = gctb.buildModel(data, opt.bedFile, "", opt.bayesType, opt.windowWidth,
                                             opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
-                                            opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.originalModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
+                                            opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
             //gctb.saveMcmcSamples(mcmcSampleVec, opt.title);
@@ -69,7 +69,13 @@ int main(int argc, const char * argv[]) {
         }
         else if (opt.analysisType == "LDmatrix") {
             readGenotypes = false;
-            if (opt.ldmatrixFile.empty()) { // make LD matrix from genotypes
+            if (!opt.plinkLDtxtfile.empty() || !opt.plinkLDbinfile.empty()) {  // read from PLINK output file
+                data.readPlinkAFfile(opt.plinkAFfile);
+                if (!opt.plinkLDtxtfile.empty()) data.readPlinkLDtxtfile(opt.plinkLDtxtfile);
+                if (!opt.plinkLDbinfile.empty()) data.readPlinkLDbinfile(opt.plinkLDbinfile);
+                data.outputLDmatrix("full", opt.title, opt.writeLdmTxt);
+            }
+            else if (opt.ldmatrixFile.empty()) { // make LD matrix from genotypes
                 gctb.inputIndInfo(data, opt.bedFile, opt.bedFile + ".fam", opt.keepIndFile, opt.keepIndMax,
                                   opt.mphen, opt.covariateFile, opt.randomCovariateFile, opt.residualDiagFile);
                 gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.ldBlockInfoFile, opt.includeBlock, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.mafmin, opt.mafmax, opt.noscale, readGenotypes);
@@ -164,7 +170,8 @@ int main(int argc, const char * argv[]) {
                                   opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
                                   opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock);
                 float bestEigenCutoff = gctb.tuneEigenCutoff(data, opt);
-                data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, bestEigenCutoff, data.gwasEffectInBlock, data.numKeptInds, opt.noscale, true);
+                data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, bestEigenCutoff, data.gwasEffectInBlock, data.nGWASblock, opt.noscale, false);
+                if (opt.writeWandQ) data.outputWandQ("w_and_Q");
                 //data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, bestEigenCutoff);
                 //data.constructWandQ(data.gwasEffectInBlock, data.numKeptInds);
             } else {
@@ -184,7 +191,7 @@ int main(int argc, const char * argv[]) {
 
                 Model *model = gctb.buildModel(data, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
                                                opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
-                                               opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.originalModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
+                                               opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
                 vector<McmcSamples*> mcmcSampleVec;
                 
                 try{
@@ -211,7 +218,7 @@ int main(int argc, const char * argv[]) {
 
                         Model *model = gctb.buildModel(data, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
                                                        opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
-                                                       opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.originalModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
+                                                       opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
                         
                         mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                      opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
@@ -228,7 +235,7 @@ int main(int argc, const char * argv[]) {
                             opt.robustMode = true;
                             Model *model = gctb.buildModel(data, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
                                                            opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
-                                                           opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.originalModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
+                                                           opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
                             
                             mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                          opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
@@ -253,7 +260,7 @@ int main(int argc, const char * argv[]) {
 
                         Model *model = gctb.buildModel(data, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
                                                        opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
-                                                       opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.originalModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
+                                                       opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
                         
                         mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                      opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
@@ -270,7 +277,7 @@ int main(int argc, const char * argv[]) {
                             opt.robustMode = true;
                             Model *model = gctb.buildModel(data, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
                                                            opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
-                                                           opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.originalModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
+                                                           opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
                             
                             mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
                                                          opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
@@ -338,7 +345,7 @@ int main(int argc, const char * argv[]) {
                                opt.mphen, opt.covariateFile, opt.randomCovariateFile, opt.residualDiagFile);
             gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.ldBlockInfoFile, opt.includeBlock, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.mafmin, opt.mafmax, opt.noscale, readGenotypes);
             
-            data.inputSnpResults(opt.snpResFile);
+            data.inputMatchedSnpResults(opt.snpResFile);
             gctb.predict(data, opt.title);
         }
         else if (opt.analysisType == "Summarize") {  // ad hoc method for producing summary from binary MCMC samples of SNP effects

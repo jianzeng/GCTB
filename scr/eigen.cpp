@@ -1418,7 +1418,7 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
     }
 }
 
-void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const float nGWAS, const bool noscale, const bool makePseudoSummary){
+void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const VectorXf &nGWASblock, const bool noscale, const bool makePseudoSummary){
     if (!Gadget::directoryExist(dirname)) {
         throw("Error: cannot find the folder [" + dirname + "]");
     }
@@ -1439,11 +1439,15 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
     
     //Constructing pseudo summary statistics for training and validation data sets, with 90% sample size for training and 10% for validation
     
-    float n_trn, n_val;
+    VectorXf n_trn(numKeptLDBlocks);
+    VectorXf n_val(numKeptLDBlocks);
     if (makePseudoSummary) {
-        n_trn = 0.9*float(numKeptInds);
-        n_val = numKeptInds - n_trn;
-        pseudoGwasNtrn = n_trn;
+        pseudoGwasNtrnBlock.resize(numKeptLDBlocks);
+        for(int i = 0; i < numKeptLDBlocks;i++){
+            n_trn[i] = 0.9*nGWASblock[i];
+            n_val[i] = nGWASblock[i] - n_trn[i];
+            pseudoGwasNtrnBlock[i] = n_trn[i];
+        }
 
         pseudoGwasEffectTrn.resize(numKeptLDBlocks);
         pseudoGwasEffectVal.resize(numKeptLDBlocks);
@@ -1536,7 +1540,8 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
             VectorXf Dsqrt(block->numSnpInBlock);
             for (unsigned j=0; j<block->numSnpInBlock; ++j) {
                 SnpInfo *snp = block->snpInfoVec[j];
-                Dsqrt[j] = sqrt(snp->twopq);
+                //Dsqrt[j] = sqrt(snp->twopq);
+                Dsqrt[j] = snp->gwas_scalar;
             }
             Qblocks[i] = Qblocks[i] * Dsqrt.asDiagonal();
         }
@@ -1552,19 +1557,13 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
                 rnd[j] = Stat::snorm();
             }
             
-            pseudoGwasEffectTrn[i] = gwasEffectInBlock[i] + sqrt(1.0/n_trn - 1.0/nGWASblock[i]) * eigenVecLdBlock[i] * (eigenValLdBlock[i].array().sqrt().matrix().asDiagonal() * rnd);
+            pseudoGwasEffectTrn[i] = gwasEffectInBlock[i] + sqrt(1.0/n_trn[i] - 1.0/nGWASblock[i]) * eigenVecLdBlock[i] * (eigenValLdBlock[i].array().sqrt().matrix().asDiagonal() * rnd);
 
-            pseudoGwasEffectVal[i] = nGWASblock[i]/n_val * gwasEffectInBlock[i] - n_trn/n_val * pseudoGwasEffectTrn[i];
+            pseudoGwasEffectVal[i] = nGWASblock[i]/n_val[i] * gwasEffectInBlock[i] - n_trn[i]/n_val[i] * pseudoGwasEffectTrn[i];
             b_val.segment(block->startSnpIdx, block->numSnpInBlock) = pseudoGwasEffectVal[i];
         }
         
         eigenVecLdBlock[i].resize(0,0);
-    }
-
-    nGWASblock.resize(numKeptLDBlocks);
-    for (unsigned i = 0; i < numKeptLDBlocks; i++){
-        LDBlockInfo *ldblock = keptLdBlockInfoVec[i];
-        nGWASblock[i] = nGWAS;
     }
 }
 
@@ -1657,7 +1656,7 @@ void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const 
     }
     
     scaleGwasEffects();
-    readEigenMatrixBinaryFileAndMakeWandQ(dirname, eigenCutoff, gwasEffectInBlock, numKeptInds, noscale, true);
+    readEigenMatrixBinaryFileAndMakeWandQ(dirname, eigenCutoff, gwasEffectInBlock, nGWASblock, noscale, true);
     //constructPseudoSummaryData();  // for finding the best eigen cutoff by pseudo validation
     //if (numIncdSnps!=0) constructWandQ(gwasEffectInBlock, numKeptInds);
     //if (numIncdSnps!=0) constructWandQ(eigenCutoff, noscale);
@@ -2068,27 +2067,29 @@ void Data::constructPseudoSummaryData(){
     pseudoGwasEffectTrn.resize(numKeptLDBlocks);
     pseudoGwasEffectVal.resize(numKeptLDBlocks);
     
-    float n_trn = 0.9*float(numKeptInds);
-    float n_val = numKeptInds - n_trn;
-    pseudoGwasNtrn = n_trn;
+    VectorXf n_trn(numKeptLDBlocks);
+    VectorXf n_val(numKeptLDBlocks);
+    pseudoGwasNtrnBlock.resize(numKeptLDBlocks);
     b_val.resize(numIncdSnps);
 
     for (unsigned i=0; i<numKeptLDBlocks; ++i) {
         LDBlockInfo* block = keptLdBlockInfoVec[i];
         
+        n_trn[i] = 0.9*nGWASblock[i];
+        n_val[i] = nGWASblock[i] - n_trn[i];
+        pseudoGwasNtrnBlock[i] = n_trn[i];
+
         long size = eigenValLdBlock[i].size();
         VectorXf rnd(size);
         for (unsigned j=0; j<size; ++j) {
             rnd[j] = Stat::snorm();
         }
         
-        pseudoGwasEffectTrn[i] = gwasEffectInBlock[i] + sqrt(1.0/n_trn - 1.0/nGWASblock[i]) * eigenVecLdBlock[i] * (eigenValLdBlock[i].array().sqrt().matrix().asDiagonal() * rnd);
+        pseudoGwasEffectTrn[i] = gwasEffectInBlock[i] + sqrt(1.0/n_trn[i] - 1.0/nGWASblock[i]) * eigenVecLdBlock[i] * (eigenValLdBlock[i].array().sqrt().matrix().asDiagonal() * rnd);
 
-        pseudoGwasEffectVal[i] = nGWASblock[i]/n_val * gwasEffectInBlock[i] - n_trn/n_val * pseudoGwasEffectTrn[i];
+        pseudoGwasEffectVal[i] = nGWASblock[i]/n_val[i] * gwasEffectInBlock[i] - n_trn[i]/n_val[i] * pseudoGwasEffectTrn[i];
         b_val.segment(block->startSnpIdx, block->numSnpInBlock) = pseudoGwasEffectVal[i];
     }
-    
-    
 }
 
 void Data::constructWandQ(const vector<VectorXf> &GWASeffects, const float nGWAS, const bool noscale) {
@@ -2118,7 +2119,8 @@ void Data::constructWandQ(const vector<VectorXf> &GWASeffects, const float nGWAS
             VectorXf Dsqrt(ldblock->numSnpInBlock);
             for (unsigned j=0; j<ldblock->numSnpInBlock; ++j) {
                 SnpInfo *snp = ldblock->snpInfoVec[j];
-                Dsqrt[j] = sqrt(snp->twopq);
+                //Dsqrt[j] = sqrt(snp->twopq);
+                Dsqrt[j] = snp->gwas_scalar;
             }
             Qblocks[i] = Qblocks[i] * Dsqrt.asDiagonal();
         }
@@ -2133,6 +2135,29 @@ void Data::constructWandQ(const vector<VectorXf> &GWASeffects, const float nGWAS
     for (unsigned i = 0; i < numKeptLDBlocks; i++){
         LDBlockInfo *ldblock = keptLdBlockInfoVec[i];
         nGWASblock[i] = nGWAS;
+    }
+}
+
+void Data::outputWandQ(const string &dirname) {
+    // output w and Q in text format
+    if (!Gadget::directoryExist(dirname)){
+        Gadget::createDirectory(dirname);
+        cout << "  Created directory [" << dirname << "] to store w and Q matrices.\n\n";
+    }
+#pragma omp parallel for schedule(dynamic)
+    for(int i = 0; i < numKeptLDBlocks; i++){
+        LDBlockInfo *blockInfo = keptLdBlockInfoVec[i];
+        
+        string outTxtfile1 = dirname + "/block" + blockInfo->ID + ".w.txt";
+        string outTxtfile2 = dirname + "/block" + blockInfo->ID + ".Q.txt";
+        ofstream outtxt1(outTxtfile1.c_str());
+        ofstream outtxt2(outTxtfile2.c_str());
+
+        outtxt1 << wcorrBlocks[i] << endl;
+        outtxt2 << Qblocks[i] << endl;
+        
+        outtxt1.close();
+        outtxt2.close();
     }
 }
 
@@ -2182,13 +2207,26 @@ void Data::scaleGwasEffects(){
     // map to blocks
     if (numKeptLDBlocks) {
         gwasEffectInBlock.resize(numKeptLDBlocks);
+        gwasPerSnpNinBlock.resize(numKeptLDBlocks);
         nGWASblock.resize(numKeptLDBlocks);
         for (unsigned i = 0; i < numKeptLDBlocks; i++){
             LDBlockInfo *ldblock = keptLdBlockInfoVec[i];
             gwasEffectInBlock[i] = b(ldblock->block2GwasSnpVec);
-            nGWASblock[i] = numKeptInds;
+            gwasPerSnpNinBlock[i] = n(ldblock->block2GwasSnpVec);
+            nGWASblock[i] = gwasPerSnpNinBlock[i].mean();
+//            nGWASblock[i] = numKeptInds;
         }
     }
+    
+    // output GWAS data
+//    string outfile = "ma.txt";
+//    ofstream out(outfile.c_str());
+//    for (unsigned i=0; i<numIncdSnps; ++i) {
+//        snp = incdSnpInfoVec[i];
+//        out << snp->ID << " " << snp->a1 << " " << snp->a2 << " " << snp->af << " " << snp->gwas_b << " " << snp->gwas_se << " " << snp->gwas_pvalue << " " << snp->gwas_n << " " << snp2pq[i]*n[i] << " " << varySnp[i] << " " << b[i] << endl;
+//    }
+//    out.close();
+
 }
 
 

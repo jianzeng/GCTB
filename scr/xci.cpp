@@ -437,7 +437,7 @@ void XCI::simu(Data &data, const float pi, const float heritability, const float
     string filename = title + ".QTLinfo";
     ofstream out(filename.c_str());
     out << boost::format("%6s %20s %6s %12s %8s %12s %12s %6s\n")
-    % "Id"
+    % "Index"
     % "Name"
     % "Chrom"
     % "Position"
@@ -497,7 +497,7 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
         string filename = title + ".snpRes";
         ofstream out(filename.c_str());
         out << boost::format("%6s %20s %6s %12s %8s %12s %12s %12s %12s %8s %8s %8s %8s\n")
-        % "Id"
+        % "Index"
         % "Name"
         % "Chrom"
         % "Position"
@@ -555,7 +555,7 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
         string filename = title + ".snpRes";
         ofstream out(filename.c_str());
         out << boost::format("%6s %20s %6s %12s %8s %12s %12s %12s %12s %8s %8s %8s %8s")
-        % "Id"
+        % "Index"
         % "Name"
         % "Chrom"
         % "Position"
@@ -616,7 +616,7 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
         string filename = title + ".snpRes";
         ofstream out(filename.c_str());
         out << boost::format("%6s %20s %6s %12s %8s %12s %12s %8s %8s\n")
-        % "Id"
+        % "Index"
         % "Name"
         % "Chrom"
         % "Position"

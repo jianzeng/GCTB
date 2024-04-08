@@ -294,8 +294,6 @@ vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned ch
             } else {
                 mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "sparse", "no_output", title);
             }
-        } else if (parSet->label.find("DeltaPi") != string::npos) {
-            mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "dense", "no_output", title);
         } else if (parSet->label.find("Delta") != string::npos) {
             mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "sparse", "no_output", title);
         } else {

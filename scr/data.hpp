@@ -59,6 +59,7 @@ public:
     bool recoded;   // swap A1 and A2: use A2 as the reference allele and A1 as the coded allele
     bool skeleton;  // skeleton snp for sbayes
     bool flipped;   // A1 A2 alleles are flipped in between gwas and LD ref samples
+    bool unconverged;  // fail to converge
     long sampleSize;
     
     string block;
@@ -110,6 +111,7 @@ public:
         recoded = false;
         skeleton = false;
         flipped = false;
+        unconverged = false;
         sampleSize = 0;
         effect = 0;
         varExplained = 0;
@@ -220,7 +222,13 @@ public:
     int idx;
     const string label;
     unsigned size;
+    bool isBinary;
+    
     float fraction;   // fraction of all SNPs in this annotation
+    float mean;
+    float sd;         // standard deviation
+    float sum;
+    float ssq;        // sum of squares
     
     unsigned chrom;   // for continuous annotation
     unsigned startBP; // for continuous annotation
@@ -235,6 +243,11 @@ public:
         chrom = 0;
         startBP = 0;
         endBP = 0;
+        mean = 0.0;
+        sd = 0.0;
+        sum = 0.0;
+        ssq = 0.0;
+        isBinary = true;
     }
     
     void getSnpInfo(void);
@@ -378,8 +391,6 @@ public:
     
     MatrixXf annoMat;        // annotation coefficient matrix
     MatrixXf APA;            // annotation X'X matrix
-    VectorXf annoMean;       // column mean of annotation coefficient matrix
-    VectorXf annoSD;         // column SD of annotation coefficient matrix
 
     MatrixXf XPX;            // X'X the MME lhs
     MatrixXf WPW;
@@ -407,7 +418,7 @@ public:
     // for Eigen dec
     VectorXi blockStarts;    // each LD block startings index in SNP included scale
     VectorXi blockSizes;     // each LD block size;
-    VectorXf nGWASblock;     // median GWAS sample size for each block in GWAS
+    VectorXf nGWASblock;     // mean GWAS sample size for each block in GWAS
     VectorXf numSnpsBlock;   // number of SNPs for each block
     VectorXf numEigenvalBlock;  // number of eigenvalues kept for each block
     
@@ -477,10 +488,12 @@ public:
     map<int, vector<int>> ldblock2gwasSnpMap;
 
     vector<VectorXf> gwasEffectInBlock;  // gwas marginal effect;
+    vector<VectorXf> gwasPerSnpNinBlock; // gwas per-SNP sample size;
     
     vector<VectorXf> pseudoGwasEffectTrn;
     vector<VectorXf> pseudoGwasEffectVal;
-    float pseudoGwasNtrn;
+    VectorXf pseudoGwasNtrnBlock;
+    VectorXf pseudoGwasNValBlock;
     VectorXf b_val;
 
     unsigned numFixedEffects;
@@ -574,7 +587,7 @@ public:
     void outputLDmatrix(const string &LDmatType, const string &filename, const bool writeLdmTxt) const;
     void displayAverageWindowSize(const VectorXi &windSize);
     
-    void inputSnpResults(const string &snpResFile);
+    void inputMatchedSnpResults(const string &snpResFile);
     void inputSnpInfoAndResults(const string &snpResFile, const string &bayesType);
     void readLDmatrixBinFileAndShrink(const string &ldmatrixFile);
     void readMultiLDmatBinFileAndShrink(const string &mldmatFile, const float genMapN);
@@ -598,9 +611,13 @@ public:
     void makeWindowAnno(const string &annoFile, const float windowWidth);
     
     void mergeLdmInfo(const string &outLDmatType, const string &dirname);
-    void inputSnpResultsOnly(const string &snpResFile);
+    void inputNewSnpResults(const string &snpResFile);
     void getOverlapWindows(const unsigned windowWidth, const unsigned stepSize);
     
+    void readPlinkAFfile(const string &plinkAFfile);
+    void readPlinkLDtxtfile(const string &plinkLDfile);
+    void readPlinkLDbinfile(const string &plinkLDfile);
+
     /////////// eigen decomposition for LD blocks
     void readLDBlockInfoFile(const string &ldBlockInfoFile);
     void getEigenDataFromFullLDM(const string &filename, const float eigenCutoff);
@@ -627,7 +644,7 @@ public:
     
     void readEigenMatrixBinaryFile(const string &eigenMatrixFile, const float eigenCutoff);
     
-    void readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const float nGWAS, const bool noscale, const bool makePseudoSummary);
+    void readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const VectorXf &nGWASblock, const bool noscale, const bool makePseudoSummary);
 
     
     ///////////// merge eigen matrices
@@ -651,6 +668,9 @@ public:
     void mapSnpsToBlocks(void);
     
     void mergeBlockGwasSummary(const string &gwasSummaryFile, const string &title);
+
+    void outputWandQ(const string &dirname);
+    void readUnconvergedSnplist(const string &filename);
 };
 
 #endif /* data_hpp */

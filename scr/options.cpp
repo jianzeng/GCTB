@@ -323,6 +323,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             writeTxtPosterior = true;
             ss << "--write-mcmc-txt " << "\n";
         }
+        else if (!strcmp(argv[i], "--write-w-and-Q")) {
+            writeWandQ = true;
+            ss << "--write-w-and-Q " << "\n";
+        }
         else if (!strcmp(argv[i], "--thin")) {
             thin = atoi(argv[++i]);
             ss << "--thin " << argv[i] << "\n";
@@ -469,6 +473,16 @@ void Options::inputOptions(const int argc, const char* argv[]){
             readLdmTxt = true;
             ss << "--read-ldm-txt " << "\n";
         }
+        else if (!strcmp(argv[i], "--read-ldm-plink-txt")) {
+            plinkLDtxtfile = argv[++i];
+            plinkAFfile = argv[++i];
+            ss << "--read-ldm-plink-txt " << argv[i-1] << " " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--read-ldm-plink-bin")) {
+            plinkLDbinfile = argv[++i];
+            plinkAFfile = argv[++i];
+            ss << "--read-ldm-plink-bin " << argv[i-1] << " " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--exclude-mhc")) {
             excludeMHC = true;
             ss << "--exclude-mhc " << "\n";
@@ -554,13 +568,18 @@ void Options::inputOptions(const int argc, const char* argv[]){
             simuMode = true;
             ss << "--simu " << "\n";
         }
-        else if (!strcmp(argv[i], "--original-model")) {
-            originalModel = true;
-            ss << "--original-model " << "\n";
-        }
         else if (!strcmp(argv[i], "--hsq-percentage-model")) {
-            originalModel = true;
-            ss << "--hsq-percentage-model " << "\n";
+            if (!strcmp(argv[i+1], "true")) {
+                hsqPercModel = true;
+                ss << "--hsq-percentage-model " << argv[++i] << "\n";
+            } else if (!strcmp(argv[i+1], "false")) {
+                hsqPercModel = false;
+                ss << "--hsq-percentage-model " << argv[++i] << "\n";
+            } else {
+                stringstream errmsg;
+                errmsg << "\nError: invalid option for --hsq-percentage-model \"" << argv[i+1] <<"\". Valid options are true or false.\n";
+                throw (errmsg.str());
+            }
         }
         else if (!strcmp(argv[i], "--lambda")) {
             lambda = atof(argv[++i]);

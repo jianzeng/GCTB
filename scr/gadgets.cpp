@@ -20,13 +20,17 @@ void Gadget::Tokenizer::getTokens(const string &str, const string &sep){
     }
 }
 
-int Gadget::Tokenizer::getIndex(const string &str){
+int Gadget::Tokenizer::getIndex(const string &str, const bool err){
     for (unsigned i=0; i<size(); i++){
         if((*this)[i]==str){
             return i;
         }
     }
-    return -1;
+    if (err) {
+        throw ("Error: can not find '" + str + "'.");
+    } else {
+        return -1;
+    }
 }
 
 void Gadget::Timer::setTime(){
