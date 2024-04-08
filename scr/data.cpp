@@ -1075,8 +1075,8 @@ void Data::buildSparseMME(const string &bedFile, const unsigned windowWidth){
 
 void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const bool noscale, const string &filename) const {
     ofstream out(filename.c_str());
-    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %8s")
-    % "Id"
+    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s %8s")
+    % "Index"
     % "Name"
     % "Chrom"
     % "Position"
@@ -1085,6 +1085,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
     % "A1Frq"
     % "A1Effect"
     % "SE"
+    % "VarExplained"
     % "PIP";
     if (makeWindows) out << boost::format("%8s") % "Window";
     out << endl;
@@ -1096,7 +1097,11 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         if (snp->gwas_scalar) sqrt2pq = snp->gwas_scalar;
         float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
         float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
-        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %8.8f")
+        if (snp->unconverged) {
+            effect = 0.0;
+            se = 0.0;
+        }
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6f %8.8f")
         % (idx+1)
         % snp->ID
         % snp->chrom
@@ -1106,7 +1111,8 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         % (snp->flipped ? 1.0-snp->af : snp->af)
         % (noscale ? effect : effect/sqrt2pq)
         % (noscale ? se : se/sqrt2pq)
-        % pip[idx];
+        % (noscale ? sqrt2pq*effect*sqrt2pq*effect : effect*effect)
+        % (snp->unconverged ? 0.0 : pip[idx]);
         if (makeWindows) out << boost::format("%8s") % snp->window;
         out << endl;
         ++idx;
@@ -1116,8 +1122,8 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
 
 void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &lastSample, const VectorXf &pip, const bool noscale, const string &filename) const {
     ofstream out(filename.c_str());
-    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %14s %14s")
-    % "Id"
+    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s %14s %14s")
+    % "Index"
     % "Name"
     % "Chrom"
     % "Position"
@@ -1126,6 +1132,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
     % "A1Frq"
     % "A1Effect"
     % "SE"
+    % "VarExplained"
     % "PIP"
     % "LastSampleEff";
     if (makeWindows) out << boost::format("%8s") % "Window";
@@ -1139,7 +1146,11 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
         float lastBeta = (snp->flipped ? -lastSample[idx] : lastSample[idx]);
         float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
-        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %14.8f %14.6f")
+        if (snp->unconverged) {
+            effect = 0.0;
+            se = 0.0;
+        }
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6f %14.8f %14.6f")
         % (idx+1)
         % snp->ID
         % snp->chrom
@@ -1149,7 +1160,8 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         % (snp->flipped ? 1.0-snp->af : snp->af)
         % (noscale ? effect : effect/sqrt2pq)
         % (noscale ? se : se/sqrt2pq)
-        % pip[idx]
+        % (noscale ? sqrt2pq*effect*sqrt2pq*effect : effect*effect)
+        % (snp->unconverged ? 0.0 : pip[idx])
         % (noscale ? lastBeta : lastBeta/sqrt2pq);
         if (makeWindows) out << boost::format("%8s") % snp->window;
         out << endl;
@@ -1158,26 +1170,71 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
     out.close();
 }
 
-void Data::inputSnpResults(const string &snpResFile){
+//void Data::inputSnpResults(const string &snpResFile){
+//    ifstream in(snpResFile.c_str());
+//    if (!in) throw ("Error: can not open the SNP result file [" + snpResFile + "] to read.");
+//    cout << "Reading SNP results from [" + snpResFile + "]." << endl;
+//    
+//    SnpInfo *snp;
+//    map<string, SnpInfo*>::iterator it;
+//    string name;
+//    int id, chrom, pos, window;
+//    float freq, effect, se, var, pip;
+//    unsigned line=0, match=0;
+//    string header;
+//    getline(in, header);
+//    while (in >> id >> name >> chrom >> pos >> freq >> effect >> se >> var >> pip >> window) {
+//        ++line;
+//        it = snpInfoMap.find(name);
+//        if (it == snpInfoMap.end()) continue;
+//        snp = it->second;
+//        if (snp->included) {
+//            snp->effect = effect;
+//            ++match;
+//        }
+//    }
+//    in.close();
+//    
+//    cout << match << " matched SNPs in the SNP result file (in total " << line << " SNPs)." << endl;
+//}
+
+void Data::inputMatchedSnpResults(const string &snpResFile){
     ifstream in(snpResFile.c_str());
     if (!in) throw ("Error: can not open the SNP result file [" + snpResFile + "] to read.");
     cout << "Reading SNP results from [" + snpResFile + "]." << endl;
     
     SnpInfo *snp;
     map<string, SnpInfo*>::iterator it;
+    Gadget::Tokenizer header;
+    Gadget::Tokenizer colData;
+    string inputStr;
+    string sep(" \t");
+    getline(in, inputStr);
+    header.getTokens(inputStr, sep);
+    unsigned indexIdx = header.getIndex("Index");
+    unsigned nameIdx  = header.getIndex("Name");
+    unsigned chromIdx  = header.getIndex("Chrom");
+    unsigned posIdx  = header.getIndex("Position");
+    unsigned a1Idx  = header.getIndex("A1");
+    unsigned a2Idx  = header.getIndex("A2");
+    unsigned a1frqIdx  = header.getIndex("A1Frq");
+    unsigned a1effectIdx  = header.getIndex("A1Effect");
+    unsigned seIdx = header.getIndex("SE");
+    unsigned varIdx = header.getIndex("VarExplained");
+    unsigned pipIdx = header.getIndex("PIP");
+    unsigned windowIdx = header.getIndex("Window");
+
     string name;
-    int id, chrom, pos, window;
-    float freq, effect, se, pip;
     unsigned line=0, match=0;
-    string header;
-    getline(in, header);
-    while (in >> id >> name >> chrom >> pos >> freq >> effect >> se >> pip >> window) {
+    while (getline(in, inputStr)) {
+        colData.getTokens(inputStr, sep);
+        name = colData[nameIdx];
         ++line;
         it = snpInfoMap.find(name);
         if (it == snpInfoMap.end()) continue;
         snp = it->second;
         if (snp->included) {
-            snp->effect = effect;
+            snp->effect = atof(colData[a1effectIdx].c_str());
             ++match;
         }
     }
@@ -1186,40 +1243,49 @@ void Data::inputSnpResults(const string &snpResFile){
     cout << match << " matched SNPs in the SNP result file (in total " << line << " SNPs)." << endl;
 }
 
-void Data::inputSnpResultsOnly(const string &snpResFile){
+void Data::inputNewSnpResults(const string &snpResFile){
     ifstream in(snpResFile.c_str());
     if (!in) throw ("Error: can not open the SNP result file [" + snpResFile + "] to read.");
     cout << "Reading SNP results from [" + snpResFile + "]." << endl;
+    
     snpInfoVec.clear();
+    
+    map<string, SnpInfo*>::iterator it;
+    Gadget::Tokenizer header;
     Gadget::Tokenizer colData;
     string inputStr;
     string sep(" \t");
-    string name, a1, a2;
-    int idx, chrom, pos;
-    float a1frq, a1effect, se, pip;
     getline(in, inputStr);
-    Gadget::Tokenizer header;
     header.getTokens(inputStr, sep);
+    unsigned indexIdx = header.getIndex("Index");
+    unsigned nameIdx  = header.getIndex("Name");
+    unsigned chromIdx  = header.getIndex("Chrom");
+    unsigned posIdx  = header.getIndex("Position");
+    unsigned a1Idx  = header.getIndex("A1");
+    unsigned a2Idx  = header.getIndex("A2");
+    unsigned a1frqIdx  = header.getIndex("A1Frq");
+    unsigned a1effectIdx  = header.getIndex("A1Effect");
+    unsigned seIdx = header.getIndex("SE");
+    unsigned varIdx = header.getIndex("VarExplained");
     unsigned pipIdx = header.getIndex("PIP");
+    unsigned windowIdx = header.getIndex("Window");
+
+    string name;
     unsigned line=0;
+    
     while (getline(in,inputStr)) {
         colData.getTokens(inputStr, sep);
-        idx = atoi(colData[0].c_str());
-        name = colData[1];
-        chrom = atoi(colData[2].c_str());
-        pos = atoi(colData[3].c_str());
-        a1 = colData[4];
-        a2 = colData[5];
-        a1frq = atof(colData[6].c_str());
-        a1effect = atof(colData[7].c_str());
-        se = atof(colData[8].c_str());
-        pip = atof(colData[pipIdx].c_str());
-        
+        string name = colData[nameIdx];
+        string a1 = colData[a1Idx];
+        string a2 = colData[a2Idx];
+        int chrom = atoi(colData[chromIdx].c_str());
+        int pos = atoi(colData[posIdx].c_str());
+                
         SnpInfo *snp = new SnpInfo(++line, name, a1, a2, chrom, 0, pos);
-        snp->af = a1frq;
-        snp->effect = a1effect;
-        snp->pip = pip;
-        snpInfoVec.push_back(snp);        
+        snp->af = atof(colData[a1frqIdx].c_str());
+        snp->effect = atof(colData[a1effectIdx].c_str());
+        snp->pip = atof(colData[pipIdx].c_str());
+        snpInfoVec.push_back(snp);
     }
     in.close();
     numSnps = (unsigned) snpInfoVec.size();
@@ -1239,7 +1305,7 @@ void Data::inputSnpInfoAndResults(const string &snpResFile, const string &bayesT
     map<string, SnpInfo*>::iterator it;
     string name;
     int id, chrom, pos, window;
-    float freq, effect, se, pip;
+    float freq, effect, se, var, pip;
     unsigned line=0, match=0;
     string header;
     getline(in, header);
@@ -1249,7 +1315,7 @@ void Data::inputSnpInfoAndResults(const string &snpResFile, const string &bayesT
     }
     if (bayesType == "SMix") {
         float piS;
-        while (in >> id >> name >> chrom >> pos >> freq >> effect >> se >> pip >> piS) {
+        while (in >> id >> name >> chrom >> pos >> freq >> effect >> se >> var >> pip >> piS) {
             ++line;
             it = snpInfoMap.find(name);
             if (it == snpInfoMap.end()) {
@@ -1299,7 +1365,7 @@ void Data::summarizeSnpResults(const SpMat &snpEffects, const string &filename) 
     
     ofstream out(filename.c_str());
     out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %8s %8s\n")
-    % "Id"
+    % "Index"
     % "Name"
     % "Chrom"
     % "Position"
@@ -1352,7 +1418,7 @@ void Data::outputRandomEffects(const MatrixXf &randomEffects, const string &file
 
 void Data::outputWindowResults(const VectorXf &posteriorMean, const string &filename) const {
     ofstream out(filename.c_str());
-    out << boost::format("%6s %8s\n") %"Id" %"PIP";
+    out << boost::format("%6s %8s\n") %"Index" %"PIP";
     for (unsigned i=0; i<posteriorMean.size(); ++i) {
         out << boost::format("%6s %8.3f\n")
         % (i+1)
@@ -4274,36 +4340,41 @@ void Data::setAnnoInfoVec() {
     annoMat.setZero(numIncdSnps, numAnnos);
 //    annoMat.setZero(numIncdSnps, numAnnos+1); // first is the intercept
 //    annoMat.col(0) = VectorXf::Ones(numIncdSnps);
-    APA.setZero(numAnnos, numAnnos);
-//    APA.setZero(numAnnos+1, numAnnos+1);
-    for (unsigned i=0; i<numIncdSnps; ++i) {
-        SnpInfo *snp = incdSnpInfoVec[i];
-        for (unsigned j=0; j<snp->numAnnos; ++j) {
-            unsigned annoIdx = snp->annoVec[j]->idx;
-//            annoMat(i,annoIdx+1) = 1;
-            annoMat(i,annoIdx) = 1;
-        }
-    }
+//    APA.setZero(numAnnos, numAnnos);
+////    APA.setZero(numAnnos+1, numAnnos+1);
+//    for (unsigned i=0; i<numIncdSnps; ++i) {
+//        SnpInfo *snp = incdSnpInfoVec[i];
+//        for (unsigned j=0; j<snp->numAnnos; ++j) {
+//            unsigned annoIdx = snp->annoVec[j]->idx;
+////            annoMat(i,annoIdx+1) = 1;
+//            annoMat(i,annoIdx) = 1;
+//        }
+//    }
         
     // TMP
     for (unsigned i=0; i<numIncdSnps; ++i) {
         SnpInfo *snp = incdSnpInfoVec[i];
         annoMat.row(i) = snp->annoValues;
     }
-    annoSD.setZero(numAnnos);
     for (unsigned i=0; i<numAnnos; ++i) {
         AnnoInfo *anno = annoInfoVec[i];
-        if (annoMat.col(i).sum() == anno->size) annoSD[i] = 1; // binary annotation
-        else annoSD[i] = sqrt(Gadget::calcVariance(annoMat.col(i))); // quantitative annotation
+        if (annoMat.col(i).sum() == anno->size) { // binary annotation
+            anno->isBinary = 1;
+            anno->mean = annoMat.col(i).mean();
+            anno->sd = 1;
+            anno->sum = anno->size;
+            anno->ssq = anno->size;
+        } else { // quantitative annotation
+            anno->isBinary = 0;
+            annoMat.col(i).array() -= annoMat.col(i).mean();  // column-center the quantitative annotation
+            anno->mean = 0.0;
+            anno->sd = sqrt(Gadget::calcVariance(annoMat.col(i)));
+            anno->sum = annoMat.col(i).sum();
+            anno->ssq = annoMat.col(i).squaredNorm();
+        }
     }
-    
-    
-    annoMean.setZero(numAnnos);
-    for (unsigned i=0; i<numAnnos; ++i) {
-        annoMean[i] = annoMat.col(i).mean();
-        //if (i) annoMat.col(i).array() -= annoMean[i];  // center the annotation matrix
-    }
-    APA = annoMat.transpose()*annoMat;    
+        
+    APA = annoMat.transpose()*annoMat;
 }
 
 
@@ -5299,3 +5370,154 @@ void Data::readLDmatrixTxtFile(const string &ldmatrixFile) {
     cout << "Read LD matrix for " << numIncdSnps << " SNPs (time used: " << timer.format(timer.getElapse()) << ")." << endl;
 }
 
+
+void Data::readPlinkAFfile(const string &plinkAFfile) {
+    ifstream in(plinkAFfile.c_str());
+    if (!in) throw ("Error: can not open the file [" + plinkAFfile + "] to read.");
+    cout << "Reading data from [" + plinkAFfile + "]." << endl;
+
+    string header;
+    string id, allele1, allele2;
+    string ref, alt, provisional_ref;
+    unsigned chr, idx=0;
+    long alleleCount, sampleSize;
+    float a1freq, altFreq;
+    
+    getline(in, header);
+    Gadget::Tokenizer token;
+    token.getTokens(header, " ");
+
+    while (in >> chr >> id >> ref >> alt >> provisional_ref >> altFreq >> alleleCount) {
+        allele1 = alt;  // the LD correlation from PLink is calculated at the alt allele
+        allele2 = ref;
+        a1freq = altFreq;
+        SnpInfo *snp = new SnpInfo(idx++, id, allele1, allele2, chr, 0, 0);
+        snp->af = a1freq;
+        snp->twopq = 2.0*a1freq*(1.0-a1freq);
+        sampleSize = alleleCount/2;
+        snp->sampleSize = sampleSize;
+        incdSnpInfoVec.push_back(snp);
+        if (snpInfoMap.insert(pair<string, SnpInfo*>(id, snp)).second == false) {
+            throw ("Error: Duplicate SNP ID found: \"" + id + "\".");
+        }
+    }
+    
+    in.close();
+    numIncdSnps = (unsigned) incdSnpInfoVec.size();
+    cout << numIncdSnps << " SNPs to be included from [" + plinkAFfile + "]." << endl;
+
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+        SnpInfo *snp = incdSnpInfoVec[i];
+        snp->windStart = 0;
+        snp->windEnd = numIncdSnps-1;
+        snp->windSize = numIncdSnps;
+    }
+    numKeptInds = sampleSize;
+}
+
+void Data::readPlinkLDtxtfile(const string &plinkLDfile) {
+    ifstream in(plinkLDfile.c_str());
+    if (!in) {
+        throw("Error: cannot open PLINK LD matrix file " + plinkLDfile);
+    }
+    cout << "Reading PLINK LD txt file from [" + plinkLDfile + "]..." << endl;
+
+    Gadget::Tokenizer colData;
+    string inputStr;
+    string sep(" \t");
+    unsigned row=0;
+    
+    ZPZ.resize(numIncdSnps);
+    ZPZdiag.resize(numIncdSnps);
+
+    while (getline(in,inputStr)) {
+        colData.getTokens(inputStr, sep);
+        ZPZ[row].resize(numIncdSnps);
+        unsigned size = colData.size();
+        for (unsigned col=0; col<size; ++col) {
+            //cout << row << " " << col << endl;
+            ZPZ[row][col] = ZPZ[col][row] = atof(colData[col].c_str());
+            if (row==col) ZPZdiag[row] = ZPZ[row][col];
+        }
+        ++row;
+    }
+    in.close();
+
+    cout << "LD matrix diagonal mean " << ZPZdiag.mean() << " sd " << sqrt(Gadget::calcVariance(ZPZdiag)) << "." << endl;
+    if (ZPZdiag.mean() < 0.8 || ZPZdiag.mean() > 1.2) throw("ERROR: The mean of LD matrix diagonal values is expected to be close to one. Something is wrong with the LD matrix!");
+    cout << "Read LD matrix for " << numIncdSnps << " SNPs." << endl;
+
+}
+
+
+void Data::readPlinkLDbinfile(const string &plinkLDfile) {
+    FILE *in = fopen(plinkLDfile.c_str(), "rb");
+    if (!in) {
+        throw("Error: cannot open PLINK LD matrix file " + plinkLDfile);
+    }
+    cout << "Reading PLINK LD matrix from [" + plinkLDfile + "]..." << endl;
+
+    VectorXi windSizeLDM(numIncdSnps);
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+        SnpInfo *snp = incdSnpInfoVec[i];
+        windSizeLDM[i] = i+1;
+    }
+
+    ZPZ.resize(numIncdSnps);
+    ZPZdiag.resize(numIncdSnps);
+
+    for (unsigned i=0; i<numIncdSnps; i++) {
+        SnpInfo *snp = incdSnpInfoVec[i];
+                    
+        double v[windSizeLDM[i]];
+                        
+        fread(v, sizeof(v), 1, in);
+        
+//        if (i==0) {
+//            for (unsigned k=0; k<windSizeLDM[i]; ++k) {
+//                cout << v[k] << endl;
+//            }
+//            break;
+//        }
+        
+        ZPZ[i].resize(numIncdSnps);
+
+        for (unsigned j=0; j<windSizeLDM[i]; ++j) {
+            ZPZ[i][j] = ZPZ[j][i] = v[j];
+            if (j == i) ZPZdiag[i] = v[j];
+        }
+        
+        
+    }
+
+    fclose(in);
+
+    displayAverageWindowSize(windSizeLDM);
+    cout << "LD matrix diagonal mean " << ZPZdiag.mean() << " sd " << sqrt(Gadget::calcVariance(ZPZdiag)) << "." << endl;
+    if (ZPZdiag.mean() < 0.8 || ZPZdiag.mean() > 1.2) throw("ERROR: The mean of LD matrix diagonal values is expected to be close to one. Something is wrong with the LD matrix!");
+    cout << "Read LD matrix for " << numIncdSnps << " SNPs." << endl;
+}
+
+void Data::readUnconvergedSnplist(const string &filename) {
+    ifstream in(filename.c_str());
+    if (!in) {
+        throw("Error: cannot open file " + filename);
+    }
+    //cout << "Reading unconverged SNPs from [" + filename + "]..." << endl;
+
+    int snpIdx;
+    string snpName;
+    unsigned line = 0;
+    
+    while (in >> snpIdx >> snpName) {
+        SnpInfo *snp = incdSnpInfoVec[snpIdx];
+        if (snp->ID != snpName) {
+            cout << "ERROR: SNP index (" << snpIdx << ") does not match its name (" << snpName << ")." << endl;
+        }
+        snp->unconverged = true;
+        ++line;
+    }
+    
+    in.close();
+    cout << "\nFound " << line << " unconverged SNPs with their posterior effects set to be zero." << endl;
+}

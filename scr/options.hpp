@@ -103,7 +103,7 @@ public:
     bool imputeN;  // impute per-SNP sample size
     bool noscale;
     bool simuMode; // simulation mode
-    bool originalModel; // original BayesR model
+    bool hsqPercModel; // heritability percentage model: beta ~ sum pi_k N(0, gamma_k % hsq)
     bool twoStageModel;  // two-step approach for estimating X-chr dosage model and G by sex
     bool binSnp;  // bin SNPs
     bool robustMode;  // use the robust parameterisation in SBayes models
@@ -111,6 +111,7 @@ public:
     bool mergeLdm;
     bool imputeSummary;
     bool nDistAuto;  // automatically determine the number of mixture distributions
+    bool writeWandQ; // output w and Q in text format
     
     string eigCutMethod = "value";
     float eigThreshold = 0.001;
@@ -157,6 +158,9 @@ public:
     string residualDiagFile;
     string eigenMatrixFile;
     string ldBlockInfoFile;
+    string plinkLDtxtfile;
+    string plinkLDbinfile;
+    string plinkAFfile;
     string label;
     
     Options(){
@@ -177,7 +181,7 @@ public:
         pi                      = 0.01;
         piAlpha                 = 1;
         piBeta                  = 1;
-        heritability            = 0.1;
+        heritability            = 0.5;
 //        varGenotypic            = 1.0;
 //        varResidual             = 1.0;
         propVarRandom           = 0.05;
@@ -210,7 +214,7 @@ public:
         gamma.resize(ndists);
         gamma                   << 0.0, 0.001, 0.01, 0.1, 1;
         pis.resize(ndists);                      
-        pis                     << 0.99, 0.004, 0.003, 0.002, 0.001;
+        pis                     << 0.99, 0.005, 0.003, 0.001, 0.001;
         // Kappa defaults
         kappa                   = 10;
         
@@ -243,7 +247,7 @@ public:
         imputeN                 = false;
         noscale                 = false; // Scale the genotypes or not. Default is scaling 0
         simuMode                = false;
-        originalModel           = false;
+        hsqPercModel            = true;
         twoStageModel           = false;
         binSnp                  = false;
         robustMode              = false;
@@ -251,6 +255,7 @@ public:
         mergeLdm                = false;
         imputeSummary           = false;
         nDistAuto               = false;
+        writeWandQ              = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";
@@ -282,6 +287,9 @@ public:
         residualDiagFile        = "";
         eigenMatrixFile         = "";
         ldBlockInfoFile         = "";
+        plinkLDtxtfile          = "";
+        plinkLDbinfile          = "";
+        plinkAFfile             = "";
         outLDmatType            = "sparse";
         label                   = "";
     }

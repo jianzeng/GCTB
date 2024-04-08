@@ -42,7 +42,7 @@ class Tokenizer : public vector<string> {
     // adopted from matvec
 public:
     void getTokens(const string &str, const string &sep);
-    int  getIndex(const string &str);
+    int  getIndex(const string &str, const bool err = false);
 };
 
 template <class T> class Recoder : public map<T,unsigned> {
