@@ -77,12 +77,12 @@ public:
     float varExplained;
     
     // GWAS summary statistics
-    float gwas_b;
-    float gwas_se;
+    double gwas_b;
+    double gwas_se;
     float gwas_n;
     float gwas_af;
-    float gwas_pvalue;
-    float gwas_scalar;
+    double gwas_pvalue;
+    double gwas_scalar;
 
     float ldSamplVar;    // sum of sampling variance of LD with other SNPs for summary-bayes method
     float ldSum;         // sum of LD with other SNPs

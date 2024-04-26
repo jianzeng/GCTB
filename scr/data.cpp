@@ -5519,5 +5519,5 @@ void Data::readUnconvergedSnplist(const string &filename) {
     }
     
     in.close();
-    cout << "\nFound " << line << " unconverged SNPs with their posterior effects set to be zero." << endl;
+    if (line) cout << "\nFound " << line << " unconverged SNPs with their posterior effects set to be zero." << endl;
 }

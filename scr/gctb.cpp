@@ -121,6 +121,8 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
         bool removeOutlierN = imputeSummary;
         data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, pValueThreshold, imputeN, removeOutlierN);
         if (imputeSummary) {
+            //data.includeMatchedBlocks();
+            //data.scaleGwasEffects();
             data.readEigenMatrixBinaryFile(eigenMatrixFile, eigenCutoff);
             data.impG(includeBlock);
             return;
