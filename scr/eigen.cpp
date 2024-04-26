@@ -2213,7 +2213,10 @@ void Data::scaleGwasEffects(){
             LDBlockInfo *ldblock = keptLdBlockInfoVec[i];
             gwasEffectInBlock[i] = b(ldblock->block2GwasSnpVec);
             gwasPerSnpNinBlock[i] = n(ldblock->block2GwasSnpVec);
-            nGWASblock[i] = gwasPerSnpNinBlock[i].mean();
+//            nGWASblock[i] = gwasPerSnpNinBlock[i].mean();
+            VectorXf nBlockSrt = gwasPerSnpNinBlock[i];
+            std::sort(nBlockSrt.data(), nBlockSrt.data() + nBlockSrt.size());
+            nGWASblock[i] = nBlockSrt[nBlockSrt.size()/2]; // median
 //            nGWASblock[i] = numKeptInds;
         }
     }

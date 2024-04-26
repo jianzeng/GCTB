@@ -1027,6 +1027,10 @@ public:
         void sampleFromFC(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                           const vector<LDBlockInfo*> keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                           const float sigmaSq, const float pi, const float varg, const VectorXf &snp2pq);
+        void computeFromBLUP(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
+                          const vector<LDBlockInfo*> keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
+                          const float sigmaSq, const float pi, const float varg, const VectorXf &snp2pq);
+
     };
     
     class ResidualVar : public BayesC::ResidualVar {
@@ -1250,6 +1254,13 @@ public:
     , lowRankModel(lowrank)
     , nBadSnps(data.title, data.b, data.snpEffectNames)
     {
+        
+//        cout << "In SBayesC" << endl;
+//         cout << "Q size: \n" << data.Qblocks[0].rows() << " " << data.Qblocks[0].cols() << endl << data.Qblocks[1].rows() << " " << data.Qblocks[1].cols() << endl;
+//         cout << "w size: \n" << data.wcorrBlocks[0].rows() << " " << data.wcorrBlocks[0].cols() << endl << data.wcorrBlocks[1].rows() << " " << data.wcorrBlocks[1].cols() << endl;
+//         cout << "data.wcorrBlocks[0].head(5) " << data.wcorrBlocks[0].head(5) << endl;
+//         cout << "data.Qblocks[0].col(0).head(5) " << data.Qblocks[0].col(0).head(5) << endl;
+
         sparse = data.sparseLDM;
         modelPS = estimatePS;
         diagnose = diagnosticMode;
@@ -1271,11 +1282,11 @@ public:
             paramVec.push_back(&ps);
             paramToPrint.push_back(&ps);
         }
-        if (diagnose) {
-            nro.out.open((data.label+".diagnostics").c_str());
-            paramVec.push_back(&nro);
-            paramToPrint.push_back(&nro);
-        }
+//        if (diagnose) {
+//            nro.out.open((data.label+".diagnostics").c_str());
+//            paramVec.push_back(&nro);
+//            paramToPrint.push_back(&nro);
+//        }
         if (spouseCorrelation) {
             paramVec.push_back(&covg);
             paramToPrint.push_back(&covg);
@@ -1285,7 +1296,7 @@ public:
             if (lowRankModel) {
                 cout << "Using the low-rank model" << endl;
             }
-            cout << "scale factor: " << sigmaSq.scale << endl;
+            cout << "sigmaSq: " << sigmaSq.value << " scale factor: " << sigmaSq.scale << endl;
             if (noscale)
             {
                cout << "Fitting model assuming unscaled genotypes " << endl; 
@@ -1298,6 +1309,9 @@ public:
         if (randomStart) {
             cout << "sampling starting values for parameters..." << endl;
             sampleStartVal();
+        }
+        if (diagnosticMode) {
+            cout << "Running SBayesC under diagnostic mode (without random sampling)..." << endl;
         }
     }
     
@@ -2564,8 +2578,8 @@ public:
 //       cout << "In SBayesRC" << endl;
 //        cout << "Q size: \n" << data.Qblocks[0].rows() << " " << data.Qblocks[0].cols() << endl << data.Qblocks[1].rows() << " " << data.Qblocks[1].cols() << endl;
 //        cout << "w size: \n" << data.wcorrBlocks[0].rows() << " " << data.wcorrBlocks[0].cols() << endl << data.wcorrBlocks[1].rows() << " " << data.wcorrBlocks[1].cols() << endl;
-//        cout << "data.wcorrBlocks[0].mean() " << data.wcorrBlocks[0].mean() << endl;
-//        cout << "data.Qblocks[0].col(0).mean() " << data.Qblocks[0].col(0).mean() << endl;
+//        cout << "data.wcorrBlocks[0].head(5) " << data.wcorrBlocks[0].head(5) << endl;
+//        cout << "data.Qblocks[0].col(0).head(5) " << data.Qblocks[0].col(0).head(5) << endl;
 //        cout << "data.Qblocks[0].col(1).mean() " << data.Qblocks[0].col(1).mean() << endl;
 //        cout << "data.Qblocks[0].col(2).mean() " << data.Qblocks[0].col(2).mean() << endl;
 

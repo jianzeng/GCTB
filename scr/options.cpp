@@ -631,6 +631,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
     if (chainLength < burnin) {
         throw("Error: Chain length is smaller than burn-in!");
     }
+    if (chainLength < thin) thin = 1;
     
     cout << ss.str() << endl;
     
