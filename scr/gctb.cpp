@@ -374,7 +374,7 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
         % "PiS";
         for (unsigned i=0; i<data.numIncdSnps; ++i) {
             SnpInfo *snp = data.incdSnpInfoVec[i];
-            out << boost::format("%6s %20s %6s %12s %8.3f %12.6f %12.6f %12.6f %8.3f %8.3f\n")
+            out << boost::format("%6s %20s %6s %12s %8.3f %12.6f %12.6f %12.6e %8.3f %8.3f\n")
             % (i+1)
             % snp->ID
             % snp->chrom
@@ -435,7 +435,7 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
             float effect = (snp->flipped ? - snpEffects->posteriorMean[idx] : snpEffects->posteriorMean[idx]);
             float varExp = snpEffects->posteriorSqrMean[idx];
             float se = sqrt(snpEffects->posteriorSqrMean[idx]-snpEffects->posteriorMean[idx]*snpEffects->posteriorMean[idx]);
-            out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6f")
+            out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6e")
             % (i+1)
             % snp->ID
             % snp->chrom

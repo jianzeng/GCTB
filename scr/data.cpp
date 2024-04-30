@@ -1102,7 +1102,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
             effect = 0.0;
             se = 0.0;
         }
-        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6f %8.8f")
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6e %8.8f")
         % (idx+1)
         % snp->ID
         % snp->chrom
@@ -1152,7 +1152,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
             effect = 0.0;
             se = 0.0;
         }
-        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6f %14.8f %14.6f")
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6e %14.8f %14.6f")
         % (idx+1)
         % snp->ID
         % snp->chrom
