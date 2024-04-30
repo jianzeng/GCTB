@@ -1096,6 +1096,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
         if (snp->gwas_scalar) sqrt2pq = snp->gwas_scalar;
         float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
+        float varExp = posteriorSqrMean[idx];
         float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
         if (snp->unconverged) {
             effect = 0.0;
@@ -1111,7 +1112,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         % (snp->flipped ? 1.0-snp->af : snp->af)
         % (noscale ? effect : effect/sqrt2pq)
         % (noscale ? se : se/sqrt2pq)
-        % (noscale ? sqrt2pq*effect*sqrt2pq*effect : effect*effect)
+        % (noscale ? sqrt2pq*sqrt2pq*varExp : varExp)
         % (snp->unconverged ? 0.0 : pip[idx]);
         if (makeWindows) out << boost::format("%8s") % snp->window;
         out << endl;
@@ -1145,6 +1146,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         if (snp->gwas_scalar) sqrt2pq = snp->gwas_scalar;
         float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
         float lastBeta = (snp->flipped ? -lastSample[idx] : lastSample[idx]);
+        float varExp = posteriorSqrMean[idx];
         float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
         if (snp->unconverged) {
             effect = 0.0;
@@ -1160,7 +1162,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         % (snp->flipped ? 1.0-snp->af : snp->af)
         % (noscale ? effect : effect/sqrt2pq)
         % (noscale ? se : se/sqrt2pq)
-        % (noscale ? sqrt2pq*effect*sqrt2pq*effect : effect*effect)
+        % (noscale ? sqrt2pq*sqrt2pq*varExp : varExp)
         % (snp->unconverged ? 0.0 : pip[idx])
         % (noscale ? lastBeta : lastBeta/sqrt2pq);
         if (makeWindows) out << boost::format("%8s") % snp->window;
