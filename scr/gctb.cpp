@@ -411,7 +411,8 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
         for (unsigned i=0; i<deltaPiVec.size(); ++i) {
             out << boost::format(" %12s") % deltaPiVec[i]->label.substr(5);
         }
-        out << boost::format(" %14s %14s") % "PIP" % "Pvalue";
+//        out << boost::format(" %14s %14s") % "PIP" % "Pvalue";
+        out << boost::format(" %14s") % "PIP";
         out << endl;
         
         // estimate P value from PIP
@@ -432,6 +433,7 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
             float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
             if (snp->gwas_scalar) sqrt2pq = snp->gwas_scalar;
             float effect = (snp->flipped ? - snpEffects->posteriorMean[idx] : snpEffects->posteriorMean[idx]);
+            float varExp = snpEffects->posteriorSqrMean[idx];
             float se = sqrt(snpEffects->posteriorSqrMean[idx]-snpEffects->posteriorMean[idx]*snpEffects->posteriorMean[idx]);
             out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6f")
             % (i+1)
@@ -443,11 +445,12 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
             % (snp->flipped ? 1.0-snp->af : snp->af)
             % (noscale ? effect : effect/sqrt2pq)
             % (noscale ? se : se/sqrt2pq)
-            % (noscale ? sqrt2pq*effect*sqrt2pq*effect : effect*effect);
+            % (noscale ? sqrt2pq*sqrt2pq*varExp : varExp);
             for (unsigned j = 0; j < deltaPiVec.size(); ++j) {
                 out << boost::format(" %12.6f") % deltaPiVec[j]->posteriorMean[idx];
             }
-            out << " " << setw(14) << (pip_vec[idx]) << " " << setw(14) << pval[idx];
+//            out << " " << setw(14) << (pip_vec[idx]) << " " << setw(14) << pval[idx];
+            out << " " << setw(14) << (pip_vec[idx]);
             out << endl;
             ++idx;
         }
