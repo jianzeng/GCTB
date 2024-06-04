@@ -75,7 +75,9 @@ public:
     
     float tuneEigenCutoff(Data &data, const Options &opt);
     void getWindowPIP(Data &data, McmcSamples &snpEffects, const string &snpResFile, const int windowWidth, const int stepSize, const string &filename);
-    void calcCredibleSets(Data &data, const string &snpResFile, McmcSamples &snpEffects, const float csThreshold, const int windowWidth, const string &title);
+    void calcCredibleSets(Data &data, const string &snpResFile, McmcSamples &snpEffects, const float pipThreshold, const float pepThreshold, const int windowWidth, const string &title);
+    //void calcCredibleSets(Data &data, const string &snpResFile, McmcSamples &snpEffects, const string &eigenMatrixFile, const float eigenCutoff, const float pipThreshold, const string &title);
+    void calcCredibleSets(Data &data, McmcSamples &snpEffects, const float pipThreshold, const float pepThreshold, const string &title);
 
     static bool comparePIP(const SnpInfo* snpi, const SnpInfo* snpj){
         return snpi->pip > snpj->pip;

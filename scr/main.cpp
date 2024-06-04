@@ -157,6 +157,25 @@ int main(int argc, const char * argv[]) {
                 data.mergeBlockGwasSummary(opt.gwasSummaryFile, opt.title);
             }
         }
+        else if (opt.analysisType == "Convert") {
+            if (!opt.eigenMatrixFile.empty()) {
+                data.readEigenMatrix(opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff());
+                data.inputMatchedSnpResults(opt.snpResFile);
+                data.convert(opt.eigenMatrixFile, opt.includeSnpFile, opt.title);
+            }
+        }
+        else if (opt.analysisType == "GetLD") {
+            if (!opt.eigenMatrixFile.empty()) {
+                data.readEigenMatrix(opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff());
+                data.getLDfromEigenMatrix(opt.eigenMatrixFile, opt.rsqThreshold, opt.title);
+            }
+        }
+        else if (opt.analysisType == "GetLDfriends") {
+            if (opt.rsqThreshold == 1.0) {
+                opt.rsqThreshold = 0.5;  // default value
+            }
+            data.getLDfriends(opt.pairwiseLDfile, opt.rsqThreshold, opt.title);
+        }
         else if (opt.analysisType == "SBayes") {
             if (!opt.ldmatrixFile.empty()) {
                 gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.genMapN, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile, opt.windowFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold, opt.sampleOverlap, opt.imputeN, opt.noscale, opt.binSnp, opt.readLdmTxt);
@@ -330,14 +349,42 @@ int main(int argc, const char * argv[]) {
             gctb.getWindowPIP(data, *snpEffects, opt.mcmcSampleFile + ".snpRes", opt.windowWidth, 0.5*opt.windowWidth, opt.title);
         }
         else if (opt.analysisType == "CS") {
-            int windowWidth = 100000;
-            if (opt.windowWidth) windowWidth = opt.windowWidth;
-            McmcSamples *snpEffects = gctb.inputMcmcSamples(opt.mcmcSampleFile, "SnpEffects", "bin");
-            gctb.calcCredibleSets(data, opt.mcmcSampleFile + ".snpRes", *snpEffects, opt.csThreshold, windowWidth, opt.title);
+//            if (!opt.eigenMatrixFile.empty()) {
+//                McmcSamples *snpEffects = gctb.inputMcmcSamples(opt.mcmcSampleFile, "SnpEffects", "bin");
+//                gctb.calcCredibleSets(data, opt.mcmcSampleFile + ".snpRes", *snpEffects, opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff(), opt.pipThreshold, opt.title);
+//            } 
+            if (!opt.pairwiseLDfile.empty()) {
+                if (opt.rsqThreshold == 1.0) {
+                    opt.rsqThreshold = 0.5;  // default value
+                }
+                McmcSamples *snpEffects = gctb.inputMcmcSamples(opt.mcmcSampleFile, "SnpEffects", "bin");
+                data.inputNewSnpResults(opt.mcmcSampleFile + ".snpRes");
+                data.inputPairwiseLD(opt.pairwiseLDfile, opt.rsqThreshold);
+                gctb.calcCredibleSets(data, *snpEffects, opt.pipThreshold, opt.pepThreshold, opt.title);
+            }
+            else if (!opt.ldfriendFile.empty()) {
+                if (opt.rsqThreshold == 1.0) {
+                    opt.rsqThreshold = 0.5;  // default value
+                }
+                McmcSamples *snpEffects = gctb.inputMcmcSamples(opt.mcmcSampleFile, "SnpEffects", "bin");
+                data.inputNewSnpResults(opt.mcmcSampleFile + ".snpRes");
+                data.inputLDfriends(opt.ldfriendFile);
+                gctb.calcCredibleSets(data, *snpEffects, opt.pipThreshold, opt.pepThreshold, opt.title);
+            } else {
+                int windowWidth = 100000;
+                if (opt.windowWidth) windowWidth = opt.windowWidth;
+                McmcSamples *snpEffects = gctb.inputMcmcSamples(opt.mcmcSampleFile, "SnpEffects", "bin");
+                gctb.calcCredibleSets(data, opt.mcmcSampleFile + ".snpRes", *snpEffects, opt.pipThreshold, opt.pepThreshold, windowWidth, opt.title);
+            }
         }
         else if (opt.analysisType == "Bin2Txt") {
             McmcSamples *mcmcSamples = gctb.inputMcmcSamples(opt.mcmcSampleFile, opt.label, "bin");
             mcmcSamples->writeMatSpTxt(opt.mcmcSampleFile);
+        }
+        else if (opt.analysisType == "Print") {
+            if (!opt.eigenMatrixFile.empty()) {
+                data.readEigenMatrix(opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff(), true, true);
+            }
         }
         else if (opt.analysisType == "Predict") {
             readGenotypes = true;

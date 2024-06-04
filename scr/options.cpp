@@ -54,13 +54,24 @@ void Options::inputOptions(const int argc, const char* argv[]){
         }
         else if (!strcmp(argv[i], "--cs")) {
             analysisType = "CS";
-            csThreshold = atof(argv[++i]);
-            ss << "--cs " << argv[i]  << "\n";
+            ss << "--cs " << "\n";
+        }
+        else if (!strcmp(argv[i], "--pip")) {
+            pipThreshold = atof(argv[++i]);
+            ss << "--pip " << argv[i]  << "\n";
+        }
+        else if (!strcmp(argv[i], "--pep")) {
+            pepThreshold = atof(argv[++i]);
+            ss << "--pep " << argv[i]  << "\n";
         }
         else if (!strcmp(argv[i], "--bin2txt")) {
             analysisType = "Bin2Txt";
             label = argv[++i];
             ss << "--bin2txt " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--print")) {
+            analysisType = "Print";
+            ss << "--print " << argv[i] << "\n";
         }
 //        else if (!strcmp(argv[i], "--make-ldm")) {
 //            analysisType = "LDmatrix";
@@ -226,6 +237,18 @@ void Options::inputOptions(const int argc, const char* argv[]){
             outLDmatType = "block";
             ss << "--merge-block-gwas-summary " << "\n";
         }
+        else if (!strcmp(argv[i], "--convert")) {
+            analysisType = "Convert";
+            ss << "--convert " << "\n";
+        }
+        else if (!strcmp(argv[i], "--get-ld")) {
+            analysisType = "GetLD";
+            ss << "--get-ld " << "\n";
+        }
+        else if (!strcmp(argv[i], "--get-ld-frd")) {
+            analysisType = "GetLDfriends";
+            ss << "--get-ld-frd " << "\n";
+        }
         else if (!strcmp(argv[i], "--per-snp-gv")) {
             perSnpGV = true;
             ss << "--per-snp-gv " << "\n";
@@ -233,6 +256,14 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--snp-res")) {
             snpResFile = argv[++i];
             ss << "--snp-res " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--ld-file")) {
+            pairwiseLDfile = argv[++i];
+            ss << "--ld-file " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--ld-frd-file")) {
+            ldfriendFile = argv[++i];
+            ss << "--ld-frd-file " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--wind")) {
             windowWidth = unsigned(atof(argv[++i]) * Megabase);

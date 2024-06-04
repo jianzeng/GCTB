@@ -1500,6 +1500,7 @@ public:
     ApproxBayesC::NnzGwas nnzgwas;
     ApproxBayesC::BlockGenotypicVar vargBlk;
     ApproxBayesC::BlockResidualVar vareBlk;
+    ApproxBayesC::NumBadSnps nBadSnps;
 
 //    ApproxBayesC::Overdispersion tauSq;
     
@@ -1530,6 +1531,7 @@ public:
     , vargBlk(data.ldblockNames, varGenotypic, data.numKeptInds)
     , vareBlk(data.ldblockNames, data.varPhenotypic)
     , lowRankModel(lowrank)
+    , nBadSnps(data.title, data.b, data.snpEffectNames)
    {
         ghat.setZero(data.Z.rows());
         sparse = data.sparseLDM;
@@ -1544,6 +1546,7 @@ public:
        if (lowRankModel) {
            paramSetVec.push_back(&vargBlk);
            paramSetVec.push_back(&vareBlk);
+           paramToPrint.push_back(&nBadSnps);
        }
 //        if (sparse) {
 //            paramVec.push_back(&pigwas);
@@ -1691,7 +1694,7 @@ public:
             }
         }
         
-        if (randomStart) sampleStartVal();
+        //if (randomStart) sampleStartVal();
     }
 
     void sampleUnknowns(void);

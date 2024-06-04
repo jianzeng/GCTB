@@ -78,7 +78,8 @@ public:
     float lambda;  // for conjugate gradient
     float rsqThreshold;
     float pValueThreshold;
-    float csThreshold;
+    float pipThreshold;
+    float pepThreshold;
     
     bool estimatePi;
     bool estimateSigmaSq; // variance of SNP effects
@@ -161,6 +162,8 @@ public:
     string plinkLDtxtfile;
     string plinkLDbinfile;
     string plinkAFfile;
+    string pairwiseLDfile;
+    string ldfriendFile;
     string label;
     
     Options(){
@@ -207,7 +210,8 @@ public:
         lambda                  = 1e6;
         rsqThreshold            = 1.0;
         pValueThreshold         = 1.0;
-        csThreshold             = 0.9;
+        pipThreshold            = 0.9;
+        pepThreshold            = 0.7;
 
         // Bayes R defaults
         ndists                  = 5;
@@ -290,6 +294,8 @@ public:
         plinkLDtxtfile          = "";
         plinkLDbinfile          = "";
         plinkAFfile             = "";
+        pairwiseLDfile          = "";
+        ldfriendFile            = "";
         outLDmatType            = "sparse";
         label                   = "";
     }
