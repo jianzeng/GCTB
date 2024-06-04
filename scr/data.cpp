@@ -944,7 +944,7 @@ void Data::buildSparseMME(const string &bedFile, const unsigned windowWidth){
     
 #pragma omp parallel for
     for (unsigned chr=0; chr<numChroms; ++chr) {
-        
+    
         // Read bed file
         VectorXf genotypes(numKeptInds);
         ifstream in(bedFile.c_str(), ios::binary);
@@ -1100,6 +1100,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
         if (snp->unconverged) {
             effect = 0.0;
+            varExp = 0.0;
             se = 0.0;
         }
         out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6e %8.8f")
@@ -1150,6 +1151,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
         if (snp->unconverged) {
             effect = 0.0;
+            varExp = 0.0;
             se = 0.0;
         }
         out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6e %14.8f %14.6f")
@@ -1213,18 +1215,21 @@ void Data::inputMatchedSnpResults(const string &snpResFile){
     string sep(" \t");
     getline(in, inputStr);
     header.getTokens(inputStr, sep);
-    unsigned indexIdx = header.getIndex("Index");
-    unsigned nameIdx  = header.getIndex("Name");
-    unsigned chromIdx  = header.getIndex("Chrom");
-    unsigned posIdx  = header.getIndex("Position");
-    unsigned a1Idx  = header.getIndex("A1");
-    unsigned a2Idx  = header.getIndex("A2");
-    unsigned a1frqIdx  = header.getIndex("A1Frq");
-    unsigned a1effectIdx  = header.getIndex("A1Effect");
-    unsigned seIdx = header.getIndex("SE");
-    unsigned varIdx = header.getIndex("VarExplained");
-    unsigned pipIdx = header.getIndex("PIP");
-    unsigned windowIdx = header.getIndex("Window");
+    int indexIdx = header.getIndex("Index");
+    int nameIdx  = header.getIndex("Name");
+    int chromIdx  = header.getIndex("Chrom");
+    int posIdx  = header.getIndex("Position");
+    int a1Idx  = header.getIndex("A1");
+    int a2Idx  = header.getIndex("A2");
+    int a1frqIdx  = header.getIndex("A1Frq");
+    int a1effectIdx  = header.getIndex("A1Effect");
+    int seIdx = header.getIndex("SE");
+    int varIdx = header.getIndex("VarExplained");
+    int pipIdx = header.getIndex("PIP");
+    int windowIdx = header.getIndex("Window");
+    
+    if (nameIdx == -1) nameIdx  = header.getIndex("SNP");
+    if (a1effectIdx == -1) a1effectIdx  = header.getIndex("BETA");
 
     string name;
     unsigned line=0, match=0;
@@ -1237,6 +1242,7 @@ void Data::inputMatchedSnpResults(const string &snpResFile){
         snp = it->second;
         if (snp->included) {
             snp->effect = atof(colData[a1effectIdx].c_str());
+            snp->pip = atof(colData[pipIdx].c_str());
             ++match;
         }
     }
@@ -1251,6 +1257,7 @@ void Data::inputNewSnpResults(const string &snpResFile){
     cout << "Reading SNP results from [" + snpResFile + "]." << endl;
     
     snpInfoVec.clear();
+    snpInfoMap.clear();
     
     map<string, SnpInfo*>::iterator it;
     Gadget::Tokenizer header;
@@ -1259,18 +1266,21 @@ void Data::inputNewSnpResults(const string &snpResFile){
     string sep(" \t");
     getline(in, inputStr);
     header.getTokens(inputStr, sep);
-    unsigned indexIdx = header.getIndex("Index");
-    unsigned nameIdx  = header.getIndex("Name");
-    unsigned chromIdx  = header.getIndex("Chrom");
-    unsigned posIdx  = header.getIndex("Position");
-    unsigned a1Idx  = header.getIndex("A1");
-    unsigned a2Idx  = header.getIndex("A2");
-    unsigned a1frqIdx  = header.getIndex("A1Frq");
-    unsigned a1effectIdx  = header.getIndex("A1Effect");
-    unsigned seIdx = header.getIndex("SE");
-    unsigned varIdx = header.getIndex("VarExplained");
-    unsigned pipIdx = header.getIndex("PIP");
-    unsigned windowIdx = header.getIndex("Window");
+    int indexIdx = header.getIndex("Index");
+    int nameIdx  = header.getIndex("Name");
+    int chromIdx  = header.getIndex("Chrom");
+    int posIdx  = header.getIndex("Position");
+    int a1Idx  = header.getIndex("A1");
+    int a2Idx  = header.getIndex("A2");
+    int a1frqIdx  = header.getIndex("A1Frq");
+    int a1effectIdx  = header.getIndex("A1Effect");
+    int seIdx = header.getIndex("SE");
+    int varIdx = header.getIndex("VarExplained");
+    int pipIdx = header.getIndex("PIP");
+    int windowIdx = header.getIndex("Window");
+
+    if (nameIdx == -1) nameIdx  = header.getIndex("SNP");
+    if (a1effectIdx == -1) a1effectIdx  = header.getIndex("BETA");
 
     string name;
     unsigned line=0;
@@ -1288,6 +1298,7 @@ void Data::inputNewSnpResults(const string &snpResFile){
         snp->effect = atof(colData[a1effectIdx].c_str());
         snp->pip = atof(colData[pipIdx].c_str());
         snpInfoVec.push_back(snp);
+        snpInfoMap.insert(pair<string, SnpInfo*>(name, snp));
     }
     in.close();
     numSnps = (unsigned) snpInfoVec.size();
@@ -5523,3 +5534,448 @@ void Data::readUnconvergedSnplist(const string &filename) {
     in.close();
     if (line) cout << "\nFound " << line << " unconverged SNPs with their posterior effects set to be zero." << endl;
 }
+
+void Data::convert(const string &eigenMatrixFile, const string &snplistFile, const string &title) {
+    ifstream in(snplistFile.c_str());
+    if (!in) {
+        throw("Error: cannot open file " + snplistFile);
+    }
+
+    for (unsigned i=0; i<numSnps; ++i) {
+        SnpInfo *snp = snpInfoVec[i];
+        snp->included = false;
+    }
+    
+    string id;
+    unsigned line = 0;
+    map<string, SnpInfo*>::iterator it, end = snpInfoMap.end();
+
+    while (in >> id) {
+        it = snpInfoMap.find(id);
+        if (it != end) {
+            it->second->included = true;
+        }
+        ++line;
+    }
+    
+    in.close();
+    if (line) cout << "\nConverting the joint effects of " << line << " SNPs..." << endl;
+
+    
+    vector<int> numSnpInRegion(numLDBlocks);
+    
+    for(int i = 0; i < numLDBlocks;i++){
+        LDBlockInfo *block = ldBlockInfoVec[i];
+        numSnpInRegion[i] = block->numSnpInBlock;
+    }
+    
+#pragma omp parallel for schedule(dynamic)
+    for(int i = 0; i < numLDBlocks; i++){
+        LDBlockInfo *block = ldBlockInfoVec[i];
+        int32_t cur_m = 0;
+        int32_t cur_k = 0;
+        float sumPosEigVal = 0;
+        float oldEigenCutoff =0;
+        
+        string infile = eigenMatrixFile + "/block" + block->ID + ".eigen.bin";
+        FILE *fp = fopen(infile.c_str(), "rb");
+        if(!fp){throw ("Error: can not open the file [" + infile + "] to read.");}
+
+        // 1. marker number
+        if(fread(&cur_m, sizeof(int32_t), 1, fp) != 1){
+            throw("Read " + infile + " error (m)");
+        }
+                
+        if(cur_m != numSnpInRegion[i]){
+            throw("In LD block " + block->ID + ", inconsistent marker number to marker information in " + infile);
+        }
+        // 2. ncol of eigenVec (number of eigenvalues)
+        if(fread(&cur_k, sizeof(int32_t), 1, fp) != 1){
+            throw("In LD block " + block->ID + ", error about number of eigenvalues in  " + infile);
+            // cout << "Read " << eigenBinFile << " error (k)" << endl;
+            // throw("read file error");
+        }
+        // 3. sum of all positive eigenvalues
+        if(fread(&sumPosEigVal, sizeof(float), 1, fp) != 1){
+            throw("In LD block " + block->ID + ", error about the sum of positive eigenvalues in " + infile);
+            // cout << "Read " << eigenBinFile << " error sumLambda" << endl;
+            // throw("read file error");
+        }
+        // 4. eigenCutoff
+        if(fread(&oldEigenCutoff, sizeof(float), 1, fp) != 1){
+            throw("In LD block " + block->ID + ", error about eigen cutoff used in " + infile);
+            // cout << "Read " << eigenBinFile << " error svdVarProp" << endl;
+            // throw("read file error");
+        }
+        // 5. eigenvalues
+        VectorXf lambda(cur_k);
+        if(fread(lambda.data(), sizeof(float), cur_k, fp) != cur_k){
+            throw("In LD block " + block->ID + ",size error about eigenvalues in " + infile);
+            // cout << "Read " << eigenBinFile << " error (lambda)" << endl;
+            // throw("read file error");
+        }
+        // 6. eigenvector
+        MatrixXf U(cur_m, cur_k);
+        uint64_t nElements = (uint64_t)cur_m * (uint64_t)cur_k;
+        if(fread(U.data(), sizeof(float), nElements, fp) != nElements){
+            cout << "fread(U.data(), sizeof(float), nElements, fp): " << fread(U.data(), sizeof(float), nElements, fp) << endl;
+            cout << "nEle: " << nElements << " U.size: " << U.size() <<  " U.col: " << U.cols() << " row: " << U.rows() << endl;
+            throw("In LD block " + block->ID + ",size error about eigenvectors in " + infile);
+            // cout << "Read " << eigenBinFile << " error (U)" << endl;
+            // throw("read file error");
+        }
+                
+        /// Step 1. construct LD
+        MatrixXf LDPerBlock = U * lambda.asDiagonal() * U.transpose();
+        float diag_mod = 0.1;
+        LDPerBlock.diagonal().array() += diag_mod;
+
+        /// Step 2. Construct the LD correlation matrix among the target SNPs(LDtt) and the LD correlation matrix among the target SNPs and the current full SNPs (LDtf).
+        int numTargetSNPs = 0;
+        for(unsigned j=0; j < block->numSnpInBlock; j++){
+            SnpInfo *snp = block->snpInfoVec[j];
+            if(snp->included) ++numTargetSNPs;
+            //cout << j << " " << snp->included << endl;
+        }
+                
+        if (numTargetSNPs) {
+            // Step 2.1 divide SNPs into typed and untyped SNPs
+            VectorXi targetSnpIdx(numTargetSNPs);
+            VectorXi fullSnpIdx(block->numSnpInBlock);
+            VectorXf betaFullSnp(block->numSnpInBlock);
+            for(unsigned j=0, idxTar=0; j < block->numSnpInBlock; j++){
+                SnpInfo *snp = block->snpInfoVec[j];
+                fullSnpIdx[j] = j;
+                betaFullSnp[j] = snp->effect;
+                if(snp->included){
+                    // target snp
+                    targetSnpIdx[idxTar++] = j;
+                }
+            }
+            
+            // Step 2.2 construct LDtt and LDft
+            MatrixXf LDtt = LDPerBlock(targetSnpIdx,targetSnpIdx);
+            MatrixXf LDtf = LDPerBlock(targetSnpIdx,fullSnpIdx);
+            
+            // Step 2.3 compute joint effects for the target SNPs;
+            VectorXf betaTargetSnp = LDtt.ldlt().solve(LDtf*betaFullSnp);
+//            if (i == 0) {
+//                string outfile = title + ".LDtt";
+//                ofstream tmp(outfile.c_str());
+//                tmp << LDtt << endl;
+//                tmp.close();
+//            }
+
+            for(unsigned j = 0; j < numTargetSNPs; j++){
+                SnpInfo *snp = block->snpInfoVec[targetSnpIdx[j]];
+                snp->effect = betaTargetSnp[j];
+            }
+        }
+        
+        if(!(i%10)) cout << " Converted block " << i << " numSnpInBlock " << block->numSnpInBlock << " numTargetSnps " << numTargetSNPs << "\r" << flush;
+
+//        if(!(i%10)) cout << " Converted block " << i << "\r" << flush;
+        
+    }
+
+
+    string outfile = title + ".converted.snpRes";
+    ofstream out(outfile.c_str());
+    out << boost::format("%15s %10s %10s %15s\n") % "SNP" % "A1" % "A2" % "A1Effect";
+    for (unsigned i=0; i<numSnps; ++i) {
+        SnpInfo *snp = snpInfoVec[i];
+        if (!snp->included) continue;
+        out << boost::format("%15s %10s %10s %15.6f\n")
+        % snp->ID
+        % snp->a1
+        % snp->a2
+        % snp->effect;
+    }
+    out.close();
+
+    cout << "Conversion of SNP joint effects to a sub panel is completed." << endl;
+    cout << "Converted SNP joint effects are save into file [" + outfile + "]." << endl;
+
+}
+
+void Data::getLDfromEigenMatrix(const string &eigenMatrixFile, const float rsqThreshold, const string &title){
+    
+    vector<int> numSnpInRegion(numLDBlocks);
+    
+    for(int i = 0; i < numLDBlocks;i++){
+        LDBlockInfo *block = ldBlockInfoVec[i];
+        numSnpInRegion[i] = block->numSnpInBlock;
+    }
+    
+    vector<vector<vector<int> > > ldSnpIdx;
+    vector<vector<vector<float> > > ldcor;
+    ldSnpIdx.resize(numLDBlocks);
+    ldcor.resize(numLDBlocks);
+
+    
+#pragma omp parallel for schedule(dynamic)
+    for(int i = 0; i < numLDBlocks; i++){
+        ldSnpIdx[i].resize(numSnpInRegion[i]);
+        ldcor[i].resize(numSnpInRegion[i]);
+        
+        LDBlockInfo *block = ldBlockInfoVec[i];
+        int32_t cur_m = 0;
+        int32_t cur_k = 0;
+        float sumPosEigVal = 0;
+        float oldEigenCutoff =0;
+        
+        string infile = eigenMatrixFile + "/block" + block->ID + ".eigen.bin";
+        FILE *fp = fopen(infile.c_str(), "rb");
+        if(!fp){throw ("Error: can not open the file [" + infile + "] to read.");}
+        
+        // 1. marker number
+        if(fread(&cur_m, sizeof(int32_t), 1, fp) != 1){
+            throw("Read " + infile + " error (m)");
+        }
+        
+        if(cur_m != numSnpInRegion[i]){
+            throw("In LD block " + block->ID + ", inconsistent marker number to marker information in " + infile);
+        }
+        // 2. ncol of eigenVec (number of eigenvalues)
+        if(fread(&cur_k, sizeof(int32_t), 1, fp) != 1){
+            throw("In LD block " + block->ID + ", error about number of eigenvalues in  " + infile);
+            // cout << "Read " << eigenBinFile << " error (k)" << endl;
+            // throw("read file error");
+        }
+        // 3. sum of all positive eigenvalues
+        if(fread(&sumPosEigVal, sizeof(float), 1, fp) != 1){
+            throw("In LD block " + block->ID + ", error about the sum of positive eigenvalues in " + infile);
+            // cout << "Read " << eigenBinFile << " error sumLambda" << endl;
+            // throw("read file error");
+        }
+        // 4. eigenCutoff
+        if(fread(&oldEigenCutoff, sizeof(float), 1, fp) != 1){
+            throw("In LD block " + block->ID + ", error about eigen cutoff used in " + infile);
+            // cout << "Read " << eigenBinFile << " error svdVarProp" << endl;
+            // throw("read file error");
+        }
+        // 5. eigenvalues
+        VectorXf lambda(cur_k);
+        if(fread(lambda.data(), sizeof(float), cur_k, fp) != cur_k){
+            throw("In LD block " + block->ID + ",size error about eigenvalues in " + infile);
+            // cout << "Read " << eigenBinFile << " error (lambda)" << endl;
+            // throw("read file error");
+        }
+        // 6. eigenvector
+        MatrixXf U(cur_m, cur_k);
+        uint64_t nElements = (uint64_t)cur_m * (uint64_t)cur_k;
+        if(fread(U.data(), sizeof(float), nElements, fp) != nElements){
+            cout << "fread(U.data(), sizeof(float), nElements, fp): " << fread(U.data(), sizeof(float), nElements, fp) << endl;
+            cout << "nEle: " << nElements << " U.size: " << U.size() <<  " U.col: " << U.cols() << " row: " << U.rows() << endl;
+            throw("In LD block " + block->ID + ",size error about eigenvectors in " + infile);
+            // cout << "Read " << eigenBinFile << " error (U)" << endl;
+            // throw("read file error");
+        }
+        
+        // construct LD
+        MatrixXf LDPerBlock = U * lambda.asDiagonal() * U.transpose();
+        
+        // find LD friends for each SNP
+        for(unsigned j=0; j < block->numSnpInBlock; j++){
+            SnpInfo *snp = block->snpInfoVec[j];
+            for(unsigned k=0; k < j; k++){
+                float rsq = LDPerBlock(j,k)*LDPerBlock(j,k);
+                if(rsq > rsqThreshold){ ldSnpIdx[i][j].push_back(k);
+                    ldcor[i][j].push_back(LDPerBlock(j,k));
+                }
+            }
+        }
+
+        if(!(i%10)) cout << " Computed LD for block " << i << "\r" << flush;
+
+    }
+    
+    string filename = title + ".ld.txt";
+    ofstream out(filename.c_str());
+
+    out << boost::format("%12s %12s %12s\n")
+    % "SNP1"
+    % "SNP2"
+    % "LDcorrelation";
+
+    for (unsigned i=0; i<numLDBlocks; ++i) {
+        LDBlockInfo *block = ldBlockInfoVec[i];
+        for (unsigned j=0; j<block->numSnpInBlock; ++j) {
+            unsigned numLDfrd = ldSnpIdx[i][j].size();
+            if (!numLDfrd) continue;
+            SnpInfo *snpj = block->snpInfoVec[j];
+            for (unsigned k=0; k<numLDfrd; ++k) {
+                SnpInfo *snpk = block->snpInfoVec[ldSnpIdx[i][j][k]];
+                
+                out << boost::format("%12s %12s %12.6f\n")
+                % snpj->ID
+                % snpk->ID
+                % ldcor[i][j][k];
+            }
+        }
+    }
+    
+    out.close();
+    
+    cout << "Output LD information into [" + filename + "]." << endl;
+}
+
+void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold){
+    ifstream in(ldfile.c_str());
+    if (!in) {
+        throw("Error: cannot open file [" + ldfile + "].");
+    }
+    cout << "Reading pairwise LD correlations from file [" << ldfile << "]..." << endl;
+
+
+    LDmap.clear();
+    
+    string snp1ID, snp2ID;
+    SnpInfo *snp1;
+    SnpInfo *snp2;
+    float ldcor;
+
+    map<string, SnpInfo*>::iterator it1, it2, end = snpInfoMap.end();
+
+    string header;
+    getline(in, header);
+    unsigned line = 0;
+    
+    while (in >> snp1ID >> snp2ID >> ldcor) {
+        it1 = snpInfoMap.find(snp1ID);
+        it2 = snpInfoMap.find(snp2ID);
+        if (it1 == end) {
+            throw("ERROR: cannot find SNP " + snp1ID + ".");
+        }
+        if (it2 == end) {
+            throw("ERROR: cannot find SNP " + snp2ID + ".");
+        }
+        snp1 = it1->second;
+        snp2 = it2->second;
+//        snp1 = snpInfoMap[snp1ID];
+//        snp2 = snpInfoMap[snp2ID];
+        if (ldcor*ldcor > rsqThreshold) {
+            LDmap[snp1].push_back(snp2);
+            LDmap[snp2].push_back(snp1);
+        }
+        if (!(++line%10000)) cout << " read " << line << " lines in the file. \r" << flush;
+        //if (line == 10000) break;
+    }
+    
+    map<SnpInfo*, vector<SnpInfo*> >::iterator itLDmap, endLDmap = LDmap.end();
+    unsigned cnt = 0;
+    unsigned sum = 0;
+    for (itLDmap=LDmap.begin(); itLDmap!=endLDmap; ++itLDmap) {
+        ++cnt;
+        sum += itLDmap->second.size();
+    }
+    
+    in.close();
+    cout << "\nFound on average " << sum/cnt << " LD friends for each SNP given the rsq threshold of " << rsqThreshold << "." << endl;
+}
+
+void Data::getLDfriends(const string &pairwiseLDfile, const float rsqThreshold, const string &title){
+    ifstream in(pairwiseLDfile.c_str());
+    if (!in) {
+        throw("Error: cannot open file [" + pairwiseLDfile + "].");
+    }
+    cout << "Reading pairwise LD correlations from file [" << pairwiseLDfile << "]..." << endl;
+
+
+    map<string, vector<string> > LDfrdMap;
+    
+    string snp1ID, snp2ID;
+    float ldcor;
+
+    string header;
+    getline(in, header);
+    unsigned line = 0;
+    
+    while (in >> snp1ID >> snp2ID >> ldcor) {
+        if (ldcor*ldcor > rsqThreshold) {
+            LDfrdMap[snp1ID].push_back(snp2ID);
+            LDfrdMap[snp2ID].push_back(snp1ID);
+        }
+        if (!(++line%10000)) cout << " read " << line << " lines in the file. \r" << flush;
+    }
+    
+    in.close();
+
+    
+    string filename = title + ".ldfrd.txt";
+    ofstream out(filename.c_str());
+    
+    map<string, vector<string> >::iterator it, end = LDfrdMap.end();
+    unsigned cnt = 0;
+    unsigned sum = 0;
+    for (it=LDfrdMap.begin(); it!=end; ++it) {
+        out << boost::format("%20s ") % it->first;
+        vector<string> &ldfrd = it->second;
+        for (unsigned j=0; j< ldfrd.size(); ++j) {
+            if (j==0) out << ldfrd[j];
+            else out << "," << ldfrd[j];
+        }
+        out << endl;
+        ++cnt;
+        sum += ldfrd.size();
+    }
+
+    out.close();
+
+    cout << "\nFound on average " << sum/cnt << " LD friends for each SNP given the rsq threshold of " << rsqThreshold << "." << endl;
+    cout << "Output LD friends for " << cnt << " SNPs into file [" << filename << "]." << endl;
+}
+
+void Data::inputLDfriends(const string &ldfriendFile){
+    ifstream in(ldfriendFile.c_str());
+    if (!in) {
+        throw("Error: cannot open file [" + ldfriendFile + "].");
+    }
+    cout << "Reading LD friends from file [" << ldfriendFile << "]..." << endl;
+
+    LDmap.clear();
+    map<string, SnpInfo*>::iterator it1, it2, end = snpInfoMap.end();
+
+    string snp1ID, snp2ID;
+    string ldfrdID;
+    Gadget::Tokenizer colData;
+    string sep(",");
+    SnpInfo *snp1;
+    SnpInfo *snp2;
+    unsigned line = 0;
+
+    while (in >> snp1ID >> ldfrdID) {
+        it1 = snpInfoMap.find(snp1ID);
+        if (it1 == end) {
+            throw("ERROR: cannot find SNP " + snp1ID + ".");
+        }
+        snp1 = it1->second;
+
+        colData.getTokens(ldfrdID, sep);
+        unsigned numLDfrd = colData.size();
+        for (unsigned j=0; j<numLDfrd; ++j) {
+            snp2ID = colData[j];
+            it2 = snpInfoMap.find(snp2ID);
+            if (it2 == end) {
+                throw("ERROR: cannot find SNP " + snp2ID + ".");
+            }
+            snp2 = it2->second;
+            LDmap[snp1].push_back(snp2);
+        }
+        
+        if (!(++line%1000)) cout << " read " << line << " lines in the file. \r" << flush;
+    }
+    
+    map<SnpInfo*, vector<SnpInfo*> >::iterator itLDmap, endLDmap = LDmap.end();
+    unsigned cnt = 0;
+    unsigned sum = 0;
+    for (itLDmap=LDmap.begin(); itLDmap!=endLDmap; ++itLDmap) {
+        ++cnt;
+        sum += itLDmap->second.size();
+    }
+    
+    in.close();
+    cout << "\nFound on average " << sum/cnt << " LD friends for each SNP." << endl;
+
+}
+

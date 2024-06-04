@@ -60,6 +60,7 @@ public:
     bool skeleton;  // skeleton snp for sbayes
     bool flipped;   // A1 A2 alleles are flipped in between gwas and LD ref samples
     bool unconverged;  // fail to converge
+    bool inCS;  // in a credible set
     long sampleSize;
     
     string block;
@@ -112,6 +113,7 @@ public:
         skeleton = false;
         flipped = false;
         unconverged = false;
+        inCS = false;
         sampleSize = 0;
         effect = 0;
         varExplained = 0;
@@ -474,6 +476,8 @@ public:
     
     vector<vector<unsigned> > windowSnpIdxVec;
     
+    map<SnpInfo*, vector<SnpInfo*> > LDmap;
+    
     //////// ld block begin ///////
      vector<LDBlockInfo *> ldBlockInfoVec;
      vector<LDBlockInfo *> keptLdBlockInfoVec;
@@ -635,14 +639,14 @@ public:
     void impG(const unsigned block, double diag_mod = 0.1);
 
     ///////////// read LD matrix eigen-decomposition data for LD blocks
-    void readEigenMatrix(const string &eigenMatrixFile, const float eigenCutoff);
+    void readEigenMatrix(const string &eigenMatrixFile, const float eigenCutoff, const bool readBinary = false, const bool writeLdmTxt = false);
     void readBlockLDmatrixAndDoEigenDecomposition(const string &LDmatrixFile, const unsigned block, const float eigenCutoff, const bool writeLdmTxt);
     void readBlockLdmInfoFile(const string &infoFile);
     void readBlockLdmSnpInfoFile(const string &snpInfoFile);
     void readBlockLDMbinaryFile(const string &svdLDfile, const float eigenCutoff);
     vector<LDBlockInfo *> makeKeptLDBlockInfoVec(const vector<LDBlockInfo *> &ldBlockInfoVec);
     
-    void readEigenMatrixBinaryFile(const string &eigenMatrixFile, const float eigenCutoff);
+    void readEigenMatrixBinaryFile(const string &eigenMatrixFile, const float eigenCutoff, const bool writeLdmTxt = false);
     
     void readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const VectorXf &nGWASblock, const bool noscale, const bool makePseudoSummary);
 
@@ -670,7 +674,17 @@ public:
     void mergeBlockGwasSummary(const string &gwasSummaryFile, const string &title);
 
     void outputWandQ(const string &dirname);
-    void readUnconvergedSnplist(const string &filename);
+    void readUnconvergedSnplist(const string &snplistFile);
+    
+    void convert(const string &eigenMatrixFile, const string &snplistFile, const string &title);
+    
+    void getLDfromEigenMatrix(const string &eigenMatrixFile, const float rsqThreshold, const string &title);
+    
+    void inputPairwiseLD(const string &ldfile, const float rsqThreshold);
+    void inputLDfriends(const string &ldfriendFile);
+    void getLDfriends(const string &ldfile, const float rsqThreshold, const string &title);
+    
+    void outputEigenMatTxt(const string &title);
 };
 
 #endif /* data_hpp */

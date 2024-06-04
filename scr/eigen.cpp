@@ -513,6 +513,7 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
     }
 }
 
+
 void Data::outputBlockLDmatrixInfo(const LDBlockInfo &block, const string &outSnpfile, const string &outldmfile) const {
     // write snp info
     ofstream out1(outSnpfile.c_str());
@@ -1321,7 +1322,7 @@ void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, cons
 
 }
 
-void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCutoff){
+void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCutoff, const bool writeLdmTxt){
     if (!Gadget::directoryExist(dirname)) {
         throw("Error: cannot find the folder [" + dirname + "]");
     }
@@ -1415,6 +1416,22 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
         }
         block->sumPosEigVal = sumPosEigVal;
         block->eigenvalues = lambda;
+        
+        string outTxtfile;
+        ofstream outtxt;
+        if (writeLdmTxt) {
+            outTxtfile = dirname + "/block" + block->ID + ".eigen.txt";
+            outtxt.open(outTxtfile.c_str());
+            outtxt << "Block " << block->ID << endl;
+            outtxt << "numSnps " << cur_m << endl;
+            outtxt << "numEigenvalues " << cur_k << endl;
+            outtxt << "SumPositiveEigenvalues " << sumPosEigVal << endl;
+            outtxt << "EigenCutoff " << eigenCutoff << endl;
+            outtxt << "Eigenvalues\n" << lambda.transpose() << endl;
+            outtxt << "Eigenvectors\n" << U << endl;
+            outtxt.close();
+            cout << "Output eigen matrix for block " << block->ID << " in file [" << outTxtfile << "]." << endl;
+        }
     }
 }
 
@@ -1617,14 +1634,14 @@ void Data::readBlockLDmatrixAndDoEigenDecomposition(const string &dirname, const
     readBlockLdmBinaryAndDoEigenDecomposition(dirname, block, eigenCutoff, writeLdmTxt);
 }
 
-void Data::readEigenMatrix(const string &dirname, const float eigenCutoff){
+void Data::readEigenMatrix(const string &dirname, const float eigenCutoff, const bool readBinary, const bool writeLdmTxt){
     cout << "Reading LD matrix eigen-decomposition data..." << endl;
     //Gadget::Timer timer;
     //timer.setTime();
     
     readBlockLdmInfoFile(dirname + "/ldm.info");
     readBlockLdmSnpInfoFile(dirname + "/snp.info");
-    //readEigenMatrixBinaryFile(dirname, eigenCutoff);
+    if (readBinary) readEigenMatrixBinaryFile(dirname, eigenCutoff, writeLdmTxt);
     
     //timer.getTime();
     //cout << "Read LD data completed (time used: " << timer.format(timer.getElapse()) << ")." << endl;

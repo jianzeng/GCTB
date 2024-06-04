@@ -3717,6 +3717,8 @@ void ApproxBayesS::sampleUnknowns(){
 //        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
 //    } while (snpEffects.numNonZeros == 0);
 
+    snpEffects.computePosteriorMean(iter);
+
     if (diagnose) nro.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, snpEffects.header, snpEffects.leaveout, data.ZPZsp, data.ZPy, snpEffects.values);
 
     if (estimatePi) pi.sampleFromFC(data.numIncdSnps, snpEffects.numNonZeros);
@@ -3733,6 +3735,7 @@ void ApproxBayesS::sampleUnknowns(){
         vareBlk.sampleFromFC(wcorrBlocks, vargBlk.values, snpEffects.ssqBlocks, data.nGWASblock, data.numEigenvalBlock);
         varg.value = vargBlk.total;
         vare.value = vareBlk.mean;
+        if (!((iter+1) % 10)) nBadSnps.compute(snpEffects.delSnps, snpEffects.values, snpEffects.posteriorMean, data.b, wcorrBlocks, data.Qblocks, data.keptLdBlockInfoVec, iter);
     }
     else {
         covg.compute(data.ypy, snpEffects.values, data.ZPy, rcorr);
