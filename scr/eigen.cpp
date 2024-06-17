@@ -1925,7 +1925,7 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname) {
         // read snp info file
         ifstream in1(snpInfoFile.c_str());
         if (!in1) throw ("Error: can not open the file [" + snpInfoFile + "] to read.");
-        cout << "Reading SNP info from file [" + snpInfoFile + "]." << endl;
+        //cout << "Reading SNP info from file [" + snpInfoFile + "]." << endl;
         string header;
         string id, allele1, allele2;
         int chr, physPos,ld_n;
@@ -1957,7 +1957,7 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname) {
         // read ldm info file
         ifstream in2(ldmInfoFile.c_str());
         if (!in2) throw ("Error: can not open the file [" + ldmInfoFile + "] to read.");
-        cout << "Reading LDM info from file [" + ldmInfoFile + "]." << endl;
+        //cout << "Reading LDM info from file [" + ldmInfoFile + "]." << endl;
         
         int blockStart, blockEnd, snpNum;
         string startSnpID, endSnpID;
