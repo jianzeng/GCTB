@@ -1670,7 +1670,7 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
         data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, cutoff, data.pseudoGwasEffectTrn, data.pseudoGwasNtrnBlock, false, false);
         //data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, cutoff);
         //data.constructWandQ(data.pseudoGwasEffectTrn, data.pseudoGwasNtrn);
-
+        
         data.initVariances(opt.heritability, opt.propVarRandom);
         bool print = false;
         Model *modeli = new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.hsqPercModel, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, print);

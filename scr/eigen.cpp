@@ -1304,6 +1304,7 @@ void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, cons
             outtxt << endl;
         }
         
+        fclose(fp);
         fclose(outbin);
         if (writeLdmTxt) outtxt.close();
 
@@ -1396,7 +1397,9 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
             // cout << "Read " << eigenBinFile << " error (U)" << endl;
             // throw("read file error");
         }
+        
         fclose(fp);
+        
         bool haveValue = false;
         int revIdx = 0;
         if(oldEigenCutoff < eigenCutoff & i == 0){
@@ -1481,34 +1484,39 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
         
         string infile = dirname + "/block" + block->ID + ".eigen.bin";
         FILE *fp = fopen(infile.c_str(), "rb");
+        if(!fp){cout << "Error: can not open the file [" + infile + "] to read." << endl;}
         if(!fp){throw ("Error: can not open the file [" + infile + "] to read.");}
 
         // 1. marker number
         if(fread(&cur_m, sizeof(int32_t), 1, fp) != 1){
             throw("Read " + infile + " error (m)");
         }
-                
+        
         if(cur_m != numSnpInRegion[i]){
             throw("In LD block " + block->ID + ", inconsistent marker number to marker information in " + infile);
         }
+
         // 2. ncol of eigenVec (number of eigenvalues)
         if(fread(&cur_k, sizeof(int32_t), 1, fp) != 1){
             throw("In LD block " + block->ID + ", error about number of eigenvalues in  " + infile);
             // cout << "Read " << eigenBinFile << " error (k)" << endl;
             // throw("read file error");
         }
+
         // 3. sum of all positive eigenvalues
         if(fread(&sumPosEigVal, sizeof(float), 1, fp) != 1){
             throw("In LD block " + block->ID + ", error about the sum of positive eigenvalues in " + infile);
             // cout << "Read " << eigenBinFile << " error sumLambda" << endl;
             // throw("read file error");
         }
+
         // 4. eigenCutoff
         if(fread(&oldEigenCutoff, sizeof(float), 1, fp) != 1){
             throw("In LD block " + block->ID + ", error about eigen cutoff used in " + infile);
             // cout << "Read " << eigenBinFile << " error svdVarProp" << endl;
             // throw("read file error");
         }
+
         // 5. eigenvalues
         VectorXf lambda(cur_k);
         if(fread(lambda.data(), sizeof(float), cur_k, fp) != cur_k){
@@ -1516,6 +1524,7 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
             // cout << "Read " << eigenBinFile << " error (lambda)" << endl;
             // throw("read file error");
         }
+
         // 6. eigenvector
         MatrixXf U(cur_m, cur_k);
         uint64_t nElements = (uint64_t)cur_m * (uint64_t)cur_k;
@@ -1526,12 +1535,16 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
             // cout << "Read " << eigenBinFile << " error (U)" << endl;
             // throw("read file error");
         }
+        
+        fclose(fp);   // this is important!
+        
         bool haveValue = false;
         int revIdx = 0;
         if(oldEigenCutoff < eigenCutoff & i == 0){
             cout << "Warning: current proportion of variance in LD block is set as " + to_string(eigenCutoff)+ ". But the proportion of variance is set as "<< to_string(oldEigenCutoff) + " in "  + infile + ".\n";
             // throw("");
         }
+
         // cout << "lambda: " << lambda << endl;
         // cout << "U: " << U << endl;
         // eigenVecLdBlock[i] = U;
@@ -1545,7 +1558,7 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
         }
         block->sumPosEigVal = sumPosEigVal;
         block->eigenvalues = lambda;
-        
+                
         // make w and Q
         VectorXf sqrtLambda = eigenValLdBlock[i].array().sqrt();
         wcorrBlocks[i] = (1.0/sqrtLambda.array()).matrix().asDiagonal() * (eigenVecLdBlock[i].transpose() * GWASeffects[i] );
@@ -1565,7 +1578,7 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
 
         numSnpsBlock[i] = Qblocks[i].cols();
         numEigenvalBlock[i] = Qblocks[i].rows();
-        
+                
         // make pseudo summary data
         if (makePseudoSummary) {
             long size = eigenValLdBlock[i].size();
