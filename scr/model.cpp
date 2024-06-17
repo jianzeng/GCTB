@@ -2729,7 +2729,7 @@ void ApproxBayesC::sampleUnknowns(){
 //    }
     
     float scaleIteri = 0;
-    if (iter < 1000) {
+    if (++iter < 1000) {
         if (noscale)
         {
             scaleIteri = 0.5f * varg.value / (data.snp2pq.array().sum()*(pi.value));
@@ -2748,8 +2748,6 @@ void ApproxBayesC::sampleUnknowns(){
 //        hsqMCMC.push_back(hsq.value);
 //        if (!(iter % 1000)) checkHsq(hsqMCMC);
 //    }
-    
-    ++iter;
 }
 
 
@@ -4193,7 +4191,7 @@ void ApproxBayesR::sampleUnknowns(){
     
     if (iter >= 1000) sigmaSq.scale = scalePrior;
     scale.getValue(sigmaSq.scale);
-    // cout << "iter " << iter << " scalePrior " << scalePrior << "sigmaSq.scale " << sigmaSq.scale << endl;
+    //cout << "iter " << iter << " scalePrior " << scalePrior << "sigmaSq.scale " << sigmaSq.scale << endl;
 
 //    if (sparse)
 //        rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
@@ -4223,7 +4221,7 @@ void ApproxBayesR::sampleUnknowns(){
     }
 
     float scaleIteri = 0;
-    if (iter < 1000) {
+    if (++iter < 1000) {
         if (noscale)
         {
             scaleIteri = 0.5f * varg.value / (data.snp2pq.array().sum()*gamma.values.dot(Pis.values));
@@ -4249,8 +4247,6 @@ void ApproxBayesR::sampleUnknowns(){
             cout << "\nThe smallest component (Vg2) explains at least half of the variance that is explained by the second smallest component (Vg3). The MCMC will carry on with the current setting.\n" << endl;
         }
     }
-
-    ++iter;
 }
 
 void ApproxBayesR::VgMixComps::compute(const VectorXf &snpEffects, const VectorXf &ZPy, const VectorXf &rcorr, const vector<vector<unsigned> > &snpset, const float varg, const float nobs) {

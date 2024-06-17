@@ -5676,6 +5676,7 @@ void Data::convert(const string &eigenMatrixFile, const string &snplistFile, con
 
 //        if(!(i%10)) cout << " Converted block " << i << "\r" << flush;
         
+        fclose(fp);
     }
 
 
@@ -5785,6 +5786,8 @@ void Data::getLDfromEigenMatrix(const string &eigenMatrixFile, const float rsqTh
                 }
             }
         }
+        
+        fclose(fp);
 
         if(!(i%10)) cout << " Computed LD for block " << i << "\r" << flush;
 
