@@ -1821,7 +1821,7 @@ public:
         
     VectorXf VgMean;  // running mean of variance explained by each component
 
-    ApproxBayesR(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool hsqPercModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool message = true):
+    ApproxBayesR(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool hsqPercModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool nDistAuto, const bool message = true):
     ApproxBayesC(data, lowrank, varGenotypic, varResidual, 0.0, (1-pis[0]), piPar[0], piPar[1], estimatePi, noscale, 0, overdispersion, estimatePS, 0, spouseCorrelation, diagnosticMode, robustMode, false, false),
     Pis(pis,piPar),
     numSnps(pis),
@@ -1860,8 +1860,8 @@ public:
         if (hsqPercModel) paramVec.insert(paramVec.begin(), Vgs.begin(), Vgs.end());
         paramVec.insert(paramVec.begin(), numSnps.begin(), numSnps.end());
         paramToPrint = {&sigmaSq, &hsq, &vare};
-        if (hsqPercModel) paramToPrint.insert(paramToPrint.begin(), Vgs.begin()+1, Vgs.end());
-        paramToPrint.insert(paramToPrint.begin(), numSnps.begin()+1, numSnps.end());
+        if (hsqPercModel) paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
+        paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
         if (lowRankModel) {
             paramSetVec.push_back(&vargBlk);
             paramSetVec.push_back(&vareBlk);
@@ -1969,7 +1969,7 @@ public:
     ArrayXf snp2pqPowS;
     
     ApproxBayesRS(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const float varS, const vector<float> &svalue, const string &algorithm, const bool noscale, const bool hsqPercModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool randomStart = false, const bool message = true):
-    ApproxBayesR(data, lowrank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, hsqPercModel, overdispersion, estimatePS, spouseCorrelation, false, robustMode, alg, false),
+    ApproxBayesR(data, lowrank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, hsqPercModel, overdispersion, estimatePS, spouseCorrelation, false, robustMode, alg, false, false),
     snpEffects(data.snpEffectNames, data.snp2pq, pis),
     S(data.numIncdSnps, varS, svalue[0])
     {
@@ -2560,7 +2560,7 @@ public:
 //    vector<VectorXf> whatBlocks;
         
     ApproxBayesRC(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool hsqPercModel, const bool perSnpGV, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool nDistAuto, const bool message = true):
-    ApproxBayesR(data, lowrank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, hsqPercModel, overdispersion, estimatePS, spouseCorrelation, false, robustMode, alg, false),
+    ApproxBayesR(data, lowrank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, hsqPercModel, overdispersion, estimatePS, spouseCorrelation, false, robustMode, alg, nDistAuto, false),
     snpEffects(data.snpEffectNames, pis),
     annoEffects(data.annoNames, pis.size(), data.annoMat),
     sigmaSqAnno(annoEffects.colnames, annoEffects.numAnno),
@@ -2628,8 +2628,8 @@ public:
             paramSetVec.push_back(&vareBlk);
             paramToPrint.push_back(&nBadSnps);
         }
-        if (hsqPercModel) paramToPrint.insert(paramToPrint.begin(), Vgs.begin()+1, Vgs.end());
-        paramToPrint.insert(paramToPrint.begin(), numSnps.begin()+1, numSnps.end());
+        if (hsqPercModel) paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
+        paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
         if (modelPS) {
             paramVec.push_back(&ps);
             paramToPrint.push_back(&ps);
@@ -2792,7 +2792,7 @@ public:
         }
         paramToPrint.push_back(&rounding);
         if (message) {
-            cout << "\nBayesR model fitted. Algorithm: " << alg << "." << endl;
+            cout << "\nBayesRC model fitted. Algorithm: " << alg << "." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
             cout << "Gamma: " << gamma.transpose() << endl;
         }
