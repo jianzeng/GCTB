@@ -7358,9 +7358,9 @@ void BayesRC::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const
             sumSq += values[i] * values[i];
             wtdSumSq += (values[i] * values[i]) / gamma[delta];
             ++numNonZeros;
-            z(i,0) = 1;
-            if (delta > 1) z(i,1) = 1;
-            if (delta > 2) z(i,2) = 1;
+            for(unsigned k2 = 0; k2 < delta ; k2++){
+                z(i, k2) = 1;
+            }
         }
         else {
             if (oldSample) ycorr += Z.col(i) * oldSample;
@@ -7373,10 +7373,22 @@ void BayesRC::computePiFromP(const MatrixXf &snpP, MatrixXf &snpPi) {
 //    cout << "computing Pi from p ..." << endl;
 //    cout << "snpP" << endl;
 //    cout << snpP << endl;
-    snpPi.col(0) = 1.0 - snpP.col(0).array();
-    snpPi.col(1) = (1.0 - snpP.col(1).array()) * snpP.col(0).array();
-    snpPi.col(2) = (1.0 - snpP.col(2).array()) * snpP.col(0).array() * snpP.col(1).array();
-    snpPi.col(3) = snpP.col(0).array() * snpP.col(1).array() * snpP.col(2).array();
+    unsigned numDist = snpPi.cols();
+    unsigned numSnps = snpPi.rows();
+    
+    for (unsigned i=0; i<numDist; ++i) {
+        if (i < numDist-1) snpPi.col(i) = (1.0 - snpP.col(i).array());
+        else snpPi.col(i).setOnes();
+        if (i) {
+            for (unsigned j=0; j<i; ++j) {
+                snpPi.col(i).array() *= snpP.col(j).array();
+            }
+        }
+    }
+//    snpPi.col(0) = 1.0 - snpP.col(0).array();
+//    snpPi.col(1) = (1.0 - snpP.col(1).array()) * snpP.col(0).array();
+//    snpPi.col(2) = (1.0 - snpP.col(2).array()) * snpP.col(0).array() * snpP.col(1).array();
+//    snpPi.col(3) = snpP.col(0).array() * snpP.col(1).array() * snpP.col(2).array();
 }
 
 void BayesRC::initSnpPandPi(const VectorXf &pis, const unsigned numSnps, MatrixXf &snpP, MatrixXf &snpPi) {
@@ -7384,9 +7396,14 @@ void BayesRC::initSnpPandPi(const VectorXf &pis, const unsigned numSnps, MatrixX
     snpP.setZero(numSnps, ndist-1);
     snpPi.setZero(numSnps, ndist);
     VectorXf p(ndist-1);
-    p[0] = pis[1] + pis[2] + pis[3];
-    p[1] = (pis[2] + pis[3]) / p[0];
-    p[2] = pis[3] / (pis[2] + pis[3]);
+    
+    for (unsigned i=1; i<ndist; ++i) {
+        p[i-1] = pis.tail(ndist-i).sum();
+        if (i>1) p[i-1] /= pis.tail(ndist-i+1).sum();
+    }
+//    p[0] = pis[1] + pis[2] + pis[3];
+//    p[1] = (pis[2] + pis[3]) / p[0];
+//    p[2] = pis[3] / (pis[2] + pis[3]);
     for (unsigned i=0; i<numSnps; ++i) {
         snpPi.row(i) = pis;
         snpP.row(i) = p;
@@ -7394,7 +7411,7 @@ void BayesRC::initSnpPandPi(const VectorXf &pis, const unsigned numSnps, MatrixX
 }
 
 void BayesRC::sampleUnknowns(){
-    static unsigned iter=0;
+//    static unsigned iter=0;
     
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
     if (data.numRandomEffects) {
@@ -7415,9 +7432,6 @@ void BayesRC::sampleUnknowns(){
     //cout << "snpP " << snpP.row(0) << endl;
 
     if (estimatePi) {
-        //Pis.sampleFromFC(snpEffects.numSnpMix);
-        //initSnpPandPi(Pis.values, data.numIncdSnps, snpP, snpPi);
-        //computePfromPi(snpPi, snpP);
         if (algorithm == gibbs) {
             annoEffects.sampleFromFC_Gibbs(snpEffects.z, data.annoMat, sigmaSqAnno.values, snpP);
             annoCondProb.compute_probit(annoEffects, data.annoInfoVec);
@@ -7441,25 +7455,25 @@ void BayesRC::sampleUnknowns(){
     annoTotalGenVar.compute(annoGenVar);
     annoPerSnpHsqEnrich.compute(annoTotalGenVar.values, data.annoInfoVec);
 
-    if (iter >= 1000) sigmaSq.scale = scalePrior;
-    scale.getValue(sigmaSq.scale);
+    //if (iter >= 1000) sigmaSq.scale = scalePrior;
+    //scale.getValue(sigmaSq.scale);
     // cout << "iter " << iter << " scalePrior " << scalePrior << "sigmaSq.scale " << sigmaSq.scale << endl;
 
     if (hsqPercModel) Vgs.compute(snpEffects.values, data.Z, snpEffects.snpset, varg.value);
     rounding.computeYcorr(data.y, data.X, data.W, data.Z, fixedEffects.values, randomEffects.values, snpEffects.values, ycorr);
     nnzSnp.getValue(snpEffects.numNonZeros);
 
-    float scaleIteri = 0;
-    if (++iter < 1000) {
-        if (noscale)
-        {
-            scaleIteri = 0.5f * varg.value / (data.snp2pq.array().sum()*gamma.values.dot(Pis.values));
-        } else
-        {
-            scaleIteri = 0.5f * varg.value / (data.snp2pq.size()*gamma.values.dot(Pis.values));
-        }
-        genVarPrior += (varg.value - genVarPrior)/iter;
-        scalePrior += (scaleIteri - scalePrior)/iter;
-    }
+//    float scaleIteri = 0;
+//    if (++iter < 1000) {
+//        if (noscale)
+//        {
+//            scaleIteri = 0.5f * varg.value / (data.snp2pq.array().sum()*gamma.values.dot(Pis.values));
+//        } else
+//        {
+//            scaleIteri = 0.5f * varg.value / (data.snp2pq.size()*gamma.values.dot(Pis.values));
+//        }
+//        genVarPrior += (varg.value - genVarPrior)/iter;
+//        scalePrior += (scaleIteri - scalePrior)/iter;
+//    }
 }
 
