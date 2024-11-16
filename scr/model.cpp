@@ -640,7 +640,7 @@ void BayesR::VgMixComps::compute(const VectorXf &snpEffects, const MatrixXf &Z, 
 void BayesR::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &Rsqrt, const bool weightedRes,
                                       const float sigmaSq, const VectorXf &pis, const VectorXf &gamma,
                                       const float vare, VectorXf &ghat, VectorXf &snpStore,
-                                      const float varg, const bool hsqPercModel){
+                                      const float varg, const bool hsqPercModel, DeltaPi &deltaPi){
     sumSq = 0.0;
     wtdSumSq = 0.0;
     numNonZeros = 0;
@@ -674,6 +674,10 @@ void BayesR::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
         snpset[k].resize(0);
     }
     
+    for (unsigned k=0; k<ndist; ++k) {
+        deltaPi[k]->values.setZero(size);
+    }
+    
     for (unsigned i=0; i<size; ++i) {
         // ------------------------------
         // Derived Bayes R implementation
@@ -701,6 +705,7 @@ void BayesR::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
         // pll = (ll.array().exp().cwiseProduct(pis.array())) / ((ll.array().exp()).cwiseProduct(pis.array())).sum();
         for (unsigned k=0; k<pis.size(); ++k) {
             pll[k] = 1.0 / (exp(ll.array() - ll[k])).sum();
+            deltaPi[k]->values[i] = pll[k];
         }
         // --------------------------------------------------------------
         // Sample the group based on the calculated probabilities
@@ -755,7 +760,7 @@ void BayesR::sampleUnknowns(){
     }
     unsigned cnt=0;
     do {
-        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, Pis.values, gamma.values, vare.value, ghat, snpStore, varg.value, hsqPercModel);
+        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, Pis.values, gamma.values, vare.value, ghat, snpStore, varg.value, hsqPercModel, deltaPi);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);  
     sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
@@ -2708,11 +2713,12 @@ void ApproxBayesC::sampleUnknowns(){
         varg.compute(snpEffects.values, data.ZPy, rcorr, covg.value);
         //    varg.value = sigmaSqG.value;
         vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value);
+        //vare.value = data.varPhenotypic;
     }
     //hsq.compute(varg.value, vare.value);
     hsq.value = varg.value / data.varPhenotypic;
 
-    if (iter >= 1000) sigmaSq.scale = scalePrior;
+//    if (iter >= 1000) sigmaSq.scale = scalePrior;
     //sigmaSq.scale = scalePrior;
     scale.getValue(sigmaSq.scale);
         
@@ -4118,18 +4124,18 @@ void ApproxBayesR::sampleUnknowns(){
     unsigned cnt=0;
     //do {
         if (data.Z.size()) {
-            snpEffects.sampleFromFC(data.ZPy, data.ZPZdiag, data.Z, data.Z.rows(), data.numKeptInds, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore, ghat, varg.value, hsqPercModel);
+            snpEffects.sampleFromFC(data.ZPy, data.ZPZdiag, data.Z, data.Z.rows(), data.numKeptInds, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore, ghat, varg.value, hsqPercModel, deltaPi);
         }
         else {
             if (lowRankModel) {
-                snpEffects.sampleFromFC(wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, sigmaSq.value, Pis.values, gamma.values, snpStore, varg.value, hsqPercModel);
+                snpEffects.sampleFromFC(wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, sigmaSq.value, Pis.values, gamma.values, snpStore, varg.value, hsqPercModel, deltaPi);
             }
             else if (sparse)
                 snpEffects.sampleFromFC(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, data.tss, varei, data.n, data.snp2pq, data.LDsamplVar, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore,
-                                        varg.value, ps.value, overdispersion, hsqPercModel);
+                                        varg.value, ps.value, overdispersion, hsqPercModel, deltaPi);
             else
                 snpEffects.sampleFromFC(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, data.tss, varei, data.n, data.snp2pq, data.LDsamplVar, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore,
-                                        varg.value, ps.value, overdispersion, hsqPercModel);
+                                        varg.value, ps.value, overdispersion, hsqPercModel, deltaPi);
         }
     //    if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     //} while (snpEffects.numNonZeros == 0);
@@ -4241,7 +4247,9 @@ void ApproxBayesR::sampleUnknowns(){
     VgMean += (Vgs.values - VgMean)/iter;
     
     if (nDistAuto & iter==501) { // check if the smallest component explains less than half of the variance than the second smallest. If so, remove the smallest component and restart MCMC.
-        if (VgMean[1] < 0.5*VgMean[2]) {
+        if (VgMean.size() == 2) {
+
+        } else if (VgMean[1] < 0.5*VgMean[2]) {
             throw("\nCAUTION: The smallest component (Vg2) explains less than half of the variance that is explained by the second smallest component (Vg3).");
         } else {
             cout << "\nThe smallest component (Vg2) explains at least half of the variance that is explained by the second smallest component (Vg3). The MCMC will carry on with the current setting.\n" << endl;
@@ -4373,7 +4381,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
                                             const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
                                             const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, VectorXf &snpStore,
                                             const float varg, const float ps, const float overdispersion,
-                                            const bool hsqPercModel){
+                                            const bool hsqPercModel, DeltaPi &deltaPi){
     // -----------------------------------------
     // Initialise the parameters in MCMC sampler
     // -----------------------------------------
@@ -4414,6 +4422,10 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
         for (unsigned k=0; k<ndist; ++k) {
             snpsetChr[i][k].resize(0);
         }
+    }
+
+    for (unsigned k=0; k<ndist; ++k) {
+        deltaPi[k]->values.setZero(size);
     }
 
     VectorXf invGamma = gamma.array().inverse();
@@ -4485,7 +4497,8 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Sparse
             // pll = (ll.array().exp().cwiseProduct(pis.array())) / ((ll.array().exp()).cwiseProduct(pis.array())).sum();
             for (unsigned k=0; k<pis.size(); ++k) {
               pll[k] = 1.0 / (exp(ll.array() - ll[k])).sum();
-            }
+              deltaPi[k]->values[i] = pll[k];
+           }
             // --------------------------------------------------------------
             // Sample the group based on the calculated probabilities
             // --------------------------------------------------------------
@@ -4574,7 +4587,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
                                             const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
                                             const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, VectorXf &snpStore,
                                             const float varg, const float ps, const float overdispersion,
-                                            const bool hsqPercModel){
+                                            const bool hsqPercModel, DeltaPi &deltaPi){
     // -----------------------------------------
     // Initialise the parameters in MCMC sampler
     // -----------------------------------------
@@ -4615,6 +4628,10 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
         for (unsigned k=0; k<ndist; ++k) {
             snpsetChr[i][k].resize(0);
         }
+    }
+
+    for (unsigned k=0; k<ndist; ++k) {
+        deltaPi[k]->values.setZero(size);
     }
 
     // --------------------------------------------------------------------------------
@@ -4669,7 +4686,8 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
             // pll = (ll.array().exp().cwiseProduct(pis.array())) / ((ll.array().exp()).cwiseProduct(pis.array())).sum();
             for (unsigned k=0; k<pis.size(); ++k) {
               pll[k] = 1.0 / (exp(ll.array() - ll[k])).sum();
-            }
+              deltaPi[k]->values[i] = pll[k];
+           }
             // if (i < 10) {
             //   cout << "P likelihood 1 " << pll << endl;
             //   cout << "P likelihood 2 " << pll2 << endl;
@@ -4743,7 +4761,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Vector
 
 void ApproxBayesR::SnpEffects::sampleFromFC(const VectorXf &ZPy, const VectorXf &ZPZdiag, const MatrixXf &Z, const float n_ref, const float n_gwas,
                                             const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare,
-                                            VectorXf &snpStore, VectorXf &ghat, const float varg, const bool hsqPercModel) {
+                                            VectorXf &snpStore, VectorXf &ghat, const float varg, const bool hsqPercModel, DeltaPi &deltaPi) {
         sumSq = 0.0;
         numNonZeros = 0;
             
@@ -4776,6 +4794,10 @@ void ApproxBayesR::SnpEffects::sampleFromFC(const VectorXf &ZPy, const VectorXf 
             snpset[k].resize(0);
         }
         
+    for (unsigned k=0; k<ndist; ++k) {
+        deltaPi[k]->values.setZero(size);
+    }
+
         for (unsigned i=0; i<size; ++i) {
             // ------------------------------
             // Derived Bayes R implementation
@@ -4803,7 +4825,8 @@ void ApproxBayesR::SnpEffects::sampleFromFC(const VectorXf &ZPy, const VectorXf 
             // pll = (ll.array().exp().cwiseProduct(pis.array())) / ((ll.array().exp()).cwiseProduct(pis.array())).sum();
             for (unsigned k=0; k<pis.size(); ++k) {
                 pll[k] = 1.0 / (exp(ll.array() - ll[k])).sum();
-            }
+                deltaPi[k]->values[i] = pll[k];
+           }
             // --------------------------------------------------------------
             // Sample the group based on the calculated probabilities
             // --------------------------------------------------------------
@@ -4935,7 +4958,7 @@ void ApproxBayesR::SnpEffects::adjustByCG(const VectorXf &ZPy, const vector<Spar
 void ApproxBayesR::SnpEffects::sampleFromFC(const VectorXf &ZPy, const SpMat &ZPZsp, const VectorXf &ZPZdiag,
                                             VectorXf &rcorr, const VectorXf &LDsamplVar,
                                             const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore,
-                                            const float varg, const float vare, const float ps, const float overdispersion, const bool hsqPercModel) {
+                                            const float varg, const float vare, const float ps, const float overdispersion, const bool hsqPercModel, DeltaPi &deltaPi) {
     // CG-accelerated Gibbs sampling algorithm
     // first sample delta conditional on beta for all SNPs
     // then construct mixed model equations for which the solutions are samples from the Gibbs sampling
@@ -4973,6 +4996,10 @@ void ApproxBayesR::SnpEffects::sampleFromFC(const VectorXf &ZPy, const SpMat &ZP
     VectorXf invGamma = gamma.inverse();
     invGamma[0] = 0;
 
+    for (unsigned k=0; k<ndist; ++k) {
+        deltaPi[k]->values.setZero(size);
+    }
+
 
     for (unsigned i=0; i<size; ++i) {
         
@@ -4988,6 +5015,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(const VectorXf &ZPy, const SpMat &ZP
         
         for (unsigned k=0; k<ndist; ++k) {
             probDelta[k] = 1.0f/(logDelta-logDelta[k]).exp().sum();
+            deltaPi[k]->values[i] = probDelta[k];
         }
         
         delta = bernoulli.sample(probDelta);
@@ -5036,7 +5064,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(const VectorXf &ZPy, const SpMat &ZP
 void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                                             const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                             const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore, const float varg,
-                                            const bool hsqPercModel) {
+                                            const bool hsqPercModel, DeltaPi &deltaPi) {
     // -----------------------------------------
     // This method uses low-rank model with eigen-decomposition of LD matrices
     // -----------------------------------------
@@ -5087,6 +5115,10 @@ void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
         }
     }
 
+    for (unsigned k=0; k<ndist; ++k) {
+        deltaPi[k]->values.setZero(size);
+    }
+
     // --------------------------------------------------------------------------------
     // Cycle over all variants in the window and sample the genetics effects
     // --------------------------------------------------------------------------------
@@ -5120,6 +5152,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
             ArrayXf probDelta(ndist);
             for (unsigned k=0; k<ndist; ++k) {
                 probDelta[k] = 1.0f/(logDelta-logDelta[k]).exp().sum();
+                deltaPi[k]->values[i] = probDelta[k];
             }
                         
 //            #pragma omp critical
@@ -7272,7 +7305,9 @@ void ApproxBayesRC::sampleUnknowns(){
     VgMean += (Vgs.values - VgMean)/iter;
     
     if (nDistAuto & iter==501) { // check if the smallest component explains less than half of the variance than the second smallest. If so, remove the smallest component and restart MCMC.
-        if (VgMean[1] < 0.5*VgMean[2]) {
+        if (VgMean.size() == 2) {
+
+        } else if (VgMean[1] < 0.5*VgMean[2]) {
             throw("\nCAUTION: The smallest component (Vg2) explains less than half of the variance that is explained by the second smallest component (Vg3).");
         } else {
             cout << "\nThe smallest component (Vg2) explains at least half of the variance that is explained by the second smallest component (Vg3). The MCMC will carry on with the current setting.\n" << endl;

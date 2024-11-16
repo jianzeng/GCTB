@@ -514,6 +514,23 @@ class BayesR : public BayesC {
     // Prior for snp efect pi_1 * N(0, 0) + pi_2 * N(0, sig^2_beta * gamma_2) + pi_3 * N(0, sig^2_beta * gamma_3) + pi_3 * N(0, sig^2_beta * gamma_4)
     // consider S as unknown to make inference on the relationship between MAF and effect size
 public:
+
+    class DeltaPi : public vector<ParamSet*> {
+    public:
+        vector<string> colnames;
+        unsigned numDist;
+        unsigned numSnps;
+
+        DeltaPi(const vector<string> &header, const unsigned numDist, const string &lab = "DeltaPi"):
+        numDist(numDist) {
+            colnames.resize(numDist);
+            numSnps = header.size();
+            for (unsigned i = 0; i<numDist; ++i) {
+                colnames[i] = "DeltaPi" + to_string(static_cast<long long>(i + 1));
+                this->push_back(new ParamSet(colnames[i], header));
+            }
+        }
+    };
     
     class SnpEffects : public BayesC::SnpEffects {
     public:
@@ -529,7 +546,7 @@ public:
         void sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &Rsqrt, const bool weightedRes,
                           const float sigmaSq, const VectorXf &pis,  const VectorXf &gamma,
                           const float vare, VectorXf &ghat, VectorXf &snpStore,
-                          const float varg, const bool hsqPercModel);
+                          const float varg, const bool hsqPercModel, DeltaPi &deltaPi);
     };
 
     class ProbMixComps : public vector<Parameter*>, public Stat::Dirichlet {
@@ -616,7 +633,6 @@ public:
         }
     };
     
-    
 public:
     VectorXf snpStore;   
     SnpEffects snpEffects;
@@ -625,7 +641,8 @@ public:
     VgMixComps Vgs;
     NumSnpMixComps numSnps;
     Gammas gamma;
-    
+    DeltaPi deltaPi;
+
     bool hsqPercModel;
 
     BayesR(const Data &data, const float varGenotypic, const float varResidual, const float varRandom, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel,
@@ -637,6 +654,7 @@ public:
     gamma(gamma, vector<string>(gamma.size())),
     snpEffects(data.snpEffectNames, algorithm),
     sigmaSq(varGenotypic, data.snp2pq, gamma, pis, noscale),
+    deltaPi(data.snpEffectNames, pis.size()),
     hsqPercModel(hsqPercModel)
     {
         paramSetVec  = {&snpEffects, &fixedEffects};
@@ -654,6 +672,9 @@ public:
             paramVec.push_back(&sigmaSqRand);
             paramVec.push_back(&varRand);
             paramToPrint.push_back(&varRand);
+        }
+        for (unsigned i=0; i<deltaPi.numDist; ++i) {
+            paramSetVec.push_back(deltaPi[i]);
         }
         paramToPrint.push_back(&rounding);
         if (message) {
@@ -1710,6 +1731,12 @@ class ApproxBayesR : public ApproxBayesC {
     
 public:
     
+    class DeltaPi : public BayesR::DeltaPi {
+    public:
+
+        DeltaPi(const vector<string> &header, const unsigned numDist, const string &lab = "DeltaPi"): BayesR::DeltaPi(header, numDist) {}
+    };
+    
     class SnpEffects : public ApproxBayesC::SnpEffects {
     public:
         vector<vector<unsigned> > snpset;
@@ -1734,27 +1761,27 @@ public:
                           const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
                           const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, VectorXf &snpStore, 
                           const float varg, const float ps, const float overdispersion,
-                          const bool hsqPercModel);
+                          const bool hsqPercModel, DeltaPi &deltaPi);
         void sampleFromFC(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const VectorXf &se, const VectorXf &tss, VectorXf &varei, const VectorXf &n, const VectorXf &snp2pq, const VectorXf &LDsamplVar,
                           const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, VectorXf &snpStore,
                           const float varg, const float ps, const float overdispersion,
-                          const bool hsqPercModel);
+                          const bool hsqPercModel, DeltaPi &deltaPi);
         
         void sampleFromFC(const VectorXf &ZPy, const SpMat &ZPZsp, const VectorXf &ZPZdiag,
                           VectorXf &rcorr, const VectorXf &LDsamplVar,
                           const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore,
-                          const float varg, const float vare, const float ps, const float overdispersion, const bool hsqPercModel);
+                          const float varg, const float vare, const float ps, const float overdispersion, const bool hsqPercModel, DeltaPi &deltaPi);
         
         void sampleFromFC(const VectorXf &ZPy, const VectorXf &ZPZdiag, const MatrixXf &Z, const float n_ref, const float n_gwas,
                           const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare,
-                          VectorXf &snpStore, VectorXf &ghat, const float varg, const bool hsqPercModel);
+                          VectorXf &snpStore, VectorXf &ghat, const float varg, const bool hsqPercModel, DeltaPi &deltaPi);
 
         void sampleFromFC(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                           const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                           const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore, const float varg,
-                          const bool hsqPercModel);
+                          const bool hsqPercModel, DeltaPi &deltaPi);
 
         void adjustByCG(const VectorXf &ZPy, const vector<SparseVector<float> > &ZPZsp, VectorXf &rcorr);
     };
@@ -1802,6 +1829,7 @@ public:
     BayesR::VarEffects sigmaSq;
     BayesR::ProbMixComps Pis;
     BayesR::NumSnpMixComps numSnps;
+    DeltaPi deltaPi;
     VgMixComps Vgs;
     ApproxBayesC::BlockGenotypicVar vargBlk;
     ApproxBayesC::BlockResidualVar vareBlk;
@@ -1838,6 +1866,7 @@ public:
     covg(spouseCorrelation, data.numKeptInds),
     scalePrior(sigmaSq.scale),
     hsqPercModel(hsqPercModel),
+    deltaPi(data.snpEffectNames, pis.size()),
     estimateSigmaSq(estimateSigmaSq),
     nDistAuto(nDistAuto),
     vargBlk(data.ldblockNames, varGenotypic, data.numKeptInds),
@@ -1862,7 +1891,10 @@ public:
         paramToPrint = {&sigmaSq, &hsq, &vare};
         if (hsqPercModel) paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
         paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
-        if (lowRankModel) {
+        for (unsigned i=0; i<deltaPi.numDist; ++i) {
+            paramSetVec.push_back(deltaPi[i]);
+        }
+       if (lowRankModel) {
             paramSetVec.push_back(&vargBlk);
             paramSetVec.push_back(&vareBlk);
             paramToPrint.push_back(&nBadSnps);
@@ -2336,23 +2368,29 @@ public:
 class ApproxBayesRC : public ApproxBayesR {
 public:
     
-    class DeltaPi : public vector<ParamSet*> {
+//    class DeltaPi : public vector<ParamSet*> {
+//    public:
+//        vector<string> colnames;
+//        unsigned numDist;
+//        unsigned numSnps;
+//
+//        DeltaPi(const vector<string> &header, const unsigned numDist, const string &lab = "DeltaPi"):
+//        numDist(numDist) {
+//            colnames.resize(numDist);
+//            numSnps = header.size();
+//            for (unsigned i = 0; i<numDist; ++i) {
+//                colnames[i] = "DeltaPi" + to_string(static_cast<long long>(i + 1));
+//                this->push_back(new ParamSet(colnames[i], header));
+//            }
+//        }
+//    };
+
+    class DeltaPi : public BayesR::DeltaPi {
     public:
-        vector<string> colnames;
-        unsigned numDist;
-        unsigned numSnps;
 
-        DeltaPi(const vector<string> &header, const unsigned numDist, const string &lab = "DeltaPi"):
-        numDist(numDist) {
-            colnames.resize(numDist);
-            numSnps = header.size();
-            for (unsigned i = 0; i<numDist; ++i) {
-                colnames[i] = "DeltaPi" + to_string(static_cast<long long>(i + 1));
-                this->push_back(new ParamSet(colnames[i], header));
-            }
-        }
+        DeltaPi(const vector<string> &header, const unsigned numDist, const string &lab = "DeltaPi"): BayesR::DeltaPi(header, numDist) {}
     };
-
+    
     class SnpEffects : public ApproxBayesR::SnpEffects {
     public:
         unsigned ndist;
@@ -2674,22 +2712,29 @@ public:
 
 class BayesRC : public BayesR {
 public:
-    class DeltaPi : public vector<ParamSet*> {
+//    class DeltaPi : public vector<ParamSet*> {
+//    public:
+//        vector<string> colnames;
+//        unsigned numDist;
+//        unsigned numSnps;
+//
+//        DeltaPi(const vector<string> &header, const unsigned numDist, const string &lab = "DeltaPi"):
+//        numDist(numDist) {
+//            colnames.resize(numDist);
+//            numSnps = header.size();
+//            for (unsigned i = 0; i<numDist; ++i) {
+//                colnames[i] = "DeltaPi" + to_string(static_cast<long long>(i + 1));
+//                this->push_back(new ParamSet(colnames[i], header));
+//            }
+//        }
+//    };
+    
+    class DeltaPi : public BayesR::DeltaPi {
     public:
-        vector<string> colnames;
-        unsigned numDist;
-        unsigned numSnps;
 
-        DeltaPi(const vector<string> &header, const unsigned numDist, const string &lab = "DeltaPi"):
-        numDist(numDist) {
-            colnames.resize(numDist);
-            numSnps = header.size();
-            for (unsigned i = 0; i<numDist; ++i) {
-                colnames[i] = "DeltaPi" + to_string(static_cast<long long>(i + 1));
-                this->push_back(new ParamSet(colnames[i], header));
-            }
-        }
+        DeltaPi(const vector<string> &header, const unsigned numDist, const string &lab = "DeltaPi"): BayesR::DeltaPi(header, numDist) {}
     };
+    
 
     class SnpEffects : public BayesR::SnpEffects {
     public:

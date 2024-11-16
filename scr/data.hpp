@@ -639,14 +639,14 @@ public:
     void impG(const unsigned block, double diag_mod = 0.1);
 
     ///////////// read LD matrix eigen-decomposition data for LD blocks
-    void readEigenMatrix(const string &eigenMatrixFile, const float eigenCutoff, const bool readBinary = false, const bool writeLdmTxt = false);
+    void readEigenMatrix(const string &eigenMatrixFile, const float eigenCutoff, const bool readBinary = false, const bool writeLdmTxt = false, const string &outputDir = ".");
     void readBlockLDmatrixAndDoEigenDecomposition(const string &LDmatrixFile, const unsigned block, const float eigenCutoff, const bool writeLdmTxt);
     void readBlockLdmInfoFile(const string &infoFile);
     void readBlockLdmSnpInfoFile(const string &snpInfoFile);
     void readBlockLDMbinaryFile(const string &svdLDfile, const float eigenCutoff);
     vector<LDBlockInfo *> makeKeptLDBlockInfoVec(const vector<LDBlockInfo *> &ldBlockInfoVec);
     
-    void readEigenMatrixBinaryFile(const string &eigenMatrixFile, const float eigenCutoff, const bool writeLdmTxt = false);
+    void readEigenMatrixBinaryFile(const string &eigenMatrixFile, const float eigenCutoff, const bool writeLdmTxt = false, const string &outputDir = ".");
     
     void readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const VectorXf &nGWASblock, const bool noscale, const bool makePseudoSummary);
 

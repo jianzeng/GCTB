@@ -388,7 +388,7 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
         }
         out.close();
     }
-    if (bayesType == "RC") {
+    if (bayesType == "RC" || bayesType == "R") {
         McmcSamples *snpEffects = NULL;
         vector<McmcSamples*> deltaPiVec;
         for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {

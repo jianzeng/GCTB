@@ -71,7 +71,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
         }
         else if (!strcmp(argv[i], "--print")) {
             analysisType = "Print";
-            ss << "--print " << argv[i] << "\n";
+            ss << "--print " << "\n";
         }
 //        else if (!strcmp(argv[i], "--make-ldm")) {
 //            analysisType = "LDmatrix";

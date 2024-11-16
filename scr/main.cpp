@@ -17,7 +17,7 @@ using namespace std;
 int main(int argc, const char * argv[]) {
     
     cout << "******************************************************************\n";
-    cout << "* GCTB 2.5.2                                                     *\n";
+    cout << "* GCTB 2.5.3                                                     *\n";
     cout << "* Genome-wide Complex Trait Bayesian analysis                    *\n";
     cout << "* Authors: Jian Zeng, Luke Lloyd-Jones, Zhili Zheng, Shouye Liu  *\n";
     cout << "* MIT License                                                    *\n";
@@ -213,96 +213,98 @@ int main(int argc, const char * argv[]) {
                                                opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
                 vector<McmcSamples*> mcmcSampleVec;
                 
-                try{
-
-                    mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
-                                                                  opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
-                }
-                catch(const string &err_msg) {
-                    cout << err_msg << endl;
+                bool restart = false;
+                
+                do {
                     
-                    if (err_msg == "\nCAUTION: The smallest component (Vg2) explains less than half of the variance that is explained by the second smallest component (Vg3).") {
-                        cout << "\nRestarting SBayes" << opt.bayesType << " with the smallest component removed ..." << endl;
-                        // Erase the second element (index 1)
-                          opt.gamma.segment(1, opt.gamma.size() - 1) = opt.gamma.segment(2, opt.gamma.size() - 2);
-                        opt.pis.segment(1, opt.pis.size() - 1) = opt.pis.segment(2, opt.pis.size() - 2);
+                    restart = false;
+                    
+                    try{
 
-                          // Resize the vector to one less element
-                        opt.gamma.conservativeResize(opt.gamma.size() - 1);
-                        opt.pis.conservativeResize(opt.pis.size() - 1);
-
-                          // Print the vector after erasing
-                          //std::cout << opt.gamma << std::endl;
-                        //std::cout << opt.pis << std::endl;
-
-                        Model *model = gctb.buildModel(data, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
-                                                       opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
-                                                       opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
-                        
                         mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
-                                                     opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
-
+                                                                      opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
                     }
-                    else {
+                    catch(const string &err_msg) {
+                        cout << err_msg << endl;
                         
-                        if (opt.robustMode) {
-                            cout << "Please refer to our website (https://cnsgenomics.com/software/gctb) for further information on this problem." << endl;
-                            exit(1);
-                        } else {
-                            cout << "\nRestarting MCMC with a more robust parameterisation for SBayes" << opt.bayesType << " ..." << endl;
-                            cout << "Please refer to our website (https://cnsgenomics.com/software/gctb) for more information." << endl;
-                            opt.robustMode = true;
-                            Model *model = gctb.buildModel(data, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
+                        if (err_msg == "\nCAUTION: The smallest component (Vg2) explains less than half of the variance that is explained by the second smallest component (Vg3).") {
+                            cout << "\nRestarting SBayes" << opt.bayesType << " with the smallest component removed ..." << endl;
+                            // Erase the second element (index 1)
+                              opt.gamma.segment(1, opt.gamma.size() - 1) = opt.gamma.segment(2, opt.gamma.size() - 2);
+                            opt.pis.segment(1, opt.pis.size() - 1) = opt.pis.segment(2, opt.pis.size() - 2);
+
+                              // Resize the vector to one less element
+                            opt.gamma.conservativeResize(opt.gamma.size() - 1);
+                            opt.pis.conservativeResize(opt.pis.size() - 1);
+
+                              // Print the vector after erasing
+                              //std::cout << opt.gamma << std::endl;
+                            //std::cout << opt.pis << std::endl;
+
+                            model = gctb.buildModel(data, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
                                                            opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
                                                            opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
                             
-                            mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
-                                                         opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
+                            restart = true;
+                        }
+                        else {
+                            
+                            if (opt.robustMode) {
+                                cout << "Please refer to our website (https://cnsgenomics.com/software/gctb) for further information on this problem." << endl;
+                                exit(1);
+                            } else {
+                                cout << "\nRestarting MCMC with a more robust parameterisation for SBayes" << opt.bayesType << " ..." << endl;
+                                cout << "Please refer to our website (https://cnsgenomics.com/software/gctb) for more information." << endl;
+                                opt.robustMode = true;
+                                model = gctb.buildModel(data, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
+                                                               opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
+                                                               opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
+                                restart = true;
+                            }
                         }
                     }
-                }
-                catch (const char *err_msg) {
-                    cout << err_msg << endl;
-                    if (err_msg == "\nCAUTION: The smallest component (Vg2) explains less than half of the variance that is explained by the second smallest component (Vg3).") {
-                        cout << "\nRestarting SBayes" << opt.bayesType << " with the smallest component removed ..." << endl;
-                        // Erase the second element (index 1)
-                          opt.gamma.segment(1, opt.gamma.size() - 1) = opt.gamma.segment(2, opt.gamma.size() - 2);
-                        opt.pis.segment(1, opt.pis.size() - 1) = opt.pis.segment(2, opt.pis.size() - 2);
+                    catch (const char *err_msg) {
+                        cout << err_msg << endl;
+                        if (err_msg == "\nCAUTION: The smallest component (Vg2) explains less than half of the variance that is explained by the second smallest component (Vg3).") {
+                            cout << "\nRestarting SBayes" << opt.bayesType << " with the smallest component removed ..." << endl;
+                            // Erase the second element (index 1)
+                              opt.gamma.segment(1, opt.gamma.size() - 1) = opt.gamma.segment(2, opt.gamma.size() - 2);
+                            opt.pis.segment(1, opt.pis.size() - 1) = opt.pis.segment(2, opt.pis.size() - 2);
 
-                          // Resize the vector to one less element
-                        opt.gamma.conservativeResize(opt.gamma.size() - 1);
-                        opt.pis.conservativeResize(opt.pis.size() - 1);
+                              // Resize the vector to one less element
+                            opt.gamma.conservativeResize(opt.gamma.size() - 1);
+                            opt.pis.conservativeResize(opt.pis.size() - 1);
 
-                          // Print the vector after erasing
-                          //std::cout << opt.gamma << std::endl;
-                        //std::cout << opt.pis << std::endl;
+                              // Print the vector after erasing
+                              //std::cout << opt.gamma << std::endl;
+                            //std::cout << opt.pis << std::endl;
 
-                        Model *model = gctb.buildModel(data, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
-                                                       opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
-                                                       opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
-                        
-                        mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
-                                                     opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
-
-                    }
-                    else {
-                        
-                        if (opt.robustMode) {
-                            cout << "Please refer to our website (https://cnsgenomics.com/software/gctb) for further information on this problem." << endl;
-                            exit(1);
-                        } else {
-                            cout << "\nRestarting MCMC with a more robust parameterisation for SBayes" << opt.bayesType << " ..." << endl;
-                            cout << "Please refer to our website (https://cnsgenomics.com/software/gctb) for more information." << endl;
-                            opt.robustMode = true;
-                            Model *model = gctb.buildModel(data, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
+                            model = gctb.buildModel(data, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
                                                            opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
                                                            opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
                             
-                            mcmcSampleVec = gctb.runMcmc(*model, opt.chainLength, opt.burnin, opt.thin,
-                                                         opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
+                            restart = true;
+                        }
+                        else {
+                            
+                            if (opt.robustMode) {
+                                cout << "Please refer to our website (https://cnsgenomics.com/software/gctb) for further information on this problem." << endl;
+                                exit(1);
+                            } else {
+                                cout << "\nRestarting MCMC with a more robust parameterisation for SBayes" << opt.bayesType << " ..." << endl;
+                                cout << "Please refer to our website (https://cnsgenomics.com/software/gctb) for more information." << endl;
+                                opt.robustMode = true;
+                                model = gctb.buildModel(data, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
+                                                               opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
+                                                               opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
+                                
+                                restart = true;
+                            }
                         }
                     }
-                }
+
+                } while (restart);
+                
 
                 if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.bayesType, opt.noscale, opt.title);
             }
@@ -383,7 +385,7 @@ int main(int argc, const char * argv[]) {
         }
         else if (opt.analysisType == "Print") {
             if (!opt.eigenMatrixFile.empty()) {
-                data.readEigenMatrix(opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff(), true, true);
+                data.readEigenMatrix(opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff(), true, true, opt.title);
             }
         }
         else if (opt.analysisType == "Predict") {

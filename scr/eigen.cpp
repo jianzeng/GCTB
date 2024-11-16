@@ -53,15 +53,17 @@ void Data::eigenDecomposition( const MatrixXf &X, const float &prop, VectorXf &e
     VectorXf cumsumNonNeg(revIdx);
     cumsumNonNeg.setZero();
     revIdx = revIdx -1;
-    if(eigenVal(revIdx) < 0) cout << "Error, all eigenvector are negative" << endl;
-    cumsumNonNeg(revIdx) = eigenVal(revIdx);
-    sumPosEigVal = eigenVal(revIdx);
+    if(eigenVal[revIdx] < 0) cout << "Error, all eigenvector are negative" << endl;
+    cumsumNonNeg[revIdx] = eigenVal[revIdx];
+    sumPosEigVal = eigenVal[revIdx];
     revIdx = revIdx -1;
     
-    while( eigenVal(revIdx) > 1e-10 ){
-        sumPosEigVal = sumPosEigVal + eigenVal(revIdx);
-        cumsumNonNeg(revIdx) = eigenVal(revIdx) + cumsumNonNeg(revIdx + 1);
-        revIdx =revIdx - 1;
+    int numPosEigVal = 0;
+    while( eigenVal[revIdx] > 1e-10 ){
+        sumPosEigVal = sumPosEigVal + eigenVal[revIdx];
+        cumsumNonNeg[revIdx] = eigenVal[revIdx] + cumsumNonNeg[revIdx + 1];
+        ++numPosEigVal;
+        revIdx = revIdx - 1;
         if(revIdx < 0) break;
     }
     // cout << "revIdx: " << revIdx << endl;
@@ -74,14 +76,15 @@ void Data::eigenDecomposition( const MatrixXf &X, const float &prop, VectorXf &e
     // cout << "revIdx: "  << revIdx  << endl;
     for (revIdx = revIdx + 1; revIdx < eigenVal.size(); revIdx ++ ){
         // cout << "revIdx: " << revIdx << " cumsumNonNeg: " << cumsumNonNeg(revIdx) << endl;
-        if(prop >= cumsumNonNeg(revIdx) ){
+        if(prop >= cumsumNonNeg[revIdx] ){
             revIdx = revIdx -1;
             haveValue = true;
             break;
         }
     }
     // cout << "revIdx : " << revIdx << endl;
-    if(!haveValue) revIdx = eigenVal.size() - 1;
+    //if(!haveValue) revIdx = eigenVal.size() - 1;
+    if(!haveValue) revIdx = numPosEigVal - 1;
     // cout << "cumsumNonNeg: " << cumsumNonNeg.size() << endl;
     // cout << "cumsumNoNeg: " << cumsumNonNeg << endl;
     // cout << "revIdx: "  << revIdx  << endl;
@@ -1323,7 +1326,7 @@ void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, cons
 
 }
 
-void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCutoff, const bool writeLdmTxt){
+void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCutoff, const bool writeLdmTxt, const string &outputDir){
     if (!Gadget::directoryExist(dirname)) {
         throw("Error: cannot find the folder [" + dirname + "]");
     }
@@ -1423,7 +1426,8 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
         string outTxtfile;
         ofstream outtxt;
         if (writeLdmTxt) {
-            outTxtfile = dirname + "/block" + block->ID + ".eigen.txt";
+            Gadget::createDirectory(outputDir);
+            outTxtfile = outputDir + "/block" + block->ID + ".eigen.txt";
             outtxt.open(outTxtfile.c_str());
             outtxt << "Block " << block->ID << endl;
             outtxt << "numSnps " << cur_m << endl;
@@ -1647,14 +1651,14 @@ void Data::readBlockLDmatrixAndDoEigenDecomposition(const string &dirname, const
     readBlockLdmBinaryAndDoEigenDecomposition(dirname, block, eigenCutoff, writeLdmTxt);
 }
 
-void Data::readEigenMatrix(const string &dirname, const float eigenCutoff, const bool readBinary, const bool writeLdmTxt){
+void Data::readEigenMatrix(const string &dirname, const float eigenCutoff, const bool readBinary, const bool writeLdmTxt, const string &outputDir){
     cout << "Reading LD matrix eigen-decomposition data..." << endl;
     //Gadget::Timer timer;
     //timer.setTime();
     
     readBlockLdmInfoFile(dirname + "/ldm.info");
     readBlockLdmSnpInfoFile(dirname + "/snp.info");
-    if (readBinary) readEigenMatrixBinaryFile(dirname, eigenCutoff, writeLdmTxt);
+    if (readBinary) readEigenMatrixBinaryFile(dirname, eigenCutoff, writeLdmTxt, outputDir);
     
     //timer.getTime();
     //cout << "Read LD data completed (time used: " << timer.format(timer.getElapse()) << ")." << endl;

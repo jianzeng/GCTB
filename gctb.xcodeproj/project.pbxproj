@@ -7,7 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		BD21D06E27C754D900C297A4 /* libomp.dylib in Embed Libraries */ = {isa = PBXBuildFile; fileRef = BD286E75265D2A80005FFA40 /* libomp.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		BD286E65265CDEB1005FFA40 /* gctb.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD286E4C265CDEB0005FFA40 /* gctb.cpp */; };
 		BD286E66265CDEB1005FFA40 /* model.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD286E4D265CDEB0005FFA40 /* model.cpp */; };
 		BD286E67265CDEB1005FFA40 /* data.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD286E50265CDEB0005FFA40 /* data.cpp */; };
@@ -21,7 +20,8 @@
 		BD286E71265CDEB1005FFA40 /* stratify.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD286E62265CDEB1005FFA40 /* stratify.cpp */; };
 		BD286E72265CDEB1005FFA40 /* predict.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD286E63265CDEB1005FFA40 /* predict.cpp */; };
 		BD286E73265CDEB1005FFA40 /* stat.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD286E64265CDEB1005FFA40 /* stat.cpp */; };
-		BD286E76265D2A80005FFA40 /* libomp.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = BD286E75265D2A80005FFA40 /* libomp.dylib */; };
+		BD79C9052CE231430007F023 /* libomp.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = BD79C9042CE231430007F023 /* libomp.dylib */; };
+		BD79C9072CE231730007F023 /* libomp.dylib in Embed Libraries */ = {isa = PBXBuildFile; fileRef = BD79C9062CE231730007F023 /* libomp.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		BD88D2D729668AD800D9C63D /* eigen.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD88D2D629668AD700D9C63D /* eigen.cpp */; };
 /* End PBXBuildFile section */
 
@@ -32,7 +32,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				BD21D06E27C754D900C297A4 /* libomp.dylib in Embed Libraries */,
+				BD79C9072CE231730007F023 /* libomp.dylib in Embed Libraries */,
 			);
 			name = "Embed Libraries";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -76,6 +76,8 @@
 		BD286E63265CDEB1005FFA40 /* predict.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = predict.cpp; sourceTree = "<group>"; };
 		BD286E64265CDEB1005FFA40 /* stat.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = stat.cpp; sourceTree = "<group>"; };
 		BD286E75265D2A80005FFA40 /* libomp.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libomp.dylib; path = ../../../../usr/local/Cellar/llvm/12.0.0_1/lib/libomp.dylib; sourceTree = "<group>"; };
+		BD79C9042CE231430007F023 /* libomp.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libomp.dylib; path = ../../../../opt/homebrew/Cellar/llvm/19.1.3/lib/libomp.dylib; sourceTree = "<group>"; };
+		BD79C9062CE231730007F023 /* libomp.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libomp.dylib; path = ../../../../opt/homebrew/Cellar/llvm/19.1.3/lib/libomp.dylib; sourceTree = "<group>"; };
 		BD88D2D629668AD700D9C63D /* eigen.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = eigen.cpp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -84,7 +86,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				BD286E76265D2A80005FFA40 /* libomp.dylib in Frameworks */,
+				BD79C9052CE231430007F023 /* libomp.dylib in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -94,6 +96,7 @@
 		BD286E35265CDE27005FFA40 = {
 			isa = PBXGroup;
 			children = (
+				BD79C9062CE231730007F023 /* libomp.dylib */,
 				BD286E40265CDE27005FFA40 /* scr */,
 				BD286E3F265CDE27005FFA40 /* Products */,
 				BD286E74265D2A80005FFA40 /* Frameworks */,
@@ -144,6 +147,7 @@
 		BD286E74265D2A80005FFA40 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				BD79C9042CE231430007F023 /* libomp.dylib */,
 				BD286E75265D2A80005FFA40 /* libomp.dylib */,
 			);
 			name = Frameworks;
@@ -280,7 +284,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 11.3;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
-				ONLY_ACTIVE_ARCH = YES;
+				ONLY_ACTIVE_ARCH = NO;
 				SDKROOT = macosx;
 			};
 			name = Debug;
@@ -333,6 +337,7 @@
 				MACOSX_DEPLOYMENT_TARGET = 11.3;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = macosx;
 			};
 			name = Release;
@@ -340,20 +345,19 @@
 		BD286E46265CDE27005FFA40 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CC = /usr/local/opt/llvm/bin/clang;
+				CC = "/opt/homebrew/opt/llvm/bin/clang++";
 				CLANG_ENABLE_MODULES = NO;
 				CODE_SIGN_STYLE = Automatic;
 				COMPILER_INDEX_STORE_ENABLE = NO;
 				HEADER_SEARCH_PATHS = (
 					..,
 					"../eigen-3.4.0",
-					/usr/local/opt/llvm/lib/clang/10.0.1/include/,
+					/opt/homebrew/opt/llvm/include/,
 				);
 				LIBRARY_SEARCH_PATHS = (
 					/usr/local/lib,
-					/usr/local/opt/llvm/lib,
-					/usr/local/Cellar/llvm/10.0.1_2/lib,
-					/usr/local/Cellar/llvm/12.0.0_1/lib,
+					/opt/homebrew/opt/llvm/lib/,
+					/opt/homebrew/Cellar/llvm/19.1.3/lib,
 				);
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = "-fopenmp";
@@ -364,20 +368,19 @@
 		BD286E47265CDE27005FFA40 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CC = /usr/local/opt/llvm/bin/clang;
+				CC = "/opt/homebrew/opt/llvm/bin/clang++";
 				CLANG_ENABLE_MODULES = NO;
 				CODE_SIGN_STYLE = Automatic;
 				COMPILER_INDEX_STORE_ENABLE = NO;
 				HEADER_SEARCH_PATHS = (
 					..,
 					"../eigen-3.4.0",
-					/usr/local/opt/llvm/lib/clang/10.0.1/include/,
+					/opt/homebrew/opt/llvm/include/,
 				);
 				LIBRARY_SEARCH_PATHS = (
 					/usr/local/lib,
-					/usr/local/opt/llvm/lib,
-					/usr/local/Cellar/llvm/10.0.1_2/lib,
-					/usr/local/Cellar/llvm/12.0.0_1/lib,
+					/opt/homebrew/opt/llvm/lib/,
+					/opt/homebrew/Cellar/llvm/19.1.3/lib,
 				);
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = "-fopenmp";
