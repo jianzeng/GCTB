@@ -17,7 +17,7 @@ using namespace std;
 int main(int argc, const char * argv[]) {
     
     cout << "******************************************************************\n";
-    cout << "* GCTB 2.5.3                                                     *\n";
+    cout << "* GCTB 2.5.3.1                                                   *\n";
     cout << "* Genome-wide Complex Trait Bayesian analysis                    *\n";
     cout << "* Authors: Jian Zeng, Luke Lloyd-Jones, Zhili Zheng, Shouye Liu  *\n";
     cout << "* MIT License                                                    *\n";

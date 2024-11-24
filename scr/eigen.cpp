@@ -2225,12 +2225,18 @@ void Data::scaleGwasEffects(){
     varySnp = snp2pq.array()*(n.array()*se.array().square()+b.array().square());
     VectorXf varpSrt = varySnp;
     std::sort(varpSrt.data(), varpSrt.data() + varpSrt.size());
-//    varPhenotypic = varpSrt[varpSrt.size()/2];
+    float obsVarPhenotypic = varpSrt[varpSrt.size()/2];
     varPhenotypic = 1.0;
     //cout << "varPhenotypic: " << varPhenotypic << endl;
     VectorXf nSrt = n;
     std::sort(nSrt.data(), nSrt.data() + nSrt.size());
     numKeptInds = nSrt[nSrt.size()/2]; // median
+    
+    // estimate per-SNP 2pq using the estimated phenotypic variance
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+        snp = incdSnpInfoVec[i];
+        snp2pq[i] = snp->twopq = obsVarPhenotypic/(snp->gwas_n*se[i]*se[i]+b[i]*b[i]);       // NEW!
+    }
     
     // scale GWAS effects
     b.array() *= scalar.array();

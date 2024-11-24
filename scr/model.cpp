@@ -640,7 +640,7 @@ void BayesR::VgMixComps::compute(const VectorXf &snpEffects, const MatrixXf &Z, 
 void BayesR::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &Rsqrt, const bool weightedRes,
                                       const float sigmaSq, const VectorXf &pis, const VectorXf &gamma,
                                       const float vare, VectorXf &ghat, VectorXf &snpStore,
-                                      const float varg, const bool hsqPercModel, DeltaPi &deltaPi){
+                                      const float varg, const bool hsqPercModel, DeltaPi &deltaPi, const bool shuffle){
     sumSq = 0.0;
     wtdSumSq = 0.0;
     numNonZeros = 0;
@@ -678,7 +678,16 @@ void BayesR::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
         deltaPi[k]->values.setZero(size);
     }
     
-    for (unsigned i=0; i<size; ++i) {
+    vector<int> shuffled_index;
+    if (shuffle) {
+        // shuffling the SNP index for faster convergence
+        shuffled_index = Gadget::shuffle_index(0, size-1);
+    }
+
+    //for (unsigned i=0; i<size; ++i) {
+    for (unsigned t = 0; t < size; t++) {
+        unsigned i = t;
+        if (shuffle) i = shuffled_index[t];
         // ------------------------------
         // Derived Bayes R implementation
         // ------------------------------
@@ -760,7 +769,7 @@ void BayesR::sampleUnknowns(){
     }
     unsigned cnt=0;
     do {
-        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, Pis.values, gamma.values, vare.value, ghat, snpStore, varg.value, hsqPercModel, deltaPi);
+        snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, Pis.values, gamma.values, vare.value, ghat, snpStore, varg.value, hsqPercModel, deltaPi, shuffle);
         if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
     } while (snpEffects.numNonZeros == 0);  
     sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
@@ -3746,7 +3755,7 @@ void ApproxBayesS::sampleUnknowns(){
         varg.compute(snpEffects.values, data.ZPy, rcorr, covg.value);
         //    varg.value = sigmaSqG.value;
         vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value);
-        //vare.value = data.ypy/data.numKeptInds;
+        //vare.value = data.varPhenotypic;
     }
 //    hsq.compute(varg.value, vare.value);
     hsq.value = varg.value / data.varPhenotypic;
@@ -5122,7 +5131,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
     // --------------------------------------------------------------------------------
     // Cycle over all variants in the window and sample the genetics effects
     // --------------------------------------------------------------------------------
-
+    
     #pragma omp parallel for schedule(dynamic)
     for(unsigned blk = 0; blk < nBlocks; blk++){
         Ref<const MatrixXf> Q = Qblocks[blk];
@@ -5140,8 +5149,14 @@ void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
 
         ArrayXf invLhs = 1.0/(invVareDn + invWtdSigmaSq);
         ArrayXf logInvLhsMsigma = invLhs.log() - logWtdSigmaSq;
+        
+        // shuffling the SNP index for faster convergence
+        vector<int> shuffled_index = Gadget::shuffle_index(blockStart, blockEnd);
+        unsigned blockSize = blockEnd - blockStart + 1;
 
-        for(unsigned i = blockStart; i <= blockEnd; i++){
+        //for(unsigned i = blockStart; i <= blockEnd; i++){
+        for (unsigned t = 0; t < blockSize; t++) {
+            unsigned i = shuffled_index[t];
             float oldSample = valuesPtr[i];
             Ref<const VectorXf> Qi = Q.col(i - blockStart);
             float rhs = (Qi.dot(wcorr) + oldSample)*invVareDn;
@@ -5208,6 +5223,75 @@ void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
 
 }
 
+void ApproxBayesR::SnpEffects::sampleFromPrior(const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float varg, const bool hsqPercModel){
+    int ndist = pis.size();
+    ArrayXf wtdSigmaSq(ndist);
+
+    if (hsqPercModel) {
+        wtdSigmaSq = gamma * 0.01 * varg;
+    } else {
+        wtdSigmaSq = gamma * sigmaSq;
+    }
+    
+    for (unsigned i=0; i<size; ++i) {
+        unsigned delta = bernoulli.sample(pis);
+        if (delta) {
+            values[i] = Stat::snorm()*sqrtf(wtdSigmaSq[delta]);
+        }
+        else {
+            values[i] = 0.0;
+        }
+    }
+}
+
+void ApproxBayesR::updateRHSfull(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec, const VectorXf &snpEffects){
+#pragma omp parallel for
+    for (unsigned chr=0; chr<chromInfoVec.size(); ++chr) {
+        ChromInfo *chromInfo = chromInfoVec[chr];
+        unsigned chrStart = chromInfo->startSnpIdx;
+        unsigned chrEnd   = chromInfo->endSnpIdx;
+        for (unsigned i=chrStart; i<=chrEnd; ++i) {
+            rcorr.segment(windStart[i], windSize[i]) -= ZPZ[i]*snpEffects[i];
+        }
+    }
+}
+
+void ApproxBayesR::updateRHSsparse(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZ, const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec, const VectorXf &snpEffects){
+#pragma omp parallel for
+    for (unsigned chr=0; chr<chromInfoVec.size(); ++chr) {
+        ChromInfo *chromInfo = chromInfoVec[chr];
+        unsigned chrStart = chromInfo->startSnpIdx;
+        unsigned chrEnd   = chromInfo->endSnpIdx;
+        for (unsigned i=chrStart; i<=chrEnd; ++i) {
+            for (SparseVector<float>::InnerIterator it(ZPZ[i]); it; ++it) {
+                rcorr[it.index()] -= it.value() * snpEffects[i];
+            }
+        }
+    }
+}
+
+void ApproxBayesR::updateRHSlowRankModel(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &snpEffects){
+    long nBlocks = keptLdBlockInfoVec.size();
+    
+#pragma omp parallel for schedule(dynamic)
+    for(unsigned blk = 0; blk < nBlocks; blk++){
+        Ref<const MatrixXf> Q = Qblocks[blk];
+        Ref<VectorXf> wcorr = wcorrBlocks[blk];
+                
+        LDBlockInfo *blockInfo = keptLdBlockInfoVec[blk];
+        
+        unsigned blockStart = blockInfo->startSnpIdx;
+        unsigned blockEnd   = blockInfo->endSnpIdx;
+                
+        for(unsigned i = blockStart; i <= blockEnd; i++){
+            Ref<const VectorXf> Qi = Q.col(i - blockStart);
+            if (snpEffects[i]) {
+                wcorr -= Qi*snpEffects[i];
+            }
+        }
+    }
+
+}
 
 // *******************************************************
 // Approximate Bayes RS
@@ -6481,7 +6565,13 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
 
         unsigned delta;
 
-        for (unsigned i=chrStart; i<=chrEnd; ++i) {
+        // shuffling the SNP index for faster convergence
+        vector<int> shuffled_index = Gadget::shuffle_index(chrStart, chrEnd);
+        unsigned chrSize = chrEnd - chrStart + 1;
+
+        //for (unsigned i=chrStart; i<=chrEnd; ++i) {
+        for (unsigned t = 0; t < chrSize; t++) {
+            unsigned i = shuffled_index[t];
             oldSample = valuesPtr[i];
 
             varei = LDsamplVar[i]*varg + vare + ps + overdispersion;
@@ -6637,7 +6727,13 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, cons
         ArrayXf invLhs = 1.0/(invVareDn + invWtdSigmaSq);
         ArrayXf logInvLhsMsigma = invLhs.log() - logWtdSigmaSq;
 
-        for(unsigned i = blockStart; i <= blockEnd; i++){
+        // shuffling the SNP index for faster convergence
+        vector<int> shuffled_index = Gadget::shuffle_index(blockStart, blockEnd);
+        unsigned blockSize = blockEnd - blockStart + 1;
+
+        //for(unsigned i = blockStart; i <= blockEnd; i++){
+        for (unsigned t = 0; t < blockSize; t++) {
+            unsigned i = shuffled_index[t];
             float oldSample = valuesPtr[i];
             Ref<const VectorXf> Qi = Q.col(i - blockStart);
             float rhs = (Qi.dot(wcorr) + oldSample)*invVareDn;
@@ -6796,8 +6892,13 @@ void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(MatrixXf &z, const MatrixXf 
             //        cout << i << " alphai[0] " << alphai[0] << endl;
 
             // annotations are fitted with a normal prior
+            // shuffle the annotations
+            vector<int> shuffled_index = Gadget::shuffle_index(1, numAnno-1);
+
             ssq[i] = 0;
-            for (unsigned k=1; k<numAnno; ++k) {
+           //for (unsigned k=1; k<numAnno; ++k) {
+            for (unsigned t=0; t<shuffled_index.size(); ++t) {
+                unsigned k = shuffled_index[t];
                 oldSample = alphai[k];
                 rhs = annoMati.col(k).dot(y) + annoDiagi[k]*oldSample;
                 invLhs = 1.0/(annoDiagi[k] + 1.0/sigmaSq[i]);

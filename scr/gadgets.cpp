@@ -136,3 +136,23 @@ float Gadget::findMedian(const VectorXf &vec){
     return tmp.size() % 2 == 0 ? tmp.segment( (tmp.size()-2)/2, 2 ).mean() : tmp( tmp.size()/2 );
 }
 
+vector<int> Gadget::shuffle_index(const int start, const int end){
+    vector<int> vec;
+    for (unsigned i = start; i <= end; i++) {
+        vec.push_back(i);
+    }
+    
+    // Create a thread-local random number generator
+    thread_local std::mt19937 rng(std::random_device{}());
+
+    // Shuffle using the thread-local RNG
+    std::shuffle(vec.begin(), vec.end(), rng);
+
+    return vec;
+    
+//    for (unsigned i = 0; i < size - 1; i++) {
+//        unsigned j = i + static_cast<unsigned>(Stat::ranf() * (size - i));
+//        std::swap(vec[i], vec[j]);
+//    }
+
+}

@@ -4013,64 +4013,26 @@ cout << "Genotype data for " << numKeptInds << " individuals and " << numSnpInRa
 // =============================================================================================
 
 void Data::buildSparseMME(const bool sampleOverlap, const bool noscale){
-    VectorXf Dref = snp2pq*numKeptInds;
-    snp2pq.resize(numIncdSnps);
+    // NEW ALGORITHM:
+    // The GWAS marginal effect b is from linear model with unstandardised genotypes (x) and phenotypes (y).
+    // The first step is to scale each b by scalar c = sd(x)/sd(y).
+    // This will put the scaled b to the unit of per-genotype-SD with phenotype variance of 1.
+    // We will save the value of c and use it to scale back the posterior effect beta to the original scale.
+    // According to OLS, c = 1/sqrt(n*se^2 + b^2), and this is invariant for b from logistic regression for binary trait.
+    
+    scaleGwasEffects();
+
     D.resize(numIncdSnps);
-//    ZPZdiag.resize(numIncdSnps);
-    ZPy.resize(numIncdSnps);
-    b.resize(numIncdSnps);
-    n.resize(numIncdSnps);
-    se.resize(numIncdSnps);
-    tss.resize(numIncdSnps);
     SnpInfo *snp;
     for (unsigned i=0; i<numIncdSnps; ++i) {
         snp = incdSnpInfoVec[i];
-        snp->af = snp->gwas_af;
-        snp2pq[i] = snp->twopq = 2.0f*snp->gwas_af*(1.0f-snp->gwas_af);
-        if(snp2pq[i]==0) cout << "Error: SNP " << snp->ID << " af " << snp->af << " has 2pq = 0." << endl;
-        D[i] = snp2pq[i]*snp->gwas_n;
-        b[i] = snp->gwas_b;
-        n[i] = snp->gwas_n;
-        se[i]= snp->gwas_se;
-        tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
-//        D[i] = 1.0/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
-//        snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
-    }
-    //b.array() -= b.mean();  // DO NOT CENTER b
-
-    // estimate phenotypic variance based on the input allele frequencies in GWAS
-    //ypy = (D.array()*(n.array()*se.array().square()+b.array().square())).mean();
-    VectorXf ypySrt = D.array()*(n.array()*se.array().square()+b.array().square());
-    VectorXf varpSrt = ypySrt.array()/n.array();
-    std::sort(ypySrt.data(), ypySrt.data() + ypySrt.size());
-    std::sort(varpSrt.data(), varpSrt.data() + varpSrt.size());
-    ypy = ypySrt[ypySrt.size()/2];  // median
-    varPhenotypic = varpSrt[varpSrt.size()/2];
-
-    //numKeptInds = n.mean();
-
-    VectorXf nSrt = n;
-    std::sort(nSrt.data(), nSrt.data() + nSrt.size());
-    numKeptInds = nSrt[nSrt.size()/2]; // median
-
-        // NEW
-        // compute D and snp2pq based on n, se and b, assuming varp = 1
-        // these quantities are used in sbayes, as they are more reliable than input allele frequencies
-        for (unsigned i=0; i<numIncdSnps; ++i) {
-            snp = incdSnpInfoVec[i];
-            D[i] = varPhenotypic/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
-            snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
-            tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
-            // Need to adjust R and C models X'X matrix depending scale of genotypes or not
-            if (noscale == true) {
-                D[i] = snp2pq[i]*snp->gwas_n;
-            } else {
-                D[i] = snp->gwas_n;
-            }
+        if (noscale == true) {
+            D[i] = snp2pq[i]*snp->gwas_n;
+        } else {
+            D[i] = snp->gwas_n;
         }
-        //ypy = numKeptInds;
-        // NEW END
-
+    }
+    
     if (ZPZ.size() || ZPZsp.size()) {
         if (sparseLDM == true) {
             for (unsigned i=0; i<numIncdSnps; ++i) {
@@ -4109,50 +4071,20 @@ void Data::buildSparseMME(const bool sampleOverlap, const bool noscale){
 
         ZPZdiag.array() *= D.array();
     }
-    else {
-        Dratio = D.array()/Dref.array();
-        ZPZdiag.array() *= Dratio.array();
-        DratioSqrt = Dratio.array().sqrt();
-        for (unsigned i=0; i<numIncdSnps; ++i) {
-            Z.col(i) *= DratioSqrt[i];
-        }
-    }
-
+    
+//    cout << "D " << endl << D.head(5).transpose() << endl;
+//    cout << "snp2pq " << endl << snp2pq.head(5).transpose() << endl;
+//    cout << "ZPZdiag " << endl << ZPZdiag.head(5).transpose() << endl;
 
     if (noscale) {
-        ZPy = ZPZdiag.cwiseProduct(b);
+        ZPy = ZPZdiag.cwiseProduct(b).cwiseProduct(snp2pq.array().sqrt().inverse().matrix());
     } else {
-        ZPy = ZPZdiag.cwiseProduct(b).cwiseProduct(snp2pq.array().sqrt().matrix());
+        ZPy = ZPZdiag.cwiseProduct(b);
     }
     chisq = ZPy.cwiseProduct(b);
+    
+//    cout << "ZPy " << endl << ZPy.head(5).transpose() << endl;
 
-//    cout << "!!!!!!!!" << endl << ZPZdiag.transpose() << endl << endl;
-
-//        ofstream out("ldsc.txt");
-//        for (unsigned i=0; i<numIncdSnps; ++i) {
-//            snp = incdSnpInfoVec[i];
-//            out << chisq[i] << "\t" << LDscore[i] << "\t" << LDsamplVar[i] << "\t" << n[i] << "\t" << n[i]*(numIncdSnps+snp->windSize)/float(numIncdSnps) << endl;
-//        }
-//        out.close();
-
-    //    cout << "ZPZdiag " << ZPZdiag.transpose() << endl;
-    //    cout << "ZPZ.back() " << ZPZ.back().transpose() << endl;
-    //    cout << "ZPZ.front() " << ZPZ.front().transpose() << endl;
-    //    cout << "ZPy " << ZPy.head(100).transpose() << endl;
-    //    cout << "b.mean() " << b.mean() << endl;
-
-    // estimate ypy
-    // ypy = tss.mean();
-    // ypy = (D.array()*(n.array()*se.array().square()+b.array().square())).mean();
-    numKeptInds = n.mean();
-
-    //cout << ZPZ.size() << " " << ZPy.size() << " " << ypy << endl;
-    //    cout << ZPy << endl;
-    //    for (unsigned i=0; i<numIncdSnps; ++i) {
-    //        cout << D[i] << "\t" << ZPZdiag[i] << endl;
-    //    }
-    //
-    //    cout << ZPZ << endl;
 
     // no fixed effects
 //    numFixedEffects = 0;
@@ -4182,29 +4114,10 @@ void Data::buildSparseMME(const bool sampleOverlap, const bool noscale){
     XPy.resize(1,1);
     XPy << ZPy.sum();
 
-//    cout << "ZPZ" << endl;
-//    for (unsigned i=0; i<numIncdSnps; ++i) {
-//        cout << ZPZ[i].transpose() << endl;
-//    }
-//
-//    cout << "ZPZdiag" << endl;
-//    cout << ZPZdiag.transpose() << endl;
-//
-//    cout << "D" << endl << D.transpose() << endl << endl;
-//
-//    cout << "n" << endl << n.transpose() << endl << endl;
-//
-//    cout << "2pq" << endl << snp2pq.transpose() << endl << endl;
-//
-//    cout << "b" << endl << b.transpose() << endl << endl;
-//
-//    cout << "ZPy" << endl;
-//    cout << ZPy.transpose() << endl;
-
     // data summary
     cout << "\nData summary:" << endl;
     cout << boost::format("%40s %8s %8s\n") %"" %"mean" %"sd";
-    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP Phenotypic variance" %Gadget::calcMean(varpSrt) %sqrt(Gadget::calcVariance(varpSrt));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP Phenotypic variance" %Gadget::calcMean(varySnp) %sqrt(Gadget::calcVariance(varySnp));
     cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP heterozygosity" %Gadget::calcMean(snp2pq) %sqrt(Gadget::calcVariance(snp2pq));
     cout << boost::format("%40s %8.0f %8.0f\n") %"GWAS SNP sample size" %Gadget::calcMean(n) %sqrt(Gadget::calcVariance(n));
     cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP effect" %Gadget::calcMean(b) %sqrt(Gadget::calcVariance(b));
@@ -4225,6 +4138,228 @@ void Data::buildSparseMME(const bool sampleOverlap, const bool noscale){
     if (numAnnos) setAnnoInfoVec();
 
 }
+
+
+//void Data::buildSparseMME(const bool sampleOverlap, const bool noscale){
+//    VectorXf Dref = snp2pq*numKeptInds;
+//    snp2pq.resize(numIncdSnps);
+//    D.resize(numIncdSnps);
+////    ZPZdiag.resize(numIncdSnps);
+//    ZPy.resize(numIncdSnps);
+//    b.resize(numIncdSnps);
+//    n.resize(numIncdSnps);
+//    se.resize(numIncdSnps);
+//    tss.resize(numIncdSnps);
+//    SnpInfo *snp;
+//    for (unsigned i=0; i<numIncdSnps; ++i) {
+//        snp = incdSnpInfoVec[i];
+//        snp->af = snp->gwas_af;
+//        snp2pq[i] = snp->twopq = 2.0f*snp->gwas_af*(1.0f-snp->gwas_af);
+//        if(snp2pq[i]==0) cout << "Error: SNP " << snp->ID << " af " << snp->af << " has 2pq = 0." << endl;
+//        D[i] = snp2pq[i]*snp->gwas_n;
+//        b[i] = snp->gwas_b;
+//        n[i] = snp->gwas_n;
+//        se[i]= snp->gwas_se;
+//        tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
+////        D[i] = 1.0/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
+////        snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
+//    }
+//    //b.array() -= b.mean();  // DO NOT CENTER b
+//
+//    // estimate phenotypic variance based on the input allele frequencies in GWAS
+//    //ypy = (D.array()*(n.array()*se.array().square()+b.array().square())).mean();
+//    VectorXf ypySrt = D.array()*(n.array()*se.array().square()+b.array().square());
+//    VectorXf varpSrt = ypySrt.array()/n.array();
+//    std::sort(ypySrt.data(), ypySrt.data() + ypySrt.size());
+//    std::sort(varpSrt.data(), varpSrt.data() + varpSrt.size());
+//    ypy = ypySrt[ypySrt.size()/2];  // median
+//    varPhenotypic = varpSrt[varpSrt.size()/2];
+//
+//    //numKeptInds = n.mean();
+//
+//    VectorXf nSrt = n;
+//    std::sort(nSrt.data(), nSrt.data() + nSrt.size());
+//    numKeptInds = nSrt[nSrt.size()/2]; // median
+//
+//        // NEW
+//        // compute D and snp2pq based on n, se and b, assuming varp = 1
+//        // these quantities are used in sbayes, as they are more reliable than input allele frequencies
+//        for (unsigned i=0; i<numIncdSnps; ++i) {
+//            snp = incdSnpInfoVec[i];
+//            D[i] = varPhenotypic/(se[i]*se[i]+b[i]*b[i]/snp->gwas_n);  // NEW!
+//            snp2pq[i] = snp->twopq = D[i]/snp->gwas_n;       // NEW!
+//            tss[i] = D[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
+//            // Need to adjust R and C models X'X matrix depending scale of genotypes or not
+//            if (noscale == true) {
+//                D[i] = snp2pq[i]*snp->gwas_n;
+//            } else {
+//                D[i] = snp->gwas_n;
+//            }
+//        }
+//        //ypy = numKeptInds;
+//        // NEW END
+//
+//    if (ZPZ.size() || ZPZsp.size()) {
+//        if (sparseLDM == true) {
+//            for (unsigned i=0; i<numIncdSnps; ++i) {
+//                snp = incdSnpInfoVec[i];
+//                //cout << i << " " << ZPZsp[i].nonZeros() << " " << D.size() << endl;
+//                for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
+//                    //cout << it.index() << " ";
+//                    it.valueRef() *= sqrt(D[i]*D[it.index()]);
+//                }
+//            }
+//        } else {
+//            for (unsigned i=0; i<numIncdSnps; ++i) {
+//                snp = incdSnpInfoVec[i];
+//                for (unsigned j=0; j<snp->windSize; ++j) {
+//                    ZPZ[i][j] *= sqrt(D[i]*D[snp->windStart+j]);
+//                }
+//            }
+//        }
+//
+//        // sum of sampling variance of LD for each SNP with all other SNPs
+//        // for significant LD, the sampling variance is proportional to the (ratio of ref and gwas n) + 1
+//        // for insignificant LD, the sampling variance is 1 over gwas n
+//        LDsamplVar.resize(numIncdSnps);
+//        LDscore.resize(numIncdSnps);
+//        for (unsigned i=0; i<numIncdSnps; ++i) {
+//            snp = incdSnpInfoVec[i];
+//            if (sampleOverlap) {
+//                LDsamplVar[i] = 0;
+//            } else {
+//                LDsamplVar[i]  = (snp->gwas_n + snp->sampleSize)/float(numIncdSnps)*snp->ldSamplVar;
+//            }
+//            LDsamplVar[i] += (numIncdSnps - snp->numNonZeroLD)/float(numIncdSnps);
+//            //if (sampleOverlap) LDsamplVar[i] = 0;
+//            LDscore[i] = snp->ldsc; //*snp->gwas_n;
+//        }
+//
+//        ZPZdiag.array() *= D.array();
+//    }
+//    else {
+//        Dratio = D.array()/Dref.array();
+//        ZPZdiag.array() *= Dratio.array();
+//        DratioSqrt = Dratio.array().sqrt();
+//        for (unsigned i=0; i<numIncdSnps; ++i) {
+//            Z.col(i) *= DratioSqrt[i];
+//        }
+//    }
+//
+//    cout << "varPhenotypic " << varPhenotypic << endl;
+//    cout << "D " << endl << D.head(5).transpose() << endl;
+//    cout << "snp2pq " << endl << snp2pq.head(5).transpose() << endl;
+//        cout << "ZPZdiag " << endl << ZPZdiag.head(5).transpose() << endl;
+//
+//
+//    if (noscale) {
+//        ZPy = ZPZdiag.cwiseProduct(b);
+//    } else {
+//        ZPy = ZPZdiag.cwiseProduct(b).cwiseProduct(snp2pq.array().sqrt().matrix());
+//    }
+//    chisq = ZPy.cwiseProduct(b);
+//
+//    cout << "ZPy " << endl << ZPy.head(5).transpose() << endl;
+//
+////    cout << "!!!!!!!!" << endl << ZPZdiag.transpose() << endl << endl;
+//
+////        ofstream out("ldsc.txt");
+////        for (unsigned i=0; i<numIncdSnps; ++i) {
+////            snp = incdSnpInfoVec[i];
+////            out << chisq[i] << "\t" << LDscore[i] << "\t" << LDsamplVar[i] << "\t" << n[i] << "\t" << n[i]*(numIncdSnps+snp->windSize)/float(numIncdSnps) << endl;
+////        }
+////        out.close();
+//
+//    //    cout << "ZPZdiag " << ZPZdiag.transpose() << endl;
+//    //    cout << "ZPZ.back() " << ZPZ.back().transpose() << endl;
+//    //    cout << "ZPZ.front() " << ZPZ.front().transpose() << endl;
+//    //    cout << "ZPy " << ZPy.head(100).transpose() << endl;
+//    //    cout << "b.mean() " << b.mean() << endl;
+//
+//    // estimate ypy
+//    // ypy = tss.mean();
+//    // ypy = (D.array()*(n.array()*se.array().square()+b.array().square())).mean();
+//    numKeptInds = n.mean();
+//
+//    //cout << ZPZ.size() << " " << ZPy.size() << " " << ypy << endl;
+//    //    cout << ZPy << endl;
+//    //    for (unsigned i=0; i<numIncdSnps; ++i) {
+//    //        cout << D[i] << "\t" << ZPZdiag[i] << endl;
+//    //    }
+//    //
+//    //    cout << ZPZ << endl;
+//
+//    // no fixed effects
+////    numFixedEffects = 0;
+////    fixedEffectNames.resize(0);
+////    XPX.resize(0,0);
+////    ZPX.resize(0,0);
+////    XPy.resize(0);
+//    numFixedEffects = 1;
+//    fixedEffectNames.resize(1);
+//    fixedEffectNames[0] = "Intercept";
+//    ZPX.resize(numIncdSnps,1);
+//    if (ZPZ.size()) {
+//        for (unsigned i=0; i<numIncdSnps; ++i) {
+//            ZPX(i,0) = ZPZ[i].sum();
+//        }
+//    } else if (ZPZsp.size()) {
+//        for (unsigned i=0; i<numIncdSnps; ++i) {
+//            ZPX(i,0) = ZPZsp[i].sum();
+//        }
+//    } else {
+//        throw("Error: either dense or sparse ldm does not exist!");
+//    }
+//    XPX.resize(1,1);
+//    XPX << ZPX.col(0).sum();
+//    XPXdiag.resize(1);
+//    XPXdiag << XPX(0,0);
+//    XPy.resize(1,1);
+//    XPy << ZPy.sum();
+//
+////    cout << "ZPZ" << endl;
+////    for (unsigned i=0; i<numIncdSnps; ++i) {
+////        cout << ZPZ[i].transpose() << endl;
+////    }
+////
+////    cout << "ZPZdiag" << endl;
+////    cout << ZPZdiag.transpose() << endl;
+////
+////    cout << "D" << endl << D.transpose() << endl << endl;
+////
+////    cout << "n" << endl << n.transpose() << endl << endl;
+////
+////    cout << "2pq" << endl << snp2pq.transpose() << endl << endl;
+////
+////    cout << "b" << endl << b.transpose() << endl << endl;
+////
+////    cout << "ZPy" << endl;
+////    cout << ZPy.transpose() << endl;
+//
+//    // data summary
+//    cout << "\nData summary:" << endl;
+//    cout << boost::format("%40s %8s %8s\n") %"" %"mean" %"sd";
+//    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP Phenotypic variance" %Gadget::calcMean(varpSrt) %sqrt(Gadget::calcVariance(varpSrt));
+//    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP heterozygosity" %Gadget::calcMean(snp2pq) %sqrt(Gadget::calcVariance(snp2pq));
+//    cout << boost::format("%40s %8.0f %8.0f\n") %"GWAS SNP sample size" %Gadget::calcMean(n) %sqrt(Gadget::calcVariance(n));
+//    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP effect" %Gadget::calcMean(b) %sqrt(Gadget::calcVariance(b));
+//    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP SE" %Gadget::calcMean(se) %sqrt(Gadget::calcVariance(se));
+//    cout << boost::format("%40s %8.3f %8.3f\n") %"MME left-hand-side diagonals" %Gadget::calcMean(ZPZdiag) %sqrt(Gadget::calcVariance(ZPZdiag));
+//    cout << boost::format("%40s %8.3f %8.3f\n") %"MME right-hand-side" %Gadget::calcMean(ZPy) %sqrt(Gadget::calcVariance(ZPy));
+//    cout << boost::format("%40s %8.3f %8.3f\n") %"LD sampling variance" %Gadget::calcMean(LDsamplVar) %sqrt(Gadget::calcVariance(LDsamplVar));
+//    cout << boost::format("%40s %8.3f %8.3f\n") %"LD score" %Gadget::calcMean(LDscore) %sqrt(Gadget::calcVariance(LDscore));
+////    cout << "\n  Median of per-SNP phenotypic variance: " << varp << endl;
+//
+////    ofstream out("tmp.txt");
+////    out << "refZPZdiag\t gwasZPZdiag\t b\t ZPy\t refsnp2pq\t gwassnp2pq n" << endl;
+////    for (unsigned i=0; i<numIncdSnps; ++i) {
+////        out << refZPZdiag[i] << "\t" << ZPZdiag[i] << "\t" << b[i] << "\t" << ZPy[i] << "\t" << refsnp2pq[i] << "\t" << snp2pq[i] << "\t" << n[i] << endl;
+////    }
+////    out.close();
+//
+//    if (numAnnos) setAnnoInfoVec();
+//
+//}
 
 //void Data::buildSparseMME(const bool sampleOverlap, const bool noscale){
 //

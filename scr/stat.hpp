@@ -13,6 +13,7 @@
 //#include <random>
 #include <boost/math/distributions.hpp>
 #include <boost/random.hpp>
+#include <boost/range/algorithm/random_shuffle.hpp>
 #include <Eigen/Eigen>
 
 using namespace Eigen;

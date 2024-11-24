@@ -17,7 +17,9 @@
 #include <string>
 #include <sys/stat.h>
 #include <map>
+#include <random>
 #include <Eigen/Eigen>
+#include <omp.h>
 
 using namespace std;
 using namespace Eigen;
@@ -83,6 +85,7 @@ float calcCorrelation(const VectorXf &vec1, const VectorXf &vec2);
 float calcRegression(const VectorXf &y, const VectorXf &x);
 float findMedian(const VectorXf &vec);
 
+vector<int> shuffle_index(const int start, const int end);
 }
 
 #endif /* toolbox_hpp */

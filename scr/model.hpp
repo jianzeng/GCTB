@@ -546,7 +546,7 @@ public:
         void sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const VectorXf &ZPZdiag, const VectorXf &Rsqrt, const bool weightedRes,
                           const float sigmaSq, const VectorXf &pis,  const VectorXf &gamma,
                           const float vare, VectorXf &ghat, VectorXf &snpStore,
-                          const float varg, const bool hsqPercModel, DeltaPi &deltaPi);
+                          const float varg, const bool hsqPercModel, DeltaPi &deltaPi, const bool shuffle);
     };
 
     class ProbMixComps : public vector<Parameter*>, public Stat::Dirichlet {
@@ -644,6 +644,7 @@ public:
     DeltaPi deltaPi;
 
     bool hsqPercModel;
+    bool shuffle;
 
     BayesR(const Data &data, const float varGenotypic, const float varResidual, const float varRandom, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel,
            const string &algorithm, const bool message = true):
@@ -684,7 +685,9 @@ public:
             cout << "scale factor: " << sigmaSq.scale << endl;
             cout << "Gamma: " << gamma.transpose() << endl;
         }
-    }   
+        shuffle = false;
+        if (shuffle) cout << "shuffle SNP order." << endl;
+    }
     void sampleUnknowns(void);
 };
     
@@ -1784,6 +1787,8 @@ public:
                           const bool hsqPercModel, DeltaPi &deltaPi);
 
         void adjustByCG(const VectorXf &ZPy, const vector<SparseVector<float> > &ZPZsp, VectorXf &rcorr);
+        
+        void sampleFromPrior(const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float varg, const bool hsqPercModel);
     };
     
     class VgMixComps : public vector<Parameter*> {
@@ -1942,9 +1947,24 @@ public:
             if (nDistAuto) cout << "The number of mixture components will be automatically assessed at iteration 500." << endl;
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
         }
+        
+        // sample SNP effects from prior
+//        cout << "Use random starting values for SNP effects sampled from their prior." << endl;
+//        snpEffects.sampleFromPrior(sigmaSq.value, Pis.values, gamma, varg.value, hsqPercModel);
+//        if (lowRankModel) {
+//            updateRHSlowRankModel(wcorrBlocks, data.Qblocks, data.keptLdBlockInfoVec, snpEffects.values);
+//        } else if (sparse) {
+//            updateRHSsparse(rcorr, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values);
+//        } else {
+//            updateRHSfull(rcorr, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values);
+//        }
+        
     }
     
     void sampleUnknowns(void);
+    void updateRHSfull(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec, const VectorXf &snpEffects);
+   void updateRHSsparse(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZ, const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec, const VectorXf &snpEffects);
+    void updateRHSlowRankModel(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &snpEffects);
 };
 
 // -----------------------------------------------------------------------------------------------
