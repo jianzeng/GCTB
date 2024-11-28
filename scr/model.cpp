@@ -348,7 +348,7 @@ void BayesC::sampleUnknowns(){
         snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, pi.value, vare.value, ghat);
 //        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
 //    } while (snpEffects.numNonZeros == 0);
-    //snpPip.getValues(snpEffects.pip);
+    snpPip.getValues(snpEffects.pip);
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     //scale.sampleFromFC(sigmaSq.value, sigmaSq.df, sigmaSq.scale);
     if (estimatePi) pi.sampleFromFC(snpEffects.size, snpEffects.numNonZeros);
@@ -2650,7 +2650,9 @@ void ApproxBayesC::NumBadSnps::compute(VectorXi &delSnps, VectorXf &effects, Vec
                 effects[i] = 0.0;
                 effectMean[i] = 0.0;
                 delSnps[i] = 1;
-                out << i << "\t" << snpNames[i] << endl;
+                badSnpIdx.push_back(i);
+                badSnpName.push_back(snpNames[i]);
+                if (writeTxt) out << i << "\t" << snpNames[i] << endl;
                 ++value;
             }
         }
@@ -4150,6 +4152,7 @@ void ApproxBayesR::sampleUnknowns(){
     //} while (snpEffects.numNonZeros == 0);
         
     snpEffects.computePosteriorMean(iter);
+    snpPip.getValues(snpEffects.pip);
 
     if (algorithm == cg) {
         snpEffects.adjustByCG(data.ZPy, data.ZPZsp, rcorr);
@@ -4258,10 +4261,10 @@ void ApproxBayesR::sampleUnknowns(){
     if (nDistAuto & iter==501) { // check if the smallest component explains less than half of the variance than the second smallest. If so, remove the smallest component and restart MCMC.
         if (VgMean.size() == 2) {
 
-        } else if (VgMean[1] < 0.5*VgMean[2]) {
-            throw("\nCAUTION: The smallest component (Vg2) explains less than half of the variance that is explained by the second smallest component (Vg3).");
+        } else if (VgMean[1] < nDistAutoThreshold*VgMean[2]) {
+            throw("\nCAUTION: The smallest component (Vg2) explains less than " + to_string(nDistAutoThreshold*100) + "% of the variance that is explained by the second smallest component (Vg3).");
         } else {
-            cout << "\nThe smallest component (Vg2) explains at least half of the variance that is explained by the second smallest component (Vg3). The MCMC will carry on with the current setting.\n" << endl;
+            cout << "\nThe smallest component (Vg2) explains at least " + to_string(nDistAutoThreshold*100) + "%  of the variance that is explained by the second smallest component (Vg3). The MCMC will carry on with the current setting.\n" << endl;
         }
     }
 }
@@ -7355,6 +7358,7 @@ void ApproxBayesRC::sampleUnknowns(){
     }
     
     snpEffects.computePosteriorMean(iter);
+    snpPip.getValues(snpEffects.pip);
 
     if (robustMode) {
         sigmaSq.value = varg.value/(data.numIncdSnps*gamma.values.dot(Pis.values));  // LDpred2's parameterisation
@@ -7408,10 +7412,10 @@ void ApproxBayesRC::sampleUnknowns(){
     if (nDistAuto & iter==501) { // check if the smallest component explains less than half of the variance than the second smallest. If so, remove the smallest component and restart MCMC.
         if (VgMean.size() == 2) {
 
-        } else if (VgMean[1] < 0.5*VgMean[2]) {
-            throw("\nCAUTION: The smallest component (Vg2) explains less than half of the variance that is explained by the second smallest component (Vg3).");
+        } else if (VgMean[1] < nDistAutoThreshold*VgMean[2]) {
+            throw("\nCAUTION: The smallest component (Vg2) explains less than " + to_string(nDistAutoThreshold*100) + "% of the variance that is explained by the second smallest component (Vg3).");
         } else {
-            cout << "\nThe smallest component (Vg2) explains at least half of the variance that is explained by the second smallest component (Vg3). The MCMC will carry on with the current setting.\n" << endl;
+            cout << "\nThe smallest component (Vg2) explains at least " + to_string(nDistAutoThreshold*100) + "%  of the variance that is explained by the second smallest component (Vg3). The MCMC will carry on with the current setting.\n" << endl;
         }
     }
     

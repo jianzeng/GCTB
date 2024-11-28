@@ -22,6 +22,7 @@ void McmcSamples::getSample(const unsigned iter, const VectorXf &sample){
             datMat.row(thin_iter_post_burnin) = sample;
             posteriorMean.array() += (sample - posteriorMean).array()/(thin_iter_post_burnin+1);
             posteriorSqrMean.array() += (sample.array().square() - posteriorSqrMean.array())/(thin_iter_post_burnin+1);
+            ++cntPosteriorSample;
         }
     } else if (storageMode == sparse) {
         lastSample = sample;
@@ -49,6 +50,7 @@ void McmcSamples::getSample(const unsigned iter, const VectorXf &sample){
             pip.array() += (delta - pip.array())/(thin_iter_post_burnin+1);
             posteriorMean.array() += (sample - posteriorMean).array()/(thin_iter_post_burnin+1);
             posteriorSqrMean.array() += (sample.array().square() - posteriorSqrMean.array())/(thin_iter_post_burnin+1);            
+            ++cntPosteriorSample;
         }
     }
 }
@@ -61,7 +63,68 @@ void McmcSamples::getSample(const unsigned iter, const float sample, ofstream &o
         datMat(thin_iter_post_burnin,0) = sample;
         posteriorMean.array() += (sample - posteriorMean.array())/(thin_iter_post_burnin+1);
         posteriorSqrMean.array() += (sample*sample - posteriorSqrMean.array())/(thin_iter_post_burnin+1);
+        ++cntPosteriorSample;
     }
+}
+
+void McmcSamples::computeGelmanRubinStat(const unsigned iter, const VectorXf &perChainSample){
+    if (iter < burnin) return;
+    if (iter % thin) return;
+
+//    cout << label << endl;
+//    cout << "perChainSample " << perChainSample.transpose() << endl;
+    
+    perChainMean.array() += (perChainSample.transpose() - perChainMean).array()/cntPosteriorSample;
+    perChainSqrMean.array() += (perChainSample.transpose().array().square() - perChainSqrMean.array())/cntPosteriorSample;
+    
+//    cout << "perChainMean " << perChainMean.transpose() << endl;
+//    cout << "perChainSqrMean " << perChainSqrMean.transpose() << endl;
+
+    float meanVarWithinChain = (perChainSqrMean.array() - perChainMean.array().square()).mean();   // W
+    float varMeansBetweenChains = Gadget::calcVariance(perChainMean.transpose());                              // B
+//    cout << "meanVarWithinChain " << meanVarWithinChain << endl;
+//    cout << "varMeansBetweenChains " << varMeansBetweenChains << endl;
+    float posteriorVar = (cntPosteriorSample-1.0)*meanVarWithinChain/float(cntPosteriorSample) + varMeansBetweenChains/float(cntPosteriorSample);
+    
+    if (meanVarWithinChain) {
+        GelmanRubinStat[0] = sqrt(posteriorVar/meanVarWithinChain);
+    } else {
+        GelmanRubinStat[0] = 1;
+    }
+//    cout << "GelmanRubinStat " << GelmanRubinStat << endl;
+
+}
+
+void McmcSamples::computeGelmanRubinStat(const unsigned iter, const MatrixXf &perChainSample){
+    if (iter < burnin) return;
+    if (iter % thin) return;
+    
+   for (unsigned i=0; i<numChains; ++i) {
+        perChainMean.col(i).array() += (perChainSample.col(i) - perChainMean.col(i)).array()/cntPosteriorSample;
+        perChainSqrMean.col(i).array() += (perChainSample.col(i).array().square() - perChainSqrMean.col(i).array())/cntPosteriorSample;
+    }
+    
+    unsigned numPar = GelmanRubinStat.size();
+    VectorXf meanVarWithinChain(numPar);
+    VectorXf varMeansBetweenChains(numPar);
+    VectorXf posteriorVar(numPar);
+    for (unsigned i=0; i<numPar; ++i) {
+        meanVarWithinChain[i] = (perChainSqrMean.row(i).array() - perChainMean.row(i).array().square()).mean(); // W
+        varMeansBetweenChains[i] = Gadget::calcVariance(perChainMean.row(i).transpose());                           // B
+        posteriorVar[i] = (cntPosteriorSample-1.0)*meanVarWithinChain[i]/float(cntPosteriorSample) + varMeansBetweenChains[i]/float(cntPosteriorSample);
+        if (meanVarWithinChain[i]) {
+            GelmanRubinStat[i] = sqrt(posteriorVar[i]/meanVarWithinChain[i]);
+        } else {
+            GelmanRubinStat[i] = 1.0;
+        }
+    }
+
+//    GelmanRubinStat = (posteriorVar.array()*meanVarWithinChain.array().inverse()).sqrt();
+    
+//    cout << label << endl;
+//    cout << "meanVarWithinChain " << meanVarWithinChain.head(5).transpose() << endl;
+//    cout << "varMeansBetweenChains " << varMeansBetweenChains.head(5).transpose() << endl;
+//    cout << "GelmanRubinStat " << GelmanRubinStat.head(5).transpose() << endl;
 }
 
 VectorXf McmcSamples::mean(){
@@ -282,7 +345,7 @@ void MCMC::initTxtFile(const vector<Parameter*> &paramVec, const string &title){
     out << endl;
 }
 
-vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin,
+vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin,
                                            const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
     vector<McmcSamples*> mcmcSampleVec;
     for (unsigned i=0; i<model.paramSetVec.size(); ++i) {
@@ -290,41 +353,43 @@ vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned ch
         McmcSamples *mcmcSamples;
         if (parSet->label.find("SnpEffects") != string::npos) {
             if (writeBinPosterior) {
-                mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "sparse", "bin", title);
+                mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "sparse", "bin", title);
             } else {
-                mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "sparse", "no_output", title);
+                mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "sparse", "no_output", title);
             }
         } else if (parSet->label.find("Delta") != string::npos) {
-            mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "sparse", "no_output", title);
+            mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "sparse", "no_output", title);
         } else {
             if (writeTxtPosterior) {
-                mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "dense", "txt", title);
+                mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "dense", "txt", title);
             } else {
-                mcmcSamples = new McmcSamples(parSet->label, chainLength, burnin, thin, parSet->size, "dense", "no_output", title);
+                mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "dense", "no_output", title);
             }
         }
         mcmcSampleVec.push_back(mcmcSamples);
     }
     for (unsigned i=0; i<model.paramVec.size(); ++i) {
         Parameter *par = model.paramVec[i];
-        McmcSamples *mcmcSamples = new McmcSamples(par->label, chainLength, burnin, thin, 1, "dense", "txt_combine_others", title);
+        McmcSamples *mcmcSamples = new McmcSamples(par->label, numChains, chainLength, burnin, thin, 1, "dense", "txt_combine_others", title);
         mcmcSampleVec.push_back(mcmcSamples);
     }
     if (writeTxtPosterior) initTxtFile(model.paramVec, title);
     return mcmcSampleVec;
 }
 
-void MCMC::collectSamples(const Model &model, vector<McmcSamples*> &mcmcSampleVec, const unsigned iteration, const bool writeBinPosterior, const bool writeTxtPosterior){
+void MCMC::collectSamples(const Model &model, vector<McmcSamples*> &mcmcSampleVec, const unsigned numChains, const unsigned iteration, const bool writeBinPosterior, const bool writeTxtPosterior){
     unsigned i = 0;
     for (unsigned j=0; j<model.paramSetVec.size(); ++j) {
         McmcSamples *mcmcSamples = mcmcSampleVec[i++];
         ParamSet *parSet = model.paramSetVec[j];
         mcmcSamples->getSample(iteration, parSet->values);
+        if (numChains > 1) mcmcSamples->computeGelmanRubinStat(iteration, parSet->perChainValues);
     }
     for (unsigned j=0; j<model.paramVec.size(); ++j) {
         McmcSamples *mcmcSamples = mcmcSampleVec[i++];
         Parameter *par = model.paramVec[j];
         mcmcSamples->getSample(iteration, par->value, out);
+        if (numChains > 1) mcmcSamples->computeGelmanRubinStat(iteration, par->perChainValue);
     }
     out << endl;
 }
@@ -352,7 +417,7 @@ void MCMC::printStatus(const vector<Parameter*> &paramToPrint, const unsigned th
 
 
 
-void MCMC::printSummary(const vector<Parameter*> &paramToPrint, const vector<McmcSamples*> &mcmcSampleVec, const string &filename){
+void MCMC::printSummary(const vector<Parameter*> &paramToPrint, const vector<McmcSamples*> &mcmcSampleVec, const unsigned numChains, const string &filename){
     if (!paramToPrint.size()) return;
     ofstream out;
     out.open(filename.c_str());
@@ -360,24 +425,46 @@ void MCMC::printSummary(const vector<Parameter*> &paramToPrint, const vector<Mcm
         throw("Error: cannot open file " + filename);
     }
     cout << "\nPosterior statistics from MCMC samples:\n\n";
-    cout << boost::format("%13s %-15s %-15s\n") %"" % "Mean" % "SD ";
-    //out << "Posterior statistics from MCMC samples:\n\n";
-    out << boost::format("%13s %-15s %-15s\n") %"" % "Mean" % "SD ";
+    if (numChains > 1) {
+        cout << boost::format("%10s %2s %-15s %-15s %-15s\n") %"Parameter" % "" % "Mean" % "SD " % "GelmanRubin_R";
+        //out << "Posterior statistics from MCMC samples:\n\n";
+        out << boost::format("%10s %2s %-15s %-15s %-15s\n") %"Parameter" % "" % "Mean" % "SD " % "GelmanRubin_R";
+
+    } else {
+        cout << boost::format("%10s %2s %-15s %-15s\n") %"Parameter" % "" % "Mean" % "SD ";
+        //out << "Posterior statistics from MCMC samples:\n\n";
+        out << boost::format("%10s %2s %-15s %-15s\n") %"Parameter" % "" % "Mean" % "SD ";
+    }
     for (unsigned i=0; i<paramToPrint.size(); ++i) {
         Parameter *par = paramToPrint[i];
         for (unsigned j=0; j<mcmcSampleVec.size(); ++j) {
             McmcSamples *mcmcSamples = mcmcSampleVec[j];
             if (mcmcSamples->label == par->label) {
-                cout << boost::format("%10s %2s %-15.6f %-15.6f\n")
-                % par->label
-                % ""
-                % mcmcSamples->mean()
-                % mcmcSamples->sd();
-                out << boost::format("%10s %2s %-15.6f %-15.6f\n")
-                % par->label
-                % ""
-                % mcmcSamples->mean()
-                % mcmcSamples->sd();
+                if (mcmcSamples->numChains > 1) {
+                    cout << boost::format("%10s %2s %-15.6f %-15.6f %-15.4f\n")
+                    % par->label
+                    % ""
+                    % mcmcSamples->mean()
+                    % mcmcSamples->sd()
+                    % mcmcSamples->GelmanRubinStat;
+                    out << boost::format("%10s %2s %-15.6f %-15.6f %-15.4f\n")
+                    % par->label
+                    % ""
+                    % mcmcSamples->mean()
+                    % mcmcSamples->sd()
+                    % mcmcSamples->GelmanRubinStat;
+                } else {
+                    cout << boost::format("%10s %2s %-15.6f %-15.6f\n")
+                    % par->label
+                    % ""
+                    % mcmcSamples->mean()
+                    % mcmcSamples->sd();
+                    out << boost::format("%10s %2s %-15.6f %-15.6f\n")
+                    % par->label
+                    % ""
+                    % mcmcSamples->mean()
+                    % mcmcSamples->sd();
+                }
                 break;
             }
         }
@@ -385,17 +472,23 @@ void MCMC::printSummary(const vector<Parameter*> &paramToPrint, const vector<Mcm
     out.close();
 }
 
-void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vector<McmcSamples*> &mcmcSampleVec, const string &filename){
+void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vector<McmcSamples*> &mcmcSampleVec, const unsigned numChains, const string &filename){
     if (!paramSetToPrint.size()) return;
     ofstream out;
     out.open(filename.c_str());
     if (!out) {
         throw("Error: cannot open file " + filename);
     }
-//    cout << "\nPosterior statistics from MCMC samples:\n\n";
-//    cout << boost::format("%13s %-15s %-15s\n") %"" % "Mean" % "SD ";
-//    out << "Posterior statistics from MCMC samples:\n\n";
-//    out << boost::format("%13s %-15s %-15s\n") %"" % "Mean" % "SD ";
+    if (numChains > 1) {
+        //cout << boost::format("%25s %20s %2s %-15s %-15s %-12s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "GelmanRubin_R";
+        out << boost::format("%25s %20s %2s %-15s %-15s %-12s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "GelmanRubin_R";
+
+    } else {
+        //    cout << "\nPosterior statistics from MCMC samples:\n\n";
+        //cout << boost::format("%25s %20s %2s %-15s %-15s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD ";
+        //    out << "Posterior statistics from MCMC samples:\n\n";
+        out << boost::format("%25s %20s %2s %-15s %-15s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD ";
+    }
     for (unsigned i=0; i<paramSetToPrint.size(); ++i) {
         ParamSet *parset = paramSetToPrint[i];
         if (parset->label == "SnpAnnoMembershipDelta") continue;
@@ -428,7 +521,9 @@ void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vecto
                         }
                     }
                     postprob /= float(mcmcSamples->nrow);
-                    out << boost::format("%-15.6f\n") % postprob;
+                    out << boost::format("%-15.6f ") % postprob;
+                    if (mcmcSamples->numChains > 1) out << boost::format("%-12.4f ") % mcmcSamples->GelmanRubinStat[col];
+                    out << endl;
                 }
                 break;
             }
@@ -464,10 +559,11 @@ void MCMC::printSnpAnnoMembership(const vector<ParamSet *> &paramSetToPrint, con
     }
 }
 
-vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const bool print,
+vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const bool print,
                                const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
     if (print) {
         cout << "MCMC launched ..." << endl;
+        cout << "  Number of chains: " << numChains << endl;
         cout << "  Chain length: " << chainLength << " iterations" << endl;
         cout << "  Burn-in: " << burnin << " iterations" << endl << endl;
     }
@@ -479,7 +575,7 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const u
         }
     }
 
-    vector<McmcSamples*> mcmcSampleVec = initMcmcSamples(model, chainLength, burnin, thin, title, writeBinPosterior, writeTxtPosterior);
+    vector<McmcSamples*> mcmcSampleVec = initMcmcSamples(model, numChains, chainLength, burnin, thin, title, writeBinPosterior, writeTxtPosterior);
     
     Gadget::Timer timer;
     timer.setTime();
@@ -488,7 +584,7 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const u
         unsigned thisIter = iteration + 1;
         
         model.sampleUnknowns();
-        collectSamples(model, mcmcSampleVec, iteration, writeBinPosterior, writeTxtPosterior);
+        collectSamples(model, mcmcSampleVec, numChains, iteration, writeBinPosterior, writeTxtPosterior);
         
         if (!(thisIter % outputFreq)) {
             timer.getTime();
@@ -503,8 +599,8 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned chainLength, const u
     
     if (print) {
         cout << "\nMCMC cycles completed." << endl;
-        printSummary(model.paramToPrint, mcmcSampleVec, title + ".parRes");
-        printSetSummary(model.paramSetToPrint, mcmcSampleVec, title + ".parSetRes");
+        printSummary(model.paramToPrint, mcmcSampleVec, numChains, title + ".parRes");
+        printSetSummary(model.paramSetToPrint, mcmcSampleVec, numChains, title + ".parSetRes");
         printSnpAnnoMembership(model.paramSetToPrint, mcmcSampleVec, title + ".snpAnnoMembership");
     }
 

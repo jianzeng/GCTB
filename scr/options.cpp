@@ -626,7 +626,8 @@ void Options::inputOptions(const int argc, const char* argv[]){
         }
         else if (!strcmp(argv[i], "--n-dist-auto")) {
             nDistAuto = true;
-            ss << "--n-dist-auto " << "\n";
+            nDistAutoThreshold = atof(argv[++i]);
+            ss << "--n-dist-auto " << argv[i] << "\n";
         }
         else {
             stringstream errmsg;

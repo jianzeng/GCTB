@@ -48,12 +48,19 @@ public:
     VectorXf pip;  // for snp effects, will consider to remove
     VectorXf lastSample; // save the last sample of MCMC
     
+    // for multiple chains
+    unsigned numChains;
+    MatrixXf perChainMean;
+    MatrixXf perChainSqrMean;
+    VectorXf GelmanRubinStat;
+    unsigned cntPosteriorSample;
+    
     FILE *bout;
     ofstream tout;
         
-    McmcSamples(const string &label, const unsigned chainLength, const unsigned burnin, const unsigned thin,
+    McmcSamples(const string &label, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin,
                 const unsigned npar, const string &storage_mode, const string &output_mode, const string &title):
-    label(label), chainLength(chainLength), burnin(burnin), thin(thin) {
+    label(label), numChains(numChains), chainLength(chainLength), burnin(burnin), thin(thin) {
         nrow = chainLength/thin - burnin/thin;
         ncol = npar;
         if (storage_mode == "dense") {
@@ -82,12 +89,20 @@ public:
         posteriorSqrMean.setZero(ncol);
         pip.setZero(ncol);
         lastSample.setZero(ncol);
+        cntPosteriorSample = 0;
+        if (numChains > 1) {
+            perChainMean.setZero(npar, numChains);
+            perChainSqrMean.setZero(npar, numChains);
+            GelmanRubinStat.setZero(npar);
+        }
     }
     
     McmcSamples(const string &label): label(label) {}
     
     void getSample(const unsigned iter, const VectorXf &sample);
     void getSample(const unsigned iter, const float sample, ofstream &out);
+    void computeGelmanRubinStat(const unsigned iter, const MatrixXf &perChainSample);
+    void computeGelmanRubinStat(const unsigned iter, const VectorXf &perChainSample);
     void writeSampleBin(const unsigned iter, const VectorXf &sample, const string &title);
     void writeSampleTxt(const unsigned iter, const float sample, const string &title);
     VectorXf mean(void);
@@ -109,19 +124,19 @@ private:
     ofstream out;
     
     void initTxtFile(const vector<Parameter*> &paramVec, const string &title);
-    vector<McmcSamples*> initMcmcSamples(const Model &model, const unsigned chainLength, const unsigned burnin,
+    vector<McmcSamples*> initMcmcSamples(const Model &model, const unsigned numChains, const unsigned chainLength, const unsigned burnin,
                                          const unsigned thin, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior);
-    void collectSamples(const Model &model, vector<McmcSamples*> &mcmcSampleVec, const unsigned iteration, const bool writeBinPosterior, const bool writeTxtPosterior);
+    void collectSamples(const Model &model, vector<McmcSamples*> &mcmcSampleVec, const unsigned numChains, const unsigned iteration, const bool writeBinPosterior, const bool writeTxtPosterior);
     void printStatus(const vector<Parameter*> &paramToPrint, const unsigned thisIter, const unsigned outputFreq, const string &timeLeft);
     void printStatusR(const vector<float*> &paramToPrintR, const unsigned thisIter, const unsigned outputFreq, const string &timeLeft);
-    void printSummary(const vector<Parameter*> &paramToPrint, const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
-    void printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
+    void printSummary(const vector<Parameter*> &paramToPrint, const vector<McmcSamples*> &mcmcSampleVec, const unsigned numChains, const string &filename);
+    void printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vector<McmcSamples*> &mcmcSampleVec, const unsigned numChains, const string &filename);
     void printSnpAnnoMembership(const vector<ParamSet*> &paramSetToPrint, const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
 
 public:
-    vector<McmcSamples*> run(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const bool print,
+    vector<McmcSamples*> run(Model &model, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const bool print,
                              const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior);
-    void convergeDiagGelmanRubin(const Model &model, vector<vector<McmcSamples*> > &mcmcSampleVecChain, const string &filename);
+    void convergeDiagGelmanRubin(const Model &model, vector<vector<McmcSamples*> > &mcmcSampleVecChain, const string &filename);    
 };
 
 #endif /* mcmc_hpp */

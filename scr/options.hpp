@@ -80,6 +80,7 @@ public:
     float pValueThreshold;
     float pipThreshold;
     float pepThreshold;
+    float nDistAutoThreshold;
     
     bool estimatePi;
     bool estimateSigmaSq; // variance of SNP effects
@@ -212,6 +213,7 @@ public:
         pValueThreshold         = 1.0;
         pipThreshold            = 0.9;
         pepThreshold            = 0.7;
+        nDistAutoThreshold      = 0.5;
 
         // Bayes R defaults
         ndists                  = 5;

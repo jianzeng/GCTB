@@ -317,7 +317,7 @@ vector<McmcSamples*> XCI::multi_chain_mcmc(Data &data, const string &bayesType, 
     for (unsigned i=0; i<numChains; ++i) {
         MCMC mcmc;
         bool print = true;
-        mcmcSampleVecChain[i] = mcmc.run(*modelVec[i], chainLength, burnin, thin, print, outputFreq, title, (writeBinPosterior && print), (writeTxtPosterior && print));
+        mcmcSampleVecChain[i] = mcmc.run(*modelVec[i], 1, chainLength, burnin, thin, print, outputFreq, title, (writeBinPosterior && print), (writeTxtPosterior && print));
     }
         
     if (numChains) {

@@ -18,6 +18,7 @@
 #include "hsq.hpp"
 #include "predict.hpp"
 #include "stratify.hpp"
+#include "multichains.hpp"
 
 class GCTB {
 public:
@@ -49,13 +50,13 @@ public:
     
     void inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool sampleOverlap, const bool imputeN, const bool noscale);
 
-    Model* buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
+    Model* buildModel(Data &data, const Options &opt, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
                       const float heritability, const float propVarRandom, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const bool noscale,
                       const VectorXf &pis, const VectorXf &piPar, const VectorXf &gamma, const bool estimateSigmaSq,
                       const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow,
                       const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS,
                       const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool hsqPercModel, const bool perSnpGV, const bool robustMode, const bool nDistAuto);
-    vector<McmcSamples*> runMcmc(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior);
+    vector<McmcSamples*> runMcmc(Model &model, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior);
     void saveMcmcSamples(const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
     void outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &bayesType, const bool noscale, const string &filename);
 

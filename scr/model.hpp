@@ -23,8 +23,12 @@ public:
     const string label;
     float value;   // sampled value
     
+    unsigned numChains;      // for multiple chains
+    VectorXf perChainValue;  // for multiple chains
+
     Parameter(const string &label): label(label){
         value = 0.0;
+        numChains = 1;
     }
 };
 
@@ -36,9 +40,13 @@ public:
     unsigned size;
     VectorXf values;
         
+    unsigned numChains;      // for multiple chains
+    MatrixXf perChainValues; // for multiple chains
+
     ParamSet(const string &label, const vector<string> &header)
     : label(label), header(header), size(int(header.size())){
         values.setZero(size);
+        numChains = 1;
     }
 };
 
@@ -300,7 +308,7 @@ public:
     FixedEffects fixedEffects;
     RandomEffects randomEffects;
     SnpEffects snpEffects;
-    //SnpPIP snpPip;
+    SnpPIP snpPip;
     VarEffects sigmaSq;
     VarRandomEffects sigmaSqRand;
     ScaleVar scale;
@@ -321,7 +329,7 @@ public:
     randomEffects(data.randomEffectNames),
     sigmaSqRand(varRandom, data.numRandomEffects),
     snpEffects(data.snpEffectNames, algorithm),
-    //snpPip(data.snpEffectNames),
+    snpPip(data.snpEffectNames),
     sigmaSq(varGenotypic, data.snp2pq, pival, noscale),
     scale(sigmaSq.scale),
     pi(pival, piAlpha, piBeta),
@@ -331,7 +339,7 @@ public:
     estimatePi(estimatePi)
     {
         numSnps = data.numIncdSnps;
-        paramSetVec = {&snpEffects, &fixedEffects};           // for which collect mcmc samples
+        paramSetVec = {&snpEffects, &fixedEffects, &snpPip};           // for which collect mcmc samples
         paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq};       // for which collect mcmc samples
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq};   // print in order
         if (data.numRandomEffects) {
@@ -559,8 +567,9 @@ public:
 
         ProbMixComps(const VectorXf &pis, const VectorXf &alphas): ndist(pis.size()){
             for (unsigned i = 0; i<ndist; ++i) {
-                 //Parameter * pi = new Parameter("Pi");
-                 this->push_back(new Parameter("Pi" + to_string(static_cast<long long>(i + 1))));
+                //Parameter * pi = new Parameter("Pi");
+                this->push_back(new Parameter("Pi" + to_string(static_cast<long long>(i + 1))));
+                (*this)[i]->value = pis[i];
             }
             if (alphas.size() != ndist) alphaVec.setOnes(ndist);
             else alphaVec = alphas;
@@ -659,9 +668,9 @@ public:
     hsqPercModel(hsqPercModel)
     {
         paramSetVec  = {&snpEffects, &fixedEffects};
-        for (unsigned i=0; i<Pis.size(); ++i) { 
-           Pis[i]->value=Pis.values[i];
-        }
+//        for (unsigned i=0; i<Pis.size(); ++i) { 
+//           Pis[i]->value=Pis.values[i];
+//        }
         paramVec     = {&nnzSnp, &sigmaSq, &vare, &varg, &hsq};
         if (hsqPercModel) paramVec.insert(paramVec.begin(), Vgs.begin(), Vgs.end());
         paramVec.insert(paramVec.begin(), numSnps.begin(), numSnps.end());
@@ -1191,7 +1200,11 @@ public:
     public:
         float betaThresh;
         vector<string> snpNames;
+        vector<string> badSnpName;
+        vector<unsigned> badSnpIdx;
         ofstream out;
+        
+        bool writeTxt;
         
         NumBadSnps(const string &title, const VectorXf &b, const vector<string> &snpNames): Parameter("NumBadSnps"), snpNames(snpNames){
             VectorXf abs_b = b.array().abs();
@@ -1203,6 +1216,7 @@ public:
             
             string filename = title + ".badSNPlist";
             out.open(filename.c_str());
+            writeTxt = true;
         }
         
         void compute(VectorXi &delSnps, VectorXf &effects, VectorXf &effectMean, const VectorXf &b, vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, const vector<LDBlockInfo*> keptLdBlockInfoVec, const int iter);
@@ -1847,6 +1861,7 @@ public:
     bool estimateSigmaSq;
     bool estimateHsq;
     bool nDistAuto;
+    float nDistAutoThreshold;
 
     const float overdispersion;
     
@@ -1854,7 +1869,7 @@ public:
         
     VectorXf VgMean;  // running mean of variance explained by each component
 
-    ApproxBayesR(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool hsqPercModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool nDistAuto, const bool message = true):
+    ApproxBayesR(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool hsqPercModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool nDistAuto, const float nDistAutoThreshold, const bool message = true):
     ApproxBayesC(data, lowrank, varGenotypic, varResidual, 0.0, (1-pis[0]), piPar[0], piPar[1], estimatePi, noscale, 0, overdispersion, estimatePS, 0, spouseCorrelation, diagnosticMode, robustMode, false, false),
     Pis(pis,piPar),
     numSnps(pis),
@@ -1874,6 +1889,7 @@ public:
     deltaPi(data.snpEffectNames, pis.size()),
     estimateSigmaSq(estimateSigmaSq),
     nDistAuto(nDistAuto),
+    nDistAutoThreshold(nDistAutoThreshold),
     vargBlk(data.ldblockNames, varGenotypic, data.numKeptInds),
     vareBlk(data.ldblockNames, data.varPhenotypic)
     {
@@ -1887,9 +1903,9 @@ public:
         paramSetVec = {&snpEffects, &fixedEffects};
         // sigmaSq.value = varGenotypic/(data.snp2pq.array().sum()*(1-pis[0]));
         // scale.value = sigmaSq.scale = 0.5*sigmaSq.value;
-        for (unsigned i=0; i<Pis.size(); ++i) {
-           Pis[i]->value=Pis.values[i];
-        }
+//        for (unsigned i=0; i<Pis.size(); ++i) {
+//           Pis[i]->value=Pis.values[i];
+//        }
         paramVec     = {&nnzSnp, &sigmaSq, &hsq, &vare};
         if (hsqPercModel) paramVec.insert(paramVec.begin(), Vgs.begin(), Vgs.end());
         paramVec.insert(paramVec.begin(), numSnps.begin(), numSnps.end());
@@ -2613,12 +2629,13 @@ public:
     MatrixXf snpPi;   // pi1 = 1-p2; pi2 = (1-p3)*p2; pi3 = (1-p4)*p2*p3; pi4 = p2*p3*p4
     
     bool nDistAuto;
+    float nDistAutoThreshold;
 
 //    vector<VectorXf> wcorrBlocks;
 //    vector<VectorXf> whatBlocks;
         
-    ApproxBayesRC(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool hsqPercModel, const bool perSnpGV, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool nDistAuto, const bool message = true):
-    ApproxBayesR(data, lowrank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, hsqPercModel, overdispersion, estimatePS, spouseCorrelation, false, robustMode, alg, nDistAuto, false),
+    ApproxBayesRC(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool hsqPercModel, const bool perSnpGV, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool nDistAuto, const float nDistAutoThreshold, const bool message = true):
+    ApproxBayesR(data, lowrank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, hsqPercModel, overdispersion, estimatePS, spouseCorrelation, false, robustMode, alg, nDistAuto, nDistAutoThreshold, false),
     snpEffects(data.snpEffectNames, pis),
     annoEffects(data.annoNames, pis.size(), data.annoMat),
     sigmaSqAnno(annoEffects.colnames, annoEffects.numAnno),
@@ -2629,7 +2646,8 @@ public:
     annoPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
     deltaPi(data.snpEffectNames, pis.size()),
     annoDist(data.annoNames, pis.size()),
-    nDistAuto(nDistAuto)
+    nDistAuto(nDistAuto),
+    nDistAutoThreshold(nDistAutoThreshold)
     {
         
         //bool nDistAuto = true;

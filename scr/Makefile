@@ -14,14 +14,14 @@ ifeq ($(shell uname -s),Linux)
     CXXFLAGS = -I $(EIGEN_PATH) -I $(BOOST_PATH) -DUNIX -DNDEBUG -msse2 -m64 -fopenmp -O3 -std=c++0x -Wall -w
     LIB = -ldl
 else ifeq ($(shell uname -s),Darwin)
-    CXX = /usr/local/opt/llvm/bin/clang++
+    CXX = /opt/homebrew/opt/llvm/bin/clang++
     CXXFLAGS = -I /usr/local/include -I $(EIGEN_PATH) -I $(BOOST_PATH) -DUNIX -Dfopen64=fopen -stdlib=libc++ -m64 -fopenmp -O3 -std=c++0x -Wall -w
     LIB = -lz -lm -L/usr/local/opt/libomp/lib
 endif
 
 # Set the source files and headers
-HDR = gctb.hpp data.hpp gadgets.hpp hsq.hpp mcmc.hpp model.hpp options.hpp stat.hpp vgmaf.hpp predict.hpp xci.hpp stratify.hpp
-SRC = gctb.cpp data.cpp gadgets.cpp hsq.cpp main.cpp mcmc.cpp model.cpp options.cpp stat.cpp vgmaf.cpp predict.cpp xci.cpp stratify.cpp eigen.cpp
+HDR = gctb.hpp data.hpp gadgets.hpp hsq.hpp mcmc.hpp model.hpp options.hpp stat.hpp vgmaf.hpp predict.hpp xci.hpp stratify.hpp multichains.hpp
+SRC = gctb.cpp data.cpp gadgets.cpp hsq.cpp main.cpp mcmc.cpp model.cpp options.cpp stat.cpp vgmaf.cpp predict.cpp xci.cpp stratify.cpp eigen.cpp multichains.cpp
 OBJ = $(SRC:.cpp=.o)
 
 # Define the rules

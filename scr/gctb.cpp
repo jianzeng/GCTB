@@ -151,7 +151,7 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSum
     data.buildSparseMME(sampleOverlap, noscale);
 }
 
-Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
+Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
                         const float heritability, const float propVarRandom, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const bool noscale,
                         const VectorXf &pis, const VectorXf &piPar, const VectorXf &gamma, const bool estimateSigmaSq,
                         const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow,
@@ -165,12 +165,20 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
 //        data.readBedFile(noscale, bedFile + ".bed");
 //        data.numKeptInds = n_gwas;
 //    }
+    if (opt.numChains > 1) {
+        if (bayesType == "R")
+            return new MultiChainSBayesR(data, opt);
+        else if (bayesType == "RC")
+            return new MultiChainSBayesRC(data, opt);
+        else
+            throw(" Error: " + bayesType + " is not available for multi-chain analysis.");
+    }
     if (!gwasFile.empty()) {
         if (data.numAnnos) {
             if (bayesType == "S")
                 return new StratApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, S, algorithm, robustMode);
             else if (bayesType == "RC")
-                return new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, hsqPercModel, perSnpGV, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm, nDistAuto);
+                return new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, hsqPercModel, perSnpGV, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm, nDistAuto, opt.nDistAutoThreshold);
             else
                 throw(" Error: Wrong bayes type: " + bayesType + " in the annotation-stratified summary-data-based Bayesian analysis.");
         }
@@ -188,7 +196,7 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
             else if (bayesType == "SMix")
                 return new ApproxBayesSMix(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, overdispersion, estimatePS, varS, S);
             else if (bayesType == "R")
-                return new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, hsqPercModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm, nDistAuto);
+                return new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, hsqPercModel, overdispersion, estimatePS, spouseCorrelation, diagnosticMode, robustMode, algorithm, nDistAuto, opt.nDistAutoThreshold);
             else if (bayesType == "Kap")
                 return new ApproxBayesKappa(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, icrsq, kappa);
             else if (bayesType == "RS")
@@ -253,9 +261,9 @@ Model* GCTB::buildModel(Data &data, const string &bedFile, const string &gwasFil
     }
 }
 
-vector<McmcSamples*> GCTB::runMcmc(Model &model, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
+vector<McmcSamples*> GCTB::runMcmc(Model &model, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
     MCMC mcmc;
-    return mcmc.run(model, chainLength, burnin, thin, true, outputFreq, title, writeBinPosterior, writeTxtPosterior);
+    return mcmc.run(model, numChains, chainLength, burnin, thin, true, outputFreq, title, writeBinPosterior, writeTxtPosterior);
 }
 
 vector<McmcSamples*> GCTB::multi_chain_mcmc(Data &data, const string &bayesType, const unsigned windowWidth, const float heritability, const float propVarRandom, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
@@ -294,7 +302,7 @@ vector<McmcSamples*> GCTB::multi_chain_mcmc(Data &data, const string &bayesType,
     for (unsigned i=0; i<numChains; ++i) {
         MCMC mcmc;
         bool print = true;
-        mcmcSampleVecChain[i] = mcmc.run(*modelVec[i], chainLength, burnin, thin, print, outputFreq, title, (writeBinPosterior && print), (writeTxtPosterior && print));
+        mcmcSampleVecChain[i] = mcmc.run(*modelVec[i], 1, chainLength, burnin, thin, print, outputFreq, title, (writeBinPosterior && print), (writeTxtPosterior && print));
     }
     
     if (numChains) {
@@ -390,9 +398,11 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
     }
     if (bayesType == "RC" || bayesType == "R") {
         McmcSamples *snpEffects = NULL;
+        McmcSamples *snpPip = NULL;
         vector<McmcSamples*> deltaPiVec;
         for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
             if (mcmcSampleVec[i]->label == "SnpEffects") snpEffects = mcmcSampleVec[i];
+            if (mcmcSampleVec[i]->label == "PIP") snpPip = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label.substr(0, 7) == "DeltaPi") deltaPiVec.push_back(mcmcSampleVec[i]);
         }
         string newfilename = filename + ".snpRes";
@@ -413,6 +423,9 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
         }
 //        out << boost::format(" %14s %14s") % "PIP" % "Pvalue";
         out << boost::format(" %14s") % "PIP";
+        if (snpPip) {
+            if(snpPip->numChains > 1) out << boost::format(" %12s") % "GelmanRubin_R";
+        }
         out << endl;
         
         // estimate P value from PIP
@@ -456,6 +469,9 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
             }
 //            out << " " << setw(14) << (pip_vec[idx]) << " " << setw(14) << pval[idx];
             out << " " << setw(14) << (pip_vec[idx]);
+            if (snpPip) {
+                if (snpPip->numChains > 1) out << " " << setw(12) << snpPip->GelmanRubinStat[i];
+            }
             out << endl;
             ++idx;
         }
@@ -1552,7 +1568,7 @@ void GCTB::stratify(Data &data, const string &ldmatrixFile, const bool multiLDma
     if (chainLength > snpEffects->nrow) chainLength = snpEffects->nrow;
     if (burnin > chainLength) burnin = 0.2*chainLength;
     
-    runMcmc(*model, chainLength, burnin, thin, outputFreq, filename, false, false);
+    runMcmc(*model, 1, chainLength, burnin, thin, outputFreq, filename, false, false);
 }
 
 void GCTB::solveSnpEffectsByConjugateGradientMethod(Data &data, const float lambda, const string &filename) const {
@@ -1674,7 +1690,7 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
         data.initVariances(opt.heritability, opt.propVarRandom);
         bool nDistAuto = false;
         bool print = false;
-        Model *modeli = new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.hsqPercModel, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, nDistAuto, print);
+        Model *modeli = new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.hsqPercModel, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, nDistAuto, opt.nDistAutoThreshold, print);
         
         vector<McmcSamples*> mcmcSampleVeci;
         MCMC mcmc;
@@ -1682,7 +1698,7 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
         unsigned chainLength = 150;
         unsigned burnin = 100;
         unsigned thin = 1;
-        mcmcSampleVeci = mcmc.run(*modeli, chainLength, burnin, thin, print, opt.outputFreq, opt.title, print, print);
+        mcmcSampleVeci = mcmc.run(*modeli, 1, chainLength, burnin, thin, print, opt.outputFreq, opt.title, print, print);
 
         VectorXf betaMean;
         for (unsigned i=0; i<mcmcSampleVeci.size(); ++i) {
