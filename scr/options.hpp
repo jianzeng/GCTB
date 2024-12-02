@@ -47,7 +47,7 @@ public:
     unsigned snpFittedPerWindow;    // for BayesN
     unsigned thin;  // save every this th sampled value in MCMC
     unsigned includeChr;  // chromosome to include
-    unsigned ndists; // Number of distributions for base Bayes R
+    unsigned numDist; // Number of distributions for base Bayes R
     unsigned flank;
     unsigned includeBlock;  // block to include
     
@@ -216,15 +216,15 @@ public:
         nDistAutoThreshold      = 0.5;
 
         // Bayes R defaults
-        ndists                  = 5;
-        gamma.resize(ndists);
+        numDist                  = 5;
+        gamma.resize(numDist);
         gamma                   << 0.0, 0.001, 0.01, 0.1, 1;
-        pis.resize(ndists);                      
+        pis.resize(numDist);
         pis                     << 0.99, 0.005, 0.003, 0.001, 0.001;
         // Kappa defaults
         kappa                   = 10;
         
-        piPar.setOnes(ndists);
+        piPar.setOnes(numDist);
         piNDCpar.setOnes(2);
         
         eigenCutoff.resize(4);

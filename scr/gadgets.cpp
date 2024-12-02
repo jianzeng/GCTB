@@ -156,3 +156,11 @@ vector<int> Gadget::shuffle_index(const int start, const int end){
 //    }
 
 }
+
+void Gadget::removeSecondElement(VectorXf &vec){
+    // Erase the second element (index 1)
+    vec.segment(1, vec.size() - 1) = vec.segment(2, vec.size() - 2);
+
+    // Resize the vector to one less element
+    vec.conservativeResize(vec.size() - 1);
+}

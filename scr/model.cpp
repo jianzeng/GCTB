@@ -429,10 +429,10 @@ void BayesB::sampleUnknowns(){
         varRand.compute(rhat);
     }
     unsigned cnt=0;
-    do {
+//    do {
         snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.values, pi.value, vare.value, ghat);
-        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-    } while (snpEffects.numNonZeros == 0);
+//        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+//    } while (snpEffects.numNonZeros == 0);
     sigmaSq.sampleFromFC(snpEffects.betaSq);
     if (estimatePi) pi.sampleFromFC(snpEffects.size, snpEffects.numNonZeros);
     vare.sampleFromFC(ycorr);
@@ -560,10 +560,10 @@ void BayesN::sampleUnknowns(){
         varRand.compute(rhat);
     }
     unsigned cnt=0;
-    do {
+//    do {
         snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, pi.value, vare.value, ghat);
-        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-    } while (snpEffects.numNonZeros == 0);
+//        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+//    } while (snpEffects.numNonZeros == 0);
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     //scale.sampleFromFC(sigmaSq.value, sigmaSq.df, sigmaSq.scale);
     if (estimatePi) pi.sampleFromFC(snpEffects.numWindows, snpEffects.numNonZeroWind);
@@ -768,10 +768,10 @@ void BayesR::sampleUnknowns(){
         varRand.compute(rhat);
     }
     unsigned cnt=0;
-    do {
+//    do {
         snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, Pis.values, gamma.values, vare.value, ghat, snpStore, varg.value, hsqPercModel, deltaPi, shuffle);
-        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-    } while (snpEffects.numNonZeros == 0);  
+//        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+//    } while (snpEffects.numNonZeros == 0);  
     sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
     vare.sampleFromFC(ycorr);
     Pis.sampleFromFC(snpStore);
@@ -1182,10 +1182,10 @@ void BayesS::sampleUnknowns(){
     }
 
     unsigned cnt=0;
-    do {
+//    do {
         snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, pi.value, vare.value, snp2pqPowS, data.snp2pq, genVarPrior, sigmaSq.scale, ghat);
-        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-    } while (snpEffects.numNonZeros == 0);
+//        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+//    } while (snpEffects.numNonZeros == 0);
     
     sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
     
@@ -1455,10 +1455,10 @@ void BayesNS::sampleUnknowns(){
     }
 
     unsigned cnt=0;
-    do {
+//    do {
         snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, pi.value, vare.value, snp2pqPowS, data.snp2pq, genVarPrior, sigmaSq.scale, ghat);
-        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-    } while (snpEffects.numNonZeros == 0);
+//        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+//    } while (snpEffects.numNonZeros == 0);
     
     sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
     
@@ -1672,10 +1672,10 @@ void BayesRS::sampleUnknowns() {
     }
 
     unsigned cnt=0;
-    do {
+//    do {
         snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, Pis.values, gamma.values, vare.value, snp2pqPowS, data.snp2pq, varg.value, sigmaSq.scale, ghat, hsqPercModel);
-        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-    } while (snpEffects.numNonZeros == 0);
+//        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+//    } while (snpEffects.numNonZeros == 0);
     sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
     if (estimatePi) Pis.sampleFromFC(snpEffects.numSnpMix);
     numSnps.getValues(snpEffects.numSnpMix);
@@ -2253,11 +2253,15 @@ void ApproxBayesC::SnpEffects::computeFromBLUP(vector<VectorXf> &wcorrBlocks, co
 //    value = InvChiSq::sample(dfTilde, scaleTilde);
 //}
 
-void ApproxBayesC::ResidualVar::sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float covg) {
+void ApproxBayesC::ResidualVar::sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float covg, string &message) {
     float sse = ypy - effects.dot(ZPy) - effects.dot(rcorr) + nobs*covg;
     if (sse < 0) {
-        string vare_str = to_string(static_cast<long double>(sse/nobs));
-        throw("\nError: Residual variance is negative (" + vare_str + "). This may indicate that effect sizes are \"blowing up\" likely due to a convergence problem. If SigmaSq variable is increasing with MCMC iterations, then this further indicates MCMC may not converge.");
+        value = sse/nobs;
+        message = "Negative residual variance";
+        cout << message << endl;
+        return;
+//        string vare_str = to_string(static_cast<long double>(sse/nobs));
+//        throw("\nError: Residual variance is negative (" + vare_str + "). This may indicate that effect sizes are \"blowing up\" likely due to a convergence problem. If SigmaSq variable is increasing with MCMC iterations, then this further indicates MCMC may not converge.");
     }
 //    if (sse < 0) sse = 0; //-sse;
 //    if (sse > ypy) sse = ypy;
@@ -2607,6 +2611,9 @@ void ApproxBayesC::checkHsq(vector<float> &hsqMCMC) {
 
 void ApproxBayesC::NumBadSnps::compute(VectorXi &delSnps, VectorXf &effects, VectorXf &effectMean, const VectorXf &b, vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, const vector<LDBlockInfo*> keptLdBlockInfoVec, const int iter) {
     //cout << "computing NumBadSnps..." << endl;
+    
+    value = 0;
+    
     float rate_thresh1 = 0, rate_thresh2 = 0;
     if(iter < 300){
         rate_thresh1 = 4.0;
@@ -2723,7 +2730,7 @@ void ApproxBayesC::sampleUnknowns(){
         covg.compute(data.ypy, snpEffects.values, data.ZPy, rcorr);
         varg.compute(snpEffects.values, data.ZPy, rcorr, covg.value);
         //    varg.value = sigmaSqG.value;
-        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value);
+        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value, message);
         //vare.value = data.varPhenotypic;
     }
     //hsq.compute(varg.value, vare.value);
@@ -3128,7 +3135,7 @@ void ApproxBayesB::sampleUnknowns() {
         covg.compute(data.ypy, snpEffects.values, data.ZPy, rcorr);
         varg.compute(snpEffects.values, data.ZPy, rcorr, covg.value);
         //    varg.value = sigmaSqG.value;
-        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value);
+        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value, message);
     }
     hsq.compute(varg.value, vare.value);
     
@@ -3756,7 +3763,7 @@ void ApproxBayesS::sampleUnknowns(){
         covg.compute(data.ypy, snpEffects.values, data.ZPy, rcorr);
         varg.compute(snpEffects.values, data.ZPy, rcorr, covg.value);
         //    varg.value = sigmaSqG.value;
-        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value);
+        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value, message);
         //vare.value = data.varPhenotypic;
     }
 //    hsq.compute(varg.value, vare.value);
@@ -4085,18 +4092,18 @@ float ApproxBayesST::Tp::computeU(const float &T, const ArrayXf &snpEffectSq, co
 
 void ApproxBayesST::sampleUnknowns(){
     unsigned cnt=0;
-    do {
+//    do {
         snpEffects.sampleFromFC(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.chromInfoVec,
                                 data.LDsamplVar, hSlT, data.snp2pq, sigmaSq.value, pi.value, vare.value,
                                 varg.value, ps.value, overdispersion);
-        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-    } while (snpEffects.numNonZeros == 0);
+//        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+//    } while (snpEffects.numNonZeros == 0);
     sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
     if (estimatePi) pi.sampleFromFC(data.numIncdSnps, snpEffects.numNonZeros);
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pqhSlT);
     varg.compute(snpEffects.values, data.ZPy, rcorr, covg.value);
-    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value);
+    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value, message);
     hsq.compute(varg.value, vare.value);
     if (estimateS)
         S.sampleFromFC(snpEffects.numNonZeros, sigmaSq.value, snpEffects.values, data.snp2pq, logSnp2pq,
@@ -4129,36 +4136,17 @@ void ApproxBayesST::sampleStartVal(){
 // *******************************************************
 
 void ApproxBayesR::sampleUnknowns(){
-    //sigmaSq.value = 0.000275;   // TMP_JZ
-    //static int iter = 0;
-//    fixedEffects.sampleFromFC(data.XPX, data.XPXdiag, data.ZPX, data.XPy, snpEffects.values, vare.value, rcorr);
-    unsigned cnt=0;
-    //do {
-        if (data.Z.size()) {
-            snpEffects.sampleFromFC(data.ZPy, data.ZPZdiag, data.Z, data.Z.rows(), data.numKeptInds, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore, ghat, varg.value, hsqPercModel, deltaPi);
-        }
-        else {
-            if (lowRankModel) {
-                snpEffects.sampleFromFC(wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, sigmaSq.value, Pis.values, gamma.values, snpStore, varg.value, hsqPercModel, deltaPi);
-            }
-            else if (sparse)
-                snpEffects.sampleFromFC(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, data.tss, varei, data.n, data.snp2pq, data.LDsamplVar, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore,
-                                        varg.value, ps.value, overdispersion, hsqPercModel, deltaPi);
-            else
-                snpEffects.sampleFromFC(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, data.tss, varei, data.n, data.snp2pq, data.LDsamplVar, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore,
-                                        varg.value, ps.value, overdispersion, hsqPercModel, deltaPi);
-        }
-    //    if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-    //} while (snpEffects.numNonZeros == 0);
-        
+    if (lowRankModel)
+        snpEffects.sampleFromFC(wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, sigmaSq.value, Pis.values, gamma.values, snpStore, varg.value, hsqPercModel, deltaPi);
+    else if (sparse)
+        snpEffects.sampleFromFC(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, data.tss, varei, data.n, data.snp2pq, data.LDsamplVar, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore,
+                                varg.value, ps.value, overdispersion, hsqPercModel, deltaPi);
+    else
+        snpEffects.sampleFromFC(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, data.tss, varei, data.n, data.snp2pq, data.LDsamplVar, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore,
+                                varg.value, ps.value, overdispersion, hsqPercModel, deltaPi);
+    
     snpEffects.computePosteriorMean(iter);
     snpPip.getValues(snpEffects.pip);
-
-    if (algorithm == cg) {
-        snpEffects.adjustByCG(data.ZPy, data.ZPZsp, rcorr);
-    }
-    
-    if (diagnose) nro.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, snpEffects.header, snpEffects.leaveout, data.ZPZsp, data.ZPy, snpEffects.values);
     
     if (robustMode) {
         if (noscale) {
@@ -4171,26 +4159,14 @@ void ApproxBayesR::sampleUnknowns(){
     } else {
         if (estimateSigmaSq) sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
     }
-        
+    
     if (estimatePi) Pis.sampleFromFC(snpStore);
     numSnps.getValues(snpStore);
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
-
+    
     if (estimateHsq) {
-        if (data.Z.size()) {   // TMP_JZ
-            //        ghat.setZero(data.Z.rows());
-            //        for (unsigned i=0; i<snpEffects.size; ++i) {
-            //            if (snpEffects.values[i]) ghat += data.Z.col(i)*snpEffects.values[i];
-            //        }
-            varg.value = Gadget::calcVariance(ghat);
-            float n_ref = data.Z.rows();
-            float n_ratio = n_ref/float(data.numKeptInds);
-            vare.value = (data.ypy*n_ratio - 2.0f*snpEffects.values.dot(data.ZPy)*n_ratio + ghat.dot(ghat))/n_ref;
-            //cout << "varg " << varg.value << " vare " << vare.value << endl;
-            //cout << "n_ratio " << n_ratio << " ypy " << data.ypy*n_ratio << " ypg " << 2.0f*snpEffects.values.dot(data.ZPy)*n_ratio << " gpg " << ghat.dot(ghat) << " n_ref " << n_ref << endl;
-        }
-        else if (lowRankModel) {
+        if (lowRankModel) {
             vargBlk.compute(whatBlocks);
             vareBlk.sampleFromFC(wcorrBlocks, vargBlk.values, snpEffects.ssqBlocks, data.nGWASblock, data.numEigenvalBlock);
             varg.value = vargBlk.total;
@@ -4200,74 +4176,160 @@ void ApproxBayesR::sampleUnknowns(){
         else {
             covg.compute(data.ypy, snpEffects.values, data.ZPy, rcorr);
             varg.compute(snpEffects.values, data.ZPy, rcorr, covg.value);
-            vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value);
+            vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value, message);
         }
         
-        //hsq.compute(varg.value, vare.value);
         hsq.value = varg.value / data.varPhenotypic;
     }
     
-    if (iter >= 1000) sigmaSq.scale = scalePrior;
-    scale.getValue(sigmaSq.scale);
-    //cout << "iter " << iter << " scalePrior " << scalePrior << "sigmaSq.scale " << sigmaSq.scale << endl;
-
-//    if (sparse)
-//        rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
-//    else
-//        rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
-    if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, data.chisq);
-
     nnzSnp.getValue(snpEffects.numNonZeros);
-    if (noscale) {
-        sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
-    } else {
-        sigmaSqG.value = sigmaSq.value * snpEffects.numNonZeros;
-    }
-
-//    numSnpVg.compute(snpEffects.values, data.ZPZdiag, varg.value, vare.nobs);
+    
     if (hsqPercModel) {
         Vgs.compute(snpEffects.values, snpEffects.snpset);
-//        if (lowRankModel) {
-//            Vgs.compute(snpEffects.values, snpEffects.membership, data.Qblocks, data.keptLdBlockInfoVec);
-//        } else {
-//            Vgs.compute(snpEffects.values, data.ZPy, rcorr, snpEffects.snpset, varg.value, vare.nobs);
-//        }
-//        if (sparse)
-//            Vgs.compute(snpEffects.values, data.ZPZsp, snpEffects.snpset, varg.value, vare.nobs);
-//        else
-//            Vgs.compute(snpEffects.values, data.ZPZ, snpEffects.snpset, varg.value, vare.nobs);
-    }
-
-    float scaleIteri = 0;
-    if (++iter < 1000) {
-        if (noscale)
-        {
-            scaleIteri = 0.5f * varg.value / (data.snp2pq.array().sum()*gamma.values.dot(Pis.values));
-        } else
-        {
-            scaleIteri = 0.5f * varg.value / (data.snp2pq.size()*gamma.values.dot(Pis.values));
-        }
-        genVarPrior += (varg.value - genVarPrior)/iter;
-        scalePrior += (scaleIteri - scalePrior)/iter;
     }
     
-//    if (iter > 100 & !(iter % 10)) {
-//        hsqMCMC.push_back(hsq.value);
-//        if (!(iter % 1000)) checkHsq(hsqMCMC);
-//    }
-    
-    VgMean += (Vgs.values - VgMean)/iter;
-    
-    if (nDistAuto & iter==501) { // check if the smallest component explains less than half of the variance than the second smallest. If so, remove the smallest component and restart MCMC.
-        if (VgMean.size() == 2) {
-
-        } else if (VgMean[1] < nDistAutoThreshold*VgMean[2]) {
-            throw("\nCAUTION: The smallest component (Vg2) explains less than " + to_string(nDistAutoThreshold*100) + "% of the variance that is explained by the second smallest component (Vg3).");
-        } else {
-            cout << "\nThe smallest component (Vg2) explains at least " + to_string(nDistAutoThreshold*100) + "%  of the variance that is explained by the second smallest component (Vg3). The MCMC will carry on with the current setting.\n" << endl;
-        }
-    }
 }
+
+//void ApproxBayesR::sampleUnknowns(){
+//    //sigmaSq.value = 0.000275;   // TMP_JZ
+//    //static int iter = 0;
+////    fixedEffects.sampleFromFC(data.XPX, data.XPXdiag, data.ZPX, data.XPy, snpEffects.values, vare.value, rcorr);
+//    unsigned cnt=0;
+//    //do {
+//        if (data.Z.size()) {
+//            snpEffects.sampleFromFC(data.ZPy, data.ZPZdiag, data.Z, data.Z.rows(), data.numKeptInds, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore, ghat, varg.value, hsqPercModel, deltaPi);
+//        }
+//        else {
+//            if (lowRankModel) {
+//                snpEffects.sampleFromFC(wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, sigmaSq.value, Pis.values, gamma.values, snpStore, varg.value, hsqPercModel, deltaPi);
+//            }
+//            else if (sparse)
+//                snpEffects.sampleFromFC(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, data.tss, varei, data.n, data.snp2pq, data.LDsamplVar, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore,
+//                                        varg.value, ps.value, overdispersion, hsqPercModel, deltaPi);
+//            else
+//                snpEffects.sampleFromFC(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, data.tss, varei, data.n, data.snp2pq, data.LDsamplVar, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore,
+//                                        varg.value, ps.value, overdispersion, hsqPercModel, deltaPi);
+//        }
+//    //    if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+//    //} while (snpEffects.numNonZeros == 0);
+//        
+//    snpEffects.computePosteriorMean(iter);
+//    snpPip.getValues(snpEffects.pip);
+//
+//    if (algorithm == cg) {
+//        snpEffects.adjustByCG(data.ZPy, data.ZPZsp, rcorr);
+//    }
+//    
+//    if (diagnose) nro.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, snpEffects.header, snpEffects.leaveout, data.ZPZsp, data.ZPy, snpEffects.values);
+//    
+//    if (robustMode) {
+//        if (noscale) {
+//            sigmaSq.value = varg.value/(data.snp2pq.array().sum()*gamma.values.dot(Pis.values));
+//        } else {
+//            sigmaSq.value = varg.value/(data.numIncdSnps*gamma.values.dot(Pis.values));  // LDpred2's parameterisation
+//        }
+//    } else if (hsqPercModel) {
+//        sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
+//    } else {
+//        if (estimateSigmaSq) sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
+//    }
+//        
+//    if (estimatePi) Pis.sampleFromFC(snpStore);
+//    numSnps.getValues(snpStore);
+//    nnzSnp.getValue(snpEffects.numNonZeros);
+//    sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
+//
+//    if (estimateHsq) {
+//        if (data.Z.size()) {   // TMP_JZ
+//            //        ghat.setZero(data.Z.rows());
+//            //        for (unsigned i=0; i<snpEffects.size; ++i) {
+//            //            if (snpEffects.values[i]) ghat += data.Z.col(i)*snpEffects.values[i];
+//            //        }
+//            varg.value = Gadget::calcVariance(ghat);
+//            float n_ref = data.Z.rows();
+//            float n_ratio = n_ref/float(data.numKeptInds);
+//            vare.value = (data.ypy*n_ratio - 2.0f*snpEffects.values.dot(data.ZPy)*n_ratio + ghat.dot(ghat))/n_ref;
+//            //cout << "varg " << varg.value << " vare " << vare.value << endl;
+//            //cout << "n_ratio " << n_ratio << " ypy " << data.ypy*n_ratio << " ypg " << 2.0f*snpEffects.values.dot(data.ZPy)*n_ratio << " gpg " << ghat.dot(ghat) << " n_ref " << n_ref << endl;
+//        }
+//        else if (lowRankModel) {
+//            vargBlk.compute(whatBlocks);
+//            vareBlk.sampleFromFC(wcorrBlocks, vargBlk.values, snpEffects.ssqBlocks, data.nGWASblock, data.numEigenvalBlock);
+//            varg.value = vargBlk.total;
+//            vare.value = vareBlk.mean;
+//            if (!((iter+1) % 10)) nBadSnps.compute(snpEffects.delSnps, snpEffects.values, snpEffects.posteriorMean, data.b, wcorrBlocks, data.Qblocks, data.keptLdBlockInfoVec, iter);
+//        }
+//        else {
+//            covg.compute(data.ypy, snpEffects.values, data.ZPy, rcorr);
+//            varg.compute(snpEffects.values, data.ZPy, rcorr, covg.value);
+//            vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value, message);
+//        }
+//        
+//        //hsq.compute(varg.value, vare.value);
+//        hsq.value = varg.value / data.varPhenotypic;
+//    }
+//    
+//    if (iter >= 1000) sigmaSq.scale = scalePrior;
+//    scale.getValue(sigmaSq.scale);
+//    //cout << "iter " << iter << " scalePrior " << scalePrior << "sigmaSq.scale " << sigmaSq.scale << endl;
+//
+////    if (sparse)
+////        rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
+////    else
+////        rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
+//    if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, data.chisq);
+//
+//    nnzSnp.getValue(snpEffects.numNonZeros);
+//    if (noscale) {
+//        sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
+//    } else {
+//        sigmaSqG.value = sigmaSq.value * snpEffects.numNonZeros;
+//    }
+//
+////    numSnpVg.compute(snpEffects.values, data.ZPZdiag, varg.value, vare.nobs);
+//    if (hsqPercModel) {
+//        Vgs.compute(snpEffects.values, snpEffects.snpset);
+////        if (lowRankModel) {
+////            Vgs.compute(snpEffects.values, snpEffects.membership, data.Qblocks, data.keptLdBlockInfoVec);
+////        } else {
+////            Vgs.compute(snpEffects.values, data.ZPy, rcorr, snpEffects.snpset, varg.value, vare.nobs);
+////        }
+////        if (sparse)
+////            Vgs.compute(snpEffects.values, data.ZPZsp, snpEffects.snpset, varg.value, vare.nobs);
+////        else
+////            Vgs.compute(snpEffects.values, data.ZPZ, snpEffects.snpset, varg.value, vare.nobs);
+//    }
+//
+//    float scaleIteri = 0;
+//    if (++iter < 1000) {
+//        if (noscale)
+//        {
+//            scaleIteri = 0.5f * varg.value / (data.snp2pq.array().sum()*gamma.values.dot(Pis.values));
+//        } else
+//        {
+//            scaleIteri = 0.5f * varg.value / (data.snp2pq.size()*gamma.values.dot(Pis.values));
+//        }
+//        genVarPrior += (varg.value - genVarPrior)/iter;
+//        scalePrior += (scaleIteri - scalePrior)/iter;
+//    }
+//    
+////    if (iter > 100 & !(iter % 10)) {
+////        hsqMCMC.push_back(hsq.value);
+////        if (!(iter % 1000)) checkHsq(hsqMCMC);
+////    }
+//    
+//    VgMean += (Vgs.values - VgMean)/iter;
+//    
+////    if (nDistAuto & iter==501) { // check if the smallest component explains less than half of the variance than the second smallest. If so, remove the smallest component and restart MCMC.
+////        if (VgMean.size() == 2) {
+////
+////        } else if (VgMean[1] < 0.01 || VgMean[1] < nDistAutoThreshold*VgMean[2]) {
+////            throw("\nCAUTION: The smallest component (Vg2) explains less than " + to_string(int(nDistAutoThreshold*100)) + "% of the variance that is explained by the second smallest component (Vg3).");
+////        } else {
+////            cout << "\nThe smallest component (Vg2) explains at least " + to_string(int(nDistAutoThreshold*100)) + "%  of the variance that is explained by the second smallest component (Vg3). The MCMC will carry on with the current setting.\n" << endl;
+////        }
+////    }
+//}
 
 void ApproxBayesR::VgMixComps::compute(const VectorXf &snpEffects, const VectorXf &ZPy, const VectorXf &rcorr, const vector<vector<unsigned> > &snpset, const float varg, const float nobs) {
     values.setZero(ndist);
@@ -5101,6 +5163,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
         nrnd[i] = Stat::snorm();
     }
     
+    pip.setZero(size);
     membership.resize(size);
     
     // R specific parameters
@@ -5137,6 +5200,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
     
     #pragma omp parallel for schedule(dynamic)
     for(unsigned blk = 0; blk < nBlocks; blk++){
+        //printf("  Inner: Thread %d of %d\n", omp_get_thread_num(), omp_get_num_threads());
         Ref<const MatrixXf> Q = Qblocks[blk];
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
         Ref<VectorXf> what = whatBlocks[blk];
@@ -5172,6 +5236,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const
                 probDelta[k] = 1.0f/(logDelta-logDelta[k]).exp().sum();
                 deltaPi[k]->values[i] = probDelta[k];
             }
+            pip[i] = 1.0f - probDelta[0];
                         
 //            #pragma omp critical
 //            {
@@ -5632,13 +5697,13 @@ float ApproxBayesRS::Sp::computeU(const float S, const unsigned nnzMix, const ve
 void ApproxBayesRS::sampleUnknowns() {
     //static int iter = 0;
     unsigned cnt=0;
-    do {
+//    do {
         if (sparse)
             snpEffects.sampleFromFC(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, sigmaSq.value, Pis.values, gamma.values, vare.value, snp2pqPowS, data.snp2pq, data.LDsamplVar, data.se, data.tss, varei, data.n, varg.value, ps.value, overdispersion, hsqPercModel);
         else
             snpEffects.sampleFromFC(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, sigmaSq.value, Pis.values, gamma.values, vare.value, snp2pqPowS, data.snp2pq, data.LDsamplVar, data.se, data.tss, varei, data.n, varg.value, ps.value, overdispersion, hsqPercModel);
-        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-    } while (snpEffects.numNonZeros == 0);
+//        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+//    } while (snpEffects.numNonZeros == 0);
     if (diagnose) nro.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, snpEffects.header, snpEffects.leaveout, data.ZPZsp, data.ZPy, snpEffects.values);
     sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
     if (estimatePi) Pis.sampleFromFC(snpEffects.numSnpMix);
@@ -5648,7 +5713,7 @@ void ApproxBayesRS::sampleUnknowns() {
     
     covg.compute(data.ypy, snpEffects.values, data.ZPy, rcorr);
     varg.compute(snpEffects.values, data.ZPy, rcorr, covg.value);
-    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value);
+    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value, message);
     
     hsq.compute(varg.value, vare.value);
     
@@ -5764,20 +5829,20 @@ void ApproxBayesKappa::sampleUnknowns(){
     //static int iter = 0;
 //    fixedEffects.sampleFromFC(data.XPX, data.XPXdiag, data.ZPX, data.XPy, snpEffects.values, vare.value, rcorr);
     unsigned cnt=0;
-    do {
+//    do {
         if (sparse)
             snpEffects.sampleFromFC(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, data.tss, varei, data.n, data.snp2pq, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore, kappa.value, snpindist.values);
         else
             snpEffects.sampleFromFC(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.se, data.tss, varei, data.n, data.snp2pq, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore, kappa.value, snpindist.values);
-        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-    } while (snpEffects.numNonZeros == 0);
+//        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+//    } while (snpEffects.numNonZeros == 0);
     sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     kappa.randomWalkMHsampler(sigmaSq.value, snpEffects.values, snpindist.values);
     Pis.sampleFromFC(snpStore);
     nnzSnp.getValue(snpEffects.numNonZeros);
     sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pq);
     varg.compute(snpEffects.values, data.ZPy, rcorr, 0);
-    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, 0);
+    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, 0, message);
     hsq.compute(varg.value, vare.value);
 
     if (iter >= 1000) sigmaSq.scale = scalePrior;
@@ -6332,7 +6397,7 @@ void ApproxBayesSMix::HeritabilityMixComp::compute(const Vector2f &vargMixComp, 
 
 void ApproxBayesSMix::sampleUnknowns() {
     unsigned cnt=0;
-    do {
+//    do {
         if (sparse) {
             snpEffects.sampleFromFC(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.chromInfoVec,
                                     data.LDsamplVar, snp2pqPowS, data.snp2pq, sigmaSq.values,
@@ -6342,15 +6407,15 @@ void ApproxBayesSMix::sampleUnknowns() {
                                     data.LDsamplVar, snp2pqPowS, data.snp2pq, sigmaSq.values,
                                     piMixComp.values, vare.value, varg.value, ps.value, overdispersion, deltaS.values);
         }
-        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-    } while (snpEffects.numNonZeros.sum() == 0);
+//        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+//    } while (snpEffects.numNonZeros.sum() == 0);
     piMixComp.sampleFromFC(snpEffects.numSnpMixComp);
     pi.sampleFromFC(data.numIncdSnps, snpEffects.numNonZeros.sum());
     sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
     nnzSnp.getValue(snpEffects.numNonZeros.sum());
     varg.compute(snpEffects.values, data.ZPy, rcorr, covg.value);
     vargMixComp.compute(sigmaSq.values, snpEffects.wtdSum2pq);
-    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value);
+    vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value, message);
     hsq.compute(varg.value, vare.value);
     hsqMixComp.compute(vargMixComp.values, varg.value, vare.value);
     
@@ -6465,10 +6530,10 @@ void BayesSMix::sampleUnknowns(){
     }
 
     unsigned cnt=0;
-    do {
+//    do {
         snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, snp2pqPowS, data.snp2pq, sigmaSq.values, piMixComp.values, vare.value, deltaS.values, ghat, ghatMixComp);
-        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-    } while (snpEffects.numNonZeros.sum() == 0);
+//        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+//    } while (snpEffects.numNonZeros.sum() == 0);
     
     sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
     
@@ -6673,6 +6738,7 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, cons
         nrnd[i] = Stat::snorm();
     }
     
+    pip.setZero(size);
     membership.resize(size);
     z.setZero(size, ndist-1);   // indicator variables for conditional membership
     
@@ -6752,6 +6818,7 @@ void ApproxBayesRC::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, cons
                 if(isnan(probDelta[k])) probDelta[k] = 0;
                 deltaPi[k]->values[i] = probDelta[k];
             }
+            pip[i] = 1.0f - probDelta[0];
             
             //            unsigned delta;
             //            #pragma omp critical
@@ -7392,7 +7459,7 @@ void ApproxBayesRC::sampleUnknowns(){
     } else {
         covg.compute(data.ypy, snpEffects.values, data.ZPy, rcorr);
         varg.compute(snpEffects.values, data.ZPy, rcorr, covg.value);
-        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value);
+        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value, message);
     }
         
     //hsq.compute(varg.value, vare.value);
@@ -7409,15 +7476,15 @@ void ApproxBayesRC::sampleUnknowns(){
 //    Vgs.compute(snpEffects.values, snpEffects.membership, data.Qblocks, data.keptLdBlockInfoVec);
     VgMean += (Vgs.values - VgMean)/iter;
     
-    if (nDistAuto & iter==501) { // check if the smallest component explains less than half of the variance than the second smallest. If so, remove the smallest component and restart MCMC.
-        if (VgMean.size() == 2) {
-
-        } else if (VgMean[1] < nDistAutoThreshold*VgMean[2]) {
-            throw("\nCAUTION: The smallest component (Vg2) explains less than " + to_string(nDistAutoThreshold*100) + "% of the variance that is explained by the second smallest component (Vg3).");
-        } else {
-            cout << "\nThe smallest component (Vg2) explains at least " + to_string(nDistAutoThreshold*100) + "%  of the variance that is explained by the second smallest component (Vg3). The MCMC will carry on with the current setting.\n" << endl;
-        }
-    }
+//    if (nDistAuto & iter==501) { // check if the smallest component explains less than half of the variance than the second smallest. If so, remove the smallest component and restart MCMC.
+//        if (VgMean.size() == 2) {
+//
+//        } else if (VgMean[1] < 0.01 || VgMean[1] < nDistAutoThreshold*VgMean[2]) {
+//            throw("\nCAUTION: The smallest component (Vg2) explains less than " + to_string(int(nDistAutoThreshold*100)) + "% of the variance that is explained by the second smallest component (Vg3).");
+//        } else {
+//            cout << "\nThe smallest component (Vg2) explains at least " + to_string(int(nDistAutoThreshold*100)) + "%  of the variance that is explained by the second smallest component (Vg3). The MCMC will carry on with the current setting.\n" << endl;
+//        }
+//    }
     
     ++iter;
 }
@@ -7561,10 +7628,10 @@ void BayesRC::sampleUnknowns(){
     }
 
     unsigned cnt=0;
-    do {
+//    do {
         snpEffects.sampleFromFC(ycorr, data.Z, data.ZPZdiag, data.Rsqrt, data.weightedRes, sigmaSq.value, Pis.values, gamma.values, vare.value, ghat, snpPi, varg.value, hsqPercModel, deltaPi);
-        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
-    } while (snpEffects.numNonZeros == 0);
+//        if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
+//    } while (snpEffects.numNonZeros == 0);
                 
     sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
     

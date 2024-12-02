@@ -85,7 +85,9 @@ float calcCorrelation(const VectorXf &vec1, const VectorXf &vec2);
 float calcRegression(const VectorXf &y, const VectorXf &x);
 float findMedian(const VectorXf &vec);
 
+// vector manipulation
 vector<int> shuffle_index(const int start, const int end);
+void removeSecondElement(VectorXf &vec);
 }
 
 #endif /* toolbox_hpp */

@@ -20,7 +20,7 @@ using namespace std;
 class Parameter {
     // base class for a single parameter
 public:
-    const string label;
+    string label;
     float value;   // sampled value
     
     unsigned numChains;      // for multiple chains
@@ -35,7 +35,7 @@ public:
 class ParamSet {
     // base class for a set of parameters of same kind, e.g. fixed effects, snp effects ...
 public:
-    const string label;
+    string label;
     const vector<string> &header;
     unsigned size;
     VectorXf values;
@@ -52,6 +52,9 @@ public:
 
 class Model {
 public:
+    string bayesType;
+    string message;
+
     unsigned numSnps;
         
     vector<ParamSet*> paramSetVec;
@@ -59,6 +62,10 @@ public:
     vector<Parameter*> paramToPrint;
     vector<ParamSet*> paramSetToPrint;
     
+    Model(){
+        numSnps = 0;
+    }
+        
     virtual void sampleUnknowns(void) = 0;
     virtual void sampleStartVal(void) = 0;
 };
@@ -338,8 +345,9 @@ public:
     varRand(varRandom),
     estimatePi(estimatePi)
     {
+        bayesType = "C";
         numSnps = data.numIncdSnps;
-        paramSetVec = {&snpEffects, &fixedEffects, &snpPip};           // for which collect mcmc samples
+        paramSetVec = {&snpEffects, &fixedEffects};           // for which collect mcmc samples
         paramVec = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq};       // for which collect mcmc samples
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &vare, &varg, &hsq};   // print in order
         if (data.numRandomEffects) {
@@ -398,6 +406,7 @@ public:
     snpEffects(data.snpEffectNames),
     sigmaSq(varGenotypic, data.snp2pq, pival, noscale)
     {
+        bayesType = "B";
         paramSetVec = {&snpEffects, &fixedEffects};           // for which collect mcmc samples
         paramVec = {&pi, &nnzSnp, &vare, &varg, &hsq};       // for which collect mcmc samples
         paramToPrint = {&pi, &nnzSnp, &vare, &varg, &hsq};   // print in order
@@ -495,6 +504,7 @@ public:
     sigmaSq(varGenotypic, data.snp2pq, pival, snpEffects.localPi, snpFittedPerWindow),
     windDelta(vector<string>(snpEffects.numWindows))
     {
+        bayesType = "N";
         paramSetVec = {&snpEffects, &fixedEffects, &windDelta};           // for which collect mcmc samples
         paramVec = {&pi, &nnzWind, &nnzSnp, &sigmaSq, &vare, &varg, &hsq};       // for which collect mcmc samples
         paramToPrint = {&pi, &nnzWind, &nnzSnp, &sigmaSq, &vare, &varg, &hsq};   // print in order
@@ -667,6 +677,7 @@ public:
     deltaPi(data.snpEffectNames, pis.size()),
     hsqPercModel(hsqPercModel)
     {
+        bayesType = "R";
         paramSetVec  = {&snpEffects, &fixedEffects};
 //        for (unsigned i=0; i<Pis.size(); ++i) { 
 //           Pis[i]->value=Pis.values[i];
@@ -814,6 +825,7 @@ public:
     genVarPrior(varGenotypic),
     scalePrior(sigmaSq.scale)
     {
+        bayesType = "S";
         findStartValueForS(svalue);
         snp2pqPowS = data.snp2pq.array().pow(S.value);
         sigmaSq.value = varGenotypic/((snp2pqPowS*data.snp2pq.array()).sum()*pival);
@@ -1074,7 +1086,7 @@ public:
         
         //void sampleFromFC(VectorXf &rcorr, const SpMat &ZPZinv);
 //        void sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float varg, const float nnz);
-        void sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float covg);
+        void sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float covg, string &message);
 //        void sampleFromFCshrink(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, const float hsq, const float phi);
         
 //        void sampleFromFC2(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &ghat);
@@ -1861,7 +1873,6 @@ public:
     bool estimateSigmaSq;
     bool estimateHsq;
     bool nDistAuto;
-    float nDistAutoThreshold;
 
     const float overdispersion;
     
@@ -1869,7 +1880,7 @@ public:
         
     VectorXf VgMean;  // running mean of variance explained by each component
 
-    ApproxBayesR(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool hsqPercModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool nDistAuto, const float nDistAutoThreshold, const bool message = true):
+    ApproxBayesR(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool hsqPercModel, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool nDistAuto, const bool message = true):
     ApproxBayesC(data, lowrank, varGenotypic, varResidual, 0.0, (1-pis[0]), piPar[0], piPar[1], estimatePi, noscale, 0, overdispersion, estimatePS, 0, spouseCorrelation, diagnosticMode, robustMode, false, false),
     Pis(pis,piPar),
     numSnps(pis),
@@ -1889,10 +1900,10 @@ public:
     deltaPi(data.snpEffectNames, pis.size()),
     estimateSigmaSq(estimateSigmaSq),
     nDistAuto(nDistAuto),
-    nDistAutoThreshold(nDistAutoThreshold),
     vargBlk(data.ldblockNames, varGenotypic, data.numKeptInds),
     vareBlk(data.ldblockNames, data.varPhenotypic)
     {
+        bayesType = "R";
         VgMean = Vgs.values;
 
         if (alg == "cg") algorithm = cg;
@@ -1960,7 +1971,7 @@ public:
             }
             if (robustMode) cout << "Using a more robust parameterisation " << endl;
             if (algorithm == cg) cout << "Conjugate gradient-adjusted Gibbs sampling" << endl;
-            if (nDistAuto) cout << "The number of mixture components will be automatically assessed at iteration 500." << endl;
+//            if (nDistAuto) cout << "The number of mixture components will be automatically assessed at iteration 500." << endl;
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
         }
         
@@ -2629,13 +2640,12 @@ public:
     MatrixXf snpPi;   // pi1 = 1-p2; pi2 = (1-p3)*p2; pi3 = (1-p4)*p2*p3; pi4 = p2*p3*p4
     
     bool nDistAuto;
-    float nDistAutoThreshold;
 
 //    vector<VectorXf> wcorrBlocks;
 //    vector<VectorXf> whatBlocks;
         
-    ApproxBayesRC(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool hsqPercModel, const bool perSnpGV, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool nDistAuto, const float nDistAutoThreshold, const bool message = true):
-    ApproxBayesR(data, lowrank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, hsqPercModel, overdispersion, estimatePS, spouseCorrelation, false, robustMode, alg, nDistAuto, nDistAutoThreshold, false),
+    ApproxBayesRC(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool estimateSigmaSq, const bool noscale, const bool hsqPercModel, const bool perSnpGV, const float overdispersion, const bool estimatePS, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const string &alg, const bool nDistAuto, const bool message = true):
+    ApproxBayesR(data, lowrank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, estimateSigmaSq, noscale, hsqPercModel, overdispersion, estimatePS, spouseCorrelation, false, robustMode, alg, nDistAuto, false),
     snpEffects(data.snpEffectNames, pis),
     annoEffects(data.annoNames, pis.size(), data.annoMat),
     sigmaSqAnno(annoEffects.colnames, annoEffects.numAnno),
@@ -2646,8 +2656,7 @@ public:
     annoPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
     deltaPi(data.snpEffectNames, pis.size()),
     annoDist(data.annoNames, pis.size()),
-    nDistAuto(nDistAuto),
-    nDistAutoThreshold(nDistAutoThreshold)
+    nDistAuto(nDistAuto)
     {
         
         //bool nDistAuto = true;
@@ -2737,7 +2746,7 @@ public:
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
             if (robustMode) cout << "Using a more robust parameterisation " << endl;
             //cout << "Algorithm: " << alg << endl;
-            if (nDistAuto) cout << "The number of mixture components will be automatically assessed at iteration 500." << endl;
+//            if (nDistAuto) cout << "The number of mixture components will be automatically assessed at iteration 500." << endl;
         }
     }
 

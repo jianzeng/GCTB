@@ -284,6 +284,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
                 pis.resize(strvec.size());
                 for (unsigned j=0; j<strvec.size(); ++j) pis[j] = stof(strvec[j]);
             }
+            numDist = strvec.size();
             ss << "--pi " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--pi-alpha")) {
@@ -429,6 +430,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
             for (unsigned j=0; j<strvec.size(); ++j) {
                 gamma[j] = stof(strvec[j]);
             }
+            numDist = strvec.size();
             ss << "--gamma " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--thread")) {
@@ -626,7 +628,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
         }
         else if (!strcmp(argv[i], "--n-dist-auto")) {
             nDistAuto = true;
-            nDistAutoThreshold = atof(argv[++i]);
+//            nDistAutoThreshold = atof(argv[++i]);
             ss << "--n-dist-auto " << argv[i] << "\n";
         }
         else {

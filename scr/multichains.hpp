@@ -64,18 +64,18 @@ public:
 class MultiChainSBayesR : public ApproxBayesR {
 public:
     
-    class ChainVec : public vector<ApproxBayesR*> {
+    class ChainVecSBayesR : public vector<ApproxBayesR*> {
     public:
-        ChainVec(const Data &data, const Options &opt){
+        ChainVecSBayesR(const Data &data, const Options &opt){
             for (unsigned i=0; i<opt.numChains; ++i) {
-                this->push_back(new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.hsqPercModel, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, opt.nDistAuto, opt.nDistAutoThreshold, false));
+                this->push_back(new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.hsqPercModel, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, opt.nDistAuto, false));
             }
         }
     };
     
     class Heritability : public MultiChainParameter {
     public:
-        Heritability(const ChainVec &chains): MultiChainParameter("hsq", chains.size()){
+        Heritability(const ChainVecSBayesR &chains): MultiChainParameter("hsq", chains.size()){
            for (unsigned i=0; i<numChains; ++i) {
                 chainVec.push_back(&chains[i]->hsq);
             }
@@ -84,7 +84,7 @@ public:
     
     class SnpPIP : public MultiChainParamSet {
     public:
-        SnpPIP(const vector<string> &header, const ChainVec &chains): MultiChainParamSet("PIP", header, chains.size()){
+        SnpPIP(const vector<string> &header, const ChainVecSBayesR &chains): MultiChainParamSet("PIP", header, chains.size()){
            for (unsigned i=0; i<numChains; ++i) {
                 chainVec.push_back(&chains[i]->snpPip);
             }
@@ -93,7 +93,7 @@ public:
     
     class SnpEffects : public MultiChainParamSet {
     public:
-        SnpEffects(const vector<string> &header, const ChainVec &chains): MultiChainParamSet("SnpEffects", header, chains.size()){
+        SnpEffects(const vector<string> &header, const ChainVecSBayesR &chains): MultiChainParamSet("SnpEffects", header, chains.size()){
             for (unsigned i=0; i<numChains; ++i) {
                 chainVec.push_back(&chains[i]->snpEffects);
             }
@@ -102,7 +102,7 @@ public:
     
     class DeltaPi : public MultiChainParamSetVec {
     public:
-        DeltaPi(const vector<string> &header, const unsigned numDist, const ChainVec &chains):
+        DeltaPi(const vector<string> &header, const unsigned numDist, const ChainVecSBayesR &chains):
         MultiChainParamSetVec("DeltaPi", header, numDist, chains.size()) {
             for (unsigned i=0; i<numDist; ++i) {
                 for (unsigned j=0; j<chains.size(); ++j) {
@@ -114,7 +114,7 @@ public:
     
     class NumSnpMixComps : public MultiChainParamVec {
     public:
-        NumSnpMixComps(const unsigned numDist, const ChainVec &chains):
+        NumSnpMixComps(const unsigned numDist, const ChainVecSBayesR &chains):
         MultiChainParamVec("NumSnp", numDist, chains.size()){
             for (unsigned i=0; i<numDist; ++i) {
                 for (unsigned j=0; j<chains.size(); ++j) {
@@ -126,7 +126,7 @@ public:
     
     class VgMixComps : public MultiChainParamVec {
     public:
-        VgMixComps(const unsigned numDist, const ChainVec &chains):
+        VgMixComps(const unsigned numDist, const ChainVecSBayesR &chains):
         MultiChainParamVec("Vg", numDist, chains.size()){
             for (unsigned i = 0; i<numDist; ++i) {
                 for (unsigned j=0; j<chains.size(); ++j) {
@@ -143,7 +143,7 @@ public:
         
         ofstream out;
 
-        NumBadSnps(const string &title, const ChainVec &chains): MultiChainParameter("NumBadSnps", chains.size()){
+        NumBadSnps(const string &title, const ChainVecSBayesR &chains): MultiChainParameter("NumBadSnps", chains.size()){
            for (unsigned i=0; i<numChains; ++i) {
                chainVec.push_back(&chains[i]->nBadSnps);
                nBadSnpVec.push_back(&chains[i]->nBadSnps);
@@ -156,10 +156,26 @@ public:
         void output(void);
     };
     
+    class NumHighPIPs : public Parameter {
+    public:
+        float threshold;
+        
+        NumHighPIPs(const string &lab = "NumHighPIPs"): Parameter(lab){
+            threshold = 0.9;
+        }
+        
+        void getValue(const VectorXf &PIP);
+    };
+    
 
     unsigned numChains;
     
-    ChainVec chainVec;
+    // for nested OMP
+    unsigned numThreadTotal;
+    unsigned numThreadLevel1;
+    unsigned numThreadLevel2;
+
+    ChainVecSBayesR chainVec;
     Heritability hsq;
     SnpPIP pip;
     SnpEffects snpEffects;
@@ -167,9 +183,10 @@ public:
     NumSnpMixComps numSnpMix;
     VgMixComps vgMix;
     NumBadSnps nBadSnps;
+    NumHighPIPs nHighPips;
     
     MultiChainSBayesR(const Data &data, const Options &opt, const bool message = true):
-    ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.hsqPercModel, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, opt.nDistAuto, opt.nDistAutoThreshold, false),
+    ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.hsqPercModel, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, opt.nDistAuto, false),
     numChains(opt.numChains),
     chainVec(data, opt),
     hsq(chainVec),
@@ -178,9 +195,19 @@ public:
     deltaPi(data.snpEffectNames, opt.gamma.size(), chainVec),
     numSnpMix(opt.gamma.size(), chainVec),
     vgMix(opt.gamma.size(), chainVec),
-    nBadSnps(opt.title, chainVec)
+    nBadSnps(opt.title, chainVec),
+    nHighPips()
     {
         
+        // for nested OMP
+        omp_set_max_active_levels(1);  // reset previous nested parallelism if any
+        omp_set_max_active_levels(2);  // Enable nested parallelism
+        numThreadTotal = omp_get_max_threads();
+        numThreadLevel1 = std::min(numChains, numThreadTotal);
+        numThreadLevel2 = std::floor(numThreadTotal/numThreadLevel1);
+        
+        //cout << "numThreadTotal " << numThreadTotal << " numThreadLevel1 " << numThreadLevel1 << " numThreadLevel2 " << numThreadLevel2 << endl;
+
         paramVec    = {&hsq};
         paramVec.insert(paramVec.end(), numSnpMix.begin(), numSnpMix.end());
         paramVec.insert(paramVec.end(), vgMix.begin(), vgMix.end());
@@ -188,7 +215,7 @@ public:
         paramSetVec = {&snpEffects, &pip};
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
         
-        paramToPrint = {&hsq, &nBadSnps};
+        paramToPrint = {&hsq, &nHighPips, &nBadSnps};
         paramToPrint.insert(paramToPrint.begin(), vgMix.begin(), vgMix.end());
         paramToPrint.insert(paramToPrint.begin(), numSnpMix.begin(), numSnpMix.end());
 
@@ -198,8 +225,13 @@ public:
                 cout << "Using the low-rank model" << endl;
             }
             cout << "Gamma: " << gamma.values.transpose() << endl;
-            if (nDistAuto) cout << "The number of mixture components will be automatically assessed at iteration 500." << endl;
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
+            if (numThreadTotal == 1) {
+                cout << "\nSUGGESTION: Enabling multi-threading is recommended when using multiple chains. You can set this by --thread [any value that is the multiple of the number of chains].\n" << endl;
+            } else {
+                cout << "Using nested multi-threading (" << numThreadTotal << " threads in total):\n  Level 1: " << numThreadLevel1 << " threads\n    Level 2: " << numThreadLevel2 << " threads" << endl;
+            }
+            cout << endl;
         }
     }
     
@@ -207,23 +239,115 @@ public:
 };
 
 
-
-
-class MultiChainSBayesRC : public ApproxBayesRC {
+class MultiModelSBayesR : public MultiChainSBayesR {
 public:
     
-    class ChainVec : public vector<ApproxBayesRC*> {
+    class ModelVecSBayesR : public vector<ApproxBayesR*> {
     public:
-        ChainVec(const Data &data, const Options &opt){
-            for (unsigned i=0; i<opt.numChains; ++i) {
-                this->push_back(new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.hsqPercModel, opt.perSnpGV, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, opt.nDistAuto, opt.nDistAutoThreshold, false));
+        ModelVecSBayesR(const Data &data, const Options &opt){
+            unsigned numModels = opt.numDist - 1;
+            VectorXf gamma = opt.gamma;
+            VectorXf pis = opt.pis;
+            VectorXf piPar = opt.piPar;
+            for (unsigned i=0; i<numModels; ++i) {
+                this->push_back(new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.hsqPercModel, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, false, false));
+                
+                Gadget::removeSecondElement(gamma);
+                Gadget::removeSecondElement(pis);
+                Gadget::removeSecondElement(piPar);
             }
         }
     };
     
     class Heritability : public MultiChainParameter {
     public:
-        Heritability(const ChainVec &chains): MultiChainParameter("hsq", chains.size()){
+        Heritability(const ModelVecSBayesR &models): MultiChainParameter("hsq", models.size()){
+           for (unsigned i=0; i<numChains; ++i) {
+               models[i]->hsq.label += "_M" + to_string(i+1);
+                chainVec.push_back(&models[i]->hsq);
+            }
+        }
+    };
+
+    class NumNonZeroSnp : public MultiChainParameter {
+    public:
+        NumNonZeroSnp(const ModelVecSBayesR &models): MultiChainParameter("NnzSnp", models.size()){
+           for (unsigned i=0; i<numChains; ++i) {
+               models[i]->nnzSnp.label += "_M" + to_string(i+1);
+                chainVec.push_back(&models[i]->nnzSnp);
+            }
+        }
+    };
+
+
+    unsigned numModels;
+
+    ModelVecSBayesR modelVec;
+    Heritability hsq;
+    NumNonZeroSnp nnzSnp;
+
+    MultiModelSBayesR(const Data &data, const Options &opt, const bool message = true):
+    MultiChainSBayesR(data, opt, false),
+    numModels(opt.numDist - 1),
+    modelVec(data, opt),
+    hsq(modelVec),
+    nnzSnp(modelVec)
+    {
+        
+        // for nested OMP
+        omp_set_max_active_levels(1);  // reset previous nested parallelism if any
+        omp_set_max_active_levels(2);  // Enable nested parallelism
+        numThreadTotal = omp_get_max_threads();
+        numThreadLevel1 = std::min(numModels, numThreadTotal);
+        numThreadLevel2 = std::floor(numThreadTotal/numThreadLevel1);
+
+        paramVec.resize(0);
+        paramToPrint.resize(0);
+        
+        paramVec.insert(paramVec.end(), hsq.chainVec.begin(), hsq.chainVec.end());
+        paramVec.insert(paramVec.end(), nnzSnp.chainVec.begin(), nnzSnp.chainVec.end());
+        
+        paramToPrint.insert(paramToPrint.end(), hsq.chainVec.begin(), hsq.chainVec.end());
+        paramToPrint.insert(paramToPrint.end(), nnzSnp.chainVec.begin(), nnzSnp.chainVec.end());
+
+        if (message) {
+            cout << "\nRunning " << numModels << " SBayesR models" << endl;
+            for (unsigned i=0; i<numModels; ++i) {
+                unsigned numComp = modelVec[i]->gamma.values.size();
+                cout << "  Model " << i+1 << " (M" << i+1 << "): " << numComp << " components with gamma = [";
+                for (unsigned k=0; k<numComp; ++k) {
+                    if (k==0) cout << modelVec[i]->gamma.values[k];
+                    else cout << ", " << modelVec[i]->gamma.values[k];
+                }
+                cout << "]" << endl;
+            }
+            if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
+            cout << endl;
+        }
+
+    }
+
+    void sampleUnknowns(void);
+
+};
+
+
+
+class MultiChainSBayesRC : public MultiChainSBayesR {
+public:
+    
+    class ChainVecSBayesRC : public vector<ApproxBayesRC*> {
+    public:
+        ChainVecSBayesRC(const Data &data, const Options &opt){
+            for (unsigned i=0; i<opt.numChains; ++i) {
+                this->push_back(new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.hsqPercModel, opt.perSnpGV, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, opt.nDistAuto, false));
+            }
+        }
+    };
+    
+    class Heritability : public MultiChainParameter {
+    public:
+        Heritability(const ChainVecSBayesRC &chains): MultiChainParameter("hsq", chains.size()){
            for (unsigned i=0; i<numChains; ++i) {
                 chainVec.push_back(&chains[i]->hsq);
             }
@@ -232,7 +356,7 @@ public:
     
     class SnpPIP : public MultiChainParamSet {
     public:
-        SnpPIP(const vector<string> &header, const ChainVec &chains): MultiChainParamSet("PIP", header, chains.size()){
+        SnpPIP(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("PIP", header, chains.size()){
            for (unsigned i=0; i<numChains; ++i) {
                 chainVec.push_back(&chains[i]->snpPip);
             }
@@ -241,7 +365,7 @@ public:
     
     class SnpEffects : public MultiChainParamSet {
     public:
-        SnpEffects(const vector<string> &header, const ChainVec &chains): MultiChainParamSet("SnpEffects", header, chains.size()){
+        SnpEffects(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("SnpEffects", header, chains.size()){
             for (unsigned i=0; i<numChains; ++i) {
                 chainVec.push_back(&chains[i]->snpEffects);
             }
@@ -250,7 +374,7 @@ public:
     
     class DeltaPi : public MultiChainParamSetVec {
     public:
-        DeltaPi(const vector<string> &header, const unsigned numDist, const ChainVec &chains):
+        DeltaPi(const vector<string> &header, const unsigned numDist, const ChainVecSBayesRC &chains):
         MultiChainParamSetVec("DeltaPi", header, numDist, chains.size()) {
             for (unsigned i=0; i<numDist; ++i) {
                 for (unsigned j=0; j<chains.size(); ++j) {
@@ -262,7 +386,7 @@ public:
     
     class NumSnpMixComps : public MultiChainParamVec {
     public:
-        NumSnpMixComps(const unsigned numDist, const ChainVec &chains):
+        NumSnpMixComps(const unsigned numDist, const ChainVecSBayesRC &chains):
         MultiChainParamVec("NumSnp", numDist, chains.size()){
             for (unsigned i=0; i<numDist; ++i) {
                 for (unsigned j=0; j<chains.size(); ++j) {
@@ -274,7 +398,7 @@ public:
     
     class VgMixComps : public MultiChainParamVec {
     public:
-        VgMixComps(const unsigned numDist, const ChainVec &chains):
+        VgMixComps(const unsigned numDist, const ChainVecSBayesRC &chains):
         MultiChainParamVec("Vg", numDist, chains.size()){
             for (unsigned i = 0; i<numDist; ++i) {
                 for (unsigned j=0; j<chains.size(); ++j) {
@@ -291,7 +415,7 @@ public:
         
         ofstream out;
 
-        NumBadSnps(const string &title, const ChainVec &chains): MultiChainParameter("NumBadSnps", chains.size()){
+        NumBadSnps(const string &title, const ChainVecSBayesRC &chains): MultiChainParameter("NumBadSnps", chains.size()){
            for (unsigned i=0; i<numChains; ++i) {
                chainVec.push_back(&chains[i]->nBadSnps);
                nBadSnpVec.push_back(&chains[i]->nBadSnps);
@@ -306,7 +430,7 @@ public:
     
     class AnnoEffects : public MultiChainParamSetVec {
     public:
-        AnnoEffects(const vector<string> &header, const unsigned numDist, const ChainVec &chains):
+        AnnoEffects(const vector<string> &header, const unsigned numDist, const ChainVecSBayesRC &chains):
         MultiChainParamSetVec("AnnoEffects", header, numDist, chains.size()) {
             for (unsigned i=0; i<numDist; ++i) {
                 for (unsigned j=0; j<chains.size(); ++j) {
@@ -318,7 +442,7 @@ public:
         
     class AnnoJointProb : public MultiChainParamSetVec {
     public:
-        AnnoJointProb(const vector<string> &header, const unsigned numDist, const ChainVec &chains):
+        AnnoJointProb(const vector<string> &header, const unsigned numDist, const ChainVecSBayesRC &chains):
         MultiChainParamSetVec("AnnoJointProb", header, numDist, chains.size()) {
             for (unsigned i=0; i<numDist; ++i) {
                 for (unsigned j=0; j<chains.size(); ++j) {
@@ -330,7 +454,7 @@ public:
 
     class AnnoTotalGenVar : public MultiChainParamSet {
     public:
-        AnnoTotalGenVar(const vector<string> &header, const ChainVec &chains): MultiChainParamSet("AnnoTotalGenVar", header, chains.size()){
+        AnnoTotalGenVar(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("AnnoTotalGenVar", header, chains.size()){
             for (unsigned i=0; i<numChains; ++i) {
                 chainVec.push_back(&chains[i]->annoTotalGenVar);
             }
@@ -339,7 +463,7 @@ public:
     
     class AnnoPerSnpHsqEnrichment : public MultiChainParamSet {
     public:
-        AnnoPerSnpHsqEnrichment(const vector<string> &header, const ChainVec &chains): MultiChainParamSet("AnnoPerSnpHsqEnrichment", header, chains.size()){
+        AnnoPerSnpHsqEnrichment(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("AnnoPerSnpHsq_Enrichment", header, chains.size()){
             for (unsigned i=0; i<numChains; ++i) {
                 chainVec.push_back(&chains[i]->annoPerSnpHsqEnrich);
             }
@@ -348,7 +472,7 @@ public:
 
     unsigned numChains;
     
-    ChainVec chainVec;
+    ChainVecSBayesRC chainVec;
     Heritability hsq;
     SnpPIP pip;
     SnpEffects snpEffects;
@@ -360,9 +484,10 @@ public:
     AnnoJointProb annoJointProb;
     AnnoTotalGenVar annoTotalGenVar;
     AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
+    MultiChainSBayesR::NumHighPIPs nHighPips;
     
     MultiChainSBayesRC(const Data &data, const Options &opt, const bool message = true):
-    ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.hsqPercModel, opt.perSnpGV, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, opt.nDistAuto, opt.nDistAutoThreshold, false),
+    MultiChainSBayesR(data, opt, false),
     numChains(opt.numChains),
     chainVec(data, opt),
     hsq(chainVec),
@@ -372,6 +497,7 @@ public:
     numSnpMix(opt.gamma.size(), chainVec),
     vgMix(opt.gamma.size(), chainVec),
     nBadSnps(opt.title, chainVec),
+    nHighPips(),
     annoEffects(data.annoNames, opt.gamma.size()-1, chainVec),
     annoJointProb(data.annoNames, opt.gamma.size()-1, chainVec),
     annoTotalGenVar(data.annoNames, chainVec),
@@ -387,7 +513,7 @@ public:
         paramSetVec.insert(paramSetVec.end(), annoEffects.begin(), annoEffects.end());
         paramSetVec.insert(paramSetVec.end(), annoJointProb.begin(), annoJointProb.end());
 
-        paramToPrint = {&hsq, &nBadSnps};
+        paramToPrint = {&hsq, &nHighPips, &nBadSnps};
         paramToPrint.insert(paramToPrint.begin(), vgMix.begin(), vgMix.end());
         paramToPrint.insert(paramToPrint.begin(), numSnpMix.begin(), numSnpMix.end());
         
@@ -403,8 +529,13 @@ public:
                 cout << "Using the low-rank model" << endl;
             }
             cout << "Gamma: " << gamma.values.transpose() << endl;
-            if (nDistAuto) cout << "The number of mixture components will be automatically assessed at iteration 500." << endl;
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
+            if (numThreadTotal == 1) {
+                cout << "\nSUGGESTION: Enabling multi-threading is recommended when using multiple chains. You can set this by --thread [any value that is the multiple of the number of chains].\n" << endl;
+            } else {
+                cout << "Using nested multi-threading (" << numThreadTotal << " threads in total):\n  Level 1: " << numThreadLevel1 << " threads\n    Level 2: " << numThreadLevel2 << " threads" << endl;
+            }
+            cout << endl;
         }
     }
     

@@ -35,25 +35,39 @@ void MultiChainParamSetVec::getValues(){
 }
 
 void MultiChainSBayesR::NumBadSnps::output(){
+    value = 0;
     for (unsigned i=0; i<numChains; ++i) {
         vector<unsigned> badSnpIdxVec = nBadSnpVec[i]->badSnpIdx;
         vector<string> badSnpNameVec = nBadSnpVec[i]->badSnpName;
         for (unsigned j=0; j<badSnpNameVec.size(); ++j) {
             if(badSnpSet.insert(badSnpNameVec[j]).second) {
                 out << badSnpIdxVec[j] << "\t" << badSnpNameVec[j] << endl;
+                ++value;
             }
         }
     }
-    value = badSnpSet.size();
+    //value = badSnpSet.size();
+}
+
+void MultiChainSBayesR::NumHighPIPs::getValue(const VectorXf &PIP){
+    value = 0;
+    unsigned size = PIP.size();
+    for (unsigned i=0; i<size; ++i) {
+        //cout << i << " " << PIP[i] << " " << threshold << endl;
+        if (PIP[i] > threshold) ++value;
+    }
 }
 
 void MultiChainSBayesR::sampleUnknowns(){
-    // Set the maximum number of nested parallelism levels
-//    omp_set_max_active_levels(2);
-    
-//#pragma omp parallel num_threads(numChains)
+
+#pragma omp parallel for num_threads(numThreadLevel1)
     for (unsigned i=0; i<numChains; ++i) {
 //        cout << "sampling chain " << i << " in " << numChains << " chains " << endl;
+//        printf("Outer: Thread %d of %d\n", omp_get_thread_num(), omp_get_num_threads());
+
+        // Restrict inner parallelism to numThreadLevel2 threads
+        omp_set_num_threads(numThreadLevel2);
+
         chainVec[i]->sampleUnknowns();
     }
     
@@ -64,29 +78,32 @@ void MultiChainSBayesR::sampleUnknowns(){
     numSnpMix.getValues();
     vgMix.getValues();
     
+    nHighPips.getValue(pip.values);
     nBadSnps.output();
 }
 
 void MultiChainSBayesRC::NumBadSnps::output(){
+    value = 0;
     for (unsigned i=0; i<numChains; ++i) {
         vector<unsigned> badSnpIdxVec = nBadSnpVec[i]->badSnpIdx;
         vector<string> badSnpNameVec = nBadSnpVec[i]->badSnpName;
         for (unsigned j=0; j<badSnpNameVec.size(); ++j) {
             if(badSnpSet.insert(badSnpNameVec[j]).second) {
                 out << badSnpIdxVec[j] << "\t" << badSnpNameVec[j] << endl;
+                ++value;
             }
         }
     }
-    value = badSnpSet.size();
+    //value = badSnpSet.size();
 }
 
 void MultiChainSBayesRC::sampleUnknowns(){
-    // Set the maximum number of nested parallelism levels
-//    omp_set_max_active_levels(2);
     
-//#pragma omp parallel num_threads(numChains)
+#pragma omp parallel for num_threads(numThreadLevel1)
     for (unsigned i=0; i<numChains; ++i) {
 //        cout << "sampling chain " << i << " in " << numChains << " chains " << endl;
+        omp_set_num_threads(numThreadLevel2);
+
         chainVec[i]->sampleUnknowns();
     }
         
@@ -101,5 +118,21 @@ void MultiChainSBayesRC::sampleUnknowns(){
     annoTotalGenVar.getValues();
     annoPerSnpHsqEnrich.getValues();
     
+    nHighPips.getValue(pip.values);
     nBadSnps.output();
+}
+
+
+void MultiModelSBayesR::sampleUnknowns(){
+        
+#pragma omp parallel for num_threads(numThreadLevel1)
+    for (unsigned i=0; i<numModels; ++i) {
+        //cout << "sampling chain " << i << " in " << numChains << " chains " << endl;
+        //printf("Outer: Thread %d of %d\n", omp_get_thread_num(), omp_get_num_threads());
+
+        // Restrict inner parallelism to numThreadLevel2 threads
+        omp_set_num_threads(numThreadLevel2);
+
+        modelVec[i]->sampleUnknowns();
+    }    
 }

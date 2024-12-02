@@ -119,9 +119,11 @@ public:
 };
 
 class MCMC {
-private:
+public:
     string outfilename;
     ofstream out;
+    
+    enum {keep_running, restart_and_use_robust_model, stop_and_exit} action;
     
     void initTxtFile(const vector<Parameter*> &paramVec, const string &title);
     vector<McmcSamples*> initMcmcSamples(const Model &model, const unsigned numChains, const unsigned chainLength, const unsigned burnin,
@@ -133,10 +135,14 @@ private:
     void printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vector<McmcSamples*> &mcmcSampleVec, const unsigned numChains, const string &filename);
     void printSnpAnnoMembership(const vector<ParamSet*> &paramSetToPrint, const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
 
-public:
+    MCMC() {
+        action = keep_running;
+    }
+
     vector<McmcSamples*> run(Model &model, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const bool print,
                              const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior);
-    void convergeDiagGelmanRubin(const Model &model, vector<vector<McmcSamples*> > &mcmcSampleVecChain, const string &filename);    
+    void convergeDiagGelmanRubin(const Model &model, vector<vector<McmcSamples*> > &mcmcSampleVecChain, const string &filename);
+    void setAction(const Model &model);
 };
 
 #endif /* mcmc_hpp */

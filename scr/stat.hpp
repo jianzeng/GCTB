@@ -33,9 +33,9 @@ namespace Stat {
     typedef boost::variate_generator<random_engine&, normal_distribution> normal_generator;
     typedef boost::variate_generator<random_engine&, gamma_distribution> gamma_generator;
     
-    static random_engine engine;
-    static uniform01_generator ranf(engine, uniform_01());
-    static normal_generator snorm(engine, normal_distribution(0,1));  // standard normal
+    static thread_local random_engine engine;
+    static thread_local uniform01_generator ranf(engine, uniform_01());
+    static thread_local normal_generator snorm(engine, normal_distribution(0,1));  // standard normal
     
     void seedEngine(const int seed);
     

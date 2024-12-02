@@ -786,7 +786,7 @@ void StratApproxBayesS::sampleUnknowns() {
 //    }
 //    else if (model == linear) {
         varg.value = sigmaSqG.value = snpEffects.sum2pqBetaSq;
-        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value);
+        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value, message);
         hsq.compute(varg.value, vare.value);
         hsqStrat.values = snpEffects.sum2pqBetaSqAnno/(varg.value + vare.value);
 //    }

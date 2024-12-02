@@ -79,9 +79,11 @@ void McmcSamples::computeGelmanRubinStat(const unsigned iter, const VectorXf &pe
     
 //    cout << "perChainMean " << perChainMean.transpose() << endl;
 //    cout << "perChainSqrMean " << perChainSqrMean.transpose() << endl;
-
+    
+    if (iter < chainLength) return;
+        
     float meanVarWithinChain = (perChainSqrMean.array() - perChainMean.array().square()).mean();   // W
-    float varMeansBetweenChains = Gadget::calcVariance(perChainMean.transpose());                              // B
+    float varMeansBetweenChains = float(cntPosteriorSample)*Gadget::calcVariance(perChainMean.transpose());                              // B
 //    cout << "meanVarWithinChain " << meanVarWithinChain << endl;
 //    cout << "varMeansBetweenChains " << varMeansBetweenChains << endl;
     float posteriorVar = (cntPosteriorSample-1.0)*meanVarWithinChain/float(cntPosteriorSample) + varMeansBetweenChains/float(cntPosteriorSample);
@@ -104,13 +106,15 @@ void McmcSamples::computeGelmanRubinStat(const unsigned iter, const MatrixXf &pe
         perChainSqrMean.col(i).array() += (perChainSample.col(i).array().square() - perChainSqrMean.col(i).array())/cntPosteriorSample;
     }
     
+    if (iter < chainLength) return;
+    
     unsigned numPar = GelmanRubinStat.size();
     VectorXf meanVarWithinChain(numPar);
     VectorXf varMeansBetweenChains(numPar);
     VectorXf posteriorVar(numPar);
     for (unsigned i=0; i<numPar; ++i) {
         meanVarWithinChain[i] = (perChainSqrMean.row(i).array() - perChainMean.row(i).array().square()).mean(); // W
-        varMeansBetweenChains[i] = Gadget::calcVariance(perChainMean.row(i).transpose());                           // B
+        varMeansBetweenChains[i] = float(cntPosteriorSample)*Gadget::calcVariance(perChainMean.row(i).transpose());                           // B
         posteriorVar[i] = (cntPosteriorSample-1.0)*meanVarWithinChain[i]/float(cntPosteriorSample) + varMeansBetweenChains[i]/float(cntPosteriorSample);
         if (meanVarWithinChain[i]) {
             GelmanRubinStat[i] = sqrt(posteriorVar[i]/meanVarWithinChain[i]);
@@ -481,13 +485,13 @@ void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vecto
     }
     if (numChains > 1) {
         //cout << boost::format("%25s %20s %2s %-15s %-15s %-12s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "GelmanRubin_R";
-        out << boost::format("%25s %20s %2s %-15s %-15s %-12s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "GelmanRubin_R";
+        out << boost::format("%25s %20s %2s %-15s %-15s %-15s %-12s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "PosteriorProb" % "GelmanRubin_R";
 
     } else {
         //    cout << "\nPosterior statistics from MCMC samples:\n\n";
         //cout << boost::format("%25s %20s %2s %-15s %-15s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD ";
         //    out << "Posterior statistics from MCMC samples:\n\n";
-        out << boost::format("%25s %20s %2s %-15s %-15s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD ";
+        out << boost::format("%25s %20s %2s %-15s %-15s %-15s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "PosteriorProb";
     }
     for (unsigned i=0; i<paramSetToPrint.size(); ++i) {
         ParamSet *parset = paramSetToPrint[i];
@@ -584,7 +588,13 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
         unsigned thisIter = iteration + 1;
         
         model.sampleUnknowns();
-        collectSamples(model, mcmcSampleVec, numChains, iteration, writeBinPosterior, writeTxtPosterior);
+        collectSamples(model, mcmcSampleVec, numChains, thisIter, writeBinPosterior, writeTxtPosterior);
+        
+        setAction(model);
+        if (action != keep_running) {
+            cout << "\nMCMC sampling disrupted at iteration " << thisIter << endl;
+            return mcmcSampleVec;
+        }
         
         if (!(thisIter % outputFreq)) {
             timer.getTime();
@@ -620,6 +630,17 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
 //    mcmcSampleVecChain.resize(numChains);
 //
 //}
+
+void MCMC::setAction(const Model &model){
+    if (model.message.empty()){
+        action = keep_running;
+    } else if (model.message == "Negative residual variance") {
+        cout << "\nError: Residual variance is negative. This may indicate that effect sizes are \"blowing up\" likely due to a convergence problem. If SigmaSq variable is increasing with MCMC iterations, then this further indicates MCMC may not converge." << endl;
+        action = restart_and_use_robust_model;
+    } else if (model.message == "Unknown error") {
+        action = stop_and_exit;
+    }
+}
 
 void MCMC::convergeDiagGelmanRubin(const Model &model, vector<vector<McmcSamples *> > &mcmcSampleVecChain, const string &filename){
     if (!model.paramToPrint.size()) return;
