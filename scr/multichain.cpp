@@ -77,6 +77,7 @@ void MultiChainSBayesR::sampleUnknowns(const unsigned iter){
     hsq.getValues();
     numSnpMix.getValues();
     vgMix.getValues();
+    snpHsqPep.getValues();
     
     nHighPips.getValue(pip.values);
     nBadSnps.output();
@@ -117,7 +118,9 @@ void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
     annoJointProb.getValues();
     annoTotalGenVar.getValues();
     annoPerSnpHsqEnrich.getValues();
-    
+    annoJointPerSnpHsqEnrich.getValues();
+    snpHsqPep.getValues();
+
     nHighPips.getValue(pip.values);
     nBadSnps.output();
 }

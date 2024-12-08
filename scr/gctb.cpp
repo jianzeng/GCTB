@@ -450,10 +450,12 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
     else if (bayesType == "RC" || bayesType == "R") {
         McmcSamples *snpEffects = NULL;
         McmcSamples *pip = NULL;
+        McmcSamples *pep = NULL;
         vector<McmcSamples*> deltaPiVec;
         for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
             if (mcmcSampleVec[i]->label == "SnpEffects") snpEffects = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label == "PIP") pip = mcmcSampleVec[i];
+            if (mcmcSampleVec[i]->label == "PEP") pep = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label.substr(0, 7) == "DeltaPi") deltaPiVec.push_back(mcmcSampleVec[i]);
         }
         string newfilename = filename + ".snpRes";
@@ -469,6 +471,7 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
         % "A1Effect"
         % "SE"
         % "VarExplained";
+        if (pep) out << boost::format(" %12s") % "PEP";
         for (unsigned i=0; i<deltaPiVec.size(); ++i) {
             out << boost::format(" %12s") % deltaPiVec[i]->label.substr(5);
         }
@@ -516,6 +519,9 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
             % (noscale ? se : se/sqrt2pq)
             % (noscale ? sqrt2pq*sqrt2pq*varExp : varExp);
             if (snp->unconverged) {
+                if (pep) {
+                    out << boost::format(" %12.6f") % 0;
+                }
                 for (unsigned j = 0; j < deltaPiVec.size(); ++j) {
                     if (j==0) out << boost::format(" %12.0f") % 1;
                     else out << boost::format(" %12.0f") % 0;
@@ -525,6 +531,9 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
                     if (pip->numChains > 1) out << " " << setw(12) << 0;
                 }
             } else {
+                if (pep) {
+                    out << boost::format(" %12.6f") % pep->posteriorMean[idx];
+                }
                 for (unsigned j = 0; j < deltaPiVec.size(); ++j) {
                     out << boost::format(" %12.6f") % deltaPiVec[j]->posteriorMean[idx];
                 }

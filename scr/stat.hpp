@@ -54,6 +54,7 @@ namespace Stat {
         float sample(const float mean, const float variance);
         float cdf_01(const double value);
         float quantile_01(const double value);
+        float pdf_01(const double value);
     };
     
     class Flat : public Normal {

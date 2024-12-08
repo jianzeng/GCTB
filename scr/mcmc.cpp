@@ -44,6 +44,7 @@ void McmcSamples::getParSetSample(const unsigned iter, const ParamSet* parSet){
         sampleIter.col(0) = parSet->values;
         probGreaterThanCriticalValue.array() += ((parSet->values.array() > criticalValue).cast<float>() - probGreaterThanCriticalValue.array()) / cntPosteriorSample;
     }
+    
     posteriorMean.array()    += (parSet->values - posteriorMean).array()/cntPosteriorSample;
     posteriorSqrMean.array() += (parSet->values.array().square() - posteriorSqrMean.array())/cntPosteriorSample;
 
@@ -469,22 +470,29 @@ void MCMC::printSummary(const vector<Parameter*> &paramToPrint, const vector<Mcm
     out.close();
 }
 
-void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vector<McmcSamples*> &mcmcSampleVec, const unsigned numChains, const string &filename){
+void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vector<McmcSamples*> &mcmcSampleVec, const unsigned numChains, const string &filename, const string &enrich){
     if (!paramSetToPrint.size()) return;
     ofstream out;
     out.open(filename.c_str());
     if (!out) {
         throw("Error: cannot open file " + filename);
     }
+    ofstream out2;
+    out2.open(enrich.c_str());
+    if (!out2) {
+        throw("Error: cannot open file " + enrich);
+    }
     if (numChains > 1) {
         //cout << boost::format("%25s %20s %2s %-15s %-15s %-12s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "GelmanRubin_R";
         out << boost::format("%25s %20s %2s %-15s %-15s %-15s %-12s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "PosteriorProb" % "GelmanRubin_R";
+        out2 << boost::format("%25s %20s %2s %-15s %-15s %-15s %-12s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "PosteriorProb" % "GelmanRubin_R";
 
     } else {
         //    cout << "\nPosterior statistics from MCMC samples:\n\n";
         //cout << boost::format("%25s %20s %2s %-15s %-15s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD ";
         //    out << "Posterior statistics from MCMC samples:\n\n";
         out << boost::format("%25s %20s %2s %-15s %-15s %-15s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "PosteriorProb";
+        out2 << boost::format("%25s %20s %2s %-15s %-15s %-15s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "PosteriorProb";
     }
     for (unsigned i=0; i<paramSetToPrint.size(); ++i) {
         ParamSet *parset = paramSetToPrint[i];
@@ -492,28 +500,41 @@ void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vecto
         for (unsigned j=0; j<mcmcSampleVec.size(); ++j) {
             McmcSamples *mcmcSamples = mcmcSampleVec[j];
             if (mcmcSamples->label == parset->label) {
-                for (unsigned col=0; col<parset->size; ++col) {
-//                    cout << boost::format("%20s %10s %2s %-15.6f %-15.6f\n")
-//                    % parset->label
-//                    % parset->header[col]
-//                    % ""
-//                    % mcmcSamples->posteriorMean[col]
-//                    % sqrt(mcmcSamples->posteriorSqrMean[col]-mcmcSamples->posteriorMean[col]*mcmcSamples->posteriorMean[col]);
-                    out << boost::format("%25s %20s %2s %-15.6f %-15.6f %-15.6f ")
-                    % parset->label
-                    % parset->header[col]
-                    % ""
-                    % mcmcSamples->posteriorMean[col]
-                    % sqrt(mcmcSamples->posteriorSqrMean[col]-mcmcSamples->posteriorMean[col]*mcmcSamples->posteriorMean[col])
-                    % mcmcSamples->probGreaterThanCriticalValue;
-                    if (mcmcSamples->numChains > 1) out << boost::format("%-12.4f ") % mcmcSamples->GelmanRubinStat[col];
-                    out << endl;
+                VectorXf mean = mcmcSamples->mean();
+                VectorXf sd   = mcmcSamples->sd();
+                Gadget::Tokenizer token;
+                token.getTokens(parset->label, "_");
+                if (token.back() == "Enrichment") {
+                    for (unsigned col=0; col<parset->size; ++col) {
+                        out2 << boost::format("%25s %20s %2s %-15.6f %-15.6f %-15.6f ")
+                        % token.front()
+                        % parset->header[col]
+                        % ""
+                        % mean[col]
+                        % sd[col]
+                        % mcmcSamples->probGreaterThanCriticalValue[col];
+                        if (mcmcSamples->numChains > 1) out2 << boost::format("%-12.4f ") % mcmcSamples->GelmanRubinStat[col];
+                        out2 << endl;
+                    }
+                } else {
+                    for (unsigned col=0; col<parset->size; ++col) {
+                        out << boost::format("%25s %20s %2s %-15.6f %-15.6f %-15.6f ")
+                        % parset->label
+                        % parset->header[col]
+                        % ""
+                        % mean[col]
+                        % sd[col]
+                        % mcmcSamples->probGreaterThanCriticalValue[col];
+                        if (mcmcSamples->numChains > 1) out << boost::format("%-12.4f ") % mcmcSamples->GelmanRubinStat[col];
+                        out << endl;
+                    }
                 }
                 break;
             }
         }
     }
     out.close();
+    out2.close();
 }
 
 void MCMC::printSnpAnnoMembership(const vector<ParamSet *> &paramSetToPrint, const vector<McmcSamples *> &mcmcSampleVec, const string &filename) {
@@ -592,7 +613,7 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
     if (print) {
         cout << "\nMCMC cycles completed." << endl;
         printSummary(model.paramToPrint, mcmcSampleVec, numChains, title + ".parRes");
-        printSetSummary(model.paramSetToPrint, mcmcSampleVec, numChains, title + ".parSetRes");
+        printSetSummary(model.paramSetToPrint, mcmcSampleVec, numChains, title + ".parSetRes", title + ".enrich");
         printSnpAnnoMembership(model.paramSetToPrint, mcmcSampleVec, title + ".snpAnnoMembership");
     }
 

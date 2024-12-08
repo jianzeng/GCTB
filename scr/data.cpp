@@ -5632,7 +5632,10 @@ void Data::readUnconvergedSnplist(const string &filename) {
     }
     
     in.close();
-    if (line) cout << "\nFound " << line << " skeptical SNPs with their posterior joint effect sizes greater than the marginal effect sizes. Since this may be due to poor convergence, their posterior effects have therefore been set to be zero. These SNPs can be found in [" + filename + "]." << endl;
+    if (line) {
+        cout << "\nOuput " << line << " skeptical SNPs in [" + filename + "], whose posterior joint effect sizes are remarkably greater than their marginal effect sizes." << endl;
+        cout << "Since this may be due to poor convergence, their posterior effects have been set to be zero." << endl;
+    }
 }
 
 void Data::convert(const string &eigenMatrixFile, const string &snplistFile, const string &title) {

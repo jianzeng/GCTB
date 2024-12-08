@@ -335,6 +335,13 @@ public:
         void compute(const float sigmaSq, const float sum2pq){value = sigmaSq*sum2pq;};
     };
 
+    class SnpHsqPEP : public ParamSet {
+        // per-SNP heritability posterior enrichment probability
+    public:
+        SnpHsqPEP(const vector<string> &header, const string &lab = "PEP") : ParamSet(lab, header){}
+        
+        void compute(const VectorXf &snpEffects, const float varg);
+    };
     
 public:
     const Data &data;
@@ -1217,7 +1224,7 @@ public:
         
         bool writeTxt;
         
-        NumBadSnps(const string &title, const VectorXf &b, const vector<string> &snpNames): Parameter("NumBadSnps"), snpNames(snpNames){
+        NumBadSnps(const string &title, const VectorXf &b, const vector<string> &snpNames): Parameter("NumSkeptSnp"), snpNames(snpNames){
             VectorXf abs_b = b.array().abs();
             std::sort(abs_b.data(), abs_b.data() + abs_b.size());
             int index8 = 0.8 * (abs_b.size() - 1);
@@ -1698,7 +1705,8 @@ public:
     ApproxBayesC::NumBadSnps nBadSnps;
     ApproxBayesC::BlockGenotypicVar vargBlk;
     ApproxBayesC::BlockResidualVar vareBlk;
-    
+    BayesC::SnpHsqPEP snpHsqPep;
+
     vector<VectorXf> wcorrBlocks;
     vector<VectorXf> whatBlocks;
     
@@ -1716,6 +1724,7 @@ public:
     , vargBlk(data.ldblockNames, varGenotypic, data.numKeptInds)
     , vareBlk(data.ldblockNames, data.varPhenotypic)
     , nBadSnps(data.title, data.b, data.snpEffectNames)
+    , snpHsqPep(data.snpEffectNames)
     , noscale(noscale)
     , sparse(data.sparseLDM)
     , robustMode(robustMode)
@@ -1726,7 +1735,7 @@ public:
         else if (alg == "MH") algorithm = mh;
         else algorithm = gibbs;
 
-        paramSetVec = {&snpEffects, &snpPip};
+        paramSetVec = {&snpEffects, &snpPip, &snpHsqPep};
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
         paramVec     = {&nnzSnp, &sigmaSq, &hsq, &vare};
         paramVec.insert(paramVec.end(), numSnps.begin(), numSnps.end());
@@ -2215,6 +2224,14 @@ public:
         void compute(const VectorXf &snpEffects, const VectorXf &annoTotalGenVar, const MatrixXf &annoMat, const MatrixXf &APA, const vector<AnnoInfo*> &annoInfoVec);
     };
     
+    class AnnoJointPerSnpHsqEnrichment : public AnnoPerSnpHsqEnrichment, public Stat::Normal {
+    public:
+        
+        AnnoJointPerSnpHsqEnrichment(const vector<string> &header, const vector<AnnoInfo*> &annoVec): AnnoPerSnpHsqEnrichment(header, annoVec, "AnnoJointPerSnpHsq_Enrichment") {}
+        
+        void compute(const AnnoJointProb &annoJointProb, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &gamma, const float varg, const bool hsqPercModel, const float sigmaSq);
+    };
+    
     class AnnoDistribution : public vector<ParamSet*> {
     public:
         vector<string> colnames;
@@ -2242,8 +2259,9 @@ public:
     AnnoGenVar annoGenVar;
     AnnoTotalGenVar annoTotalGenVar;
     AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
+    AnnoJointPerSnpHsqEnrichment annoJointPerSnpHsqEnrich;
     AnnoDistribution annoDist;
-    
+        
     MatrixXf snpP;    // p = Pr(k>i | k>i-1); p2 = pi2+pi3+pi4; p3 = (pi3+pi4)/(pi2+pi3+pi4); p4 = pi4/(pi3+pi4)
     MatrixXf snpPi;   // pi1 = 1-p2; pi2 = (1-p3)*p2; pi3 = (1-p4)*p2*p3; pi4 = p2*p3*p4
             
@@ -2257,6 +2275,7 @@ public:
     annoGenVar(data.annoNames, pis.size(), data.numKeptInds),
     annoTotalGenVar(data.annoNames),
     annoPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
+    annoJointPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
     annoDist(data.annoNames, pis.size())
     {
                 
@@ -2266,7 +2285,7 @@ public:
         else if (algorithm == mh) annoEffects.initIntercept_logistic(pis);
         else cout << "ERROR: unknown algorithm " << algorithm << endl;
         
-        paramSetVec = {&snpEffects, &snpPip};
+        paramSetVec = {&snpEffects, &snpPip, &snpHsqPep};
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
         paramSetVec.insert(paramSetVec.end(), annoEffects.begin(), annoEffects.end());
         paramSetVec.insert(paramSetVec.end(), annoCondProb.begin(), annoCondProb.end());
@@ -2274,6 +2293,7 @@ public:
         paramSetVec.insert(paramSetVec.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetVec.push_back(&annoTotalGenVar);
         paramSetVec.push_back(&annoPerSnpHsqEnrich);
+        paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
 
         paramVec    = {&nnzSnp, &sigmaSq, &hsq, &vare};
         paramVec.insert(paramVec.end(), numSnps.begin(), numSnps.end());
@@ -2286,7 +2306,8 @@ public:
         paramSetToPrint.insert(paramSetToPrint.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
-        
+        paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
+
         paramToPrint = {&sigmaSq, &hsq, &vare};
         paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
         paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
@@ -2351,6 +2372,7 @@ public:
     ApproxBayesRC::AnnoGenVar annoGenVar;
     ApproxBayesRC::AnnoTotalGenVar annoTotalGenVar;
     ApproxBayesRC::AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
+    ApproxBayesRC::AnnoJointPerSnpHsqEnrichment annoJointPerSnpHsqEnrich;
 
     MatrixXf snpP;    // p = Pr(k>i | k>i-1); p2 = pi2+pi3+pi4; p3 = (pi3+pi4)/(pi2+pi3+pi4); p4 = pi4/(pi3+pi4)
     MatrixXf snpPi;   // pi1 = 1-p2; pi2 = (1-p3)*p2; pi3 = (1-p4)*p2*p3; pi4 = p2*p3*p4
@@ -2367,7 +2389,8 @@ public:
     annoJointProb(data.annoNames, pis.size()),
     annoGenVar(data.annoNames, pis.size(), data.numKeptInds),
     annoTotalGenVar(data.annoNames),
-    annoPerSnpHsqEnrich(data.annoNames, data.annoInfoVec)
+    annoPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
+    annoJointPerSnpHsqEnrich(data.annoNames, data.annoInfoVec)
     {
         initSnpPandPi(pis, data.numIncdSnps, snpP, snpPi);
         
@@ -2387,6 +2410,7 @@ public:
         paramSetVec.insert(paramSetVec.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetVec.push_back(&annoTotalGenVar);
         paramSetVec.push_back(&annoPerSnpHsqEnrich);
+        paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
 
         paramVec     = {&nnzSnp, &sigmaSq, &varg, &vare, &hsq};
         paramVec.insert(paramVec.end(), numSnps.begin(), numSnps.end());
@@ -2399,6 +2423,7 @@ public:
         paramSetToPrint.insert(paramSetToPrint.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
+        paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
 
         paramToPrint = {&sigmaSq, &varg, &vare, &hsq};
         paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
