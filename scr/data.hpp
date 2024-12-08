@@ -578,9 +578,10 @@ public:
     void initVariances(const float heritability, const float propVarRandom);
     
     void outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const bool noscale, const string &filename) const;
-    void outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &lastSample, const VectorXf &pip, const bool noscale, const string &filename) const;
-    void outputFixedEffects(const MatrixXf &fixedEffects, const string &filename) const;
-    void outputRandomEffects(const MatrixXf &randomEffects, const string &filename) const;
+//    void outputFixedEffects(const MatrixXf &fixedEffects, const string &filename) const;
+    void outputFixedEffects(const VectorXf &mean, const VectorXf &sd, const string &filename) const;
+//    void outputRandomEffects(const MatrixXf &randomEffects, const string &filename) const;
+    void outputRandomEffects(const VectorXf &mean, const VectorXf &sd, const string &filename) const;
     void outputWindowResults(const VectorXf &posteriorMean, const string &filename) const;
     void summarizeSnpResults(const SpMat &snpEffects, const string &filename) const;
     void buildSparseMME(const bool sampleOverlap, const bool noscale);

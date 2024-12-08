@@ -278,7 +278,7 @@ void StratApproxBayesS::PerSnpPi::computeFromAnnoPi(const MatrixXf &annoMat, con
     }
 }
 
-void StratApproxBayesS::SnpEffects::sampleFromFCMixture(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const vector<ChromInfo *> &chromInfoVec, const vector<SnpInfo *> &incdSnpInfoVec, const VectorXf &snp2pq, const VectorXf &LDsamplVar, const unsigned numAnnos, const VectorXf &sigmaSq, const VectorXf &pi, const VectorXf &S, const float Sgw, const float varg, const float vare, const float ps, const float overdispersion) {
+void StratApproxBayesS::SnpEffects::sampleFromFCMixture(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const vector<ChromInfo *> &chromInfoVec, const vector<SnpInfo *> &incdSnpInfoVec, const VectorXf &snp2pq, const unsigned numAnnos, const VectorXf &sigmaSq, const VectorXf &pi, const VectorXf &S, const float Sgw, const float varg, const float vare) {
 
     long numChr = chromInfoVec.size();
 
@@ -328,7 +328,7 @@ void StratApproxBayesS::SnpEffects::sampleFromFCMixture(VectorXf &rcorr, const v
             probDeltaAnno.resize(snp->numAnnos);
 
             oldSample = values[i];
-            varei = LDsamplVar[i]*varg + vare + ps + overdispersion;
+            varei = varg + vare;
 
             rhs  = rcorr[i] + ZPZdiag[i]*oldSample;
             rhs /= varei;
@@ -384,7 +384,7 @@ void StratApproxBayesS::SnpEffects::sampleFromFCMixture(VectorXf &rcorr, const v
     }
 }
 
-void StratApproxBayesS::SnpEffects::sampleFromFCMixture(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo *> &chromInfoVec, const vector<SnpInfo *> &incdSnpInfoVec, const VectorXf &snp2pq, const VectorXf &LDsamplVar, const unsigned numAnnos, const VectorXf &sigmaSq, const VectorXf &pi, const VectorXf &S, const float Sgw, const float varg, const float vare, const float ps, const float overdispersion) {
+void StratApproxBayesS::SnpEffects::sampleFromFCMixture(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo *> &chromInfoVec, const vector<SnpInfo *> &incdSnpInfoVec, const VectorXf &snp2pq, const unsigned numAnnos, const VectorXf &sigmaSq, const VectorXf &pi, const VectorXf &S, const float Sgw, const float varg, const float vare) {
     
     long numChr = chromInfoVec.size();
     
@@ -434,7 +434,7 @@ void StratApproxBayesS::SnpEffects::sampleFromFCMixture(VectorXf &rcorr, const v
             probDeltaAnno.resize(snp->numAnnos);
             
             oldSample = values[i];
-            varei = LDsamplVar[i]*varg + vare + ps + overdispersion;
+            varei = varg + vare;
             
             rhs  = rcorr[i] + ZPZdiag[i]*oldSample;
             rhs /= varei;
@@ -486,7 +486,7 @@ void StratApproxBayesS::SnpEffects::sampleFromFCMixture(VectorXf &rcorr, const v
     }
 }
 
-void StratApproxBayesS::SnpEffects::sampleFromFCLinear(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const vector<ChromInfo *> &chromInfoVec, const vector<SnpInfo *> &incdSnpInfoVec, const VectorXf &snp2pq, const VectorXf &LDsamplVar, const unsigned numAnnos, const VectorXf &sigmaSq, const VectorXf &pi, const VectorXf &S, const float Sgw, const float varg, const float vare, const float ps, const float overdispersion) {
+void StratApproxBayesS::SnpEffects::sampleFromFCLinear(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const vector<ChromInfo *> &chromInfoVec, const vector<SnpInfo *> &incdSnpInfoVec, const VectorXf &snp2pq, const unsigned numAnnos, const VectorXf &sigmaSq, const VectorXf &pi, const VectorXf &S, const float Sgw, const float varg, const float vare) {
     
     long numChr = chromInfoVec.size();
     
@@ -527,7 +527,7 @@ void StratApproxBayesS::SnpEffects::sampleFromFCLinear(VectorXf &rcorr, const ve
             snp = incdSnpInfoVec[i];
             oldSample = values[i];
             
-            varei = LDsamplVar[i]*varg + vare + ps + overdispersion;
+            varei = varg + vare;
                         
             snp2pqPowSAnno.resize(snp->numAnnos);
             sigmaSqAnno.resize(snp->numAnnos);
@@ -606,9 +606,9 @@ void StratApproxBayesS::SnpEffects::sampleFromFCLinear(VectorXf &rcorr, const ve
 void StratApproxBayesS::SnpEffects::sampleFromFCLinear(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag,
                                                        const VectorXi &windStart, const VectorXi &windSize,
                                                        const vector<ChromInfo*> &chromInfoVec, const vector<SnpInfo*> &incdSnpInfoVec,
-                                                       const VectorXf &snp2pq, const VectorXf &LDsamplVar, const unsigned numAnnos,
+                                                       const VectorXf &snp2pq, const unsigned numAnnos,
                                                        const VectorXf &sigmaSq, const VectorXf &pi, const VectorXf &S, const float Sgw,
-                                                       const float varg, const float vare, const float ps, const float overdispersion) {
+                                                       const float varg, const float vare) {
     
     long numChr = chromInfoVec.size();
     
@@ -649,7 +649,7 @@ void StratApproxBayesS::SnpEffects::sampleFromFCLinear(VectorXf &rcorr, const ve
             snp = incdSnpInfoVec[i];
             oldSample = values[i];
             
-            varei = LDsamplVar[i]*varg + vare + ps + overdispersion;
+            varei = varg + vare;
                         
             snp2pqPowSAnno.resize(snp->numAnnos);
             sigmaSqAnno.resize(snp->numAnnos);
@@ -721,19 +721,19 @@ void StratApproxBayesS::SnpEffects::sampleFromFCLinear(VectorXf &rcorr, const ve
     }
 }
 
-void StratApproxBayesS::sampleUnknowns() {
+void StratApproxBayesS::sampleUnknowns(const unsigned iter) {
     unsigned cnt=0;
     
     if (model == mixture) {
         do {
             if (sparse) {
                 snpEffects.sampleFromFCMixture(rcorr, data.ZPZsp, data.ZPZdiag, data.chromInfoVec, data.incdSnpInfoVec, data.snp2pq,
-                                        data.LDsamplVar, data.numAnnos, sigmaSqStrat.values, piStrat.values, Sstrat.values, S.value,
-                                        varg.value, vare.value, ps.value, overdispersion);
+                                        data.numAnnos, sigmaSqStrat.values, piStrat.values, Sstrat.values, S.value,
+                                        varg.value, vare.value);
             } else {
                 snpEffects.sampleFromFCMixture(rcorr, data.ZPZ, data.ZPZdiag, data.windStart, data.windSize, data.chromInfoVec, data.incdSnpInfoVec, data.snp2pq,
-                                        data.LDsamplVar, data.numAnnos, sigmaSqStrat.values, piStrat.values, Sstrat.values, S.value,
-                                        varg.value, vare.value, ps.value, overdispersion);
+                                        data.numAnnos, sigmaSqStrat.values, piStrat.values, Sstrat.values, S.value,
+                                        varg.value, vare.value);
             }
             if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
         } while (snpEffects.numNonZeros == 0);
@@ -745,12 +745,12 @@ void StratApproxBayesS::sampleUnknowns() {
         do {
             if (sparse) {
                 snpEffects.sampleFromFCLinear(rcorr, data.ZPZsp, data.ZPZdiag, data.chromInfoVec, data.incdSnpInfoVec, data.snp2pq,
-                                        data.LDsamplVar, data.numAnnos, sigmaSqStrat.values, perSnpPi.values, Sstrat.values, S.value,
-                                        varg.value, vare.value, ps.value, overdispersion);
+                                        data.numAnnos, sigmaSqStrat.values, perSnpPi.values, Sstrat.values, S.value,
+                                        varg.value, vare.value);
             } else {
                 snpEffects.sampleFromFCLinear(rcorr, data.ZPZ, data.ZPZdiag, data.windStart, data.windSize, data.chromInfoVec, data.incdSnpInfoVec, data.snp2pq,
-                                        data.LDsamplVar, data.numAnnos, sigmaSqStrat.values, perSnpPi.values, Sstrat.values, S.value,
-                                        varg.value, vare.value, ps.value, overdispersion);
+                                        data.numAnnos, sigmaSqStrat.values, perSnpPi.values, Sstrat.values, S.value,
+                                        varg.value, vare.value);
             }
             if (++cnt == 100) throw("Error: Zero SNP effect in the model for 100 cycles of sampling");
         } while (snpEffects.numNonZeros == 0);
@@ -778,15 +778,15 @@ void StratApproxBayesS::sampleUnknowns() {
 //        sigmaSqG.compute(sigmaSq.value, snpEffects.sum2pqSplusOne);
 //        varg.value = sigmaSqG.value;
 //        //    covg.compute(data.ypy, snpEffects.values, data.ZPy, rcorr);
-//        //    varg.compute(snpEffects.values, data.ZPy, rcorr, covg.value);
-//        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value);
+//        //    varg.compute(snpEffects.values, data.ZPy, rcorr);
+//        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr);
 //        hsq.compute(varg.value, vare.value);
 //        hsqStrat.compute(sigmaSqStrat.values, snpEffects.sum2pqSplusOnePerAnno, varg.value, vare.value);
 //        //    hsqStrat.compute(snpEffects.values, data.annowiseZPZsp, data.annowiseZPZdiag, data.annoInfoVec, varg.value, vare.value);
 //    }
 //    else if (model == linear) {
-        varg.value = sigmaSqG.value = snpEffects.sum2pqBetaSq;
-        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, covg.value, message);
+        varg.value = snpEffects.sum2pqBetaSq;
+        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, status);
         hsq.compute(varg.value, vare.value);
         hsqStrat.values = snpEffects.sum2pqBetaSqAnno/(varg.value + vare.value);
 //    }
@@ -800,13 +800,11 @@ void StratApproxBayesS::sampleUnknowns() {
     else if (model == linear)
         Sstrat.sampleFromFC(snpEffects.valuesPerAnno, nnzStrat.values, sigmaSqStrat.values, sigmaSqStrat.values.cwiseProduct(snpEffects.sum2pqSplusOnePerAnno), varg.value, vare.value, data.annoInfoVec, sigmaSqStrat.scales, snpEffects.sum2pqSplusOnePerAnno);
     Senrich.compute(Sstrat.values, S.value);
-    
-    if (modelPS) ps.compute(rcorr, data.ZPZdiag, data.LDsamplVar, varg.value, vare.value, data.chisq);
-    
+        
     if (sparse)
-        rounding.computeRcorr(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
+        rounding.computeRcorr_sparse(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     else
-        rounding.computeRcorr(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
+        rounding.computeRcorr_full(data.ZPy, data.ZPZ, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
     
     scaleStrat.values = sigmaSqStrat.scales;
 }
@@ -879,7 +877,7 @@ void PostHocStratifyS::VarEffectStratified::compute(const VectorXf &snpEffSumSq,
     }
 }
 
-void PostHocStratifyS::sampleUnknowns() {
+void PostHocStratifyS::sampleUnknowns(const unsigned iter) {
     snpEffects.getValues(snpEffectsMcmc.datMatSp.row(iter), data.incdSnpInfoVec, data.annoInfoVec, data.snp2pq, Sstrat.values, S.value);
     hsq.value = hsqMcmc.datMat.row(iter*thin)[0];
     varg.value = hsq.value;
@@ -906,9 +904,7 @@ void PostHocStratifyS::sampleUnknowns() {
     
     S.sampleFromFC(snpEffects.wtdSumSq, nnzSnp.value, sigmaSq.value, snpEffects.values, data.snp2pq, snp2pqPowS, logSnp2pq, varg.value, sigmaSq.scale, snpEffects.sum2pqSplusOne);
     Sstrat.sampleFromFC(snpEffects.valuesPerAnno, nnzStrat.values, sigmaSqStrat.values, hsqStrat.values, varg.value, vare.value, data.annoInfoVec, sigmaSqStrat.scales, snpEffects.sum2pqSplusOnePerAnno);
-    Senrich.compute(Sstrat.values, S.value);
-    
-    ++iter;
+    Senrich.compute(Sstrat.values, S.value);    
 }
 
 
@@ -932,7 +928,7 @@ void PostHocStratifySMix::DeltaS::getValues(const SparseVector<float> &deltaS, c
 }
 
 
-void PostHocStratifySMix::sampleUnknowns() {
+void PostHocStratifySMix::sampleUnknowns(const unsigned iter) {
     snpEffects.getValues(snpEffectsMcmc.datMatSp.row(iter), data.incdSnpInfoVec, data.annoInfoVec, data.snp2pq, Sstrat.values, S.value);
     deltaS.getValues(deltaSmcmc.datMatSp.row(iter), data.annoInfoVec);
     hsq.value = hsqMcmc.datMat.row(iter*thin)[0];
@@ -956,8 +952,6 @@ void PostHocStratifySMix::sampleUnknowns() {
     piS.compute(data.numIncdSnps, deltaS.sum);
     piSstrat.compute(data.numSnpAnnoVec, deltaS.sumPerAnno);
     piSenrich.compute(deltaS.sumPerAnno, deltaS.sum);
-    
-    ++iter;
 }
 
 

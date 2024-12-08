@@ -29,7 +29,7 @@ public:
     const string label;
     string filename;
 
-    enum {dense, sparse} storageMode;
+    enum {dense, sparse, do_not_store} storageMode;
     enum {bin, txt, txt_combine_others, no_output} outputMode;
     
     unsigned chainLength;
@@ -43,17 +43,23 @@ public:
     MatrixXf datMat;
     SpMat datMatSp; // most of the snp effects will be zero if pi value is high
     
+    MatrixXf sampleIter;
+    
     VectorXf posteriorMean;
     VectorXf posteriorSqrMean;
-    VectorXf pip;  // for snp effects, will consider to remove
-    VectorXf lastSample; // save the last sample of MCMC
+//    VectorXf pip;  // for snp effects, will consider to remove
+//    VectorXf lastSample; // save the last sample of MCMC
     
     // for multiple chains
+    bool multiChain;
     unsigned numChains;
     MatrixXf perChainMean;
     MatrixXf perChainSqrMean;
     VectorXf GelmanRubinStat;
     unsigned cntPosteriorSample;
+
+    VectorXf probGreaterThanCriticalValue;
+    float criticalValue;
     
     FILE *bout;
     ofstream tout;
@@ -61,17 +67,21 @@ public:
     McmcSamples(const string &label, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin,
                 const unsigned npar, const string &storage_mode, const string &output_mode, const string &title):
     label(label), numChains(numChains), chainLength(chainLength), burnin(burnin), thin(thin) {
-        nrow = chainLength/thin - burnin/thin;
+        nrow = (chainLength/thin - burnin/thin)*numChains;
         ncol = npar;
+        
         if (storage_mode == "dense") {
             storageMode = dense;
             datMat.setZero(nrow, ncol);
         } else if (storage_mode == "sparse") {
             storageMode = sparse;
             //if (myMPI::rank==0) datMatSp.reserve(VectorXi::Constant(ncol,nrow));  // for faster filling the matrix
+        } else if (storage_mode == "do_not_store") {
+            storageMode = do_not_store;
         } else {
             cerr << "Error: Unrecognized storage mode: " << storage_mode << ". Option is 'dense' or 'sparse'." << endl;
         }
+        
         if (output_mode == "bin") {
             outputMode = bin;
             initBinFile(title);
@@ -85,24 +95,37 @@ public:
         } else {
             cerr << "Error: Unrecognized output mode: " << output_mode << ". Option is 'bin', 'txt', 'txt_combine_others' or 'no_output'." << endl;
         }
+        
         posteriorMean.setZero(ncol);
         posteriorSqrMean.setZero(ncol);
-        pip.setZero(ncol);
-        lastSample.setZero(ncol);
+        probGreaterThanCriticalValue.setZero(ncol);
+        sampleIter.resize(npar, numChains);
         cntPosteriorSample = 0;
+        
         if (numChains > 1) {
+            multiChain = true;
             perChainMean.setZero(npar, numChains);
             perChainSqrMean.setZero(npar, numChains);
             GelmanRubinStat.setZero(npar);
+        } else {
+            multiChain = false;
+        }
+        
+        Gadget::Tokenizer token;
+        token.getTokens(label, "_");
+        if (token.back() == "Enrichment") {
+            criticalValue = 1;
+        } else {
+            criticalValue = 0;
         }
     }
     
     McmcSamples(const string &label): label(label) {}
     
-    void getSample(const unsigned iter, const VectorXf &sample);
-    void getSample(const unsigned iter, const float sample, ofstream &out);
-    void computeGelmanRubinStat(const unsigned iter, const MatrixXf &perChainSample);
-    void computeGelmanRubinStat(const unsigned iter, const VectorXf &perChainSample);
+    void getParSample(const unsigned iter, const Parameter* par);
+    void getParSetSample(const unsigned iter, const ParamSet* parSet);
+    void outputSample(const unsigned chain, ofstream &out);
+    void computeGelmanRubinStat(void);
     void writeSampleBin(const unsigned iter, const VectorXf &sample, const string &title);
     void writeSampleTxt(const unsigned iter, const float sample, const string &title);
     VectorXf mean(void);
@@ -128,7 +151,9 @@ public:
     void initTxtFile(const vector<Parameter*> &paramVec, const string &title);
     vector<McmcSamples*> initMcmcSamples(const Model &model, const unsigned numChains, const unsigned chainLength, const unsigned burnin,
                                          const unsigned thin, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior);
-    void collectSamples(const Model &model, vector<McmcSamples*> &mcmcSampleVec, const unsigned numChains, const unsigned iteration, const bool writeBinPosterior, const bool writeTxtPosterior);
+    void collectSamples(const Model &model, vector<McmcSamples*> &mcmcSampleVec, const unsigned iteration);
+    void outputSamples(vector<McmcSamples*> &mcmcSampleVec, const unsigned numChains);
+    void computeGelmanRubinStat(vector<McmcSamples*> &mcmcSampleVec);
     void printStatus(const vector<Parameter*> &paramToPrint, const unsigned thisIter, const unsigned outputFreq, const string &timeLeft);
     void printStatusR(const vector<float*> &paramToPrintR, const unsigned thisIter, const unsigned outputFreq, const string &timeLeft);
     void printSummary(const vector<Parameter*> &paramToPrint, const vector<McmcSamples*> &mcmcSampleVec, const unsigned numChains, const string &filename);

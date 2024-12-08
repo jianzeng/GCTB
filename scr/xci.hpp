@@ -194,7 +194,7 @@ public:
         if (randomStart) sampleStartVal();
     }
     
-    void sampleUnknowns(void);
+    void sampleUnknowns(const unsigned iter);
     void sampleStartVal(void);
     void getZPZdiag(const Data &data);
 };
@@ -228,7 +228,7 @@ public:
             cout << "\nBayesBXCI model fitted." << endl;
     }
     
-    void sampleUnknowns(void);
+    void sampleUnknowns(const unsigned iter);
 
 };
 
@@ -244,7 +244,7 @@ public:
                           const float sigmaSq, const float pi, const float varem, const float varef, VectorXf &deltaNDC, VectorXf &ghatm, VectorXf &ghatf);
     };
     
-    void sampleUnknowns(void);
+    void sampleUnknowns(const unsigned iter);
 
     VectorXf rcorrm;
     VectorXf rcorrf;
@@ -470,7 +470,7 @@ public:
     }
 
     
-    void sampleUnknowns(void);
+    void sampleUnknowns(const unsigned iter);
     void sampleStartVal(void);
     void computeWindowDelta(const Data &data,
                             const VectorXf &deltaPIPsnp, const VectorXf &deltaNDCsnp, const VectorXf &deltaGxSsnp,
@@ -553,7 +553,7 @@ public:
         if (randomStart) sampleStartVal();
     }
     
-    void sampleUnknowns(void);
+    void sampleUnknowns(const unsigned iter);
     void sampleStartVal(void);
 };
 
@@ -634,7 +634,7 @@ public:
     vector<MatrixXf> ZPZblockDiagMale;
     vector<MatrixXf> ZPZblockDiagFemale;
 
-    void sampleUnknowns(void);
+    void sampleUnknowns(const unsigned iter);
     void getZPZblockDiag(const Data &data);
 };
 
@@ -695,7 +695,7 @@ public:
         }
     }
     
-    void sampleUnknowns(void);
+    void sampleUnknowns(const unsigned iter);
 };
 
 #endif /* xci_hpp */

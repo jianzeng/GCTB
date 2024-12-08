@@ -1075,7 +1075,7 @@ void Data::buildSparseMME(const string &bedFile, const unsigned windowWidth){
 
 void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const bool noscale, const string &filename) const {
     ofstream out(filename.c_str());
-    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s %8s")
+    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s ")
     % "Index"
     % "Name"
     % "Chrom"
@@ -1085,8 +1085,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
     % "A1Frq"
     % "A1Effect"
     % "SE"
-    % "VarExplained"
-    % "PIP";
+    % "VarExplained";
     if (makeWindows) out << boost::format("%8s") % "Window";
     out << endl;
     for (unsigned i=0, idx=0; i<numSnps; ++i) {
@@ -1122,57 +1121,6 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
     out.close();
 }
 
-void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &lastSample, const VectorXf &pip, const bool noscale, const string &filename) const {
-    ofstream out(filename.c_str());
-    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s %14s %14s")
-    % "Index"
-    % "Name"
-    % "Chrom"
-    % "Position"
-    % "A1"
-    % "A2"
-    % "A1Frq"
-    % "A1Effect"
-    % "SE"
-    % "VarExplained"
-    % "PIP"
-    % "LastSampleEff";
-    if (makeWindows) out << boost::format("%8s") % "Window";
-    out << endl;
-    for (unsigned i=0, idx=0; i<numSnps; ++i) {
-        SnpInfo *snp = snpInfoVec[i];
-        if(!fullSnpFlag[i]) continue;
-        //        if(snp->isQTL) continue;)
-        float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
-        if (snp->gwas_scalar) sqrt2pq = snp->gwas_scalar;
-        float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
-        float lastBeta = (snp->flipped ? -lastSample[idx] : lastSample[idx]);
-        float varExp = posteriorSqrMean[idx];
-        float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
-        if (snp->unconverged) {
-            effect = 0.0;
-            varExp = 0.0;
-            se = 0.0;
-        }
-        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6e %14.8f %14.6f")
-        % (idx+1)
-        % snp->ID
-        % snp->chrom
-        % snp->physPos
-        % (snp->flipped ? snp->a2 : snp->a1)
-        % (snp->flipped ? snp->a1 : snp->a2)
-        % (snp->flipped ? 1.0-snp->af : snp->af)
-        % (noscale ? effect : effect/sqrt2pq)
-        % (noscale ? se : se/sqrt2pq)
-        % (noscale ? sqrt2pq*sqrt2pq*varExp : varExp)
-        % (snp->unconverged ? 0.0 : pip[idx])
-        % (noscale ? lastBeta : lastBeta/sqrt2pq);
-        if (makeWindows) out << boost::format("%8s") % snp->window;
-        out << endl;
-        ++idx;
-    }
-    out.close();
-}
 
 //void Data::inputSnpResults(const string &snpResFile){
 //    ifstream in(snpResFile.c_str());
@@ -1407,27 +1355,44 @@ void Data::summarizeSnpResults(const SpMat &snpEffects, const string &filename) 
     out.close();
 }
 
-void Data::outputFixedEffects(const MatrixXf &fixedEffects, const string &filename) const {
+//void Data::outputFixedEffects(const MatrixXf &fixedEffects, const string &filename) const {
+//    ofstream out(filename.c_str());
+//    long nrow = fixedEffects.rows();
+//    VectorXf mean = fixedEffects.colwise().mean();
+//    VectorXf sd = (fixedEffects.rowwise() - mean.transpose()).colwise().squaredNorm().cwiseSqrt()/sqrt(nrow);
+//    for (unsigned i=0; i<numFixedEffects; ++i) {
+//        out << boost::format("%20s %12.6f %12.6f\n") % fixedEffectNames[i] %mean[i] %sd[i];
+//    }
+//    out.close();
+//}
+
+void Data::outputFixedEffects(const VectorXf &mean, const VectorXf &sd, const string &filename) const {
     ofstream out(filename.c_str());
-    long nrow = fixedEffects.rows();
-    VectorXf mean = fixedEffects.colwise().mean();
-    VectorXf sd = (fixedEffects.rowwise() - mean.transpose()).colwise().squaredNorm().cwiseSqrt()/sqrt(nrow);
     for (unsigned i=0; i<numFixedEffects; ++i) {
         out << boost::format("%20s %12.6f %12.6f\n") % fixedEffectNames[i] %mean[i] %sd[i];
     }
     out.close();
 }
 
-void Data::outputRandomEffects(const MatrixXf &randomEffects, const string &filename) const {
+//void Data::outputRandomEffects(const MatrixXf &randomEffects, const string &filename) const {
+//    ofstream out(filename.c_str());
+//    long nrow = randomEffects.rows();
+//    VectorXf mean = randomEffects.colwise().mean();
+//    VectorXf sd = (randomEffects.rowwise() - mean.transpose()).colwise().squaredNorm().cwiseSqrt()/sqrt(nrow);
+//    for (unsigned i=0; i<numRandomEffects; ++i) {
+//        out << boost::format("%20s %12.6f %12.6f\n") % randomEffectNames[i] %mean[i] %sd[i];
+//    }
+//    out.close();
+//}
+
+void Data::outputRandomEffects(const VectorXf &mean, const VectorXf &sd, const string &filename) const {
     ofstream out(filename.c_str());
-    long nrow = randomEffects.rows();
-    VectorXf mean = randomEffects.colwise().mean();
-    VectorXf sd = (randomEffects.rowwise() - mean.transpose()).colwise().squaredNorm().cwiseSqrt()/sqrt(nrow);
     for (unsigned i=0; i<numRandomEffects; ++i) {
         out << boost::format("%20s %12.6f %12.6f\n") % randomEffectNames[i] %mean[i] %sd[i];
     }
     out.close();
 }
+
 
 void Data::outputWindowResults(const VectorXf &posteriorMean, const string &filename) const {
     ofstream out(filename.c_str());
@@ -5667,7 +5632,7 @@ void Data::readUnconvergedSnplist(const string &filename) {
     }
     
     in.close();
-    if (line) cout << "\nFound " << line << " unconverged SNPs with their posterior effects set to be zero." << endl;
+    if (line) cout << "\nFound " << line << " skeptical SNPs with their posterior joint effect sizes greater than the marginal effect sizes. Since this may be due to poor convergence, their posterior effects have therefore been set to be zero. These SNPs can be found in [" + filename + "]." << endl;
 }
 
 void Data::convert(const string &eigenMatrixFile, const string &snplistFile, const string &title) {

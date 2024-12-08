@@ -16,12 +16,13 @@ using namespace std;
 
 int main(int argc, const char * argv[]) {
     
-    cout << "******************************************************************\n";
-    cout << "* GCTB 2.5.3.5                                                   *\n";
-    cout << "* Genome-wide Complex Trait Bayesian analysis                    *\n";
-    cout << "* Authors: Jian Zeng, Luke Lloyd-Jones, Zhili Zheng, Shouye Liu  *\n";
-    cout << "* MIT License                                                    *\n";
-    cout << "******************************************************************\n";
+    cout << "*********************************************************\n";
+    cout << "* GCTB 2.5.3.8                                          *\n";
+    cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
+    cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
+    cout << "* Last updated: 7 Dec, 2024                             *\n";
+    cout << "* MIT License                                           *\n";
+    cout << "*********************************************************\n";
     
     Gadget::Timer timer;
     timer.setTime();

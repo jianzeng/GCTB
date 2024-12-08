@@ -20,7 +20,7 @@
 		BD286E71265CDEB1005FFA40 /* stratify.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD286E62265CDEB1005FFA40 /* stratify.cpp */; };
 		BD286E72265CDEB1005FFA40 /* predict.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD286E63265CDEB1005FFA40 /* predict.cpp */; };
 		BD286E73265CDEB1005FFA40 /* stat.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD286E64265CDEB1005FFA40 /* stat.cpp */; };
-		BD52193F2CF2FD4B00C13BE5 /* multichains.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD52193E2CF2FD4700C13BE5 /* multichains.cpp */; };
+		BD52193F2CF2FD4B00C13BE5 /* multichain.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD52193E2CF2FD4700C13BE5 /* multichain.cpp */; };
 		BD79C9052CE231430007F023 /* libomp.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = BD79C9042CE231430007F023 /* libomp.dylib */; };
 		BD79C9072CE231730007F023 /* libomp.dylib in Embed Libraries */ = {isa = PBXBuildFile; fileRef = BD79C9062CE231730007F023 /* libomp.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		BD88D2D729668AD800D9C63D /* eigen.cpp in Sources */ = {isa = PBXBuildFile; fileRef = BD88D2D629668AD700D9C63D /* eigen.cpp */; };
@@ -77,8 +77,8 @@
 		BD286E63265CDEB1005FFA40 /* predict.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = predict.cpp; sourceTree = "<group>"; };
 		BD286E64265CDEB1005FFA40 /* stat.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = stat.cpp; sourceTree = "<group>"; };
 		BD286E75265D2A80005FFA40 /* libomp.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libomp.dylib; path = ../../../../usr/local/Cellar/llvm/12.0.0_1/lib/libomp.dylib; sourceTree = "<group>"; };
-		BD52193D2CF2FCC500C13BE5 /* multichains.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = multichains.hpp; sourceTree = "<group>"; };
-		BD52193E2CF2FD4700C13BE5 /* multichains.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = multichains.cpp; sourceTree = "<group>"; };
+		BD52193D2CF2FCC500C13BE5 /* multichain.hpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.h; path = multichain.hpp; sourceTree = "<group>"; };
+		BD52193E2CF2FD4700C13BE5 /* multichain.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = multichain.cpp; sourceTree = "<group>"; };
 		BD79C9042CE231430007F023 /* libomp.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libomp.dylib; path = ../../../../opt/homebrew/Cellar/llvm/19.1.3/lib/libomp.dylib; sourceTree = "<group>"; };
 		BD79C9062CE231730007F023 /* libomp.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libomp.dylib; path = ../../../../opt/homebrew/Cellar/llvm/19.1.3/lib/libomp.dylib; sourceTree = "<group>"; };
 		BD88D2D629668AD700D9C63D /* eigen.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = eigen.cpp; sourceTree = "<group>"; };
@@ -117,8 +117,8 @@
 		BD286E40265CDE27005FFA40 /* scr */ = {
 			isa = PBXGroup;
 			children = (
-				BD52193E2CF2FD4700C13BE5 /* multichains.cpp */,
-				BD52193D2CF2FCC500C13BE5 /* multichains.hpp */,
+				BD52193E2CF2FD4700C13BE5 /* multichain.cpp */,
+				BD52193D2CF2FCC500C13BE5 /* multichain.hpp */,
 				BD286E50265CDEB0005FFA40 /* data.cpp */,
 				BD88D2D629668AD700D9C63D /* eigen.cpp */,
 				BD286E51265CDEB0005FFA40 /* data.hpp */,
@@ -218,7 +218,7 @@
 				BD88D2D729668AD800D9C63D /* eigen.cpp in Sources */,
 				BD286E6D265CDEB1005FFA40 /* gadgets.cpp in Sources */,
 				BD286E68265CDEB1005FFA40 /* hsq.cpp in Sources */,
-				BD52193F2CF2FD4B00C13BE5 /* multichains.cpp in Sources */,
+				BD52193F2CF2FD4B00C13BE5 /* multichain.cpp in Sources */,
 				BD286E6A265CDEB1005FFA40 /* vgmaf.cpp in Sources */,
 				BD286E71265CDEB1005FFA40 /* stratify.cpp in Sources */,
 				BD286E65265CDEB1005FFA40 /* gctb.cpp in Sources */,

@@ -149,12 +149,14 @@ vector<int> Gadget::shuffle_index(const int start, const int end){
     std::shuffle(vec.begin(), vec.end(), rng);
 
     return vec;
-    
-//    for (unsigned i = 0; i < size - 1; i++) {
-//        unsigned j = i + static_cast<unsigned>(Stat::ranf() * (size - i));
-//        std::swap(vec[i], vec[j]);
-//    }
+}
 
+void Gadget::shuffle_vector(vector<int> &vec){    
+    // Create a thread-local random number generator
+    thread_local std::mt19937 rng(std::random_device{}());
+
+    // Shuffle using the thread-local RNG
+    std::shuffle(vec.begin(), vec.end(), rng);
 }
 
 void Gadget::removeSecondElement(VectorXf &vec){

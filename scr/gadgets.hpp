@@ -87,6 +87,7 @@ float findMedian(const VectorXf &vec);
 
 // vector manipulation
 vector<int> shuffle_index(const int start, const int end);
+void shuffle_vector(vector<int> &vec);
 void removeSecondElement(VectorXf &vec);
 }
 

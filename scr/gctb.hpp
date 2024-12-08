@@ -18,7 +18,7 @@
 #include "hsq.hpp"
 #include "predict.hpp"
 #include "stratify.hpp"
-#include "multichains.hpp"
+#include "multichain.hpp"
 
 class GCTB {
 public:

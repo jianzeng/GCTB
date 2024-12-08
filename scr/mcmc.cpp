@@ -8,134 +8,111 @@
 
 #include "mcmc.hpp"
 
-void McmcSamples::getSample(const unsigned iter, const VectorXf &sample){
-//    if (storageMode == dense) {
-//        if (outputFormat == txt) tout << sample.transpose() << endl;
-//    }
-    if (iter % thin) return;
-//    if (!sample.size()) return;
-    unsigned thin_iter = iter/thin;
-    unsigned thin_iter_post_burnin = thin_iter - burnin/thin;
-    if (storageMode == dense) {
-        if (outputMode == txt) tout << sample.transpose() << endl;
-        if (iter >= burnin) {
-            datMat.row(thin_iter_post_burnin) = sample;
-            posteriorMean.array() += (sample - posteriorMean).array()/(thin_iter_post_burnin+1);
-            posteriorSqrMean.array() += (sample.array().square() - posteriorSqrMean.array())/(thin_iter_post_burnin+1);
-            ++cntPosteriorSample;
-        }
-    } else if (storageMode == sparse) {
-        lastSample = sample;
-        //SparseVector<float>::InnerIterator it(sample.sparseView());
-        SparseVector<float> spvec = sample.sparseView();
-        if (outputMode == bin) {
-            for (SparseVector<float>::InnerIterator it(spvec); it; ++it) {
-                unsigned rc[2] = {thin_iter, (unsigned)it.index()};
-                fwrite(rc, sizeof(unsigned), 2, bout);
-                float val = it.value();
-                fwrite(&val, sizeof(float), 1, bout);
-                //cout << it.index() << " " << it.value() << endl;
-            }
-            //cout << MatrixXf(spvec).transpose() << endl;
-//            tout << sample.transpose() << endl;
-        }
-        //nnz += sample.sparseView().nonZeros();
-        //cout << nnz << " " << sample.sparseView().nonZeros() <<endl;
-        ArrayXf delta;
-        delta.setZero(sample.size());
-        for (SparseVector<float>::InnerIterator it(spvec); it; ++it) {
-            delta[it.index()] = 1;
-        }
-        if (iter >= burnin) {
-            pip.array() += (delta - pip.array())/(thin_iter_post_burnin+1);
-            posteriorMean.array() += (sample - posteriorMean).array()/(thin_iter_post_burnin+1);
-            posteriorSqrMean.array() += (sample.array().square() - posteriorSqrMean.array())/(thin_iter_post_burnin+1);            
-            ++cntPosteriorSample;
-        }
-    }
-}
-
-void McmcSamples::getSample(const unsigned iter, const float sample, ofstream &out){
-    if (iter % thin) return;
-    if (outputMode == txt_combine_others) out << boost::format("%12s ") %sample;
-    unsigned thin_iter_post_burnin = iter/thin - burnin/thin;
-    if (iter >= burnin) {
-        datMat(thin_iter_post_burnin,0) = sample;
-        posteriorMean.array() += (sample - posteriorMean.array())/(thin_iter_post_burnin+1);
-        posteriorSqrMean.array() += (sample*sample - posteriorSqrMean.array())/(thin_iter_post_burnin+1);
-        ++cntPosteriorSample;
-    }
-}
-
-void McmcSamples::computeGelmanRubinStat(const unsigned iter, const VectorXf &perChainSample){
-    if (iter < burnin) return;
-    if (iter % thin) return;
-
-//    cout << label << endl;
-//    cout << "perChainSample " << perChainSample.transpose() << endl;
-    
-    perChainMean.array() += (perChainSample.transpose() - perChainMean).array()/cntPosteriorSample;
-    perChainSqrMean.array() += (perChainSample.transpose().array().square() - perChainSqrMean.array())/cntPosteriorSample;
-    
-//    cout << "perChainMean " << perChainMean.transpose() << endl;
-//    cout << "perChainSqrMean " << perChainSqrMean.transpose() << endl;
-    
-    if (iter < chainLength) return;
-        
-    float meanVarWithinChain = (perChainSqrMean.array() - perChainMean.array().square()).mean();   // W
-    float varMeansBetweenChains = float(cntPosteriorSample)*Gadget::calcVariance(perChainMean.transpose());                              // B
-//    cout << "meanVarWithinChain " << meanVarWithinChain << endl;
-//    cout << "varMeansBetweenChains " << varMeansBetweenChains << endl;
-    float posteriorVar = (cntPosteriorSample-1.0)*meanVarWithinChain/float(cntPosteriorSample) + varMeansBetweenChains/float(cntPosteriorSample);
-    
-    if (meanVarWithinChain) {
-        GelmanRubinStat[0] = sqrt(posteriorVar/meanVarWithinChain);
+void McmcSamples::getParSample(const unsigned iter, const Parameter* par){
+    if (iter % thin || iter <= burnin) return;
+    ++cntPosteriorSample;
+    if (multiChain) {
+        sampleIter = par->perChainValue;
+        perChainMean.array()    += (par->perChainValue.transpose() - perChainMean).array()/cntPosteriorSample;
+        perChainSqrMean.array() += (par->perChainValue.transpose().array().square() - perChainSqrMean.array())/cntPosteriorSample;
+        float meanFreq = (par->perChainValue.array() > criticalValue).mean();
+        probGreaterThanCriticalValue.array() += (meanFreq - probGreaterThanCriticalValue.array()) / cntPosteriorSample;
     } else {
-        GelmanRubinStat[0] = 1;
+        sampleIter(0,0) = par->value;
+        probGreaterThanCriticalValue.array() += (float(par->value > criticalValue) - probGreaterThanCriticalValue.array()) / cntPosteriorSample;
     }
-//    cout << "GelmanRubinStat " << GelmanRubinStat << endl;
+    posteriorMean.array()    += (par->value - posteriorMean.array())/cntPosteriorSample;
+    posteriorSqrMean.array() += (par->value*par->value - posteriorSqrMean.array())/cntPosteriorSample;
 
+    if (storageMode == dense) {
+        datMat(cntPosteriorSample-1, 0) = par->value;
+    }
 }
 
-void McmcSamples::computeGelmanRubinStat(const unsigned iter, const MatrixXf &perChainSample){
-    if (iter < burnin) return;
-    if (iter % thin) return;
-    
-   for (unsigned i=0; i<numChains; ++i) {
-        perChainMean.col(i).array() += (perChainSample.col(i) - perChainMean.col(i)).array()/cntPosteriorSample;
-        perChainSqrMean.col(i).array() += (perChainSample.col(i).array().square() - perChainSqrMean.col(i).array())/cntPosteriorSample;
+void McmcSamples::getParSetSample(const unsigned iter, const ParamSet* parSet){
+    if (iter % thin || iter <= burnin) return;
+    ++cntPosteriorSample;
+    if (multiChain) {
+        sampleIter = parSet->perChainValues;
+        for (unsigned i=0; i<numChains; ++i) {
+             perChainMean.col(i).array()    += (parSet->perChainValues.col(i) - perChainMean.col(i)).array()/cntPosteriorSample;
+             perChainSqrMean.col(i).array() += (parSet->perChainValues.col(i).array().square() - perChainSqrMean.col(i).array())/cntPosteriorSample;
+         }
+        ArrayXf meanFreq = (parSet->perChainValues.array() > criticalValue).cast<float>().rowwise().mean();
+        probGreaterThanCriticalValue.array() += (meanFreq - probGreaterThanCriticalValue.array()) / cntPosteriorSample;
+    } else {
+        sampleIter.col(0) = parSet->values;
+        probGreaterThanCriticalValue.array() += ((parSet->values.array() > criticalValue).cast<float>() - probGreaterThanCriticalValue.array()) / cntPosteriorSample;
     }
-    
-    if (iter < chainLength) return;
-    
-    unsigned numPar = GelmanRubinStat.size();
-    VectorXf meanVarWithinChain(numPar);
-    VectorXf varMeansBetweenChains(numPar);
-    VectorXf posteriorVar(numPar);
-    for (unsigned i=0; i<numPar; ++i) {
-        meanVarWithinChain[i] = (perChainSqrMean.row(i).array() - perChainMean.row(i).array().square()).mean(); // W
-        varMeansBetweenChains[i] = float(cntPosteriorSample)*Gadget::calcVariance(perChainMean.row(i).transpose());                           // B
-        posteriorVar[i] = (cntPosteriorSample-1.0)*meanVarWithinChain[i]/float(cntPosteriorSample) + varMeansBetweenChains[i]/float(cntPosteriorSample);
-        if (meanVarWithinChain[i]) {
-            GelmanRubinStat[i] = sqrt(posteriorVar[i]/meanVarWithinChain[i]);
-        } else {
-            GelmanRubinStat[i] = 1.0;
+    posteriorMean.array()    += (parSet->values - posteriorMean).array()/cntPosteriorSample;
+    posteriorSqrMean.array() += (parSet->values.array().square() - posteriorSqrMean.array())/cntPosteriorSample;
+
+    if (storageMode == dense) {
+        datMat.row(cntPosteriorSample-1) = parSet->values;
+    }
+}
+
+void McmcSamples::outputSample(const unsigned chain, ofstream &out){
+    if (outputMode == txt) {
+        tout << sampleIter.col(chain).transpose() << endl;
+    }
+    else if (outputMode == txt_combine_others) {
+        out << boost::format("%12s ") %sampleIter.col(chain).transpose();
+    }
+    else if (outputMode == bin) {
+        SparseVector<float> spvec = sampleIter.col(chain).sparseView();
+        for (SparseVector<float>::InnerIterator it(spvec); it; ++it) {
+            unsigned rc[2] = {(cntPosteriorSample-1)*numChains + chain, (unsigned)it.index()};
+            fwrite(rc, sizeof(unsigned), 2, bout);
+            float val = it.value();
+            fwrite(&val, sizeof(float), 1, bout);
+            //cout << it.index() << " " << it.value() << endl;
+        }
+        //cout << MatrixXf(spvec).transpose() << endl;
+        //tout << sample.transpose() << endl;
+    }
+}
+
+void McmcSamples::computeGelmanRubinStat(){
+    if (multiChain) {
+        unsigned numPar = GelmanRubinStat.size();
+        VectorXf meanVarWithinChain(numPar);
+        VectorXf varMeansBetweenChains(numPar);
+        VectorXf posteriorVar(numPar);
+        for (unsigned i=0; i<numPar; ++i) {
+            meanVarWithinChain[i] = (perChainSqrMean.row(i).array() - perChainMean.row(i).array().square()).mean(); // W
+            varMeansBetweenChains[i] = float(cntPosteriorSample)*Gadget::calcVariance(perChainMean.row(i).transpose());                           // B
+            posteriorVar[i] = (cntPosteriorSample-1.0)*meanVarWithinChain[i]/float(cntPosteriorSample) + varMeansBetweenChains[i]/float(cntPosteriorSample);
+            if (meanVarWithinChain[i]) {
+                GelmanRubinStat[i] = sqrt(posteriorVar[i]/meanVarWithinChain[i]);
+            } else {
+                GelmanRubinStat[i] = 1.0;
+            }
         }
     }
-
-//    GelmanRubinStat = (posteriorVar.array()*meanVarWithinChain.array().inverse()).sqrt();
-    
-//    cout << label << endl;
-//    cout << "meanVarWithinChain " << meanVarWithinChain.head(5).transpose() << endl;
-//    cout << "varMeansBetweenChains " << varMeansBetweenChains.head(5).transpose() << endl;
-//    cout << "GelmanRubinStat " << GelmanRubinStat.head(5).transpose() << endl;
+    else {
+        float meanVarWithinChain = (perChainSqrMean.array() - perChainMean.array().square()).mean();   // W
+        float varMeansBetweenChains = float(cntPosteriorSample)*Gadget::calcVariance(perChainMean.transpose());                              // B
+        //    cout << "meanVarWithinChain " << meanVarWithinChain << endl;
+        //    cout << "varMeansBetweenChains " << varMeansBetweenChains << endl;
+        float posteriorVar = (cntPosteriorSample-1.0)*meanVarWithinChain/float(cntPosteriorSample) + varMeansBetweenChains/float(cntPosteriorSample);
+        
+        if (meanVarWithinChain) {
+            GelmanRubinStat[0] = sqrt(posteriorVar/meanVarWithinChain);
+        } else {
+            GelmanRubinStat[0] = 1;
+        }
+        //    cout << "GelmanRubinStat " << GelmanRubinStat << endl;
+    }
 }
 
 VectorXf McmcSamples::mean(){
     if (storageMode == dense) {
         return VectorXf::Ones(nrow).transpose()*datMat/nrow;
-    } else {
+    } else if (storageMode == sparse) {
         return VectorXf::Ones(nrow).transpose()*datMatSp/nrow;
+    } else {
+        return posteriorMean;
     }
 }
 
@@ -145,10 +122,12 @@ VectorXf McmcSamples::sd(){
         for (unsigned i=0; i<ncol; ++i) {
             res[i] = std::sqrt(Gadget::calcVariance(datMat.col(i)));
         }
-    } else {
+    } else if (storageMode == sparse) {
         for (unsigned i=0; i<ncol; ++i) {
             res[i] = std::sqrt(Gadget::calcVariance(datMatSp.col(i)));
         }
+    } else {
+        res = (posteriorSqrMean.array() - posteriorMean.array().square()).sqrt();
     }
     return res;
 }
@@ -164,7 +143,7 @@ void McmcSamples::initBinFile(const string &title){
         throw("Error: cannot open file " + filename);
     }
     nnz = 0;
-    unsigned xyn[3] = {chainLength/thin, ncol, nnz};
+    unsigned xyn[3] = {nrow, ncol, nnz};
     fwrite(xyn, sizeof(unsigned), 3, bout);
 }
 
@@ -357,45 +336,59 @@ vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned nu
         McmcSamples *mcmcSamples;
         if (parSet->label.find("SnpEffects") != string::npos) {
             if (writeBinPosterior) {
-                mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "sparse", "bin", title);
+                mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "do_not_store", "bin", title);
             } else {
-                mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "sparse", "no_output", title);
+                mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "do_not_store", "no_output", title);
             }
-        } else if (parSet->label.find("Delta") != string::npos) {
-            mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "sparse", "no_output", title);
+//        } else if (parSet->label.find("Delta") != string::npos) {
+//            mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "do_not_store", "no_output", title);
         } else {
             if (writeTxtPosterior) {
-                mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "dense", "txt", title);
+                mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "do_not_store", "txt", title);
             } else {
-                mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "dense", "no_output", title);
+                mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "do_not_store", "no_output", title);
             }
         }
         mcmcSampleVec.push_back(mcmcSamples);
     }
     for (unsigned i=0; i<model.paramVec.size(); ++i) {
         Parameter *par = model.paramVec[i];
-        McmcSamples *mcmcSamples = new McmcSamples(par->label, numChains, chainLength, burnin, thin, 1, "dense", "txt_combine_others", title);
+        McmcSamples *mcmcSamples = new McmcSamples(par->label, numChains, chainLength, burnin, thin, 1, "do_not_store", "txt_combine_others", title);
         mcmcSampleVec.push_back(mcmcSamples);
     }
     if (writeTxtPosterior) initTxtFile(model.paramVec, title);
     return mcmcSampleVec;
 }
 
-void MCMC::collectSamples(const Model &model, vector<McmcSamples*> &mcmcSampleVec, const unsigned numChains, const unsigned iteration, const bool writeBinPosterior, const bool writeTxtPosterior){
-    unsigned i = 0;
+void MCMC::collectSamples(const Model &model, vector<McmcSamples*> &mcmcSampleVec, const unsigned iteration){
+    unsigned i=0;
     for (unsigned j=0; j<model.paramSetVec.size(); ++j) {
         McmcSamples *mcmcSamples = mcmcSampleVec[i++];
         ParamSet *parSet = model.paramSetVec[j];
-        mcmcSamples->getSample(iteration, parSet->values);
-        if (numChains > 1) mcmcSamples->computeGelmanRubinStat(iteration, parSet->perChainValues);
+        mcmcSamples->getParSetSample(iteration, parSet);
     }
     for (unsigned j=0; j<model.paramVec.size(); ++j) {
         McmcSamples *mcmcSamples = mcmcSampleVec[i++];
         Parameter *par = model.paramVec[j];
-        mcmcSamples->getSample(iteration, par->value, out);
-        if (numChains > 1) mcmcSamples->computeGelmanRubinStat(iteration, par->perChainValue);
+        mcmcSamples->getParSample(iteration, par);
+    }
+}
+
+void MCMC::outputSamples(vector<McmcSamples*> &mcmcSampleVec, const unsigned numChains){
+    for (unsigned chain=0; chain<numChains; ++chain) {
+        for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
+            McmcSamples *mcmcSamples = mcmcSampleVec[i];
+            mcmcSamples->outputSample(chain, out);
+        }
     }
     out << endl;
+}
+
+void MCMC::computeGelmanRubinStat(vector<McmcSamples*> &mcmcSampleVec){
+    for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
+        McmcSamples *mcmcSamples = mcmcSampleVec[i];
+        mcmcSamples->computeGelmanRubinStat();
+    }
 }
 
 void MCMC::printStatus(const vector<Parameter*> &paramToPrint, const unsigned thisIter, const unsigned outputFreq, const string &timeLeft){
@@ -506,26 +499,13 @@ void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vecto
 //                    % ""
 //                    % mcmcSamples->posteriorMean[col]
 //                    % sqrt(mcmcSamples->posteriorSqrMean[col]-mcmcSamples->posteriorMean[col]*mcmcSamples->posteriorMean[col]);
-                    out << boost::format("%25s %20s %2s %-15.6f %-15.6f ")
+                    out << boost::format("%25s %20s %2s %-15.6f %-15.6f %-15.6f ")
                     % parset->label
                     % parset->header[col]
                     % ""
                     % mcmcSamples->posteriorMean[col]
-                    % sqrt(mcmcSamples->posteriorSqrMean[col]-mcmcSamples->posteriorMean[col]*mcmcSamples->posteriorMean[col]);
-                    Gadget::Tokenizer token;
-                    token.getTokens(parset->label, "_");
-                    float postprob = 0;
-                    if (token.back() == "Enrichment") {
-                        for (unsigned row=0; row<mcmcSamples->nrow; ++row) {
-                            if (mcmcSamples->datMat(row, col) > 1) ++postprob;
-                        }
-                    } else {
-                        for (unsigned row=0; row<mcmcSamples->nrow; ++row) {
-                            if (mcmcSamples->datMat(row, col) > 0) ++postprob;
-                        }
-                    }
-                    postprob /= float(mcmcSamples->nrow);
-                    out << boost::format("%-15.6f ") % postprob;
+                    % sqrt(mcmcSamples->posteriorSqrMean[col]-mcmcSamples->posteriorMean[col]*mcmcSamples->posteriorMean[col])
+                    % mcmcSamples->probGreaterThanCriticalValue;
                     if (mcmcSamples->numChains > 1) out << boost::format("%-12.4f ") % mcmcSamples->GelmanRubinStat[col];
                     out << endl;
                 }
@@ -587,8 +567,10 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
     for (unsigned iteration=0; iteration<chainLength; ++iteration) {
         unsigned thisIter = iteration + 1;
         
-        model.sampleUnknowns();
-        collectSamples(model, mcmcSampleVec, numChains, thisIter, writeBinPosterior, writeTxtPosterior);
+        model.sampleUnknowns(thisIter);
+        collectSamples(model, mcmcSampleVec, thisIter);
+        if (writeBinPosterior || writeTxtPosterior) outputSamples(mcmcSampleVec, numChains);
+        if (numChains > 1 && thisIter == chainLength) computeGelmanRubinStat(mcmcSampleVec);
         
         setAction(model);
         if (action != keep_running) {
@@ -632,12 +614,12 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
 //}
 
 void MCMC::setAction(const Model &model){
-    if (model.message.empty()){
+    if (model.status.empty()){
         action = keep_running;
-    } else if (model.message == "Negative residual variance") {
+    } else if (model.status == "Negative residual variance") {
         cout << "\nError: Residual variance is negative. This may indicate that effect sizes are \"blowing up\" likely due to a convergence problem. If SigmaSq variable is increasing with MCMC iterations, then this further indicates MCMC may not converge." << endl;
         action = restart_and_use_robust_model;
-    } else if (model.message == "Unknown error") {
+    } else if (model.status == "Unknown error") {
         action = stop_and_exit;
     }
 }

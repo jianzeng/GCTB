@@ -1,11 +1,11 @@
 //
-//  multichains.cpp
+//  multichain.cpp
 //  gctb
 //
 //  Created by Jian Zeng on 24/11/2024.
 //
 
-#include "multichains.hpp"
+#include "multichain.hpp"
 
 
 void MultiChainParameter::getValues(){
@@ -58,7 +58,7 @@ void MultiChainSBayesR::NumHighPIPs::getValue(const VectorXf &PIP){
     }
 }
 
-void MultiChainSBayesR::sampleUnknowns(){
+void MultiChainSBayesR::sampleUnknowns(const unsigned iter){
 
 #pragma omp parallel for num_threads(numThreadLevel1)
     for (unsigned i=0; i<numChains; ++i) {
@@ -68,7 +68,7 @@ void MultiChainSBayesR::sampleUnknowns(){
         // Restrict inner parallelism to numThreadLevel2 threads
         omp_set_num_threads(numThreadLevel2);
 
-        chainVec[i]->sampleUnknowns();
+        chainVec[i]->sampleUnknowns(iter);
     }
     
     snpEffects.getValues();
@@ -97,14 +97,14 @@ void MultiChainSBayesRC::NumBadSnps::output(){
     //value = badSnpSet.size();
 }
 
-void MultiChainSBayesRC::sampleUnknowns(){
+void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
     
 #pragma omp parallel for num_threads(numThreadLevel1)
     for (unsigned i=0; i<numChains; ++i) {
 //        cout << "sampling chain " << i << " in " << numChains << " chains " << endl;
         omp_set_num_threads(numThreadLevel2);
 
-        chainVec[i]->sampleUnknowns();
+        chainVec[i]->sampleUnknowns(iter);
     }
         
     snpEffects.getValues();
@@ -123,7 +123,7 @@ void MultiChainSBayesRC::sampleUnknowns(){
 }
 
 
-void MultiModelSBayesR::sampleUnknowns(){
+void MultiModelSBayesR::sampleUnknowns(const unsigned iter){
         
 #pragma omp parallel for num_threads(numThreadLevel1)
     for (unsigned i=0; i<numModels; ++i) {
@@ -133,6 +133,6 @@ void MultiModelSBayesR::sampleUnknowns(){
         // Restrict inner parallelism to numThreadLevel2 threads
         omp_set_num_threads(numThreadLevel2);
 
-        modelVec[i]->sampleUnknowns();
+        modelVec[i]->sampleUnknowns(iter);
     }    
 }

@@ -225,28 +225,28 @@ public:
         // assuming a mixture distribution in light of overlapping annotations
         void sampleFromFCMixture(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag,
                           const vector<ChromInfo*> &chromInfoVec, const vector<SnpInfo*> &incdSnpInfoVec,
-                          const VectorXf &snp2pq, const VectorXf &LDsamplVar, const unsigned numAnnos,
+                          const VectorXf &snp2pq, const unsigned numAnnos,
                           const VectorXf &sigmaSq, const VectorXf &pi, const VectorXf &S, const float Sgw,
-                          const float varg, const float vare, const float ps, const float overdispersion);
+                          const float varg, const float vare);
         void sampleFromFCMixture(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag,
                           const VectorXi &windStart, const VectorXi &windSize,
                           const vector<ChromInfo*> &chromInfoVec, const vector<SnpInfo*> &incdSnpInfoVec,
-                          const VectorXf &snp2pq, const VectorXf &LDsamplVar, const unsigned numAnnos,
+                          const VectorXf &snp2pq, const unsigned numAnnos,
                           const VectorXf &sigmaSq, const VectorXf &pi, const VectorXf &S, const float Sgw,
-                          const float varg, const float vare, const float ps, const float overdispersion);
+                          const float varg, const float vare);
 
         // assuming a linear model for overlapping annotations
         void sampleFromFCLinear(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag,
                           const vector<ChromInfo*> &chromInfoVec, const vector<SnpInfo*> &incdSnpInfoVec,
-                          const VectorXf &snp2pq, const VectorXf &LDsamplVar, const unsigned numAnnos,
+                          const VectorXf &snp2pq, const unsigned numAnnos,
                           const VectorXf &sigmaSq, const VectorXf &pi, const VectorXf &S, const float Sgw,
-                          const float varg, const float vare, const float ps, const float overdispersion);
+                          const float varg, const float vare);
         void sampleFromFCLinear(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag,
                           const VectorXi &windStart, const VectorXi &windSize,
                           const vector<ChromInfo*> &chromInfoVec, const vector<SnpInfo*> &incdSnpInfoVec,
-                          const VectorXf &snp2pq, const VectorXf &LDsamplVar, const unsigned numAnnos,
+                          const VectorXf &snp2pq, const unsigned numAnnos,
                           const VectorXf &sigmaSq, const VectorXf &pi, const VectorXf &S, const float Sgw,
-                          const float varg, const float vare, const float ps, const float overdispersion);
+                          const float varg, const float vare);
     };
     
     SnpEffects snpEffects;
@@ -269,11 +269,10 @@ public:
     
     enum {linear, mixture} model;
     
-    StratApproxBayesS(const Data &data, const bool lowrank, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi,
-                      const float phi, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation,
+    StratApproxBayesS(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi,
                       const float varS, const vector<float> &svalue,
-                      const string &algorithm, const bool robustMode, const bool randomStart = false, const bool message = true):
-    ApproxBayesS(data, lowrank, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, phi, overdispersion, estimatePS, icrsq, spouseCorrelation, varS, svalue, "HMC", false, robustMode, randomStart, false),
+                      const string &algorithm, const bool robustMode, const bool message = true):
+    ApproxBayesS(data, lowRank, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, varS, svalue, "HMC", robustMode, false),
     snpEffects(data.snpEffectNames, data.snp2pq, pival, data.annoInfoVec),
     snpAnnoMembership(data.snpAnnoPairNames, data.numAnnoPerSnpVec),
     sigmaSqStrat(data.annoNames, data.annoInfoVec, varGenotypic, pival),
@@ -293,6 +292,7 @@ public:
     {
         if (algorithm == "linear") model = linear;
         else model = mixture;
+        
         paramSetVec = {&snpEffects, &piStrat, &piEnrich, &sigmaSqStrat, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &Sstrat, &Senrich, &snpAnnoMembership};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &vare, &varg, &hsq};
         paramSetToPrint = {&piStrat, &piEnrich, &sigmaSqStrat, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &Sstrat, &Senrich, &snpAnnoMembership};
@@ -301,14 +301,7 @@ public:
             paramSetVec.push_back(&vargBlk);
             paramSetVec.push_back(&vareBlk);
         }
-        if (modelPS) {
-            paramVec.push_back(&ps);
-            paramToPrint.push_back(&ps);
-        }
-        if (spouseCorrelation) {
-            paramVec.push_back(&covg);
-            paramToPrint.push_back(&covg);
-        }
+
         if (message) {
 //            string alg = algorithm;
 //            if (alg!="RWMH" && alg!="Reg") alg = "HMC";
@@ -319,10 +312,9 @@ public:
             if (model == linear) cout << "  Linear model" << endl;
             if (model == mixture) cout << "  Mixture model" << endl;
         }
-        if (randomStart) sampleStartVal();
     }
     
-    void sampleUnknowns(void);
+    void sampleUnknowns(const unsigned iter);
     void sampleStartVal(void);
 };
 
@@ -370,11 +362,9 @@ public:
     const McmcSamples &hsqMcmc;
     
     const unsigned thin;
-    
-    unsigned iter;
-    
-    PostHocStratifyS(const Data &data, const bool lowrank, const McmcSamples &snpEffectsMcmc, const McmcSamples &hsqMcmc, const unsigned thin, const float hsqhat, const bool message = true):
-    StratApproxBayesS(data, lowrank, hsqhat, 1.0-hsqhat, 0.01, 1, 1, true, 0, 0, 0, 0, 0, 1, vector<float>(1,0), "HMC", false),
+        
+    PostHocStratifyS(const Data &data, const bool lowRank, const McmcSamples &snpEffectsMcmc, const McmcSamples &hsqMcmc, const unsigned thin, const float hsqhat, const bool message = true):
+    StratApproxBayesS(data, lowRank, hsqhat, 1.0-hsqhat, 0.01, 1, 1, true, 1, vector<float>(1,0), "HMC", false, false),
     snpEffects(data.snpEffectNames, data.snp2pq, data.annoInfoVec),
     piStrat(data.annoNames),
     sigmaSqStrat(data.annoNames, data.annoInfoVec, hsqhat),
@@ -382,7 +372,6 @@ public:
     hsqMcmc(hsqMcmc),
     thin(thin)
     {
-        iter = 0;
         paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &hsq};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &hsq};
         paramSetVec = {&piStrat, &piEnrich, &propNnzStrat, &propHsqStrat, &perSnpHsqEnrich, &perNzHsqEnrich, &Sstrat, &Senrich};
@@ -392,7 +381,7 @@ public:
         }
     }
     
-    void sampleUnknowns(void);
+    void sampleUnknowns(const unsigned iter);
 };
 
 
@@ -435,8 +424,8 @@ public:
     
     const McmcSamples &deltaSmcmc;
 
-    PostHocStratifySMix(const Data &data, const bool lowrank, const McmcSamples &snpEffectsMcmc, const McmcSamples &hsqMcmc, const McmcSamples &deltaSmcmc, const unsigned thin, const float hsqhat, const bool message = true):
-    PostHocStratifyS(data, lowrank, snpEffectsMcmc, hsqMcmc, thin, hsqhat, false),
+    PostHocStratifySMix(const Data &data, const bool lowRank, const McmcSamples &snpEffectsMcmc, const McmcSamples &hsqMcmc, const McmcSamples &deltaSmcmc, const unsigned thin, const float hsqhat, const bool message = true):
+    PostHocStratifyS(data, lowRank, snpEffectsMcmc, hsqMcmc, thin, hsqhat, false),
     deltaSmcmc(deltaSmcmc),
     deltaS(data.snpEffectNames),
     piSstrat(data.annoNames),
@@ -452,7 +441,7 @@ public:
 
     }
 
-    void sampleUnknowns(void);
+    void sampleUnknowns(const unsigned iter);
 };
 
 

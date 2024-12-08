@@ -1,5 +1,5 @@
 //
-//  multichains.hpp
+//  multichain.hpp
 //  gctb
 //
 //  Created by Jian Zeng on 24/11/2024.
@@ -68,7 +68,7 @@ public:
     public:
         ChainVecSBayesR(const Data &data, const Options &opt){
             for (unsigned i=0; i<opt.numChains; ++i) {
-                this->push_back(new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.hsqPercModel, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, opt.nDistAuto, false));
+                this->push_back(new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.algorithm, false));
             }
         }
     };
@@ -150,7 +150,7 @@ public:
                chains[i]->nBadSnps.writeTxt = false;
                chains[i]->nBadSnps.out.close();
             }
-            string filename = title + ".badSNPlist";
+            string filename = title + ".skepticalSNPs";
             out.open(filename.c_str());
         }
         void output(void);
@@ -186,7 +186,7 @@ public:
     NumHighPIPs nHighPips;
     
     MultiChainSBayesR(const Data &data, const Options &opt, const bool message = true):
-    ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.hsqPercModel, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, opt.nDistAuto, false),
+    ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.algorithm, false),
     numChains(opt.numChains),
     chainVec(data, opt),
     hsq(chainVec),
@@ -235,7 +235,7 @@ public:
         }
     }
     
-    void sampleUnknowns(void);
+    void sampleUnknowns(const unsigned iter);
 };
 
 
@@ -250,7 +250,7 @@ public:
             VectorXf pis = opt.pis;
             VectorXf piPar = opt.piPar;
             for (unsigned i=0; i<numModels; ++i) {
-                this->push_back(new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.hsqPercModel, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, false, false));
+                this->push_back(new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.algorithm, false));
                 
                 Gadget::removeSecondElement(gamma);
                 Gadget::removeSecondElement(pis);
@@ -311,7 +311,7 @@ public:
         paramToPrint.insert(paramToPrint.end(), nnzSnp.chainVec.begin(), nnzSnp.chainVec.end());
 
         if (message) {
-            cout << "\nRunning " << numModels << " SBayesR models" << endl;
+            cout << "Running " << numModels << " SBayesR models" << endl;
             for (unsigned i=0; i<numModels; ++i) {
                 unsigned numComp = modelVec[i]->gamma.values.size();
                 cout << "  Model " << i+1 << " (M" << i+1 << "): " << numComp << " components with gamma = [";
@@ -322,12 +322,12 @@ public:
                 cout << "]" << endl;
             }
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
-            cout << endl;
+            //cout << endl;
         }
 
     }
 
-    void sampleUnknowns(void);
+    void sampleUnknowns(const unsigned iter);
 
 };
 
@@ -340,7 +340,7 @@ public:
     public:
         ChainVecSBayesRC(const Data &data, const Options &opt){
             for (unsigned i=0; i<opt.numChains; ++i) {
-                this->push_back(new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.estimateSigmaSq, opt.noscale, opt.hsqPercModel, opt.perSnpGV, opt.overdispersion, opt.estimatePS, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.algorithm, opt.nDistAuto, false));
+                this->push_back(new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.algorithm, false));
             }
         }
     };
@@ -422,7 +422,7 @@ public:
                chains[i]->nBadSnps.writeTxt = false;
                chains[i]->nBadSnps.out.close();
             }
-            string filename = title + ".badSNPlist";
+            string filename = title + ".skepticalSNPs";
             out.open(filename.c_str());
         }
         void output(void);
@@ -539,5 +539,5 @@ public:
         }
     }
     
-    void sampleUnknowns(void);
+    void sampleUnknowns(const unsigned iter);
 };

@@ -482,12 +482,14 @@ void XCI::simu(Data &data, const float pi, const float heritability, const float
 void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &bayesType, const string &title){
     if (bayesType == "Xgxs") {
         McmcSamples *snpEffectsMale = NULL;
+        McmcSamples *pip = NULL;
         McmcSamples *snpEffectsFemale = NULL;
         McmcSamples *deltaNDC = NULL;
         McmcSamples *deltaFDC = NULL;
         McmcSamples *deltaGxS = NULL;
         for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
             if (mcmcSampleVec[i]->label == "SnpEffectsMale") snpEffectsMale = mcmcSampleVec[i];
+            if (mcmcSampleVec[i]->label == "PIP") pip = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label == "SnpEffectsFemale") snpEffectsFemale = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label == "DeltaNDC") deltaNDC = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label == "DeltaFDC") deltaFDC = mcmcSampleVec[i];
@@ -524,7 +526,7 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
             % sqrt(snpEffectsMale->posteriorSqrMean[idx]-snpEffectsMale->posteriorMean[idx]*snpEffectsMale->posteriorMean[idx])
             % snpEffectsFemale->posteriorMean[idx]
             % sqrt(snpEffectsFemale->posteriorSqrMean[idx]-snpEffectsFemale->posteriorMean[idx]*snpEffectsFemale->posteriorMean[idx])
-            % snpEffectsMale->pip[idx]
+            % pip->posteriorMean[idx]
             % deltaNDC->posteriorMean[idx]
             % deltaFDC->posteriorMean[idx]
             % deltaGxS->posteriorMean[idx];
@@ -534,6 +536,7 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
     }
     else if (bayesType == "Cgxs" || bayesType == "Ngxs" || bayesType == "Cgxs2") {
         McmcSamples *snpEffectsMale = NULL;
+        McmcSamples *pip = NULL;
         McmcSamples *snpEffectsFemale = NULL;
         McmcSamples *deltaNDC = NULL;
         McmcSamples *deltaNDC2 = NULL;
@@ -543,6 +546,7 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
         McmcSamples *deltaGxSwind = NULL;
         for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
             if (mcmcSampleVec[i]->label == "SnpEffectsMale") snpEffectsMale = mcmcSampleVec[i];
+            if (mcmcSampleVec[i]->label == "PIP") pip = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label == "SnpEffectsFemale") snpEffectsFemale = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label == "DeltaNDC") deltaNDC = mcmcSampleVec[i];
             if (mcmcSampleVec[i]->label == "DeltaNDC2") deltaNDC2 = mcmcSampleVec[i];
@@ -590,7 +594,7 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
             % sqrt(snpEffectsMale->posteriorSqrMean[idx]-snpEffectsMale->posteriorMean[idx]*snpEffectsMale->posteriorMean[idx])
             % snpEffectsFemale->posteriorMean[idx]
             % sqrt(snpEffectsFemale->posteriorSqrMean[idx]-snpEffectsFemale->posteriorMean[idx]*snpEffectsFemale->posteriorMean[idx])
-            % snpEffectsMale->pip[idx]
+            % pip->posteriorMean[idx]
             % deltaNDC->posteriorMean[idx]
             % deltaGxS->posteriorMean[idx]
             % deltaNDC2->posteriorMean[idx];
@@ -608,10 +612,12 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
     }
     else {
         McmcSamples *snpEffects = NULL;
+        McmcSamples *pip = NULL;
         McmcSamples *deltaNDC = NULL;
         for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
             if (mcmcSampleVec[i]->label == "SnpEffects") snpEffects = mcmcSampleVec[i];
-            if (mcmcSampleVec[i]->label == "DeltaNDC") deltaNDC = mcmcSampleVec[i];
+            if (mcmcSampleVec[i]->label == "PIP") pip = mcmcSampleVec[i];
+           if (mcmcSampleVec[i]->label == "DeltaNDC") deltaNDC = mcmcSampleVec[i];
         }
         string filename = title + ".snpRes";
         ofstream out(filename.c_str());
@@ -637,7 +643,7 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
             % snp->af
             % snpEffects->posteriorMean[idx]
             % sqrt(snpEffects->posteriorSqrMean[idx]-snpEffects->posteriorMean[idx]*snpEffects->posteriorMean[idx])
-            % snpEffects->pip[idx]
+            % pip->posteriorMean[idx]
             % deltaNDC->posteriorMean[idx];
             ++idx;
         }
@@ -833,7 +839,6 @@ void BayesCXCI::ProbNDC::sampleFromPrior(){
 void BayesCXCI::Rounding::computeYcorr(const VectorXf &y, const MatrixXf &X, const MatrixXf &Z,
                                            const VectorXf &deltaNDC, const unsigned int nmale, const unsigned int nfemale,
                                            const VectorXf &fixedEffects, const VectorXf &snpEffects, VectorXf &ycorrm, VectorXf &ycorrf){
-    if (count++ % 100) return;
     VectorXf oldYcorrm = ycorrm;
     VectorXf oldYcorrf = ycorrf;
     VectorXf ycorr = y - X*fixedEffects;
@@ -853,7 +858,7 @@ void BayesCXCI::Rounding::computeYcorr(const VectorXf &y, const MatrixXf &X, con
     value = sqrt(ss);
 }
 
-void BayesCXCI::sampleUnknowns(){
+void BayesCXCI::sampleUnknowns(const unsigned iter){
     
     fixedEffects.sampleFromFC(ycorrm, ycorrf, data.X, nmale, nfemale, XPXdiagMale, XPXdiagFemale, varem.value, varef.value);
     
@@ -883,7 +888,7 @@ void BayesCXCI::sampleUnknowns(){
 //    varg.compute(ghat);
 //    hsq.compute(varg.value, vare.value);
     
-    rounding.computeYcorr(data.y, data.X, data.Z, deltaNDC.values, nmale, nfemale, fixedEffects.values, snpEffects.values, ycorrm, ycorrf);
+    if (!(iter % 100)) rounding.computeYcorr(data.y, data.X, data.Z, deltaNDC.values, nmale, nfemale, fixedEffects.values, snpEffects.values, ycorrm, ycorrf);
     nnzSnp.getValue(snpEffects.numNonZeros);
     
 //    static unsigned iter = 0;
@@ -1010,7 +1015,7 @@ void BayesBXCI::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, con
     }
 }
 
-void BayesBXCI::sampleUnknowns(){
+void BayesBXCI::sampleUnknowns(const unsigned iter){
     fixedEffects.sampleFromFC(ycorrm, ycorrf, data.X, nmale, nfemale, XPXdiagMale, XPXdiagFemale, varem.value, varef.value);
 //    unsigned cnt=0;
 //    do {
@@ -1122,7 +1127,7 @@ void SBayesCXCI::SnpEffects::sampleFromFC(VectorXf &rcorrm, VectorXf &rcorrf, co
     }
 }
 
-void SBayesCXCI::sampleUnknowns() {
+void SBayesCXCI::sampleUnknowns(const unsigned iter) {
 
 }
 
@@ -1711,7 +1716,6 @@ void SBayesCXCIgxs::SnpEffects::sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf,
 void BayesCXCIgxs::Rounding::computeYcorr(const VectorXf &y, const MatrixXf &X, const MatrixXf &Z,
                                        const VectorXf &deltaNDC, const unsigned int nmale, const unsigned int nfemale,
                                        const VectorXf &fixedEffects, const MatrixXf &snpEffects, VectorXf &ycorrm, VectorXf &ycorrf){
-    if (count++ % 100) return;
     VectorXf oldYcorrm = ycorrm;
     VectorXf oldYcorrf = ycorrf;
     VectorXf ycorr = y - X*fixedEffects;
@@ -1733,14 +1737,14 @@ void BayesCXCIgxs::Rounding::computeYcorr(const VectorXf &y, const MatrixXf &X, 
 
 void BayesCXCIgxs::ProbMixComps::getValues(VectorXf &pis){
     values = pis;
-    for (unsigned i=0; i<ndist; ++i) {
+    for (unsigned i=0; i<size; ++i) {
         (*this)[i]->value=values[i];
     }
 }
 
 void BayesCXCIgxs::ProbMixComps::sampleFromPrior(){
-    values = Dirichlet::sample(ndist, alphaVec);
-    for (unsigned i=0; i<ndist; ++i) {
+    values = Dirichlet::sample(size, alphaVec);
+    for (unsigned i=0; i<size; ++i) {
       (*this)[i]->value=values[i];
     }
 }
@@ -1893,7 +1897,7 @@ void BayesCXCIgxs::computeWindowDelta(const Data &data,
 }
 
 
-void BayesCXCIgxs::sampleUnknowns(){
+void BayesCXCIgxs::sampleUnknowns(const unsigned iter){
     fixedEffects.sampleFromFC(ycorrm, ycorrf, data.X, nmale, nfemale, XPXdiagMale, XPXdiagFemale, varem.value, varef.value);
 //    unsigned cnt=0;
 //    do {
@@ -1951,7 +1955,7 @@ void BayesCXCIgxs::sampleUnknowns(){
     hsqm.compute(vargm.value, varem.value);
     hsqf.compute(vargf.value, varef.value);
     
-    rounding.computeYcorr(data.y, data.X, data.Z, deltaNDC.values, nmale, nfemale, fixedEffects.values, snpEffects.values, ycorrm, ycorrf);
+    if (!(iter % 100)) rounding.computeYcorr(data.y, data.X, data.Z, deltaNDC.values, nmale, nfemale, fixedEffects.values, snpEffects.values, ycorrm, ycorrf);
     nnzSnp.getValue(snpEffects.numNonZeros);
     
     snpEffectsMale.values = snpEffects.values.col(0);
@@ -2180,7 +2184,7 @@ void BayesCXCIgxs2::SnpEffects::sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf,
     }
 }
 
-void BayesCXCIgxs2::sampleUnknowns(){
+void BayesCXCIgxs2::sampleUnknowns(const unsigned iter){
     fixedEffects.sampleFromFC(ycorrm, ycorrf, data.X, nmale, nfemale, XPXdiagMale, XPXdiagFemale, varem.value, varef.value);
 
     snpEffects.sampleFromFC(ycorrm, ycorrf, data.Z, ZPZdiagMaleRank, ZPZdiagFemaleRank, ZPZdiagMale, ZPZdiagFemale,
@@ -2702,7 +2706,7 @@ void BayesNXCIgxs::SnpEffects::sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, 
 //    }
 //}
 
-void BayesNXCIgxs::sampleUnknowns(){
+void BayesNXCIgxs::sampleUnknowns(const unsigned iter){
 
     fixedEffects.sampleFromFC(ycorrm, ycorrf, data.X, nmale, nfemale, XPXdiagMale, XPXdiagFemale, varem.value, varef.value);
     
@@ -2951,7 +2955,7 @@ void BayesXgxs::SnpEffects::sampleFromFC(VectorXf &ycorrm, VectorXf &ycorrf, con
     }
 }
 
-void BayesXgxs::sampleUnknowns(){
+void BayesXgxs::sampleUnknowns(const unsigned iter){
     
     fixedEffects.sampleFromFC(ycorrm, ycorrf, data.X, nmale, nfemale, XPXdiagMale, XPXdiagFemale, varem.value, varef.value);
     
