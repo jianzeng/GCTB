@@ -6722,25 +6722,25 @@ void ApproxBayesRC::AnnoJointPerSnpHsqEnrichment::compute(const AnnoJointProb &a
         if (i == 0) {
             for (unsigned k=0; k<numDist; ++k) {
                 if (hsqPercModel) {
-                    hsqPartition[i] += Normal::cdf_01(alphaForPi(k,0)) * gamma[k] * 0.01*varg;
-                    //hsqPartition[i] += annoJointProb[k]->values[i] * gamma[k] * 0.01*varg;
+                    //hsqPartition[i] += Normal::cdf_01(alphaForPi(k,0)) * gamma[k] * 0.01*varg;
+                    hsqPartition[i] += annoJointProb[k]->values[i] * gamma[k] * 0.01*varg;
                 } else {
-                    hsqPartition[i] += Normal::cdf_01(alphaForPi(k,0)) * gamma[k] * sigmaSq;
-                    //hsqPartition[i] += annoJointProb[k]->values[i] * gamma[k] * sigmaSq;
+                    //hsqPartition[i] += Normal::cdf_01(alphaForPi(k,0)) * gamma[k] * sigmaSq;
+                    hsqPartition[i] += annoJointProb[k]->values[i] * gamma[k] * sigmaSq;
                 }
             }
         } else {
             for (unsigned k=0; k<numDist; ++k) {
                 if (hsqPercModel) {
-                    float dev = anno->mean * Normal::pdf_01(alphaForPi(k,0))*alphaForPi(k,i) * gamma[k] * 0.01*varg;
-                    dev += anno->sd*anno->sd * (-0.5)*alphaForPi(k,0)*Normal::pdf_01(alphaForPi(k,0))*alphaForPi(k,i)*alphaForPi(k,i) * gamma[k] * 0.01*varg;
-                    if (std::isfinite(dev)) hsqPartition[i] += dev;
-                    //hsqPartition[i] += (annoJointProb[k]->values[i] - annoJointProb[k]->values[0]) * gamma[k] * 0.01*varg;
+                    //float dev = anno->mean * Normal::pdf_01(alphaForPi(k,0))*alphaForPi(k,i) * gamma[k] * 0.01*varg;
+                    //dev += anno->sd*anno->sd * (-0.5)*alphaForPi(k,0)*Normal::pdf_01(alphaForPi(k,0))*alphaForPi(k,i)*alphaForPi(k,i) * gamma[k] * 0.01*varg;
+                    //if (std::isfinite(dev)) hsqPartition[i] += dev;
+                    hsqPartition[i] += annoJointProb[k]->values[i] * gamma[k] * 0.01*varg;
                 } else {
-                    float dev = anno->mean * Normal::pdf_01(alphaForPi(k,0))*alphaForPi(k,i) * gamma[k] * sigmaSq;
-                    dev += anno->sd*anno->sd * (-0.5)*alphaForPi(k,0)*Normal::pdf_01(alphaForPi(k,0))*alphaForPi(k,i)*alphaForPi(k,i) * gamma[k] * sigmaSq;
-                    if (std::isfinite(dev)) hsqPartition[i] += dev;
-                    //hsqPartition[i] += (annoJointProb[k]->values[i] - annoJointProb[k]->values[0]) * gamma[k] * sigmaSq;
+                    //float dev = anno->mean * Normal::pdf_01(alphaForPi(k,0))*alphaForPi(k,i) * gamma[k] * sigmaSq;
+                    //dev += anno->sd*anno->sd * (-0.5)*alphaForPi(k,0)*Normal::pdf_01(alphaForPi(k,0))*alphaForPi(k,i)*alphaForPi(k,i) * gamma[k] * sigmaSq;
+                    //if (std::isfinite(dev)) hsqPartition[i] += dev;
+                    hsqPartition[i] += annoJointProb[k]->values[i] * gamma[k] * sigmaSq;
                 }
             }
         }
@@ -6758,7 +6758,8 @@ void ApproxBayesRC::AnnoJointPerSnpHsqEnrichment::compute(const AnnoJointProb &a
             values[i] = 1.0;
         } else {
             if (hsqPartition[0] == 0) values[i] = 1.0;
-            else values[i] = 1.0 + hsqPartition[i]/hsqPartition[0];
+//            else values[i] = 1.0 + hsqPartition[i]/hsqPartition[0];
+            else values[i] = hsqPartition[i]/hsqPartition[0];
         }
     }
 }
