@@ -165,6 +165,8 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
             return new MultiChainSBayesR(data, opt);
         else if (bayesType == "RC")
             return new MultiChainSBayesRC(data, opt);
+        else if (bayesType == "RD")
+            return new MultiChainSBayesRD(data, opt);
         else
             throw(" Error: " + bayesType + " is not available for multi-chain analysis.");
     }
@@ -174,6 +176,8 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
                 return new StratApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, robustMode);
             else if (bayesType == "RC")
                 return new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, algorithm);
+            else if (bayesType == "RD")
+                return new ApproxBayesRD(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, algorithm);
             else
                 throw(" Error: Wrong bayes type: " + bayesType + " in the annotation-stratified summary-data-based Bayesian analysis.");
         }
@@ -447,7 +451,7 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
         }
         out.close();
     }
-    else if (bayesType == "RC" || bayesType == "R") {
+    else if (bayesType == "RC" || bayesType == "R" || bayesType == "RD") {
         McmcSamples *snpEffects = NULL;
         McmcSamples *pip = NULL;
         McmcSamples *pep = NULL;

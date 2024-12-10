@@ -574,3 +574,257 @@ public:
     
     void sampleUnknowns(const unsigned iter);
 };
+
+
+
+
+class MultiChainSBayesRD : public MultiChainSBayesRC {
+public:
+    
+    class ChainVecSBayesRD : public vector<ApproxBayesRD*> {
+    public:
+        ChainVecSBayesRD(const Data &data, const Options &opt){
+            for (unsigned i=0; i<opt.numChains; ++i) {
+                this->push_back(new ApproxBayesRD(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.algorithm, false));
+            }
+        }
+    };
+    
+    class Heritability : public MultiChainParameter {
+    public:
+        Heritability(const ChainVecSBayesRD &chains): MultiChainParameter("hsq", chains.size()){
+           for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->hsq);
+            }
+        }
+    };
+    
+    class SnpPIP : public MultiChainParamSet {
+    public:
+        SnpPIP(const vector<string> &header, const ChainVecSBayesRD &chains): MultiChainParamSet("PIP", header, chains.size()){
+           for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->snpPip);
+            }
+        }
+    };
+    
+    class SnpEffects : public MultiChainParamSet {
+    public:
+        SnpEffects(const vector<string> &header, const ChainVecSBayesRD &chains): MultiChainParamSet("SnpEffects", header, chains.size()){
+            for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->snpEffects);
+            }
+        }
+    };
+    
+    class DeltaPi : public MultiChainParamSetVec {
+    public:
+        DeltaPi(const vector<string> &header, const unsigned numDist, const ChainVecSBayesRD &chains):
+        MultiChainParamSetVec("DeltaPi", header, numDist, chains.size()) {
+            for (unsigned i=0; i<numDist; ++i) {
+                for (unsigned j=0; j<chains.size(); ++j) {
+                    (*this)[i]->chainVec.push_back(chains[j]->deltaPi[i]);
+                }
+            }
+        }
+    };
+    
+    class NumSnpMixComps : public MultiChainParamVec {
+    public:
+        NumSnpMixComps(const unsigned numDist, const ChainVecSBayesRD &chains):
+        MultiChainParamVec("NumSnp", numDist, chains.size()){
+            for (unsigned i=0; i<numDist; ++i) {
+                for (unsigned j=0; j<chains.size(); ++j) {
+                    (*this)[i]->chainVec.push_back(chains[j]->numSnps[i]);
+                }
+            }
+        }
+    };
+    
+    class VgMixComps : public MultiChainParamVec {
+    public:
+        VgMixComps(const unsigned numDist, const ChainVecSBayesRD &chains):
+        MultiChainParamVec("Vg", numDist, chains.size()){
+            for (unsigned i = 0; i<numDist; ++i) {
+                for (unsigned j=0; j<chains.size(); ++j) {
+                    (*this)[i]->chainVec.push_back(chains[j]->Vgs[i]);
+                }
+            }
+        }
+    };
+    
+    class NumBadSnps : public MultiChainParameter {
+    public:
+        vector<ApproxBayesC::NumBadSnps*> nBadSnpVec;
+        set<string> badSnpSet;
+        
+        ofstream out;
+
+        NumBadSnps(const string &title, const ChainVecSBayesRD &chains): MultiChainParameter("NumSkeptSnp", chains.size()){
+           for (unsigned i=0; i<numChains; ++i) {
+               chainVec.push_back(&chains[i]->nBadSnps);
+               nBadSnpVec.push_back(&chains[i]->nBadSnps);
+               chains[i]->nBadSnps.writeTxt = false;
+               chains[i]->nBadSnps.out.close();
+            }
+            string filename = title + ".skepticalSNPs";
+            out.open(filename.c_str());
+        }
+        void output(void);
+    };
+    
+    class AnnoEffects : public MultiChainParamSetVec {
+    public:
+        AnnoEffects(const vector<string> &header, const unsigned numDist, const ChainVecSBayesRD &chains):
+        MultiChainParamSetVec("AnnoEffects", header, numDist, chains.size()) {
+            for (unsigned i=0; i<numDist; ++i) {
+                for (unsigned j=0; j<chains.size(); ++j) {
+                    (*this)[i]->chainVec.push_back(chains[j]->annoEffects[i]);
+                }
+            }
+        }
+    };
+        
+    class AnnoJointProb : public MultiChainParamSetVec {
+    public:
+        AnnoJointProb(const vector<string> &header, const unsigned numDist, const ChainVecSBayesRD &chains):
+        MultiChainParamSetVec("AnnoJointProb", header, numDist, chains.size()) {
+            for (unsigned i=0; i<numDist; ++i) {
+                for (unsigned j=0; j<chains.size(); ++j) {
+                    (*this)[i]->chainVec.push_back(chains[j]->annoJointProb[i]);
+                }
+            }
+        }
+    };
+
+    class AnnoTotalGenVar : public MultiChainParamSet {
+    public:
+        AnnoTotalGenVar(const vector<string> &header, const ChainVecSBayesRD &chains): MultiChainParamSet("AnnoTotalGenVar", header, chains.size()){
+            for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->annoTotalGenVar);
+            }
+        }
+    };
+    
+    class AnnoPerSnpHsqEnrichment : public MultiChainParamSet {
+    public:
+        AnnoPerSnpHsqEnrichment(const vector<string> &header, const ChainVecSBayesRD &chains): MultiChainParamSet("AnnoPerSnpHsq_Enrichment", header, chains.size()){
+            for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->annoPerSnpHsqEnrich);
+            }
+        }
+    };
+
+    class AnnoJointPerSnpHsqEnrichment : public MultiChainParamSet {
+    public:
+        AnnoJointPerSnpHsqEnrichment(const vector<string> &header, const ChainVecSBayesRD &chains): MultiChainParamSet("AnnoJointPerSnpHsq_Enrichment", header, chains.size()){
+            for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->annoJointPerSnpHsqEnrich);
+            }
+        }
+    };
+    
+    class SnpHsqPEP : public MultiChainParamSet {
+    public:
+        SnpHsqPEP(const vector<string> &header, const ChainVecSBayesRD &chains): MultiChainParamSet("PEP", header, chains.size()){
+           for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->snpHsqPep);
+            }
+        }
+    };
+    
+    class AnnoPi : public MultiChainParameter {
+    public:
+        AnnoPi(const ChainVecSBayesRD &chains): MultiChainParameter("AnnoPi", chains.size()){
+           for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->piAnno);
+            }
+        }
+    };
+    
+    class AnnoPIP : public MultiChainParamSet {
+    public:
+        AnnoPIP(const vector<string> &header, const ChainVecSBayesRD &chains): MultiChainParamSet("AnnoPIP", header, chains.size()){
+            for (unsigned i=0; i<numChains; ++i) {
+                 chainVec.push_back(&chains[i]->annoPip);
+             }
+         }
+    };
+    
+    
+    ChainVecSBayesRD chainVec;
+    Heritability hsq;
+    SnpPIP pip;
+    SnpEffects snpEffects;
+    DeltaPi deltaPi;
+    NumSnpMixComps numSnpMix;
+    VgMixComps vgMix;
+    NumBadSnps nBadSnps;
+    AnnoEffects annoEffects;
+    AnnoJointProb annoJointProb;
+    AnnoTotalGenVar annoTotalGenVar;
+    AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
+    AnnoJointPerSnpHsqEnrichment annoJointPerSnpHsqEnrich;
+    SnpHsqPEP snpHsqPep;
+    AnnoPi piAnno;
+    AnnoPIP annoPip;
+    
+    MultiChainSBayesRD(const Data &data, const Options &opt, const bool message = true):
+    MultiChainSBayesRC(data, opt, false),
+    chainVec(data, opt),
+    hsq(chainVec),
+    pip(data.snpEffectNames, chainVec),
+    snpEffects(data.snpEffectNames, chainVec),
+    deltaPi(data.snpEffectNames, opt.gamma.size(), chainVec),
+    numSnpMix(opt.gamma.size(), chainVec),
+    vgMix(opt.gamma.size(), chainVec),
+    nBadSnps(opt.title, chainVec),
+    annoEffects(data.annoNames, opt.gamma.size()-1, chainVec),
+    annoJointProb(data.annoNames, opt.gamma.size()-1, chainVec),
+    annoTotalGenVar(data.annoNames, chainVec),
+    annoPerSnpHsqEnrich(data.annoNames, chainVec),
+    annoJointPerSnpHsqEnrich(data.annoNames, chainVec),
+    snpHsqPep(data.snpEffectNames, chainVec),
+    piAnno(chainVec),
+    annoPip(data.annoNames, chainVec)
+    {
+        
+        paramVec    = {&hsq, &piAnno};
+        paramVec.insert(paramVec.end(), numSnpMix.begin(), numSnpMix.end());
+        paramVec.insert(paramVec.end(), vgMix.begin(), vgMix.end());
+
+        paramSetVec = {&snpEffects, &pip, &snpHsqPep, &annoTotalGenVar, &annoPerSnpHsqEnrich, &annoJointPerSnpHsqEnrich, &annoPip};
+        paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
+        paramSetVec.insert(paramSetVec.end(), annoEffects.begin(), annoEffects.end());
+        paramSetVec.insert(paramSetVec.end(), annoJointProb.begin(), annoJointProb.end());
+
+        paramToPrint = {&hsq, &nHighPips, &nBadSnps, &piAnno};
+        paramToPrint.insert(paramToPrint.begin(), vgMix.begin(), vgMix.end());
+        paramToPrint.insert(paramToPrint.begin(), numSnpMix.begin(), numSnpMix.end());
+        
+        paramSetToPrint.resize(0);
+        paramSetToPrint.insert(paramSetToPrint.begin(), annoEffects.begin(), annoEffects.end());
+        paramSetToPrint.insert(paramSetToPrint.begin(), annoJointProb.begin(), annoJointProb.end());
+        paramSetToPrint.push_back(&annoTotalGenVar);
+        paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
+        paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
+        paramSetToPrint.push_back(&annoPip);
+
+        if (message) {
+            cout << "\nMulti-chain SBayesRD (" << numChains << " chains)" << endl;
+            if (lowRankModel) {
+                cout << "Using the low-rank model" << endl;
+            }
+            cout << "Gamma: " << gamma.values.transpose() << endl;
+            if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
+            if (numThreadTotal == 1) {
+                cout << "\nSUGGESTION: Enabling multi-threading is recommended when using multiple chains. You can set this by --thread [any value that is the multiple of the number of chains].\n" << endl;
+            } else {
+                cout << "Using nested multi-threading (" << numThreadTotal << " threads in total):\n  Level 1: " << numThreadLevel1 << " threads\n    Level 2: " << numThreadLevel2 << " threads" << endl;
+            }
+            cout << endl;
+        }
+    }
+    
+    void sampleUnknowns(const unsigned iter);
+};

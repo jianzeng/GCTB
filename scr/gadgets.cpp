@@ -142,18 +142,18 @@ vector<int> Gadget::shuffle_index(const int start, const int end){
         vec.push_back(i);
     }
     
-    // Create a thread-local random number generator
-    thread_local std::mt19937 rng(std::random_device{}());
-
-    // Shuffle using the thread-local RNG
-    std::shuffle(vec.begin(), vec.end(), rng);
+    Gadget::shuffle_vector(vec);
 
     return vec;
 }
 
-void Gadget::shuffle_vector(vector<int> &vec){    
+void Gadget::shuffle_vector(vector<int> &vec){
+    // Get a random integer using Boost random generator (which has been seeded)
+    constexpr int max_integer = std::numeric_limits<int>::max();
+    int random_integer = static_cast<int>(Stat::ranf() * max_integer);
+    
     // Create a thread-local random number generator
-    thread_local std::mt19937 rng(std::random_device{}());
+    thread_local std::mt19937 rng(random_integer);
 
     // Shuffle using the thread-local RNG
     std::shuffle(vec.begin(), vec.end(), rng);

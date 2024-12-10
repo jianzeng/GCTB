@@ -20,6 +20,7 @@
 #include <random>
 #include <Eigen/Eigen>
 #include <omp.h>
+#include "stat.hpp"
 
 using namespace std;
 using namespace Eigen;

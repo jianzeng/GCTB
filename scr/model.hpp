@@ -2451,6 +2451,139 @@ public:
 
 
 
+class ApproxBayesRD : public ApproxBayesRC {
+public:
+    
+    class AnnoEffects : public vector<BayesC::SnpEffects*>, public Stat::TruncatedNormal  {
+    public:
+        unsigned numComp;  // number of components = number of mixture components - 1
+        unsigned numAnno;  // number of annotations
+        unsigned numAnnoTotal;
+        
+        MatrixXf values;
+        MatrixXf wcorr;
+        VectorXf annoDiag;
+        VectorXf ssq;
+        VectorXf numNonZeros;
+        vector<string> colnames;
+        
+        VectorXf pip;
+        float nnz;
+
+        AnnoEffects(const vector<string> &header, const unsigned ndist, const MatrixXf &annoMat) {
+            numComp = ndist - 1;
+            colnames.resize(numComp);
+            numAnno = header.size();
+            unsigned numSnps = annoMat.rows();
+            for (unsigned i = 0; i<numComp; ++i) {
+                colnames[i] = "AnnoEffects_p" + to_string(static_cast<long long>(i + 2));
+                this->push_back(new BayesC::SnpEffects(header, "Gibbs", colnames[i]));
+            }
+            wcorr.setZero(numSnps, numComp);
+            annoDiag.setZero(numAnno);
+            annoDiag[0] = numSnps;  // first annotation is intercept
+            for (unsigned j=1; j<numAnno; ++j) {
+                annoDiag[j] = annoMat.col(j).squaredNorm();
+            }
+            nnz = 0;
+            ssq.setZero(numComp);
+            numNonZeros.setZero(numAnno);
+            numAnnoTotal = (numAnno-1)*numComp;  // leave out the intercept
+            values.setZero(numAnno,numComp);
+            pip.setZero(numAnno);
+        }
+        
+        void sampleFromFC_indep(MatrixXf &z, const MatrixXf &annoMat, const VectorXf &sigmaSq, const float pi, MatrixXf &snpP);
+        void sampleFromFC_joint(MatrixXf &z, const MatrixXf &annoMat, const VectorXf &sigmaSq, const float pi, MatrixXf &snpP);
+        void initIntercept(const VectorXf &pis);
+    };
+    
+    class AnnoPi : public BayesC::Pi {
+    public:
+        AnnoPi(): BayesC::Pi(0.1, 1, 1, "AnnoPi"){}
+    };
+    
+    class AnnoCondProb : public ApproxBayesRC::AnnoCondProb {
+    public:
+        AnnoCondProb(const vector<string> &header, const unsigned numComp):
+        ApproxBayesRC::AnnoCondProb(header, numComp){}
+        
+        void compute(const AnnoEffects &annoEffects, const vector<AnnoInfo*> &annoInfoVec);
+    };
+    
+    class AnnoPIP : public BayesC::SnpPIP {
+    public:
+        AnnoPIP(const vector<string> &header, const string &lab = "AnnoPIP"): BayesC::SnpPIP(header, lab){}
+    };
+
+    AnnoEffects annoEffects;
+    AnnoPi piAnno;
+    AnnoCondProb annoCondProb;
+    AnnoPIP annoPip;
+
+    ApproxBayesRD(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool robustMode, const string &alg, const bool message = true):
+    ApproxBayesRC(data, lowRank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, alg, false),
+    annoEffects(data.annoNames, pis.size(), data.annoMat),
+    annoCondProb(data.annoNames, annoEffects.numComp),
+    annoPip(data.annoNames)
+    {
+        annoEffects.initIntercept(pis);
+        
+        paramSetVec = {&snpEffects, &snpPip, &snpHsqPep, &annoPip};
+        paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
+        paramSetVec.insert(paramSetVec.end(), annoEffects.begin(), annoEffects.end());
+        paramSetVec.insert(paramSetVec.end(), annoCondProb.begin(), annoCondProb.end());
+        paramSetVec.insert(paramSetVec.end(), annoJointProb.begin(), annoJointProb.end());
+        paramSetVec.insert(paramSetVec.end(), annoGenVar.begin(), annoGenVar.end());
+        paramSetVec.push_back(&annoTotalGenVar);
+        paramSetVec.push_back(&annoPerSnpHsqEnrich);
+        paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
+
+        paramVec = {&nnzSnp, &sigmaSq, &hsq, &vare, &piAnno};
+        paramVec.insert(paramVec.end(), numSnps.begin(), numSnps.end());
+        paramVec.insert(paramVec.end(), Vgs.begin(), Vgs.end());
+        
+        paramSetToPrint.resize(0);
+        paramSetToPrint.insert(paramSetToPrint.end(), annoEffects.begin(), annoEffects.end());
+        paramSetToPrint.insert(paramSetToPrint.end(), annoCondProb.begin(), annoCondProb.end());
+        paramSetToPrint.insert(paramSetToPrint.end(), annoJointProb.begin(), annoJointProb.end());
+        paramSetToPrint.insert(paramSetToPrint.end(), annoGenVar.begin(), annoGenVar.end());
+        paramSetToPrint.push_back(&annoTotalGenVar);
+        paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
+        paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
+        paramSetToPrint.push_back(&annoPip);
+
+        paramToPrint = {&sigmaSq, &hsq, &vare, &piAnno};
+        paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
+        paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
+
+        if (lowRankModel) {
+            paramSetVec.push_back(&vargBlk);
+            paramSetVec.push_back(&vareBlk);
+            paramToPrint.push_back(&nBadSnps);
+        }
+
+        if (message) {
+            cout << "\nSBayesRD" << endl;
+            if (lowRankModel) {
+                cout << "Using the low-rank model" << endl;
+            }
+            cout << "scale factor: " << sigmaSq.scale << endl;
+            cout << "Gamma: " << gamma.transpose() << endl;
+            if (noscale) {
+               cout << "Fitting model assuming unscaled genotypes " << endl;
+            } else {
+               cout << "Fitting model assuming scaled genotypes "  << endl;
+            }
+            if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
+            if (robustMode) cout << "Using a more robust parameterisation " << endl;
+        }
+    }
+
+    void sampleUnknowns(const unsigned iter);
+
+};
+
 
 #endif /* model_hpp */
 

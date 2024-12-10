@@ -139,3 +139,48 @@ void MultiModelSBayesR::sampleUnknowns(const unsigned iter){
         modelVec[i]->sampleUnknowns(iter);
     }    
 }
+
+void MultiChainSBayesRD::NumBadSnps::output(){
+    value = 0;
+    for (unsigned i=0; i<numChains; ++i) {
+        vector<unsigned> badSnpIdxVec = nBadSnpVec[i]->badSnpIdx;
+        vector<string> badSnpNameVec = nBadSnpVec[i]->badSnpName;
+        for (unsigned j=0; j<badSnpNameVec.size(); ++j) {
+            if(badSnpSet.insert(badSnpNameVec[j]).second) {
+                out << badSnpIdxVec[j] << "\t" << badSnpNameVec[j] << endl;
+                ++value;
+            }
+        }
+    }
+    //value = badSnpSet.size();
+}
+
+void MultiChainSBayesRD::sampleUnknowns(const unsigned iter){
+    
+#pragma omp parallel for num_threads(numThreadLevel1)
+    for (unsigned i=0; i<numChains; ++i) {
+//        cout << "sampling chain " << i << " in " << numChains << " chains " << endl;
+        omp_set_num_threads(numThreadLevel2);
+
+        chainVec[i]->sampleUnknowns(iter);
+    }
+        
+    snpEffects.getValues();
+    pip.getValues();
+    deltaPi.getValues();
+    hsq.getValues();
+    numSnpMix.getValues();
+    vgMix.getValues();
+    annoEffects.getValues();
+    annoJointProb.getValues();
+    annoTotalGenVar.getValues();
+    annoPerSnpHsqEnrich.getValues();
+    annoJointPerSnpHsqEnrich.getValues();
+    snpHsqPep.getValues();
+    piAnno.getValues();
+    annoPip.getValues();
+
+    nHighPips.getValue(pip.values);
+    nBadSnps.output();
+}
+
