@@ -2580,7 +2580,7 @@ void ApproxBayesC::NumBadSnps::compute_sparse(VectorXi &badSnps, VectorXf &effec
                 badSnps[i] = 1;
                 badSnpIdx.push_back(i);
                 badSnpName.push_back(snpNames[i]);
-                if (writeTxt) out << i << "\t" << snpNames[i] << endl;
+                if (writeTxt) out << i+1 << "\t" << snpNames[i] << endl;
                 ++value;
             }
         }
@@ -2633,7 +2633,7 @@ void ApproxBayesC::NumBadSnps::compute_full(VectorXi &badSnps, VectorXf &effects
                 badSnps[i] = 1;
                 badSnpIdx.push_back(i);
                 badSnpName.push_back(snpNames[i]);
-                if (writeTxt) out << i << "\t" << snpNames[i] << endl;
+                if (writeTxt) out << i+1 << "\t" << snpNames[i] << endl;
                 ++value;
             }
         }
@@ -2690,7 +2690,7 @@ void ApproxBayesC::NumBadSnps::compute_eigen(VectorXi &badSnps, VectorXf &effect
                 badSnps[i] = 1;
                 badSnpIdx.push_back(i);
                 badSnpName.push_back(snpNames[i]);
-                if (writeTxt) out << i << "\t" << snpNames[i] << endl;
+                if (writeTxt) out << i+1 << "\t" << snpNames[i] << endl;
                 ++value;
             }
         }

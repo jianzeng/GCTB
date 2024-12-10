@@ -17,7 +17,7 @@ using namespace std;
 int main(int argc, const char * argv[]) {
     
     cout << "*********************************************************\n";
-    cout << "* GCTB 2.5.3.12                                         *\n";
+    cout << "* GCTB 2.5.3.14                                         *\n";
     cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
     cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
     cout << "* Last updated: 7 Dec, 2024                             *\n";
@@ -286,6 +286,7 @@ int main(int argc, const char * argv[]) {
                 McmcSamples *snpEffects = gctb.inputMcmcSamples(opt.mcmcSampleFile, "SnpEffects", "bin");
                 data.inputNewSnpResults(opt.mcmcSampleFile + ".snpRes");
                 data.inputPairwiseLD(opt.pairwiseLDfile, opt.rsqThreshold);
+                if (!opt.geneMapFile.empty()) data.readGeneMapFile(opt.geneMapFile, opt.flank, opt.genomeBuild);
                 gctb.calcCredibleSets(data, *snpEffects, opt.pipThreshold, opt.pepThreshold, opt.title);
             }
             else if (!opt.ldfriendFile.empty()) {
@@ -295,6 +296,7 @@ int main(int argc, const char * argv[]) {
                 McmcSamples *snpEffects = gctb.inputMcmcSamples(opt.mcmcSampleFile, "SnpEffects", "bin");
                 data.inputNewSnpResults(opt.mcmcSampleFile + ".snpRes");
                 data.inputLDfriends(opt.ldfriendFile);
+                if (!opt.geneMapFile.empty()) data.readGeneMapFile(opt.geneMapFile, opt.flank, opt.genomeBuild);
                 gctb.calcCredibleSets(data, *snpEffects, opt.pipThreshold, opt.pepThreshold, opt.title);
             } else {
                 int windowWidth = 100000;

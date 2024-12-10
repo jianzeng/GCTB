@@ -338,6 +338,27 @@ public:
     }
 };
 
+class GeneInfo {
+public:
+    string ensgid;
+    string name;
+    string type;
+    string genomeBuild;
+    
+    int chrom;
+    int start;
+    int end;
+        
+    GeneInfo(const string &ensgid): ensgid(ensgid){
+        chrom = 0;
+        start = 0;
+        end = 0;
+    }
+        
+    void setFlankingWindow(const int flank);
+    bool containAllSnps(vector<SnpInfo*> &snpVec);
+};
+
 struct MatrixDat
 {
 public:
@@ -458,6 +479,8 @@ public:
     vector<SnpInfo*> incdSnpInfoVec;
     vector<IndInfo*> keptIndInfoVec;
     
+    vector<GeneInfo*> geneInfoVec;
+    
     vector<string> fixedEffectNames;
     vector<string> randomEffectNames;
     vector<string> snpEffectNames;
@@ -549,6 +572,7 @@ public:
     void readLDmatrixTxtFile(const string &ldmatrixFile);
     void readGeneticMapFile(const string &freqFile);
     void readfreqFile(const string &geneticMapFile);
+    void readGeneMapFile(const string &geneMapFile, const int flank, const string &genomeBuild);
     void keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax);
     void includeSnp(const string &includeSnpFile);
     void excludeSnp(const string &excludeSnpFile);

@@ -63,6 +63,25 @@ void WindowInfo::calcVarEnrichPP(float numWindows) {
     genVarEnrich = propGenVar*numWindows; // numSnps/float(size);
 }
 
+void GeneInfo::setFlankingWindow(const int flank){
+    if (!start) start = std::max(0, start - flank);
+    if (!end) end += flank;
+}
+
+bool GeneInfo::containAllSnps(vector<SnpInfo*> &snpVec){
+    unsigned numSnp = snpVec.size();
+    unsigned numSnpInGene = 0;
+    SnpInfo *snp;
+    for (unsigned i=0; i<numSnp; ++i) {
+        snp = snpVec[i];
+        if (snp->chrom != chrom) break;
+        if (snp->physPos < start) break;
+        if (snp->physPos > end) break;
+        ++numSnpInGene;
+    }
+    return(numSnpInGene == numSnp);
+}
+
 void Data::readFamFile(const string &famFile){
     // ignore phenotype column
     ifstream in(famFile.c_str());
@@ -410,6 +429,57 @@ void Data::readResidualDiagFile(const string &resDiagFile){
     weightedRes = true;
     
     cout << "Read residual diagonal values for " << line << " individuals from [" + resDiagFile + "]." << endl;
+}
+
+void Data::readGeneMapFile(const string &geneMapFile, const int flank, const string &genomeBuild){
+    ifstream in(geneMapFile.c_str());
+    if (!in) throw ("Error: can not open the gene map file [" + geneMapFile + "] to read.");
+    cout << "Reading gene info from [" + geneMapFile + "]." << endl;
+    
+    Gadget::Tokenizer header;
+    Gadget::Tokenizer colData;
+    string inputStr;
+    string sep(" \t");
+    getline(in, inputStr);
+    header.getTokens(inputStr, sep);
+    
+    int ensgidIdx = header.getIndex("Ensgid");
+    int nameIdx  = header.getIndex("GeneName");
+    int typeIdx  = header.getIndex("GeneType");
+    int chrom38Idx  = header.getIndex("Chrom_hg38");
+    int start38Idx  = header.getIndex("Start_hg38");
+    int end38Idx  = header.getIndex("End_hg38");
+    int chrom19Idx  = header.getIndex("Chrom_hg19");
+    int start19Idx  = header.getIndex("Start_hg19");
+    int end19Idx  = header.getIndex("End_hg19");
+
+    geneInfoVec.clear();
+    
+    unsigned line=0;
+    while (getline(in, inputStr)) {
+        colData.getTokens(inputStr, sep);
+        GeneInfo *gene = new GeneInfo(colData[ensgidIdx]);
+        gene->name = colData[nameIdx];
+        gene->type = colData[typeIdx];
+        if (genomeBuild == "hg38") {
+            if (std::isdigit(colData[chrom38Idx][0])) gene->chrom = atoi(colData[chrom38Idx].c_str());
+            if (std::isdigit(colData[start38Idx][0])) gene->start = atoi(colData[start38Idx].c_str());
+            if (std::isdigit(colData[end38Idx][0])) gene->end = atoi(colData[end38Idx].c_str());
+        } else if (genomeBuild == "hg19") {
+            if (std::isdigit(colData[chrom19Idx][0])) gene->chrom = atoi(colData[chrom19Idx].c_str());
+            if (std::isdigit(colData[start19Idx][0])) gene->start = atoi(colData[start19Idx].c_str());
+            if (std::isdigit(colData[end19Idx][0])) gene->end = atoi(colData[end19Idx].c_str());
+        }
+        gene->genomeBuild = genomeBuild;
+        gene->setFlankingWindow(flank);
+        //cout << line << " " << gene->ensgid << " " << gene->name << " " << gene->chrom << " " << gene->start << " " << gene->end << endl;
+        geneInfoVec.push_back(gene);
+        ++line;
+    }
+    in.close();
+    
+    cout << line << " genes in the gene map file." << endl;
+
 }
 
 void Data::keepMatchedInd(const string &keepIndFile, const unsigned keepIndMax){  // keepIndFile is optional
@@ -5623,18 +5693,31 @@ void Data::readUnconvergedSnplist(const string &filename) {
     unsigned line = 0;
     
     while (in >> snpIdx >> snpName) {
-        SnpInfo *snp = incdSnpInfoVec[snpIdx];
-        if (snp->ID != snpName) {
+        // Adjust for 0-based indexing
+        SnpInfo* snp = incdSnpInfoVec[snpIdx - 1];
+
+        // Check if the SNP ID matches the name
+        if (snp->ID == snpName) {
+            snp->unconverged = true; // Mark as unconverged
+            ++line; // Increment line counter
+            continue; // Move to the next entry
+        }
+
+        // Check the next SNP as a fallback
+        snp = incdSnpInfoVec[snpIdx];
+        if (snp->ID == snpName) {
+            snp->unconverged = true; // Mark as unconverged
+            ++line; // Increment line counter
+        } else {
+            // Handle mismatch error
             cout << "ERROR: SNP index (" << snpIdx << ") does not match its name (" << snpName << ")." << endl;
         }
-        snp->unconverged = true;
-        ++line;
     }
     
     in.close();
     if (line) {
         cout << "\nOuput " << line << " skeptical SNPs in [" + filename + "], whose posterior joint effect sizes are remarkably greater than their marginal effect sizes." << endl;
-        cout << "Since this may be due to poor convergence, their posterior effects have been set to be zero." << endl;
+        cout << "Since this may be due to poor convergence, their posterior effects will be set to be zero." << endl;
     }
 }
 

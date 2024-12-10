@@ -590,7 +590,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
             ss << "--stratify " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--flank")) {
-            flank = atof(argv[++i]);
+            flank = atoi(argv[++i]);
             ss << "--flank " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--eqtl")) {
@@ -630,6 +630,17 @@ void Options::inputOptions(const int argc, const char* argv[]){
             nDistAuto = true;
 //            nDistAutoThreshold = atof(argv[++i]);
             ss << "--n-dist-auto " << "\n";
+        }
+        else if (!strcmp(argv[i], "--gene-map")) {
+            geneMapFile = argv[++i];
+            ss << "--gene-map " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--genome-build")) {
+            genomeBuild = argv[++i];
+            if (genomeBuild != "hg19" && genomeBuild != "hg38") {
+                throw("Error in --genome-build. Available value: hg19 or hg38.");
+            }
+            ss << "--genome-build " << argv[i] << "\n";
         }
         else {
             stringstream errmsg;

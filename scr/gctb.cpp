@@ -1129,7 +1129,9 @@ void GCTB::calcCredibleSets(Data &data, McmcSamples &snpEffects, const float pip
     }
     
     
-    out1 << boost::format("%12s %12s %12s %12s %12s %12s %12s\n")
+    unsigned numGenes = data.geneInfoVec.size();
+
+    out1 << boost::format("%12s %12s %12s %12s %12s %12s %12s ")
     % "CS"
     % "Size"
     % "PIP"
@@ -1137,6 +1139,13 @@ void GCTB::calcCredibleSets(Data &data, McmcSamples &snpEffects, const float pip
     % "PGVenrich"
     % "PEP"
     % "SNP";
+    if (numGenes) {
+        GeneInfo *gene = data.geneInfoVec[0];
+        out1 << boost::format("%16s %16s ")
+        % ("ENSGID_" + gene->genomeBuild)
+        % ("GeneName_" + gene->genomeBuild);
+    }
+    out1 << endl;
     
     for (unsigned i=0; i<numCS; ++i) {
         CredibleSetInfo *cs = csInfoVec[i];
@@ -1149,9 +1158,30 @@ void GCTB::calcCredibleSets(Data &data, McmcSamples &snpEffects, const float pip
         % cs->windGenVarEnrichPP;
         for (unsigned k=0; k<cs->size; ++k) {
             SnpInfo *snpk = cs->snpVec[k];
-            if (k==0) out1 << "\t" << snpk->ID;
+            if (k==0) out1 << setw(8) << " " << snpk->ID;
             else out1 << "," << snpk->ID;
         }
+        
+        if (numGenes) {
+            vector<GeneInfo*> geneVec;
+            for (unsigned g=0; g<numGenes; ++g) {
+                GeneInfo *gene = data.geneInfoVec[g];
+                if (gene->containAllSnps(cs->snpVec)) {
+                    geneVec.push_back(gene);
+                }
+            }
+            for (unsigned g=0; g<geneVec.size(); ++g) {
+                GeneInfo *gene = geneVec[g];
+                if (g==0) out1 << setw(8) << " " << gene->ensgid;
+                else out1 << "," << gene->ensgid;
+            }
+            for (unsigned g=0; g<geneVec.size(); ++g) {
+                GeneInfo *gene = geneVec[g];
+                if (g==0) out1 << setw(8) << " " << gene->name;
+                else out1 << "," << gene->name;
+            }
+        }
+        
         out1 << endl;
     }
     out1.close();

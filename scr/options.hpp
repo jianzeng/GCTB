@@ -165,6 +165,8 @@ public:
     string plinkAFfile;
     string pairwiseLDfile;
     string ldfriendFile;
+    string geneMapFile;
+    string genomeBuild;
     string label;
     
     Options(){
@@ -298,7 +300,9 @@ public:
         plinkAFfile             = "";
         pairwiseLDfile          = "";
         ldfriendFile            = "";
+        geneMapFile             = "";
         outLDmatType            = "sparse";
+        genomeBuild             = "hg19";
         label                   = "";
     }
     
