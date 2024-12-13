@@ -550,8 +550,8 @@ public:
         paramToPrint.insert(paramToPrint.begin(), numSnpMix.begin(), numSnpMix.end());
         
         paramSetToPrint.resize(0);
-        paramSetToPrint.insert(paramSetToPrint.begin(), annoEffects.begin(), annoEffects.end());
-        paramSetToPrint.insert(paramSetToPrint.begin(), annoJointProb.begin(), annoJointProb.end());
+        paramSetToPrint.insert(paramSetToPrint.end(), annoEffects.begin(), annoEffects.end());
+        paramSetToPrint.insert(paramSetToPrint.end(), annoJointProb.begin(), annoJointProb.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
         paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
@@ -803,8 +803,8 @@ public:
         paramToPrint.insert(paramToPrint.begin(), numSnpMix.begin(), numSnpMix.end());
         
         paramSetToPrint.resize(0);
-        paramSetToPrint.insert(paramSetToPrint.begin(), annoEffects.begin(), annoEffects.end());
-        paramSetToPrint.insert(paramSetToPrint.begin(), annoJointProb.begin(), annoJointProb.end());
+        paramSetToPrint.insert(paramSetToPrint.end(), annoEffects.begin(), annoEffects.end());
+        paramSetToPrint.insert(paramSetToPrint.end(), annoJointProb.begin(), annoJointProb.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
         paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);

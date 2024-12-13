@@ -1012,6 +1012,9 @@ void GCTB::calcCredibleSets(Data &data, McmcSamples &snpEffects, const float pip
     string unconvergedSnpFile = title + ".skepticalSNPs";
     ifstream in(unconvergedSnpFile.c_str());
     if (in) data.readUnconvergedSnplist(unconvergedSnpFile);
+    
+    //data.filterSnpByGelmanRubinStat(1.2);
+    
     for (unsigned j=0; j<data.numSnps; ++j) {
         SnpInfo *snpj = data.snpInfoVec[j];
         if (snpj->unconverged) snpEffects.datMatSp.col(j) *= 0;
@@ -1129,16 +1132,25 @@ void GCTB::calcCredibleSets(Data &data, McmcSamples &snpEffects, const float pip
     }
     
     
+    unsigned numCSwithGRres = 0;
+    for (unsigned i=0; i<numCS; ++i) {
+        CredibleSetInfo *cs = csInfoVec[i];
+        cs->getNumUnconvgSNPs(1.2);
+        if (cs->numUnconvgSNPs != -1) ++numCSwithGRres;
+    }
+        
     unsigned numGenes = data.geneInfoVec.size();
-
-    out1 << boost::format("%12s %12s %12s %12s %12s %12s %12s ")
+    
+    out1 << boost::format("%12s %12s %12s %12s %12s %12s ")
     % "CS"
     % "Size"
     % "PIP"
     % "PGV"
     % "PGVenrich"
-    % "PEP"
-    % "SNP";
+    % "PEP";
+        
+    if (numCSwithGRres) out1 << boost::format("%14s ") % "NumUnconvgSNPs";
+   out1 << boost::format("%12s ") % "SNP";
     if (numGenes) {
         GeneInfo *gene = data.geneInfoVec[0];
         out1 << boost::format("%16s %16s ")
@@ -1156,6 +1168,11 @@ void GCTB::calcCredibleSets(Data &data, McmcSamples &snpEffects, const float pip
         % cs->propVar
         % cs->windGenVarEnrich
         % cs->windGenVarEnrichPP;
+ 
+        if (numCSwithGRres) {
+            out1 << boost::format("%14s ") % cs->numUnconvgSNPs;
+        }
+
         for (unsigned k=0; k<cs->size; ++k) {
             SnpInfo *snpk = cs->snpVec[k];
             if (k==0) out1 << setw(8) << " " << snpk->ID;

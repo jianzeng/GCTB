@@ -1149,6 +1149,7 @@ public:
         }
         
         void sampleFromFC(vector<VectorXf> &wcorrBlocks, VectorXf &vargBlocks, VectorXf &ssqBlocks, const VectorXf &nGWASblocks, const VectorXf &numEigenvalBlock);
+        void sampleFromFC(const vector<VectorXf> &wcorrBlocks, const VectorXf &beta, const VectorXf &b, const VectorXf &nGWASblocks, const vector<LDBlockInfo*> keptLdBlockInfoVec);
     };
 
 

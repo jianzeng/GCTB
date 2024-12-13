@@ -2264,6 +2264,22 @@ void ApproxBayesC::BlockResidualVar::sampleFromFC(vector<VectorXf> &wcorrBlocks,
     mean = values.mean();
 }
 
+void ApproxBayesC::BlockResidualVar::sampleFromFC(const vector<VectorXf> &wcorrBlocks, const VectorXf &beta, const VectorXf &b, const VectorXf &nGWASblocks, const vector<LDBlockInfo*> keptLdBlockInfoVec){
+    for (unsigned i=0; i<numBlocks; ++i) {
+        LDBlockInfo *blockInfo = keptLdBlockInfoVec[i];
+        unsigned blockStart = blockInfo->startSnpIdx;
+        unsigned blockEnd   = blockInfo->endSnpIdx;
+        unsigned blockSize  = blockEnd - blockStart + 1;
+        VectorXf betai = beta.segment(blockStart, blockSize);
+        VectorXf bi = b.segment(blockStart, blockSize);
+        float sse = nGWASblocks[i] - betai.dot(bi) - betai.dot(wcorrBlocks[i]);
+        float dfTilde = df + nGWASblocks[i];
+        float scaleTilde = sse + df*scale;
+        values[i] = InvChiSq::sample(dfTilde, scaleTilde);
+    }
+    mean = values.mean();
+}
+
 void ApproxBayesC::Rounding::computeRcorr_sparse(const VectorXf &ZPy, const vector<SparseVector<float> > &ZPZ,
                                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                                           const VectorXf &snpEffects, VectorXf &rcorr){
@@ -6834,6 +6850,7 @@ void ApproxBayesRC::sampleUnknowns(const unsigned iter){
     if (lowRankModel) {
         vargBlk.compute(whatBlocks);
         vareBlk.sampleFromFC(wcorrBlocks, vargBlk.values, snpEffects.ssqBlocks, data.nGWASblock, data.numEigenvalBlock);
+        //vareBlk.sampleFromFC(wcorrBlocks, snpEffects.values, data.b, data.nGWASblock, data.keptLdBlockInfoVec);
         varg.value = vargBlk.total;
         vare.value = vareBlk.mean;
     } else {
@@ -7295,8 +7312,8 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(MatrixXf &z, const MatrixXf 
     float logPiComp = log(1.0-pi);
     VectorXf invSigmaSq = sigmaSq.array().inverse();
     VectorXf logSigmaSq = sigmaSq.array().log();
-    invSigmaSq.resize(numNZComp);
-    logSigmaSq.resize(numNZComp);
+    invSigmaSq.conservativeResize(numNZComp);
+    logSigmaSq.conservativeResize(numNZComp);
     
     // shuffle the annotations
     vector<int> shuffled_index = Gadget::shuffle_index(1, numAnno-1);
@@ -7319,6 +7336,15 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(MatrixXf &z, const MatrixXf 
         if (bernoulli.sample(probDelta1)) {
             for (unsigned i=0; i<numNZComp; ++i) {
                 Alpha(k,i) = Normal::sample(ahat[i], invLhs[i]);
+                if (std::isnan(Alpha(k,i))) {
+                    cout << "k " << k << " i " << i << " Alpha(k,i) " << Alpha(k,i) << " ahat[i] " << ahat[i] << " invLhs[i] " << invLhs[i] << endl;
+                    cout << "rhs " << rhs.transpose() << endl;
+                    cout << "invLhs " << invLhs.transpose() << endl;
+                    cout << "logSigmaSq " << logSigmaSq.transpose() << endl;
+                    cout << "sigmaSq " << sigmaSq.transpose() << endl;
+                    cout << "ahat " << ahat.transpose() << endl;
+                    throw("Error!");
+                }
                 Y[i] += Amat[i].col(k) * (oldSample[i] - Alpha(k,i));
                 ssq[i] += Alpha(k,i) * Alpha(k,i);
             }
@@ -7342,6 +7368,12 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(MatrixXf &z, const MatrixXf 
         VectorXf &alphai = (*this)[i]->values;
         values.col(i) = alphai;
         for (unsigned j=0; j<numSnps; ++j) {
+            float val = annoMat.row(j).dot(alphai);
+            if (std::isnan(val)) {
+                cout << i << " " << j << endl;
+                cout << "anno " << annoMat.row(j) << endl;
+                cout << "effect " << alphai.transpose() << endl;
+            }
             snpP(j,i) = Normal::cdf_01(annoMat.row(j).dot(alphai));
         }
     }

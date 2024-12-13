@@ -76,6 +76,7 @@ public:
     float effect;   // estimated effect
     float pip;
     float varExplained;
+    float GelmanRubinR;  // Gelman–Rubin's R statistic for convergence diagnostic
     
     // GWAS summary statistics
     double gwas_b;
@@ -130,6 +131,7 @@ public:
         numAnnos = 0;
         ld_n = -999;
         block = "NA";
+        GelmanRubinR = -1;
     };
     
     void resetWindow(void) {windStart = -1; windSize = 0;};
@@ -328,6 +330,8 @@ public:
     double windGenVarEnrich;
     double windGenVarEnrichPP;
     
+    int numUnconvgSNPs;  // -1: not tested
+    
     CredibleSetInfo(const int index, const float threshold, const float sumPIP, const float propVar, const vector<SnpInfo*> &snpVec)
     : index(index), threshold(threshold), sumPIP(sumPIP), propVar(propVar), snpVec(snpVec){
         size = snpVec.size();
@@ -335,7 +339,10 @@ public:
         windPropGenVar = 0.0;
         windGenVarEnrich = 0.0;
         windGenVarEnrichPP = 0.0;
+        numUnconvgSNPs = -1;
     }
+    
+    void getNumUnconvgSNPs(const float threshold);
 };
 
 class GeneInfo {
@@ -646,6 +653,8 @@ public:
     void readPlinkAFfile(const string &plinkAFfile);
     void readPlinkLDtxtfile(const string &plinkLDfile);
     void readPlinkLDbinfile(const string &plinkLDfile);
+    
+    void filterSnpByGelmanRubinStat(const float threshold);
 
     /////////// eigen decomposition for LD blocks
     void readLDBlockInfoFile(const string &ldBlockInfoFile);

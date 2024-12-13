@@ -840,6 +840,7 @@ void Options::setThread(void){
         Eigen::setNbThreads(numThread);
         cout << "Eigen library is using " << Eigen::nbThreads( ) << " threads." << endl;
     }
-#pragma omp parallel
-    printf("Hello from thread %d, nthreads %d\n", omp_get_thread_num(), omp_get_num_threads());
+//#pragma omp parallel
+//    printf("Hello from thread %d, nthreads %d\n", omp_get_thread_num(), omp_get_num_threads());
+    printf("Using %d threads.\n", omp_get_num_threads());
 }

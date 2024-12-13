@@ -63,6 +63,18 @@ void WindowInfo::calcVarEnrichPP(float numWindows) {
     genVarEnrich = propGenVar*numWindows; // numSnps/float(size);
 }
 
+void CredibleSetInfo::getNumUnconvgSNPs(const float threshold){
+    numUnconvgSNPs = 0;
+    for (unsigned i=0; i<size; ++i) {
+        SnpInfo *snp = snpVec[i];
+        if (snp->GelmanRubinR == -1) {
+            numUnconvgSNPs = -1;
+            break;
+        }
+        if (snp->GelmanRubinR > threshold) ++numUnconvgSNPs;
+    }
+}
+
 void GeneInfo::setFlankingWindow(const int flank){
     if (!start) start = std::max(0, start - flank);
     if (!end) end += flank;
@@ -1296,6 +1308,7 @@ void Data::inputNewSnpResults(const string &snpResFile){
     int varIdx = header.getIndex("VarExplained");
     int pipIdx = header.getIndex("PIP");
     int windowIdx = header.getIndex("Window");
+    int GelmanRubinIdx = header.getIndex("GelmanRubin_R");
 
     if (nameIdx == -1) nameIdx  = header.getIndex("SNP");
     if (a1effectIdx == -1) a1effectIdx  = header.getIndex("BETA");
@@ -1315,6 +1328,7 @@ void Data::inputNewSnpResults(const string &snpResFile){
         snp->af = atof(colData[a1frqIdx].c_str());
         snp->effect = atof(colData[a1effectIdx].c_str());
         snp->pip = atof(colData[pipIdx].c_str());
+        if (GelmanRubinIdx != -1) snp->GelmanRubinR = atof(colData[GelmanRubinIdx].c_str());
         snpInfoVec.push_back(snp);
         snpInfoMap.insert(pair<string, SnpInfo*>(name, snp));
     }
@@ -5718,6 +5732,13 @@ void Data::readUnconvergedSnplist(const string &filename) {
     if (line) {
         cout << "\nOuput " << line << " skeptical SNPs in [" + filename + "], whose posterior joint effect sizes are remarkably greater than their marginal effect sizes." << endl;
         cout << "Since this may be due to poor convergence, their posterior effects will be set to be zero." << endl;
+    }
+}
+
+void Data::filterSnpByGelmanRubinStat(const float threshold){
+    for (unsigned i=0; i<numSnps; ++i) {
+        SnpInfo *snp = snpInfoVec[i];
+        if (snp->GelmanRubinR > threshold) snp->unconverged = true;
     }
 }
 
