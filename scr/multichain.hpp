@@ -26,7 +26,7 @@ public:
 class MultiChainParamSet : public ParamSet {
 public:
     vector<ParamSet*> chainVec;
-
+    
     MultiChainParamSet(const string &label, const vector<string> &header, const unsigned numChains): ParamSet(label, header){
         ParamSet::numChains = numChains;
         perChainValues.setZero(size, numChains);
@@ -366,11 +366,28 @@ public:
     
     class SnpPIP : public MultiChainParamSet {
     public:
+        
+        MatrixXf perChainMean;
+        MatrixXf perChainSqrMean;
+        VectorXf GelmanRubinStat;
+        VectorXf posteriorMean;
+        unsigned cntSample;
+        
+        vector<vector<int> > selectedSnpForTGS;   // select SNPs with high GelmanRubin R statistics and non-trivial PIP
+
         SnpPIP(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("PIP", header, chains.size()){
            for (unsigned i=0; i<numChains; ++i) {
                 chainVec.push_back(&chains[i]->snpPip);
             }
+            perChainMean.setZero(size, numChains);
+            perChainSqrMean.setZero(size, numChains);
+            GelmanRubinStat.setZero(size);
+            posteriorMean.setZero(size);
+            cntSample = 0;
         }
+        
+        void computeGelmanRubinStat(const unsigned iter);
+        void selectUnconvergedSnps(const vector<LDBlockInfo*> &keptLdBlockInfoVec);
     };
     
     class SnpEffects : public MultiChainParamSet {
@@ -516,6 +533,8 @@ public:
     MultiChainSBayesR::NumHighPIPs nHighPips;
     SnpHsqPEP snpHsqPep;
     
+    const vector<LDBlockInfo*> &keptLdBlockInfoVec;
+    
     MultiChainSBayesRC(const Data &data, const Options &opt, const bool message = true):
     MultiChainSBayesR(data, opt, false),
     numChains(opt.numChains),
@@ -533,7 +552,8 @@ public:
     annoTotalGenVar(data.annoNames, chainVec),
     annoPerSnpHsqEnrich(data.annoNames, chainVec),
     annoJointPerSnpHsqEnrich(data.annoNames, chainVec),
-    snpHsqPep(data.snpEffectNames, chainVec)
+    snpHsqPep(data.snpEffectNames, chainVec),
+    keptLdBlockInfoVec(data.keptLdBlockInfoVec)
     {
         
         paramVec    = {&hsq};

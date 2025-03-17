@@ -98,6 +98,57 @@ void MultiChainSBayesRC::NumBadSnps::output(){
     //value = badSnpSet.size();
 }
 
+void MultiChainSBayesRC::SnpPIP::computeGelmanRubinStat(const unsigned iter){
+    GelmanRubinStat.resize(0);
+    if (iter % 10) return;
+    ++cntSample;
+    for (unsigned i=0; i<numChains; ++i) {
+         perChainMean.col(i).array()    += (perChainValues.col(i) - perChainMean.col(i)).array()/cntSample;
+         perChainSqrMean.col(i).array() += (perChainValues.col(i).array().square() - perChainSqrMean.col(i).array())/cntSample;
+     }
+    posteriorMean.array() += (values - posteriorMean).array()/cntSample;
+
+
+    if (cntSample > 10) {
+        VectorXf meanVarWithinChain(size);
+        VectorXf varMeansBetweenChains(size);
+        VectorXf posteriorVar(size);
+        GelmanRubinStat.setZero(size);
+        for (unsigned i=0; i<size; ++i) {
+            meanVarWithinChain[i] = (perChainSqrMean.row(i).array() - perChainMean.row(i).array().square()).mean(); // W
+            varMeansBetweenChains[i] = float(cntSample)*Gadget::calcVariance(perChainMean.row(i).transpose());                           // B
+            posteriorVar[i] = (cntSample-1.0)*meanVarWithinChain[i]/float(cntSample) + varMeansBetweenChains[i]/float(cntSample);
+            if (meanVarWithinChain[i]) {
+                GelmanRubinStat[i] = sqrt(posteriorVar[i]/meanVarWithinChain[i]);
+            } else {
+                GelmanRubinStat[i] = 1.0;
+            }
+        }
+    }
+}
+
+void MultiChainSBayesRC::SnpPIP::selectUnconvergedSnps(const vector<LDBlockInfo*> &keptLdBlockInfoVec){
+    selectedSnpForTGS.resize(0);
+    if (!GelmanRubinStat.size()) return;
+    long nBlocks = keptLdBlockInfoVec.size();
+    for(unsigned blk = 0; blk < nBlocks; blk++){
+        LDBlockInfo *blockInfo = keptLdBlockInfoVec[blk];
+        unsigned blockStart = blockInfo->startSnpIdx;
+        unsigned blockEnd   = blockInfo->endSnpIdx;
+        unsigned blockSize  = blockEnd - blockStart + 1;
+        for(unsigned i = 0; i < blockSize; i++){
+            unsigned snpIdx = i + blockStart;
+            if (GelmanRubinStat[snpIdx] > 1.2 && posteriorMean[snpIdx] > 0.1) {
+                vector <int> vec(3);
+                vec[0] = blockInfo->chrom;
+                vec[1] = blk;
+                vec[2] = snpIdx;
+                selectedSnpForTGS.push_back(vec);
+            }
+        }
+    }
+}
+
 void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
     
 #pragma omp parallel for num_threads(numThreadLevel1)
@@ -123,6 +174,16 @@ void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
 
     nHighPips.getValue(pip.values);
     nBadSnps.output();
+    
+//    pip.computeGelmanRubinStat(iter);
+//    pip.selectUnconvergedSnps(keptLdBlockInfoVec);
+//    if (pip.selectedSnpForTGS.size()) {
+//        for (unsigned i=0; i<numChains; ++i) {
+//            chainVec[i]->sampleUnknownsTGS(pip.selectedSnpForTGS);
+//        }
+//        snpEffects.getValues();
+//        pip.getValues();
+//    }
 }
 
 

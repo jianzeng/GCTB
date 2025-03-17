@@ -660,7 +660,7 @@ void Data::includeChr(const unsigned chr){
 
 void Data::includeBlock(const unsigned block){
     if (!block) return;
-    if (block > ldBlockInfoVec.size()) throw("Error: Reqest to include block " + to_string(block) + " but there are only " + to_string(ldBlockInfoVec.size()) + " in total!");
+    if (block > ldBlockInfoVec.size()) throw("Error: Request to include block " + to_string(block) + " but there are only " + to_string(ldBlockInfoVec.size()) + " in total!");
     for (unsigned i=0; i<numLDBlocks; ++i) {
         LDBlockInfo *blockInfo = ldBlockInfoVec[i];
         if (block != i+1) blockInfo->kept = false;
@@ -814,6 +814,14 @@ void Data::includeMatchedSnp(){
     reindexSnp(incdSnpInfoVec);
     snp2pq.resize(numIncdSnps);
     
+    //re-make snpInfoMap
+    snpInfoMap.clear();
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+        SnpInfo *snp = incdSnpInfoVec[i];
+        snpInfoMap.insert(pair<string, SnpInfo*>(snp->ID, snp));
+    }
+    
+    // make chromInfoVec
     map<int, vector<SnpInfo*> > chrmap;
     map<int, vector<SnpInfo*> >::iterator it;
     for (unsigned i=0; i<numIncdSnps; ++i) {
@@ -5902,7 +5910,7 @@ void Data::convert(const string &eigenMatrixFile, const string &snplistFile, con
     out.close();
 
     cout << "Conversion of SNP joint effects to a sub panel is completed." << endl;
-    cout << "Converted SNP joint effects are save into file [" + outfile + "]." << endl;
+    cout << "Converted SNP joint effects are saved into file [" + outfile + "]." << endl;
 
 }
 
@@ -6055,20 +6063,27 @@ void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold){
         it1 = snpInfoMap.find(snp1ID);
         it2 = snpInfoMap.find(snp2ID);
         if (it1 == end) {
-            throw("ERROR: cannot find SNP " + snp1ID + ".");
+            continue;
+            //throw("ERROR: cannot find SNP " + snp1ID + ".");
         }
         if (it2 == end) {
-            throw("ERROR: cannot find SNP " + snp2ID + ".");
+            continue;
+            //throw("ERROR: cannot find SNP " + snp2ID + ".");
         }
         snp1 = it1->second;
         snp2 = it2->second;
 //        snp1 = snpInfoMap[snp1ID];
 //        snp2 = snpInfoMap[snp2ID];
-        if (ldcor*ldcor > rsqThreshold) {
+        if (rsqThreshold < 1.0) {
+            if (ldcor*ldcor > rsqThreshold) {
+                LDmap[snp1].push_back(snp2);
+                LDmap[snp2].push_back(snp1);
+            }
+        } else {
             LDmap[snp1].push_back(snp2);
             LDmap[snp2].push_back(snp1);
         }
-        if (!(++line%10000)) cout << " read " << line << " lines in the file. \r" << flush;
+        //if (!(++line%10000)) cout << " read " << line << " lines in the file. \r" << flush;
         //if (line == 10000) break;
     }
     
@@ -6080,8 +6095,35 @@ void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold){
         sum += itLDmap->second.size();
     }
     
+//    SnpInfo *snp = snpInfoVec[0];
+//    map<string, SnpInfo*>::iterator it;
+//    it = snpInfoMap.find(snp->ID);
+//    cout << snp << " " << it->second << endl;
+//    cout << snp->index << " " << it->second->index << endl;
+//    
+//    ofstream out("/home/uqjzeng1/wd/proj/test2/snpInfoMap.txt");
+//    for (it=snpInfoMap.begin(); it!=snpInfoMap.end(); ++it) {
+//        out << it->second << " " << it->second->ID << " " << it->second->index << endl;
+//    }
+// 
+//    ofstream out2("/home/uqjzeng1/wd/proj/test2/snpInfoVec.txt");
+//    for (unsigned i=0; i<numIncdSnps; ++i) {
+//        SnpInfo *snp = incdSnpInfoVec[i];
+//        out2 << snp << " " << snp->ID << " " << snp->index << endl;
+//    }
+//    
+//    ofstream out3("/home/uqjzeng1/wd/proj/test2/LDmap.txt");
+//    for (itLDmap=LDmap.begin(); itLDmap!=endLDmap; ++itLDmap) {
+//        out3 << itLDmap->second << " " << itLDmap->second->ID << " " << itLDmap->second->index << endl;
+//    }
+
     in.close();
-    cout << "\nFound on average " << sum/cnt << " LD friends for each SNP given the rsq threshold of " << rsqThreshold << "." << endl;
+    if (rsqThreshold < 1.0) {
+        cout << "\nFound on average " << sum/cnt << " LD friends for each of " << cnt << " SNPs given the rsq threshold of " << rsqThreshold << "." << endl;
+    } else {
+        cout << "\nFound on average " << sum/cnt << " LD friends for each of " << cnt << " SNPs." << endl;
+    }
+
 }
 
 void Data::getLDfriends(const string &pairwiseLDfile, const float rsqThreshold, const string &title){

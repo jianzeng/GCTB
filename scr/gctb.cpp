@@ -544,7 +544,7 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
                 //out << " " << setw(14) << (pip_vec[idx]) << " " << setw(14) << pval[idx];
                 out << " " << setw(14) << (pip_vec[idx]);
                 if (pip) {
-                    if (pip->numChains > 1) out << " " << setw(12) << pip->GelmanRubinStat[i];
+                    if (pip->numChains > 1) out << " " << setw(12) << pip->GelmanRubinStat[idx];
                 }
             }
             out << endl;

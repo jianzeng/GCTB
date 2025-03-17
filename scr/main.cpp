@@ -17,7 +17,7 @@ using namespace std;
 int main(int argc, const char * argv[]) {
     
     cout << "*********************************************************\n";
-    cout << "* GCTB 2.5.3.17                                         *\n";
+    cout << "* GCTB 2.5.3.20                                         *\n";
     cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
     cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
     cout << "* Last updated: 7 Dec, 2024                             *\n";
@@ -189,6 +189,7 @@ int main(int argc, const char * argv[]) {
                                   opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
                                   opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
                                   opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock);
+                if (!opt.pairwiseLDfile.empty()) data.inputPairwiseLD(opt.pairwiseLDfile, opt.rsqThreshold);
                 float bestEigenCutoff = opt.eigenCutoff.size() > 1 ? gctb.tuneEigenCutoff(data, opt) : opt.eigenCutoff[0];
                 data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, bestEigenCutoff, data.gwasEffectInBlock, data.nGWASblock, opt.noscale, false);
                 if (opt.writeWandQ) data.outputWandQ("w_and_Q");

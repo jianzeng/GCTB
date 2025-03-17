@@ -64,6 +64,7 @@ public:
     long sampleSize;
     
     string block;
+    int blockIdx;
     
     VectorXf genotypes; // temporary storage of genotypes of individuals used for building sparse Z'Z
     
@@ -131,6 +132,7 @@ public:
         numAnnos = 0;
         ld_n = -999;
         block = "NA";
+        blockIdx = -1;
         GelmanRubinR = -1;
     };
     

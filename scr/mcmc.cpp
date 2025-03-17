@@ -585,7 +585,9 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
         unsigned thisIter = iteration + 1;
         
         model.sampleUnknowns(thisIter);
+        
         collectSamples(model, mcmcSampleVec, thisIter);
+        
         if (writeBinPosterior || writeTxtPosterior) outputSamples(mcmcSampleVec, numChains);
         if (numChains > 1 && thisIter == chainLength) computeGelmanRubinStat(mcmcSampleVec);
         
@@ -632,6 +634,8 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
 
 void MCMC::setAction(const Model &model){
     if (model.status.empty()){
+        action = keep_running;
+    } else if (model.status == "Annealing") {
         action = keep_running;
     } else if (model.status == "Negative residual variance") {
         cout << "\nError: Residual variance is negative. This may indicate that effect sizes are \"blowing up\" likely due to a convergence problem. If SigmaSq variable is increasing with MCMC iterations, then this further indicates MCMC may not converge." << endl;

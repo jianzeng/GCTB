@@ -154,6 +154,7 @@ public:
         unsigned numNonZeros;
         
         VectorXf posteriorMean;
+        VectorXf posteriorMeanPIP;
         VectorXf pip;
         
         enum {gibbs, hmc} algorithm;
@@ -169,6 +170,7 @@ public:
             sumSq = 0.0;
             numNonZeros = 0;
             posteriorMean.setZero(size);
+            posteriorMeanPIP.setZero(size);
             pip.setZero(size);
             if (alg=="HMC") algorithm = hmc;
             else algorithm = gibbs;
@@ -1656,6 +1658,12 @@ public:
                           const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                           const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore, const float varg,
                           const bool hsqPercModel, DeltaPi &deltaPi);
+        
+        // tempered Gibbs sampler
+//        void sampleFromTGS_eigen(const vector<vector<int> > &selectedSnps, vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
+//                                 const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
+//                                 const VectorXf &pis, const VectorXf &gamma, const float varg, const bool hsqPercModel, const float sigmaSq);
+        
 
         // obsoleted
         void sampleFromFC(const VectorXf &ZPy, const SpMat &ZPZsp, const VectorXf &ZPZdiag,
@@ -1711,7 +1719,9 @@ public:
     vector<VectorXf> wcorrBlocks;
     vector<VectorXf> whatBlocks;
     
-    enum {gibbs, cg, mh} algorithm;
+    enum {gibbs, cg, mh, tgs, tgs_thin} algorithm;
+    
+    vector<vector<int> > highLDsnpSet;
         
     ApproxBayesR(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool robustMode, const string &alg, const bool message = true):
     BayesR(data, varGenotypic, varResidual, 0.0, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, alg, false)
@@ -1734,6 +1744,8 @@ public:
 
         if (alg == "cg") algorithm = cg;
         else if (alg == "MH") algorithm = mh;
+        else if (alg == "TGS") algorithm = tgs;
+        else if (alg == "TGS_thin") algorithm = tgs_thin;
         else algorithm = gibbs;
 
         paramSetVec = {&snpEffects, &snpPip, &snpHsqPep};
@@ -1830,8 +1842,8 @@ public:
     ArrayXf logSnp2pq;
     ArrayXf snp2pqPowS;
     
-    ApproxBayesRS(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const float varS, const vector<float> &svalue, const bool noscale, const bool hsqPercModel, const bool robustMode, const string &algorithm, const bool message = true):
-    ApproxBayesR(data, lowRank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, algorithm, false),
+    ApproxBayesRS(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const float varS, const vector<float> &svalue, const bool noscale, const bool hsqPercModel, const bool robustMode, const string &alg, const bool message = true):
+    ApproxBayesR(data, lowRank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, alg, false),
     snpEffects(data.snpEffectNames, data.snp2pq, pis),
     S(data.numIncdSnps, varS, svalue[0]),
     genVarPrior(varGenotypic),
@@ -1860,6 +1872,12 @@ public:
                 cout << "Fitting model assuming unscaled genotypes " << endl;
             } else {
                 cout << "Fitting model assuming scaled genotypes "  << endl;
+            }
+            if (algorithm == tgs || algorithm == tgs_thin) {
+                cout << "Using tempered Gibbs sampling (TGS) algorithm for high-LD SNPs" << endl;
+                if (!data.LDmap.size()) {
+                    cout << "\nError: To use tempered GIbbs sampling, you need to give pairwise LD file by --ld-file " << endl;
+                }
             }
         }
     }
@@ -2080,6 +2098,11 @@ public:
                                 const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                 const MatrixXf &snpPi, const VectorXf &gamma, const float varg,
                                 DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq);
+        // tempered Gibbs sampler
+        void sampleFromTGS_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
+                                 const map<SnpInfo*, vector<SnpInfo*> > &LDmap, const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
+                                 const MatrixXf &snpPi, const VectorXf &gamma, const float varg,
+                                 DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq);
         
     };
     
@@ -2282,9 +2305,10 @@ public:
                 
         initSnpPandPi(pis, data.numIncdSnps, snpP, snpPi);
         
-        if (algorithm == gibbs) annoEffects.initIntercept_probit(pis);
-        else if (algorithm == mh) annoEffects.initIntercept_logistic(pis);
-        else cout << "ERROR: unknown algorithm " << algorithm << endl;
+        annoEffects.initIntercept_probit(pis);
+//        if (algorithm == gibbs) annoEffects.initIntercept_probit(pis);
+//        else if (algorithm == mh) annoEffects.initIntercept_logistic(pis);
+//        else cout << "ERROR: unknown algorithm " << algorithm << endl;
         
         paramSetVec = {&snpEffects, &snpPip, &snpHsqPep};
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
@@ -2337,6 +2361,7 @@ public:
     }
 
     void sampleUnknowns(const unsigned iter);
+//    void sampleUnknownsTGS(vector<vector<int> > &selectedSnps);
     void computePfromPi(const MatrixXf &snpPi, MatrixXf &snpP);
     void computePiFromP(const MatrixXf &snpP, MatrixXf &snpPi);
     void initSnpPandPi(const VectorXf &pis, const unsigned numSnps, MatrixXf &snpP, MatrixXf &snpPi);
@@ -2395,13 +2420,13 @@ public:
     {
         initSnpPandPi(pis, data.numIncdSnps, snpP, snpPi);
         
-        if (alg == "Gibbs") {
-            algorithm = gibbs;
+        //if (alg == "Gibbs") {
+        //    algorithm = gibbs;
             annoEffects.initIntercept_probit(pis);
-        } else if (alg == "MH") {
-            algorithm = mh;
-            annoEffects.initIntercept_logistic(pis);
-        } else cout << "ERROR: unknown algorithm " << alg << endl;
+        //} else if (alg == "MH") {
+        //    algorithm = mh;
+        //    annoEffects.initIntercept_logistic(pis);
+        //} else cout << "ERROR: unknown algorithm " << alg << endl;
         
         paramSetVec  = {&snpEffects, &fixedEffects, &snpPip};
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());

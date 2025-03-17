@@ -418,10 +418,11 @@ void Data::mapSnpsToBlocks(){
             if (!snp->included) continue;
             if (snp->chrom != chrCur) continue;
             if (snp->physPos < block->startPos) continue;
-            else if (snp->physPos >= block->endPos) break;
+            else if (snp->physPos > block->endPos) break;
             block->snpNameVec.push_back(snp->ID);
             block->snpInfoVec.push_back(snp);
             snp->block = block->ID;
+            snp->blockIdx = block->index;
 //            cout << snpIdx << " " << snp->ID << " " << snp->chrom << " " << snp->physPos << " " << block->startPos << " " << block->endPos << " " << snp->included << endl;
         }
         block->numSnpInBlock = block->snpInfoVec.size();
@@ -856,6 +857,16 @@ void Data::impG(const unsigned block, double diag_mod){
         }
     }
     unsigned totalNumImpSnp = numImpSnp.sum();
+    
+    cout << boost::format("%12s %12s %12s %12s\n") % "Block" % "TotalSNPs" % "ToImpute" % "Percentage";
+    for (unsigned i = 0; i < numLDBlocks; i++ ){
+        LDBlockInfo *ldblock = ldBlockInfoVec[i];
+        cout << boost::format("%12s %12s %12s %12.3f\n") % i % ldblock->numSnpInBlock % numImpSnp[i] % (float(numImpSnp[i])/float(ldblock->numSnpInBlock));
+        if (ldblock->numSnpInBlock == numImpSnp[i]) {
+            cout << "  Warning: All SNPs in block " << i+1 << " are missing!" << endl;
+            ldblock->kept = false;
+        }
+    }
         
     cout << "Imputing summary statistics for " << to_string(totalNumImpSnp) << " SNPs in the LD reference but not in the GWAS data file..." << endl;
 
@@ -946,7 +957,7 @@ void Data::impG(const unsigned block, double diag_mod){
 
             timer.getTime();
             cout << "Imputation of summary statistics is completed (time used: " << timer.format(timer.getElapse()) << ")." << endl;
-            cout << "Summary statistics of all SNPs are save into file [" + outfile + "]." << endl;
+            cout << "Summary statistics of all SNPs are saved into file [" + outfile + "]." << endl;
 
         }
 
@@ -973,7 +984,7 @@ void Data::impG(const unsigned block, double diag_mod){
 
     timer.getTime();
     cout << "Imputation of summary statistics is completed (time used: " << timer.format(timer.getElapse()) << ")." << endl;
-    cout << "Summary statistics of all SNPs are save into file [" + outfile + "]." << endl;
+    cout << "Summary statistics of all SNPs are saved into file [" + outfile + "]." << endl;
 }
 
 
@@ -1746,6 +1757,12 @@ void Data::includeMatchedBlocks(){
     for(unsigned i = 0; i < numKeptLDBlocks; i++){
         ldblock = keptLdBlockInfoVec[i];
         ldblock2gwasSnpMap.insert(pair<int, vector<int> > (i,ldblock->block2GwasSnpVec));
+    }
+    
+    for (unsigned j=0; j<numIncdSnps; ++j){  // update each SNP's LD block index
+        snp = incdSnpInfoVec[j];
+        ldblock = ldBlockInfoMap[snp->block];
+        snp->blockIdx = ldblock->index;
     }
     
     cout << numKeptLDBlocks << " LD blocks are included." << endl;
