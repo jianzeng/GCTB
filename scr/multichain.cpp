@@ -169,6 +169,7 @@ void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
     annoJointProb.getValues();
     annoTotalGenVar.getValues();
     annoPerSnpHsqEnrich.getValues();
+    annoPerSnpRsqEnrich.getValues();
     annoJointPerSnpHsqEnrich.getValues();
     snpHsqPep.getValues();
 

@@ -17,10 +17,10 @@ using namespace std;
 int main(int argc, const char * argv[]) {
     
     cout << "*********************************************************\n";
-    cout << "* GCTB 2.5.3.20                                         *\n";
+    cout << "* GCTB 2.5.3.23                                         *\n";
     cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
     cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
-    cout << "* Last updated: 7 Dec, 2024                             *\n";
+    cout << "* Last updated: 26 Mar, 2025                            *\n";
     cout << "* MIT License                                           *\n";
     cout << "*********************************************************\n";
     

@@ -2082,11 +2082,13 @@ public:
         ArrayXf numSnpMix;
         MatrixXf z;
         vector<vector<unsigned> > snpset;
+        VectorXf fcMean;
         
         SnpEffects(const vector<string> &header, const VectorXf &pis): ApproxBayesR::SnpEffects(header){
             ndist = pis.size();
             numSnpMix.setZero(ndist);
             z.setZero(size, ndist-1);
+            fcMean.setZero(size);
         }
         
         void sampleFromFC_sparse(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
@@ -2248,6 +2250,22 @@ public:
         void compute(const VectorXf &snpEffects, const VectorXf &annoTotalGenVar, const MatrixXf &annoMat, const MatrixXf &APA, const vector<AnnoInfo*> &annoInfoVec);
     };
     
+    class AnnoPerSnpRsqEnrichment : public ParamSet {
+    public:
+        VectorXf invSnpProp;
+        
+        AnnoPerSnpRsqEnrichment(const vector<string> &header, const vector<AnnoInfo*> &annoVec, const string &lab = "AnnoPerSnpRsq_Enrichment"):
+        ParamSet(lab, header) {
+            values.setOnes(size);
+            invSnpProp.setZero(size);
+            for (unsigned i=0; i<size; ++i) {
+                invSnpProp[i] = 1.0/annoVec[i]->fraction;
+            }
+        }
+        
+        void compute(const VectorXf &snpEffectMeans, const MatrixXf &annoMat, const vector<AnnoInfo*> &annoInfoVec);
+    };
+
     class AnnoJointPerSnpHsqEnrichment : public AnnoPerSnpHsqEnrichment, public Stat::Normal {
     public:
         
@@ -2283,6 +2301,7 @@ public:
     AnnoGenVar annoGenVar;
     AnnoTotalGenVar annoTotalGenVar;
     AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
+    AnnoPerSnpRsqEnrichment annoPerSnpRsqEnrich;
     AnnoJointPerSnpHsqEnrichment annoJointPerSnpHsqEnrich;
     AnnoDistribution annoDist;
         
@@ -2299,6 +2318,7 @@ public:
     annoGenVar(data.annoNames, pis.size(), data.numKeptInds),
     annoTotalGenVar(data.annoNames),
     annoPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
+    annoPerSnpRsqEnrich(data.annoNames, data.annoInfoVec),
     annoJointPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
     annoDist(data.annoNames, pis.size())
     {
@@ -2318,6 +2338,7 @@ public:
         paramSetVec.insert(paramSetVec.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetVec.push_back(&annoTotalGenVar);
         paramSetVec.push_back(&annoPerSnpHsqEnrich);
+        paramSetVec.push_back(&annoPerSnpRsqEnrich);
         paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
 
         paramVec    = {&nnzSnp, &sigmaSq, &hsq, &vare};
@@ -2331,6 +2352,7 @@ public:
         paramSetToPrint.insert(paramSetToPrint.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
+        paramSetToPrint.push_back(&annoPerSnpRsqEnrich);
         paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
 
         paramToPrint = {&sigmaSq, &hsq, &vare};

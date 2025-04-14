@@ -6076,6 +6076,7 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks
     memset(nnz,0, sizeof(float)*nBlocks);
 
     float *valuesPtr = values.data(); // for openmp, otherwise when one thread writes to the vector, the vector locking prevents the writing from other threads
+    float *fcMeanPtr = fcMean.data(); // for openmp, otherwise when one thread writes to the vector, the vector locking prevents the writing from other threads
 
     vector<float> urnd(size), nrnd(size);
     for (unsigned i=0; i<size; ++i) { // need this for openmp to work
@@ -6179,7 +6180,7 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks
             
             if (delta) {
                 valuesPtr[i] = uhat[delta] + nrnd[i]*sqrtf(invLhs[delta]);
-                wcorr += Qi*(oldSample - valuesPtr[i]);                
+                wcorr += Qi*(oldSample - valuesPtr[i]);
                 what  += Qi* valuesPtr[i];
                 ssq[blk] += valuesPtr[i] * valuesPtr[i];
                 wtdssq[blk] += (valuesPtr[i] * valuesPtr[i]) / gamma[delta];
@@ -6192,6 +6193,9 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks
                 if (oldSample) wcorr += Qi * oldSample;
                 valuesPtr[i] = 0.0;
             }
+            
+            uhat[0] = 0.0;
+            fcMeanPtr[i] = (uhat * probDelta).sum();  // full conditional mean
         }
 
     }
@@ -6223,6 +6227,7 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks
         }
     }
     values = VectorXf::Map(valuesPtr, size);
+    fcMean = VectorXf::Map(fcMeanPtr, size);
 }
 
 //void ApproxBayesRC::SnpEffects::sampleFromTGS_eigen(const vector<vector<int> > &selectedSnps, vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
@@ -6611,15 +6616,32 @@ void ApproxBayesRC::SnpEffects::sampleFromTGS_eigen(vector<VectorXf> &wcorrBlock
                 probDelta_current[i] = probDelta(i,delta[i]);
             }
             
-            // update p_delta = g(delta|else)/f(delta|else)
-            p_delta = 1.0/ndist/probDelta_current.array();
-            
-            // compute weight
-            float sum_p_delta = 0.0;
-            for (unsigned i=0; i<numSelSnp; ++i) {
-                if (std::isfinite(p_delta[i])) sum_p_delta += p_delta[i];
+            // update p_delta = g(delta|else)/f(delta|else)  and  compute weight
+            if ((probDelta_current.array() > 0).all()) {
+                p_delta = 1.0/ndist/probDelta_current.array();
+                weight[t] = float(numSelSnp)/p_delta.sum();
+            } else {
+                weight[t] = 0;
             }
-            weight[t] = float(numSelSnp)/sum_p_delta;
+//            if (!std::isfinite(weight[t])) {
+//                cout << "focal_snp_idx " << focal_snp_idx << endl;
+//                cout << "delta_focal_old " << delta_focal_old << " delta_focal_new " << delta[focal_snp] << endl;
+//                ArrayXf logDelta = 0.5*(logInvLhsMsigma + uhat_focal*rhs_focal) + logPi.row(focal_snp).transpose().array();
+//                logDelta[0] = logPi(focal_snp,0);
+//                for (unsigned k=0; k<ndist; ++k) {
+//                    probDelta(focal_snp,k) = 1.0f/(logDelta-logDelta[k]).exp().sum();
+//                    if(isnan(probDelta(focal_snp,k))) probDelta(focal_snp,k) = 0;
+//                    cout << "k " << k << " probDelta(focal_snp,k) " << probDelta(focal_snp,k) << " logDelta[k] " << logDelta[k] << endl;
+//                }
+//
+//                for (unsigned j=0; j<numSelSnp; ++j) {
+//                    cout << selectedSnps[j] << " ";
+//                }
+//                cout << endl;
+//                cout << "delta " << delta.transpose() << endl;
+//                cout << "p_delta " << p_delta.transpose() << endl;
+//                cout << "probDelta_current " << probDelta_current.transpose() << endl;
+//            }
             
             // update full conditional values of pi
             probDelta_sum += weight[t] * probDelta;
@@ -6637,13 +6659,13 @@ void ApproxBayesRC::SnpEffects::sampleFromTGS_eigen(vector<VectorXf> &wcorrBlock
         
         // update PIPs for the selected SNPs
         float weight_sum = weight.sum();
-        probDelta_sum /= weight_sum;
+        if (weight_sum) probDelta_sum /= weight_sum;
         for (unsigned i=0; i<numSelSnp; ++i) {
             unsigned snpIdx = selectedSnps[i];
             membership[snpIdx] = delta[i];
-            pip[snpIdx] = 1.0 - probDelta_sum(i,0);
+            if (weight_sum) pip[snpIdx] = 1.0 - probDelta_sum(i,0);
             for (unsigned k=0; k<ndist; ++k) {
-                deltaPi[k]->values[snpIdx] = probDelta_sum(i,k);
+                if (weight_sum) deltaPi[k]->values[snpIdx] = probDelta_sum(i,k);
             }
             if (delta[i]) {
                 for(unsigned k2 = 0; k2 < delta[i]; k2++){
@@ -7105,7 +7127,8 @@ void ApproxBayesRC::AnnoGenVar::compute(const VectorXf &snpEffects, const vector
             float varj = snpEffects[snpIdx] * snpEffects[snpIdx];
             for (unsigned k=0; k<numAnno; ++k) {
                 if (annoMat(snpIdx,k)) {
-                    (*this)[i]->values[k] += varj;
+//                    (*this)[i]->values[k] += varj;
+                    (*this)[i]->values[k] += annoMat(snpIdx,k) * varj;
                 }
             }
         }
@@ -7140,7 +7163,32 @@ void ApproxBayesRC::AnnoPerSnpHsqEnrichment::compute(const VectorXf &annoTotalGe
 //    cout << "AnnoPerSnpHsqEnrichment " << values.transpose() << endl;
 }
 
-
+void ApproxBayesRC::AnnoPerSnpRsqEnrichment::compute(const VectorXf &snpEffectMeans, const MatrixXf &annoMat, const vector<AnnoInfo*> &annoInfoVec){
+    VectorXf rsqVec;
+    rsqVec.setZero(size);
+    unsigned numSnps = snpEffectMeans.size();
+    
+    for (unsigned k=0; k<size; ++k) {
+        AnnoInfo *anno = annoInfoVec[k];
+        for (unsigned j=0; j<anno->size; ++j) {
+            SnpInfo *snp = anno->memberSnpVec[j];
+            rsqVec[k] += annoMat(snp->index,k) * snpEffectMeans[snp->index]*snpEffectMeans[snp->index];
+        }
+        if (anno->isBinary) {
+            values[k] = rsqVec[k]/rsqVec[0] * invSnpProp[k];
+        } else {
+            MatrixXf XPX(2,2);
+            XPX(0,0) = size;
+            XPX(0,1) = XPX(1,0) = anno->sum;
+            XPX(1,1) = anno->ssq;
+            VectorXf XPy(2);
+            XPy(0) = rsqVec[0];
+            XPy(1) = rsqVec[k];
+            VectorXf coef = XPX.householderQr().solve(XPy);
+            values[k] = 1.0 + coef(1) / rsqVec[0] * invSnpProp[0];
+        }
+    }
+}
 
 //void ApproxBayesRC::AnnoPerSnpHsqEnrichment::compute(const VectorXf &snpEffects, const VectorXf &annoTotalGenVar, const MatrixXf &annoMat, const MatrixXf &APA, const vector<AnnoInfo*> &annoInfoVec){
 //    VectorXf y = snpEffects.array().square();
@@ -7318,7 +7366,8 @@ void ApproxBayesRC::sampleUnknowns(const unsigned iter){
     annoTotalGenVar.compute(annoGenVar);
     annoPerSnpHsqEnrich.compute(annoTotalGenVar.values, data.annoInfoVec);
     annoJointPerSnpHsqEnrich.compute(annoJointProb, data.annoInfoVec, gamma.values, varg.value, hsqPercModel, sigmaSq.value);
-    
+    annoPerSnpRsqEnrich.compute(snpEffects.fcMean, data.annoMat, data.annoInfoVec);
+
     Vgs.compute(snpEffects.values, snpEffects.snpset);
     
     snpHsqPep.compute(snpEffects.values, varg.value);

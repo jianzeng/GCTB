@@ -1454,6 +1454,7 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
 }
 
 void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const VectorXf &nGWASblock, const bool noscale, const bool makePseudoSummary){
+    cout << "Reading eigenvectors from binary file and making W and Q matrices..." << endl;
     if (!Gadget::directoryExist(dirname)) {
         throw("Error: cannot find the folder [" + dirname + "]");
     }
@@ -1701,6 +1702,10 @@ void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const 
     }
     
     scaleGwasEffects();
+    
+    ldBlockInfoMap.clear();
+//    snpInfoMap.clear();  // free memory from snpInfoMap which is no longer needed
+    
     readEigenMatrixBinaryFileAndMakeWandQ(dirname, eigenCutoff, gwasEffectInBlock, nGWASblock, noscale, true);
     //constructPseudoSummaryData();  // for finding the best eigen cutoff by pseudo validation
     //if (numIncdSnps!=0) constructWandQ(gwasEffectInBlock, numKeptInds);

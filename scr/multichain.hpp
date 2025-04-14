@@ -497,6 +497,15 @@ public:
         }
     };
 
+    class AnnoPerSnpRsqEnrichment : public MultiChainParamSet {
+    public:
+        AnnoPerSnpRsqEnrichment(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("AnnoPerSnpRsq_Enrichment", header, chains.size()){
+            for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->annoPerSnpRsqEnrich);
+            }
+        }
+    };
+
     class AnnoJointPerSnpHsqEnrichment : public MultiChainParamSet {
     public:
         AnnoJointPerSnpHsqEnrichment(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("AnnoJointPerSnpHsq_Enrichment", header, chains.size()){
@@ -529,6 +538,7 @@ public:
     AnnoJointProb annoJointProb;
     AnnoTotalGenVar annoTotalGenVar;
     AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
+    AnnoPerSnpRsqEnrichment annoPerSnpRsqEnrich;
     AnnoJointPerSnpHsqEnrichment annoJointPerSnpHsqEnrich;
     MultiChainSBayesR::NumHighPIPs nHighPips;
     SnpHsqPEP snpHsqPep;
@@ -551,6 +561,7 @@ public:
     annoJointProb(data.annoNames, opt.gamma.size()-1, chainVec),
     annoTotalGenVar(data.annoNames, chainVec),
     annoPerSnpHsqEnrich(data.annoNames, chainVec),
+    annoPerSnpRsqEnrich(data.annoNames, chainVec),
     annoJointPerSnpHsqEnrich(data.annoNames, chainVec),
     snpHsqPep(data.snpEffectNames, chainVec),
     keptLdBlockInfoVec(data.keptLdBlockInfoVec)
@@ -575,6 +586,7 @@ public:
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
         paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
+        paramSetToPrint.push_back(&annoPerSnpRsqEnrich);
 
         if (message) {
             cout << "\nMulti-chain SBayesRC (" << numChains << " chains)" << endl;

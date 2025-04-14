@@ -4529,17 +4529,19 @@ void Data::setAnnoInfoVec() {
     }
     if (print) cout << endl;
     
-    // set up snp-annot pair names
-    snpAnnoPairNames.clear();
-    numAnnoPerSnpVec.resize(numIncdSnps);
-    for (unsigned i=0; i<numIncdSnps; ++i) {
-        SnpInfo *snp = incdSnpInfoVec[i];
-        numAnnoPerSnpVec[i] = snp->numAnnos;
-        for (unsigned j=0; j<snp->numAnnos; ++j) {
-            string snpAnnoPair = snp->ID + "\t" + snp->annoVec[j]->label;
-            snpAnnoPairNames.push_back(snpAnnoPair);
-        }
-    }
+    // set up snp-annot pair names   // Needed by stratify
+//    snpAnnoPairNames.clear();
+//    numAnnoPerSnpVec.resize(numIncdSnps);
+//    for (unsigned i=0; i<numIncdSnps; ++i) {
+//        SnpInfo *snp = incdSnpInfoVec[i];
+//        numAnnoPerSnpVec[i] = snp->numAnnos;
+//        for (unsigned j=0; j<snp->numAnnos; ++j) {
+//            string snpAnnoPair = snp->ID + "\t" + snp->annoVec[j]->label;
+//            snpAnnoPairNames.push_back(snpAnnoPair);
+//        }
+//    }
+    
+    
     
     // set up annotation by annotation matrix APA
     annoMat.setZero(numIncdSnps, numAnnos);
