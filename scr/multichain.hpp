@@ -322,6 +322,7 @@ public:
 
         if (message) {
             cout << "Running " << numModels << " SBayesR models" << endl;
+            if (opt.algorithm == "TGS_thin") cout << "Using tempered Gibbs sampling (TGS)" << endl;
             for (unsigned i=0; i<numModels; ++i) {
                 unsigned numComp = modelVec[i]->gamma.values.size();
                 cout << "  Model " << i+1 << " (M" << i+1 << "): " << numComp << " components with gamma = [";
@@ -350,7 +351,7 @@ public:
     public:
         ChainVecSBayesRC(const Data &data, const Options &opt){
             for (unsigned i=0; i<opt.numChains; ++i) {
-                this->push_back(new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.algorithm, false));
+                this->push_back(new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.estimateRsqEnrich, opt.algorithm, false));
             }
         }
     };
@@ -545,6 +546,8 @@ public:
     
     const vector<LDBlockInfo*> &keptLdBlockInfoVec;
     
+    bool estimateRsqEnrich;
+    
     MultiChainSBayesRC(const Data &data, const Options &opt, const bool message = true):
     MultiChainSBayesR(data, opt, false),
     numChains(opt.numChains),
@@ -564,14 +567,19 @@ public:
     annoPerSnpRsqEnrich(data.annoNames, chainVec),
     annoJointPerSnpHsqEnrich(data.annoNames, chainVec),
     snpHsqPep(data.snpEffectNames, chainVec),
-    keptLdBlockInfoVec(data.keptLdBlockInfoVec)
+    keptLdBlockInfoVec(data.keptLdBlockInfoVec),
+    estimateRsqEnrich(opt.estimateRsqEnrich)
     {
         
         paramVec    = {&hsq};
         paramVec.insert(paramVec.end(), numSnpMix.begin(), numSnpMix.end());
         paramVec.insert(paramVec.end(), vgMix.begin(), vgMix.end());
 
-        paramSetVec = {&snpEffects, &pip, &snpHsqPep, &annoTotalGenVar, &annoPerSnpHsqEnrich, &annoJointPerSnpHsqEnrich};
+        paramSetVec = {&snpEffects, &pip, &snpHsqPep, &annoTotalGenVar, &annoPerSnpHsqEnrich};
+        if (estimateRsqEnrich) {
+            paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
+            paramSetVec.push_back(&annoPerSnpRsqEnrich);
+        }
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
         paramSetVec.insert(paramSetVec.end(), annoEffects.begin(), annoEffects.end());
         paramSetVec.insert(paramSetVec.end(), annoJointProb.begin(), annoJointProb.end());
@@ -585,14 +593,17 @@ public:
         paramSetToPrint.insert(paramSetToPrint.end(), annoJointProb.begin(), annoJointProb.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
-        paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
-        paramSetToPrint.push_back(&annoPerSnpRsqEnrich);
+        if (estimateRsqEnrich) {
+            paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
+            paramSetToPrint.push_back(&annoPerSnpRsqEnrich);
+        }
 
         if (message) {
             cout << "\nMulti-chain SBayesRC (" << numChains << " chains)" << endl;
             if (lowRankModel) {
                 cout << "Using the low-rank model" << endl;
             }
+            if (opt.algorithm == "TGS_thin") cout << "Using tempered Gibbs sampling (TGS)" << endl;
             cout << "Gamma: " << gamma.values.transpose() << endl;
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
             if (numThreadTotal == 1) {
@@ -617,7 +628,7 @@ public:
     public:
         ChainVecSBayesRD(const Data &data, const Options &opt){
             for (unsigned i=0; i<opt.numChains; ++i) {
-                this->push_back(new ApproxBayesRD(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.algorithm, false));
+                this->push_back(new ApproxBayesRD(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.estimateRsqEnrich, opt.algorithm, false));
             }
         }
     };
@@ -801,6 +812,8 @@ public:
     AnnoPi piAnno;
     AnnoPIP annoPip;
     
+    bool estimateRsqEnrich;
+    
     MultiChainSBayesRD(const Data &data, const Options &opt, const bool message = true):
     MultiChainSBayesRC(data, opt, false),
     chainVec(data, opt),
@@ -818,14 +831,18 @@ public:
     annoJointPerSnpHsqEnrich(data.annoNames, chainVec),
     snpHsqPep(data.snpEffectNames, chainVec),
     piAnno(chainVec),
-    annoPip(data.annoNames, chainVec)
+    annoPip(data.annoNames, chainVec),
+    estimateRsqEnrich(opt.estimateRsqEnrich)
     {
         
         paramVec    = {&hsq, &piAnno};
         paramVec.insert(paramVec.end(), numSnpMix.begin(), numSnpMix.end());
         paramVec.insert(paramVec.end(), vgMix.begin(), vgMix.end());
 
-        paramSetVec = {&snpEffects, &pip, &snpHsqPep, &annoTotalGenVar, &annoPerSnpHsqEnrich, &annoJointPerSnpHsqEnrich, &annoPip};
+        paramSetVec = {&snpEffects, &pip, &snpHsqPep, &annoTotalGenVar, &annoPerSnpHsqEnrich, &annoPip};
+        if (estimateRsqEnrich) {
+            paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
+        }
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
         paramSetVec.insert(paramSetVec.end(), annoEffects.begin(), annoEffects.end());
         paramSetVec.insert(paramSetVec.end(), annoJointProb.begin(), annoJointProb.end());
@@ -839,7 +856,9 @@ public:
         paramSetToPrint.insert(paramSetToPrint.end(), annoJointProb.begin(), annoJointProb.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
-        paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
+        if (estimateRsqEnrich) {
+            paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
+        }
         paramSetToPrint.push_back(&annoPip);
 
         if (message) {

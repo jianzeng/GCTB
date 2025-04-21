@@ -156,7 +156,7 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
                         const VectorXf &pis, const VectorXf &piPar, const VectorXf &gamma, const bool estimateSigmaSq,
                         const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow,
                         const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS,
-                        const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool hsqPercModel, const bool perSnpGV, const bool robustMode, const bool nDistAuto){
+                        const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool hsqPercModel, const bool perSnpGV, const bool robustMode, const bool nDistAuto, const bool estimateRsqEnrich){
     
     data.initVariances(heritability, propVarRandom);
 
@@ -175,9 +175,9 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
             if (bayesType == "S")
                 return new StratApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, robustMode);
             else if (bayesType == "RC")
-                return new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, algorithm);
+                return new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, algorithm);
             else if (bayesType == "RD")
-                return new ApproxBayesRD(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, algorithm);
+                return new ApproxBayesRD(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, algorithm);
             else
                 throw(" Error: Wrong bayes type: " + bayesType + " in the annotation-stratified summary-data-based Bayesian analysis.");
         }
@@ -205,7 +205,7 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
     if (data.numAnnos) {
         if (bayesType == "RC") {
             data.readBedFile(noscale, bedFile + ".bed");
-            return new BayesRC(data, data.varGenotypic, data.varResidual, data.varRandom, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, "Gibbs");
+            return new BayesRC(data, data.varGenotypic, data.varResidual, data.varRandom, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, estimateRsqEnrich, "Gibbs");
         }
         else
             throw(" Error: Wrong bayes type: " + bayesType + " in the annotation-stratified Bayesian analysis.");
@@ -1128,7 +1128,7 @@ void GCTB::calcCredibleSets(Data &data, McmcSamples &snpEffects, const float pip
             }
         }
         
-        if(!(j%10000)) cout << " Computed credible sets for SNP " << j << " numCS " << numCS << " sumCSsize " << sumCSsize << "\r" << flush;
+        //if(!(j%10000)) cout << " Computed credible sets for SNP " << j << " numCS " << numCS << " sumCSsize " << sumCSsize << "\r" << flush;
     }
     
     
@@ -1237,24 +1237,29 @@ void GCTB::calcCredibleSets(Data &data, McmcSamples &snpEffects, const float pip
     
     out2.close();
     
-    
-    out3 << boost::format("%12s %12s %12s\n") % "SNP" % "PIP" % "PropVar";
+
+    VectorXf threshold_vec(11);
+    threshold_vec << 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9;
+
+    out3 << boost::format("%12s %12s %12s\n") % "Alpha" % "SNP" % "PIP";
     
     std::sort(data.snpInfoVec.begin(), data.snpInfoVec.end(), &GCTB::comparePIP);
     
-    double cumPip = 0.0;
-    for (unsigned j=0; j<data.numSnps; ++j){
-        SnpInfo *snp = data.snpInfoVec[j];
-        cumPip += snp->pip;
-        out3 << boost::format("%12s %12s %12s\n") % snp->ID % snp->pip % snp->varExplained;
-        if (cumPip > pipThreshold*nnz) break;
+    for (unsigned k=0; k<threshold_vec.size(); ++k) {
+        double cumPip = 0.0;
+        for (unsigned j=0; j<data.numSnps; ++j){
+            SnpInfo *snp = data.snpInfoVec[j];
+            cumPip += snp->pip;
+            out3 << boost::format("%12.2f %12s %12s\n") % threshold_vec[k]  % snp->ID % snp->pip;
+            if (cumPip > threshold_vec[k]*nnz) break;
+        }
     }
     out3.close();
     
     
     out4 << boost::format("%8s %12s %12s\n") % "Threshold" % "CS_size" % "Prop_hsq";
     
-    VectorXf threshold_vec(12);
+    threshold_vec.resize(12);
     threshold_vec << 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1;
     for (unsigned k=0; k<threshold_vec.size(); ++k) {
         double cumPip = 0.0;

@@ -1778,6 +1778,7 @@ public:
             }
             if (robustMode) cout << "Using a more robust parameterisation " << endl;
             if (algorithm == cg) cout << "Conjugate gradient-adjusted Gibbs sampling" << endl;
+            if (algorithm == tgs_thin) cout << "Using tempered Gibbs sampling (TGS)" << endl;
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
         }
     }
@@ -1876,7 +1877,7 @@ public:
             if (algorithm == tgs || algorithm == tgs_thin) {
                 cout << "Using tempered Gibbs sampling (TGS) algorithm for high-LD SNPs" << endl;
                 if (!data.LDmap.size()) {
-                    cout << "\nError: To use tempered GIbbs sampling, you need to give pairwise LD file by --ld-file " << endl;
+                    cout << "\nError: To use tempered GIbbs sampling, you need to give pairwise LD file by --pwld-file " << endl;
                 }
             }
         }
@@ -2307,8 +2308,10 @@ public:
         
     MatrixXf snpP;    // p = Pr(k>i | k>i-1); p2 = pi2+pi3+pi4; p3 = (pi3+pi4)/(pi2+pi3+pi4); p4 = pi4/(pi3+pi4)
     MatrixXf snpPi;   // pi1 = 1-p2; pi2 = (1-p3)*p2; pi3 = (1-p4)*p2*p3; pi4 = p2*p3*p4
+    
+    bool estimateRsqEnrich;
             
-    ApproxBayesRC(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool robustMode, const string &alg, const bool message = true):
+    ApproxBayesRC(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool robustMode, const bool estimateRsqEnrich, const string &alg, const bool message = true):
     ApproxBayesR(data, lowRank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, alg, false),
     snpEffects(data.snpEffectNames, pis),
     annoEffects(data.annoNames, pis.size(), data.annoMat),
@@ -2320,7 +2323,8 @@ public:
     annoPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
     annoPerSnpRsqEnrich(data.annoNames, data.annoInfoVec),
     annoJointPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
-    annoDist(data.annoNames, pis.size())
+    annoDist(data.annoNames, pis.size()),
+    estimateRsqEnrich(estimateRsqEnrich)
     {
                 
         initSnpPandPi(pis, data.numIncdSnps, snpP, snpPi);
@@ -2338,8 +2342,10 @@ public:
         paramSetVec.insert(paramSetVec.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetVec.push_back(&annoTotalGenVar);
         paramSetVec.push_back(&annoPerSnpHsqEnrich);
-        paramSetVec.push_back(&annoPerSnpRsqEnrich);
-        paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
+        if (estimateRsqEnrich) {
+            paramSetVec.push_back(&annoPerSnpRsqEnrich);
+            paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
+        }
 
         paramVec    = {&nnzSnp, &sigmaSq, &hsq, &vare};
         paramVec.insert(paramVec.end(), numSnps.begin(), numSnps.end());
@@ -2352,8 +2358,10 @@ public:
         paramSetToPrint.insert(paramSetToPrint.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
-        paramSetToPrint.push_back(&annoPerSnpRsqEnrich);
-        paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
+        if (estimateRsqEnrich) {
+            paramSetToPrint.push_back(&annoPerSnpRsqEnrich);
+            paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
+        }
 
         paramToPrint = {&sigmaSq, &hsq, &vare};
         paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
@@ -2379,6 +2387,7 @@ public:
             }
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
             if (robustMode) cout << "Using a more robust parameterisation " << endl;
+            if (algorithm == tgs_thin) cout << "Using tempered Gibbs sampling (TGS)" << endl;
         }
     }
 
@@ -2426,8 +2435,10 @@ public:
     MatrixXf snpPi;   // pi1 = 1-p2; pi2 = (1-p3)*p2; pi3 = (1-p4)*p2*p3; pi4 = p2*p3*p4
 
     enum {gibbs, mh} algorithm;
+    
+    bool estimateRsqEnrich;
 
-    BayesRC(const Data &data, const float varGenotypic, const float varResidual, const float varRandom, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel,
+    BayesRC(const Data &data, const float varGenotypic, const float varResidual, const float varRandom, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool estimateRsqEnrich,
             const string &alg, const bool message = true):
     BayesR(data, varGenotypic, varResidual, varRandom, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, alg, false),
     snpEffects(data.snpEffectNames, pis),
@@ -2438,7 +2449,8 @@ public:
     annoGenVar(data.annoNames, pis.size(), data.numKeptInds),
     annoTotalGenVar(data.annoNames),
     annoPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
-    annoJointPerSnpHsqEnrich(data.annoNames, data.annoInfoVec)
+    annoJointPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
+    estimateRsqEnrich(estimateRsqEnrich)
     {
         initSnpPandPi(pis, data.numIncdSnps, snpP, snpPi);
         
@@ -2458,7 +2470,9 @@ public:
         paramSetVec.insert(paramSetVec.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetVec.push_back(&annoTotalGenVar);
         paramSetVec.push_back(&annoPerSnpHsqEnrich);
-        paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
+        if (estimateRsqEnrich) {
+            paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
+        }
 
         paramVec     = {&nnzSnp, &sigmaSq, &varg, &vare, &hsq};
         paramVec.insert(paramVec.end(), numSnps.begin(), numSnps.end());
@@ -2471,7 +2485,9 @@ public:
         paramSetToPrint.insert(paramSetToPrint.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
-        paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
+        if (estimateRsqEnrich) {
+            paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
+        }
 
         paramToPrint = {&sigmaSq, &varg, &vare, &hsq};
         paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
@@ -2569,8 +2585,8 @@ public:
     AnnoCondProb annoCondProb;
     AnnoPIP annoPip;
 
-    ApproxBayesRD(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool robustMode, const string &alg, const bool message = true):
-    ApproxBayesRC(data, lowRank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, alg, false),
+    ApproxBayesRD(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool robustMode, const bool estimateRsqEnrich, const string &alg, const bool message = true):
+    ApproxBayesRC(data, lowRank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, alg, false),
     annoEffects(data.annoNames, pis.size(), data.annoMat),
     annoCondProb(data.annoNames, annoEffects.numComp),
     annoPip(data.annoNames)
@@ -2585,7 +2601,9 @@ public:
         paramSetVec.insert(paramSetVec.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetVec.push_back(&annoTotalGenVar);
         paramSetVec.push_back(&annoPerSnpHsqEnrich);
-        paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
+        if (estimateRsqEnrich) {
+            paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
+        }
 
         paramVec = {&nnzSnp, &sigmaSq, &hsq, &vare, &piAnno};
         paramVec.insert(paramVec.end(), numSnps.begin(), numSnps.end());
@@ -2598,7 +2616,9 @@ public:
         paramSetToPrint.insert(paramSetToPrint.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
-        paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
+        if (estimateRsqEnrich) {
+            paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
+        }
         paramSetToPrint.push_back(&annoPip);
 
         paramToPrint = {&sigmaSq, &hsq, &vare, &piAnno};

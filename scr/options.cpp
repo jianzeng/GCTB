@@ -28,6 +28,17 @@ void Options::inputOptions(const int argc, const char* argv[]){
             analysisType = "SBayes";
             bayesType = argv[++i];
             ss << "--sbayes " << argv[i] << "\n";
+        }else if (!strcmp(argv[i], "--gwfm")) {
+            analysisType = "GWFM";
+            bayesType = argv[++i];
+            nDistAuto = true;
+            writeBinPosterior = true;
+            algorithm = "TGS_thin";
+            pairwiseLDfile = "rsq0.5.pwld";
+            rsqThreshold = 0.5;
+            flank = 5000;
+            numChains = 4;
+            ss << "--gwfm " << argv[i] << "\n";
         }else if(!strcmp(argv[i], "--eig-cutoff")){
             eigCutMethod = argv[++i];
             eigThreshold = stof(argv[++i]);
@@ -54,6 +65,9 @@ void Options::inputOptions(const int argc, const char* argv[]){
         }
         else if (!strcmp(argv[i], "--cs")) {
             analysisType = "CS";
+            pairwiseLDfile = "rsq0.5.pwld";
+            rsqThreshold = 0.5;
+            flank = 5000;
             ss << "--cs " << "\n";
         }
         else if (!strcmp(argv[i], "--pip")) {
@@ -241,9 +255,9 @@ void Options::inputOptions(const int argc, const char* argv[]){
             analysisType = "Convert";
             ss << "--convert " << "\n";
         }
-        else if (!strcmp(argv[i], "--get-ld")) {
+        else if (!strcmp(argv[i], "--get-pwld")) {
             analysisType = "GetLD";
-            ss << "--get-ld " << "\n";
+            ss << "--get-pwld " << "\n";
         }
         else if (!strcmp(argv[i], "--get-ld-frd")) {
             analysisType = "GetLDfriends";
@@ -257,9 +271,9 @@ void Options::inputOptions(const int argc, const char* argv[]){
             snpResFile = argv[++i];
             ss << "--snp-res " << argv[i] << "\n";
         }
-        else if (!strcmp(argv[i], "--ld-file")) {
+        else if (!strcmp(argv[i], "--pwld-file")) {
             pairwiseLDfile = argv[++i];
-            ss << "--ld-file " << argv[i] << "\n";
+            ss << "--pwld-file " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--ld-frd-file")) {
             ldfriendFile = argv[++i];
@@ -641,6 +655,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
                 throw("Error in --genome-build. Available value: hg19 or hg38.");
             }
             ss << "--genome-build " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--estimate-rsq-enrich")) {
+            estimateRsqEnrich = true;
+            ss << "--estimate-rsq-enrich " << "\n";
         }
         else {
             stringstream errmsg;

@@ -715,17 +715,40 @@ void Data::includeSkeletonSnp(const string &skeletonSnpFile){
 }
 
 void Data::excludeMHC(){
-    long cnt = 0;
-    for (unsigned i=0; i<numSnps; ++i) {
-        SnpInfo *snp = snpInfoVec[i];
-        if (snp->chrom == 6) {
-            if (snp->physPos > 28e6 && snp->physPos < 34e6) {
-                snp->included = false;
-                ++cnt;
+    
+    if (numLDBlocks) {
+        long cnt = 0;
+        for (unsigned i=0; i<numLDBlocks; ++i) {
+            LDBlockInfo *block = ldBlockInfoVec[i];
+            if (block->chrom == 6) {
+                if ((block->startPos < 28e6 && block->endPos > 28e6 && block->endPos < 34e6) ||
+                    (block->startPos > 28e6 && block->endPos < 34e6) ||
+                    (block->startPos > 28e6 && block->startPos < 34e6 && block->endPos > 34e6)) {
+                    block->kept = false;
+                    for (unsigned j=0; j<block->snpInfoVec.size(); ++j) {
+                        SnpInfo *snp = block->snpInfoVec[j];
+                        snp->included = false;
+                    }
+                    ++cnt;
+                }
             }
         }
+        cout << cnt << " blocks in the MHC region (Chr6:28-34Mb) are excluded." << endl;
     }
-    cout << cnt << " SNPs in the MHC region (Chr6:28-34Mb) are excluded." << endl;
+    else {
+        long cnt = 0;
+        for (unsigned i=0; i<numSnps; ++i) {
+            SnpInfo *snp = snpInfoVec[i];
+            if (snp->chrom == 6) {
+                if (snp->physPos > 28e6 && snp->physPos < 34e6) {
+                    snp->included = false;
+                    ++cnt;
+                }
+            }
+        }
+        cout << cnt << " SNPs in the MHC region (Chr6:28-34Mb) are excluded." << endl;
+    }
+    
 }
 
 void Data::excludeAmbiguousSNP(){
@@ -4183,6 +4206,7 @@ void Data::buildSparseMME(const bool sampleOverlap, const bool noscale){
     cout << boost::format("%40s %8.3f %8.3f\n") %"MME right-hand-side" %Gadget::calcMean(ZPy) %sqrt(Gadget::calcVariance(ZPy));
     cout << boost::format("%40s %8.3f %8.3f\n") %"LD sampling variance" %Gadget::calcMean(LDsamplVar) %sqrt(Gadget::calcVariance(LDsamplVar));
     cout << boost::format("%40s %8.3f %8.3f\n") %"LD score" %Gadget::calcMean(LDscore) %sqrt(Gadget::calcVariance(LDscore));
+    cout << endl;
 //    cout << "\n  Median of per-SNP phenotypic variance: " << varp << endl;
 
 //    ofstream out("tmp.txt");
@@ -5034,7 +5058,9 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
     }
     
     cout << line << " matched SNPs in the annotation file (" << numAnnos << " annotations and " << numMultiAnno << " SNPs have more than one annotation)." << endl;
-    if (line < numSnps) cout << "\nWarning: " << numSnps - line << " SNPs in the GWAS file do not have annotation. This may cause a problem if using SBayesRC!\n" << endl;
+    if (line < numSnps) {
+        throw("\nError: " + to_string(numSnps - line) + " SNPs in the GWAS file do not have annotation. To resolve this, add one for these SNPs in the Intercept column.\n");
+    }
 }
 
 void Data::makeWindowAnno(const string &annoFile, const float windowWidth){
@@ -6010,7 +6036,7 @@ void Data::getLDfromEigenMatrix(const string &eigenMatrixFile, const float rsqTh
 
     }
     
-    string filename = title + ".ld.txt";
+    string filename = title + ".pwld";  // pairwise LD file
     ofstream out(filename.c_str());
 
     out << boost::format("%12s %12s %12s\n")
@@ -6121,9 +6147,9 @@ void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold){
 
     in.close();
     if (rsqThreshold < 1.0) {
-        cout << "\nFound on average " << sum/cnt << " LD friends for each of " << cnt << " SNPs given the rsq threshold of " << rsqThreshold << "." << endl;
+        cout << "Found on average " << sum/cnt << " LD friends for each of " << cnt << " SNPs given the rsq threshold of " << rsqThreshold << "." << endl;
     } else {
-        cout << "\nFound on average " << sum/cnt << " LD friends for each of " << cnt << " SNPs." << endl;
+        cout << "Found on average " << sum/cnt << " LD friends for each of " << cnt << " SNPs." << endl;
     }
 
 }
@@ -6176,7 +6202,7 @@ void Data::getLDfriends(const string &pairwiseLDfile, const float rsqThreshold, 
 
     out.close();
 
-    cout << "\nFound on average " << sum/cnt << " LD friends for each SNP given the rsq threshold of " << rsqThreshold << "." << endl;
+    cout << "Found on average " << sum/cnt << " LD friends for each SNP given the rsq threshold of " << rsqThreshold << "." << endl;
     cout << "Output LD friends for " << cnt << " SNPs into file [" << filename << "]." << endl;
 }
 
@@ -6217,7 +6243,7 @@ void Data::inputLDfriends(const string &ldfriendFile){
             LDmap[snp1].push_back(snp2);
         }
         
-        if (!(++line%1000)) cout << " read " << line << " lines in the file. \r" << flush;
+        //if (!(++line%1000)) cout << " read " << line << " lines in the file. \r" << flush;
     }
     
     map<SnpInfo*, vector<SnpInfo*> >::iterator itLDmap, endLDmap = LDmap.end();
@@ -6229,7 +6255,7 @@ void Data::inputLDfriends(const string &ldfriendFile){
     }
     
     in.close();
-    cout << "\nFound on average " << sum/cnt << " LD friends for each SNP." << endl;
+    cout << "Found on average " << sum/cnt << " LD friends for each SNP." << endl;
 
 }
 

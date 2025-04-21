@@ -114,6 +114,7 @@ public:
     bool imputeSummary;
     bool nDistAuto;  // automatically determine the number of mixture distributions
     bool writeWandQ; // output w and Q in text format
+    bool estimateRsqEnrich;  // estimate prediction R2 enrichment
     
     string eigCutMethod = "value";
     float eigThreshold = 0.001;
@@ -264,6 +265,7 @@ public:
         imputeSummary           = false;
         nDistAuto               = false;
         writeWandQ              = false;
+        estimateRsqEnrich       = false;
         
         title                   = "gctb";
         analysisType            = "Bayes";

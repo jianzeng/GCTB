@@ -17,10 +17,10 @@ using namespace std;
 int main(int argc, const char * argv[]) {
     
     cout << "*********************************************************\n";
-    cout << "* GCTB 2.5.3.23                                         *\n";
+    cout << "* GCTB 2.5.3.25                                         *\n";
     cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
     cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
-    cout << "* Last updated: 26 Mar, 2025                            *\n";
+    cout << "* Last updated: 21 Apr, 2025                            *\n";
     cout << "* MIT License                                           *\n";
     cout << "*********************************************************\n";
     
@@ -61,7 +61,7 @@ int main(int argc, const char * argv[]) {
             
             Model *model = gctb.buildModel(data, opt, opt.bedFile, "", opt.bayesType, opt.windowWidth,
                                             opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
-                                            opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
+                                            opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto, opt.estimateRsqEnrich);
             vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, 1, opt.chainLength, opt.burnin, opt.thin,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
             //gctb.saveMcmcSamples(mcmcSampleVec, opt.title);
@@ -177,7 +177,7 @@ int main(int argc, const char * argv[]) {
             }
             data.getLDfriends(opt.pairwiseLDfile, opt.rsqThreshold, opt.title);
         }
-        else if (opt.analysisType == "SBayes") {
+        else if (opt.analysisType == "SBayes" || opt.analysisType == "GWFM") {
             if (!opt.ldmatrixFile.empty()) {
                 gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.genMapN, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile, opt.windowFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold, opt.sampleOverlap, opt.imputeN, opt.noscale, opt.binSnp, opt.readLdmTxt);
             } else if (!opt.eigenMatrixFile.empty()) {  // low-rank model
@@ -189,7 +189,9 @@ int main(int argc, const char * argv[]) {
                                   opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
                                   opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
                                   opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock);
-                if (!opt.pairwiseLDfile.empty()) data.inputPairwiseLD(opt.pairwiseLDfile, opt.rsqThreshold);
+                if (opt.analysisType == "GWFM") {
+                    data.inputPairwiseLD(opt.eigenMatrixFile+"/"+opt.pairwiseLDfile, 0.95);  // for TGS sampling
+                }
                 float bestEigenCutoff = opt.eigenCutoff.size() > 1 ? gctb.tuneEigenCutoff(data, opt) : opt.eigenCutoff[0];
                 data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, bestEigenCutoff, data.gwasEffectInBlock, data.nGWASblock, opt.noscale, false);
                 if (opt.writeWandQ) data.outputWandQ("w_and_Q");
@@ -210,7 +212,7 @@ int main(int argc, const char * argv[]) {
             
             Model *model = gctb.buildModel(data, opt, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
                                            opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
-                                           opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
+                                           opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto, opt.estimateRsqEnrich);
             
 //            vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.numChains, opt.chainLength, opt.burnin, opt.thin,
 //                                                              opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
@@ -225,7 +227,7 @@ int main(int argc, const char * argv[]) {
                 opt.robustMode = true;
                 model = gctb.buildModel(data, opt, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
                                         opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
-                                        opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto);
+                                        opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.hsqPercModel, opt.perSnpGV, opt.robustMode, opt.nDistAuto, opt.estimateRsqEnrich);
                 mcmc = new MCMC();
                 vector<McmcSamples*> mcmcSampleVec = mcmc->run(*model, opt.numChains, opt.chainLength, opt.burnin, opt.thin, true,
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
@@ -233,6 +235,13 @@ int main(int argc, const char * argv[]) {
             
             if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.bayesType, opt.noscale, opt.title);
             
+            if (opt.analysisType == "GWFM") {
+                McmcSamples *snpEffects = gctb.inputMcmcSamples(opt.title, "SnpEffects", "bin");
+                data.inputNewSnpResults(opt.title + ".snpRes");
+                data.inputPairwiseLD(opt.eigenMatrixFile+"/"+opt.pairwiseLDfile, opt.rsqThreshold);
+                if (!opt.geneMapFile.empty()) data.readGeneMapFile(opt.geneMapFile, opt.flank, opt.genomeBuild);
+                gctb.calcCredibleSets(data, *snpEffects, opt.pipThreshold, opt.pepThreshold, opt.title);
+            }
         }
         else if (opt.analysisType == "ConjugateGradient") {
             gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.genMapN, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile, opt.windowFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold, opt.sampleOverlap, opt.imputeN, opt.noscale, opt.binSnp, opt.readLdmTxt);
@@ -281,22 +290,16 @@ int main(int argc, const char * argv[]) {
 //                gctb.calcCredibleSets(data, opt.mcmcSampleFile + ".snpRes", *snpEffects, opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff(), opt.pipThreshold, opt.title);
 //            } 
             if (!opt.pairwiseLDfile.empty()) {
-                if (opt.rsqThreshold == 1.0) {
-                    opt.rsqThreshold = 0.5;  // default value
-                }
                 McmcSamples *snpEffects = gctb.inputMcmcSamples(opt.mcmcSampleFile, "SnpEffects", "bin");
                 data.inputNewSnpResults(opt.mcmcSampleFile + ".snpRes");
-                data.inputPairwiseLD(opt.pairwiseLDfile, opt.rsqThreshold);
+                data.inputPairwiseLD(opt.eigenMatrixFile+"/"+opt.pairwiseLDfile, opt.rsqThreshold);
                 if (!opt.geneMapFile.empty()) data.readGeneMapFile(opt.geneMapFile, opt.flank, opt.genomeBuild);
                 gctb.calcCredibleSets(data, *snpEffects, opt.pipThreshold, opt.pepThreshold, opt.title);
             }
             else if (!opt.ldfriendFile.empty()) {
-                if (opt.rsqThreshold == 1.0) {
-                    opt.rsqThreshold = 0.5;  // default value
-                }
                 McmcSamples *snpEffects = gctb.inputMcmcSamples(opt.mcmcSampleFile, "SnpEffects", "bin");
                 data.inputNewSnpResults(opt.mcmcSampleFile + ".snpRes");
-                data.inputLDfriends(opt.ldfriendFile);
+                data.inputLDfriends(opt.eigenMatrixFile+"/"+opt.ldfriendFile);
                 if (!opt.geneMapFile.empty()) data.readGeneMapFile(opt.geneMapFile, opt.flank, opt.genomeBuild);
                 gctb.calcCredibleSets(data, *snpEffects, opt.pipThreshold, opt.pepThreshold, opt.title);
             } else {

@@ -1223,6 +1223,13 @@ void Data::readBlockLdmSnpInfoFile(const string &snpInfoFile){
     }
     in.close();
     numSnps = (unsigned) snpInfoVec.size();
+    
+    for (unsigned i=0; i<numLDBlocks; ++i) {
+        LDBlockInfo *block = ldBlockInfoVec[i];
+        block->startPos = snpInfoVec[block->startSnpIdx]->physPos;
+        block->endPos = snpInfoVec[block->endSnpIdx]->physPos;
+    }
+    
     cout << numSnps << " SNPs to be included from [" + snpInfoFile + "]." << endl;
 }
 
@@ -1454,7 +1461,9 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
 }
 
 void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const VectorXf &nGWASblock, const bool noscale, const bool makePseudoSummary){
-    cout << "Reading eigenvectors from binary file and making W and Q matrices..." << endl;
+    if (!wcorrBlocks.size()) {  // only print for the first time reading the data
+        cout << "Reading eigenvectors from binary file and making W and Q matrices..." << endl;
+    }
     if (!Gadget::directoryExist(dirname)) {
         throw("Error: cannot find the folder [" + dirname + "]");
     }
@@ -1700,6 +1709,20 @@ void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const 
             throw("Error: SNP " + snp->ID + " in the LD reference has no summary data. Run --impute-summary first.");
         }
     }
+    unsigned nmiss = 0;
+    for (unsigned i=0; i<numKeptLDBlocks; ++i) {
+        LDBlockInfo *block = keptLdBlockInfoVec[i];
+        for (unsigned j=0; j<block->numSnpInBlock; ++j) {
+            SnpInfo *snp = block->snpInfoVec[j];
+            if (snp->gwas_b == -999) {
+                cout << "Error: SNP " + snp->ID + " in the LD reference has no summary data." << endl;
+                ++nmiss;
+            }
+        }
+    }
+    if (nmiss) {
+        throw("Error: " + to_string(nmiss) + " SNPs in the LD reference has no summary data. To resolve this, run --impute-summary first.");
+    }
     
     scaleGwasEffects();
     
@@ -1720,7 +1743,8 @@ void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const 
     cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP SE" %Gadget::calcMean(se) %sqrt(Gadget::calcVariance(se));
     cout << boost::format("%40s %8.0f %8.0f\n") %"LD block size" %Gadget::calcMean(numSnpsBlock) %sqrt(Gadget::calcVariance(numSnpsBlock));
     cout << boost::format("%40s %8.0f %8.0f\n") %"LD block rank" %Gadget::calcMean(numEigenvalBlock) %sqrt(Gadget::calcVariance(numEigenvalBlock));
-    
+    cout << endl;
+
     if (numAnnos) setAnnoInfoVec();
     lowRankModel = true;
 
