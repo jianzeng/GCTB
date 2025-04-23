@@ -627,13 +627,16 @@ void Data::includeSnp(const string &includeSnpFile){
     }
     map<string, SnpInfo*>::iterator it, end = snpInfoMap.end();
     string id;
+    unsigned line = 0;
     while (in >> id) {
         it = snpInfoMap.find(id);
         if (it != end) {
             it->second->included = true;
         }
+        ++line;
     }
     in.close();
+    cout << "Included " << line << " SNPs from [" + includeSnpFile + "]." << endl;
 }
 
 void Data::excludeSnp(const string &excludeSnpFile){
@@ -641,21 +644,27 @@ void Data::excludeSnp(const string &excludeSnpFile){
     if (!in) throw ("Error: can not open the file [" + excludeSnpFile + "] to read.");
     map<string, SnpInfo*>::iterator it, end = snpInfoMap.end();
     string id;
+    unsigned line = 0;
     while (in >> id) {
         it = snpInfoMap.find(id);
         if (it != end) {
             it->second->included = false;
         }
+        ++line;
     }
     in.close();
+    cout << "Excluded " << line << " SNPs from [" + excludeSnpFile + "]." << endl;
 }
 
 void Data::includeChr(const unsigned chr){
     if (!chr) return;
+    unsigned cnt = 0;
     for (unsigned i=0; i<numSnps; ++i){
         SnpInfo *snp = snpInfoVec[i];
         if (snp->chrom != chr) snp->included = false;
+        else ++cnt;
     }
+    cout << "Included " << cnt << " SNPs on chromosome " << chr << "." << endl;
 }
 
 void Data::includeBlock(const unsigned block){
@@ -691,7 +700,7 @@ void Data::includeBlock(const unsigned block){
             }
         }
     }
-    cout << "Included " << cnt << " SNPs in block " << blockInfo->ID << endl;
+    cout << "Included " << cnt << " SNPs in block " << blockInfo->ID << "." << endl;
 }
 
 void Data::includeSkeletonSnp(const string &skeletonSnpFile){
@@ -5778,6 +5787,170 @@ void Data::filterSnpByGelmanRubinStat(const float threshold){
     }
 }
 
+//void Data::convert(const string &eigenMatrixFile, const string &snplistFile, const string &title) {
+//    ifstream in(snplistFile.c_str());
+//    if (!in) {
+//        throw("Error: cannot open file " + snplistFile);
+//    }
+//
+//    for (unsigned i=0; i<numSnps; ++i) {
+//        SnpInfo *snp = snpInfoVec[i];
+//        snp->included = false;
+//    }
+//    
+//    string id;
+//    unsigned line = 0;
+//    map<string, SnpInfo*>::iterator it, end = snpInfoMap.end();
+//
+//    while (in >> id) {
+//        it = snpInfoMap.find(id);
+//        if (it != end) {
+//            it->second->included = true;
+//        }
+//        ++line;
+//    }
+//    
+//    in.close();
+//    if (line) cout << "\nConverting the joint effects of " << line << " SNPs..." << endl;
+//
+//    
+//    vector<int> numSnpInRegion(numLDBlocks);
+//    
+//    for(int i = 0; i < numLDBlocks;i++){
+//        LDBlockInfo *block = ldBlockInfoVec[i];
+//        numSnpInRegion[i] = block->numSnpInBlock;
+//    }
+//    
+//#pragma omp parallel for schedule(dynamic)
+//    for(int i = 0; i < numLDBlocks; i++){
+//        LDBlockInfo *block = ldBlockInfoVec[i];
+//        int32_t cur_m = 0;
+//        int32_t cur_k = 0;
+//        float sumPosEigVal = 0;
+//        float oldEigenCutoff =0;
+//        
+//        string infile = eigenMatrixFile + "/block" + block->ID + ".eigen.bin";
+//        FILE *fp = fopen(infile.c_str(), "rb");
+//        if(!fp){throw ("Error: can not open the file [" + infile + "] to read.");}
+//
+//        // 1. marker number
+//        if(fread(&cur_m, sizeof(int32_t), 1, fp) != 1){
+//            throw("Read " + infile + " error (m)");
+//        }
+//                
+//        if(cur_m != numSnpInRegion[i]){
+//            throw("In LD block " + block->ID + ", inconsistent marker number to marker information in " + infile);
+//        }
+//        // 2. ncol of eigenVec (number of eigenvalues)
+//        if(fread(&cur_k, sizeof(int32_t), 1, fp) != 1){
+//            throw("In LD block " + block->ID + ", error about number of eigenvalues in  " + infile);
+//            // cout << "Read " << eigenBinFile << " error (k)" << endl;
+//            // throw("read file error");
+//        }
+//        // 3. sum of all positive eigenvalues
+//        if(fread(&sumPosEigVal, sizeof(float), 1, fp) != 1){
+//            throw("In LD block " + block->ID + ", error about the sum of positive eigenvalues in " + infile);
+//            // cout << "Read " << eigenBinFile << " error sumLambda" << endl;
+//            // throw("read file error");
+//        }
+//        // 4. eigenCutoff
+//        if(fread(&oldEigenCutoff, sizeof(float), 1, fp) != 1){
+//            throw("In LD block " + block->ID + ", error about eigen cutoff used in " + infile);
+//            // cout << "Read " << eigenBinFile << " error svdVarProp" << endl;
+//            // throw("read file error");
+//        }
+//        // 5. eigenvalues
+//        VectorXf lambda(cur_k);
+//        if(fread(lambda.data(), sizeof(float), cur_k, fp) != cur_k){
+//            throw("In LD block " + block->ID + ",size error about eigenvalues in " + infile);
+//            // cout << "Read " << eigenBinFile << " error (lambda)" << endl;
+//            // throw("read file error");
+//        }
+//        // 6. eigenvector
+//        MatrixXf U(cur_m, cur_k);
+//        uint64_t nElements = (uint64_t)cur_m * (uint64_t)cur_k;
+//        if(fread(U.data(), sizeof(float), nElements, fp) != nElements){
+//            cout << "fread(U.data(), sizeof(float), nElements, fp): " << fread(U.data(), sizeof(float), nElements, fp) << endl;
+//            cout << "nEle: " << nElements << " U.size: " << U.size() <<  " U.col: " << U.cols() << " row: " << U.rows() << endl;
+//            throw("In LD block " + block->ID + ",size error about eigenvectors in " + infile);
+//            // cout << "Read " << eigenBinFile << " error (U)" << endl;
+//            // throw("read file error");
+//        }
+//                
+//        /// Step 1. construct LD
+//        MatrixXf LDPerBlock = U * lambda.asDiagonal() * U.transpose();
+//        float diag_mod = 0.1;
+//        LDPerBlock.diagonal().array() += diag_mod;
+//                
+//        /// Step 2. Construct the LD correlation matrix among the target SNPs(LDtt) and the LD correlation matrix among the target SNPs and the current full SNPs (LDtf).
+//        int numTargetSNPs = 0;
+//        for(unsigned j=0; j < block->numSnpInBlock; j++){
+//            SnpInfo *snp = block->snpInfoVec[j];
+//            if(snp->included) ++numTargetSNPs;
+//            //cout << j << " " << snp->included << endl;
+//        }
+//                
+//        if (numTargetSNPs) {
+//            // Step 2.1 divide SNPs into typed and untyped SNPs
+//            VectorXi targetSnpIdx(numTargetSNPs);
+//            VectorXi fullSnpIdx(block->numSnpInBlock);
+//            VectorXf betaFullSnp(block->numSnpInBlock);
+//            for(unsigned j=0, idxTar=0; j < block->numSnpInBlock; j++){
+//                SnpInfo *snp = block->snpInfoVec[j];
+//                fullSnpIdx[j] = j;
+//                betaFullSnp[j] = snp->effect;
+//                if(snp->included){
+//                    // target snp
+//                    targetSnpIdx[idxTar++] = j;
+//                }
+//            }
+//            
+//            // Step 2.2 construct LDtt and LDft
+//            MatrixXf LDtt = LDPerBlock(targetSnpIdx,targetSnpIdx);
+//            MatrixXf LDtf = LDPerBlock(targetSnpIdx,fullSnpIdx);
+//            
+//            // Step 2.3 compute joint effects for the target SNPs;
+//            VectorXf betaTargetSnp = LDtt.ldlt().solve(LDtf*betaFullSnp);
+////            if (i == 0) {
+////                string outfile = title + ".LDtt";
+////                ofstream tmp(outfile.c_str());
+////                tmp << LDtt << endl;
+////                tmp.close();
+////            }
+//            
+//            for(unsigned j = 0; j < numTargetSNPs; j++){
+//                SnpInfo *snp = block->snpInfoVec[targetSnpIdx[j]];
+//                snp->effect = betaTargetSnp[j];
+//            }
+//        }
+//        
+//        if(!(i%10)) cout << " Converted block " << i << " numSnpInBlock " << block->numSnpInBlock << " numTargetSnps " << numTargetSNPs << "\r" << flush;
+//
+////        if(!(i%10)) cout << " Converted block " << i << "\r" << flush;
+//        
+//        fclose(fp);
+//    }
+//
+//
+//    string outfile = title + ".converted.snpRes";
+//    ofstream out(outfile.c_str());
+//    out << boost::format("%15s %10s %10s %15s\n") % "SNP" % "A1" % "A2" % "A1Effect";
+//    for (unsigned i=0; i<numSnps; ++i) {
+//        SnpInfo *snp = snpInfoVec[i];
+//        if (!snp->included) continue;
+//        out << boost::format("%15s %10s %10s %15.6f\n")
+//        % snp->ID
+//        % snp->a1
+//        % snp->a2
+//        % snp->effect;
+//    }
+//    out.close();
+//
+//    cout << "Conversion of SNP joint effects to a sub panel is completed." << endl;
+//    cout << "Converted SNP joint effects are saved into file [" + outfile + "]." << endl;
+//
+//}
+
 void Data::convert(const string &eigenMatrixFile, const string &snplistFile, const string &title) {
     ifstream in(snplistFile.c_str());
     if (!in) {
@@ -5872,50 +6045,67 @@ void Data::convert(const string &eigenMatrixFile, const string &snplistFile, con
         MatrixXf LDPerBlock = U * lambda.asDiagonal() * U.transpose();
         float diag_mod = 0.1;
         LDPerBlock.diagonal().array() += diag_mod;
-
-        /// Step 2. Construct the LD correlation matrix among the target SNPs(LDtt) and the LD correlation matrix among the target SNPs and the current full SNPs (LDtf).
-        int numTargetSNPs = 0;
-        for(unsigned j=0; j < block->numSnpInBlock; j++){
-            SnpInfo *snp = block->snpInfoVec[j];
-            if(snp->included) ++numTargetSNPs;
-            //cout << j << " " << snp->included << endl;
-        }
                 
-        if (numTargetSNPs) {
-            // Step 2.1 divide SNPs into typed and untyped SNPs
-            VectorXi targetSnpIdx(numTargetSNPs);
-            VectorXi fullSnpIdx(block->numSnpInBlock);
-            VectorXf betaFullSnp(block->numSnpInBlock);
-            for(unsigned j=0, idxTar=0; j < block->numSnpInBlock; j++){
+        /// Step 2. Construct the LD correlation matrix among the target SNPs(LDtt) and the LD correlation matrix among the target SNPs and the current full SNPs (LDtf).
+        
+        unsigned windowSize = 1000; // 1000 SNPs as a window
+        unsigned numWindow = std::ceil(block->numSnpInBlock/windowSize);
+        unsigned winCnt = 0;
+        int numTargetSNPsTotal = 0;
+        for (unsigned k=0; k<numWindow; ++k) {
+            cout << k << endl;
+            int numTargetSNPs = 0;
+            unsigned start = windowSize*winCnt;
+            unsigned end = windowSize*(winCnt+1);
+            if (end > block->numSnpInBlock) {
+                windowSize = block->numSnpInBlock - start;
+                end = block->numSnpInBlock;
+            }
+            for(unsigned j=start; j < end; j++){
                 SnpInfo *snp = block->snpInfoVec[j];
-                fullSnpIdx[j] = j;
-                betaFullSnp[j] = snp->effect;
-                if(snp->included){
-                    // target snp
-                    targetSnpIdx[idxTar++] = j;
+                if(snp->included) ++numTargetSNPs;
+                //cout << j << " " << snp->included << endl;
+            }
+            ++winCnt;
+            
+            if (numTargetSNPs) {
+                // Step 2.1 divide SNPs into typed and untyped SNPs
+                VectorXi targetSnpIdx(numTargetSNPs);
+                VectorXi fullSnpIdx(windowSize);
+                VectorXf betaFullSnp(windowSize);
+                for(unsigned j=0, idxTar=0; j < windowSize; j++){
+                    SnpInfo *snp = block->snpInfoVec[start+j];
+                    fullSnpIdx[j] = start+j;
+                    betaFullSnp[j] = snp->effect;
+                    if(snp->included){
+                        // target snp
+                        targetSnpIdx[idxTar++] = start+j;
+                    }
+                }
+                                
+                // Step 2.2 construct LDtt and LDft
+                MatrixXf LDtt = LDPerBlock(targetSnpIdx,targetSnpIdx);
+                MatrixXf LDtf = LDPerBlock(targetSnpIdx,fullSnpIdx);
+                
+                // Step 2.3 compute joint effects for the target SNPs;
+                VectorXf betaTargetSnp = LDtt.ldlt().solve(LDtf*betaFullSnp);
+    //            if (i == 0) {
+    //                string outfile = title + ".LDtt";
+    //                ofstream tmp(outfile.c_str());
+    //                tmp << LDtt << endl;
+    //                tmp.close();
+    //            }
+                
+                for(unsigned j = 0; j < numTargetSNPs; j++){
+                    SnpInfo *snp = block->snpInfoVec[targetSnpIdx[j]];
+                    snp->effect = betaTargetSnp[j];
                 }
             }
-            
-            // Step 2.2 construct LDtt and LDft
-            MatrixXf LDtt = LDPerBlock(targetSnpIdx,targetSnpIdx);
-            MatrixXf LDtf = LDPerBlock(targetSnpIdx,fullSnpIdx);
-            
-            // Step 2.3 compute joint effects for the target SNPs;
-            VectorXf betaTargetSnp = LDtt.ldlt().solve(LDtf*betaFullSnp);
-//            if (i == 0) {
-//                string outfile = title + ".LDtt";
-//                ofstream tmp(outfile.c_str());
-//                tmp << LDtt << endl;
-//                tmp.close();
-//            }
 
-            for(unsigned j = 0; j < numTargetSNPs; j++){
-                SnpInfo *snp = block->snpInfoVec[targetSnpIdx[j]];
-                snp->effect = betaTargetSnp[j];
-            }
+            numTargetSNPsTotal += numTargetSNPs;
         }
         
-        if(!(i%10)) cout << " Converted block " << i << " numSnpInBlock " << block->numSnpInBlock << " numTargetSnps " << numTargetSNPs << "\r" << flush;
+        if(!(i%10)) cout << " Converted block " << i << " numSnpInBlock " << block->numSnpInBlock << " numTargetSnps " << numTargetSNPsTotal << "\r" << flush;
 
 //        if(!(i%10)) cout << " Converted block " << i << "\r" << flush;
         
@@ -6259,3 +6449,19 @@ void Data::inputLDfriends(const string &ldfriendFile){
 
 }
 
+void Data::skipSnp(const string &skipSnpFile){
+    ifstream in(skipSnpFile.c_str());
+    if (!in) throw ("Error: can not open the file [" + skipSnpFile + "] to read.");
+    map<string, SnpInfo*>::iterator it, end = snpInfoMap.end();
+    string id;
+    unsigned line = 0;
+    while (in >> id) {
+        it = snpInfoMap.find(id);
+        if (it != end) {
+            it->second->skip = true;
+        }
+        ++line;
+    }
+    in.close();
+    cout << "Skip samplling effects for " << line << " SNPs from [" + skipSnpFile + "]." << endl;
+}

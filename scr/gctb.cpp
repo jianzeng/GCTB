@@ -103,7 +103,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
                         const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile,
                         const float eigenCutoff, const bool excludeMHC,
                         const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const float rsqThreshold,
-                        const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile, const bool imputeSummary, const unsigned includeBlock){
+                        const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile, const bool imputeSummary, const unsigned includeBlock, const string &skipSnpFile){
     data.readEigenMatrix(eigenMatrixFile, eigenCutoff);
     if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
@@ -112,6 +112,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (excludeAmbiguousSNP) data.excludeAmbiguousSNP();
     if (!excludeRegionFile.empty()) data.excludeRegion(excludeRegionFile);
     if (excludeMHC) data.excludeMHC();
+    if (!skipSnpFile.empty()) data.skipSnp(skipSnpFile);
     if (!annotationFile.empty())
         data.readAnnotationFile(annotationFile, transpose, true);
     else if (!continuousAnnoFile.empty())

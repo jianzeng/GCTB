@@ -61,6 +61,7 @@ public:
     bool flipped;   // A1 A2 alleles are flipped in between gwas and LD ref samples
     bool unconverged;  // fail to converge
     bool inCS;  // in a credible set
+    bool skip;  // skip sampling its effect
     long sampleSize;
     
     string block;
@@ -116,6 +117,7 @@ public:
         flipped = false;
         unconverged = false;
         inCS = false;
+        skip = false;
         sampleSize = 0;
         effect = 0;
         varExplained = 0;
@@ -721,6 +723,7 @@ public:
     void getLDfriends(const string &ldfile, const float rsqThreshold, const string &title);
     
     void outputEigenMatTxt(const string &title);
+    void skipSnp(const string &skipSnpFile);
 };
 
 #endif /* data_hpp */

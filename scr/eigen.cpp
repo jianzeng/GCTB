@@ -1703,19 +1703,19 @@ vector<LDBlockInfo*> Data::makeKeptLDBlockInfoVec(const vector<LDBlockInfo*> &ld
 void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale){
     includeMatchedBlocks();
     
-    for (unsigned i=0; i<numIncdSnps; ++i) {
-        SnpInfo *snp = incdSnpInfoVec[i];
-        if (snp->gwas_b == -999) {
-            throw("Error: SNP " + snp->ID + " in the LD reference has no summary data. Run --impute-summary first.");
-        }
-    }
+//    for (unsigned i=0; i<numIncdSnps; ++i) {
+//        SnpInfo *snp = incdSnpInfoVec[i];
+//        if (snp->gwas_b == -999) {
+//            throw("Error: SNP " + snp->ID + " in the LD reference has no summary data. Run --impute-summary first.");
+//        }
+//    }
     unsigned nmiss = 0;
     for (unsigned i=0; i<numKeptLDBlocks; ++i) {
         LDBlockInfo *block = keptLdBlockInfoVec[i];
         for (unsigned j=0; j<block->numSnpInBlock; ++j) {
             SnpInfo *snp = block->snpInfoVec[j];
             if (snp->gwas_b == -999) {
-                cout << "Error: SNP " + snp->ID + " in the LD reference has no summary data." << endl;
+//                cout << "Error: SNP " + snp->ID + " in the LD reference has no summary data." << endl;
                 ++nmiss;
             }
         }

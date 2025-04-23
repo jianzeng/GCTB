@@ -17,10 +17,10 @@ using namespace std;
 int main(int argc, const char * argv[]) {
     
     cout << "*********************************************************\n";
-    cout << "* GCTB 2.5.3.25                                         *\n";
+    cout << "* GCTB 2.5.3.26                                         *\n";
     cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
     cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
-    cout << "* Last updated: 21 Apr, 2025                            *\n";
+    cout << "* Last updated: 23 Apr, 2025                            *\n";
     cout << "* MIT License                                           *\n";
     cout << "*********************************************************\n";
     
@@ -151,7 +151,7 @@ int main(int argc, const char * argv[]) {
                               opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
                               opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
                               opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
-                              opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock);
+                              opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock, opt.skipSnpFile);
         }
         else if (opt.analysisType == "MergeGwasSummary") {
             if (opt.outLDmatType == "block") {
@@ -188,7 +188,7 @@ int main(int argc, const char * argv[]) {
                                   opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
                                   opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
                                   opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
-                                  opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock);
+                                  opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock, opt.skipSnpFile);
                 if (opt.analysisType == "GWFM") {
                     data.inputPairwiseLD(opt.eigenMatrixFile+"/"+opt.pairwiseLDfile, 0.95);  // for TGS sampling
                 }

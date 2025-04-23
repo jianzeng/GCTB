@@ -660,6 +660,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             estimateRsqEnrich = true;
             ss << "--estimate-rsq-enrich " << "\n";
         }
+        else if (!strcmp(argv[i], "--skip")) {
+            skipSnpFile = argv[++i];
+            ss << "--skip " << argv[i] << "\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";
@@ -852,7 +856,24 @@ void Options::makeTitle(void){
 
 void Options::setThread(void){
     omp_set_num_threads(numThread);
-    if (numThread == 1) return;
+    if (numThread == 1) {
+        if (analysisType == "SBayes") {
+            cout << "Multi-threading is available for --sbayes. Use --thead [number] to enable multi-threading." << endl;
+        } else if (analysisType == "GWFM") {
+            cout << "Multi-threading is available for --gwfm. Use --thead [number] to enable multi-threading." << endl;
+        } else if (analysisType == "LDmatrix") {
+            cout << "Multi-threading is available for --make-full-ldm or --make-block-ldm. Use --thead [number] to enable multi-threading." << endl;
+        } else if (analysisType == "LDmatrixEigen") {
+            cout << "Multi-threading is available for --make-ldm-eigen. Use --thead [number] to enable multi-threading." << endl;
+        } else if (analysisType == "ImputeSumStats") {
+            cout << "Multi-threading is available for --impute-summary. Use --thead [number] to enable multi-threading." << endl;
+        } else if (analysisType == "Convert") {
+            cout << "Multi-threading is available for --convert. Use --thead [number] to enable multi-threading." << endl;
+        } else if (analysisType == "GetLD") {
+            cout << "Multi-threading is available for --get-pwld. Use --thead [number] to enable multi-threading." << endl;
+        }
+        return;
+    }
     if (multiThreadEigen) {
         Eigen::initParallel();
         Eigen::setNbThreads(numThread);

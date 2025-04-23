@@ -6149,6 +6149,11 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks
         //for(unsigned i = blockStart; i <= blockEnd; i++){
         for (unsigned t = 0; t < blockSize; t++) {
             unsigned i = snpIndexVec[t];
+            SnpInfo *snp = blockInfo->snpInfoVec[i-blockStart];
+            if (snp->skip) {
+                valuesPtr[i] = 0.0;
+                continue;
+            }
             if (badSnps[i]) {
                 valuesPtr[i] = 0.0;
                 continue;

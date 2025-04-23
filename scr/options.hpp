@@ -168,6 +168,7 @@ public:
     string ldfriendFile;
     string geneMapFile;
     string genomeBuild;
+    string skipSnpFile;
     string label;
     
     Options(){
@@ -305,6 +306,7 @@ public:
         geneMapFile             = "";
         outLDmatType            = "sparse";
         genomeBuild             = "hg19";
+        skipSnpFile             = "";
         label                   = "";
     }
     
