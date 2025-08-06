@@ -41,12 +41,28 @@ void MultiChainSBayesR::NumBadSnps::output(){
         vector<string> badSnpNameVec = nBadSnpVec[i]->badSnpName;
         for (unsigned j=0; j<badSnpNameVec.size(); ++j) {
             if(badSnpSet.insert(badSnpNameVec[j]).second) {
+                badSnpIdxSet.insert(badSnpIdxVec[j]);
                 out << badSnpIdxVec[j] << "\t" << badSnpNameVec[j] << endl;
                 ++value;
             }
         }
     }
     //value = badSnpSet.size();
+    
+    for (unsigned i=0; i<numChains; ++i) {
+        nBadSnpVec[i]->badSnpIdx.resize(badSnpSet.size());
+        nBadSnpVec[i]->badSnpName.resize(badSnpSet.size());
+        set<string>::iterator it1;
+        unsigned j=0;
+        for (it1 = badSnpSet.begin(); it1 != badSnpSet.end(); ++it1) {
+            nBadSnpVec[i]->badSnpName[j++] = *it1;
+        }
+        set<unsigned>::iterator it2;
+        j=0;
+        for (it2 = badSnpIdxSet.begin(); it2 != badSnpIdxSet.end(); ++it2) {
+            nBadSnpVec[i]->badSnpIdx[j++] = *it2;
+        }
+    }
 }
 
 void MultiChainSBayesR::NumHighPIPs::getValue(const VectorXf &PIP){
@@ -90,12 +106,28 @@ void MultiChainSBayesRC::NumBadSnps::output(){
         vector<string> badSnpNameVec = nBadSnpVec[i]->badSnpName;
         for (unsigned j=0; j<badSnpNameVec.size(); ++j) {
             if(badSnpSet.insert(badSnpNameVec[j]).second) {
+                badSnpIdxSet.insert(badSnpIdxVec[j]);
                 out << badSnpIdxVec[j] << "\t" << badSnpNameVec[j] << endl;
                 ++value;
             }
         }
     }
     //value = badSnpSet.size();
+    
+    for (unsigned i=0; i<numChains; ++i) {
+        nBadSnpVec[i]->badSnpIdx.resize(badSnpSet.size());
+        nBadSnpVec[i]->badSnpName.resize(badSnpSet.size());
+        set<string>::iterator it1;
+        unsigned j=0;
+        for (it1 = badSnpSet.begin(); it1 != badSnpSet.end(); ++it1) {
+            nBadSnpVec[i]->badSnpName[j++] = *it1;
+        }
+        set<unsigned>::iterator it2;
+        j=0;
+        for (it2 = badSnpIdxSet.begin(); it2 != badSnpIdxSet.end(); ++it2) {
+            nBadSnpVec[i]->badSnpIdx[j++] = *it2;
+        }
+    }
 }
 
 void MultiChainSBayesRC::SnpPIP::computeGelmanRubinStat(const unsigned iter){
@@ -211,12 +243,28 @@ void MultiChainSBayesRD::NumBadSnps::output(){
         vector<string> badSnpNameVec = nBadSnpVec[i]->badSnpName;
         for (unsigned j=0; j<badSnpNameVec.size(); ++j) {
             if(badSnpSet.insert(badSnpNameVec[j]).second) {
+                badSnpIdxSet.insert(badSnpIdxVec[j]);
                 out << badSnpIdxVec[j] << "\t" << badSnpNameVec[j] << endl;
                 ++value;
             }
         }
     }
     //value = badSnpSet.size();
+    
+    for (unsigned i=0; i<numChains; ++i) {
+        nBadSnpVec[i]->badSnpIdx.resize(badSnpSet.size());
+        nBadSnpVec[i]->badSnpName.resize(badSnpSet.size());
+        set<string>::iterator it1;
+        unsigned j=0;
+        for (it1 = badSnpSet.begin(); it1 != badSnpSet.end(); ++it1) {
+            nBadSnpVec[i]->badSnpName[j++] = *it1;
+        }
+        set<unsigned>::iterator it2;
+        j=0;
+        for (it2 = badSnpIdxSet.begin(); it2 != badSnpIdxSet.end(); ++it2) {
+            nBadSnpVec[i]->badSnpIdx[j++] = *it2;
+        }
+    }
 }
 
 void MultiChainSBayesRD::sampleUnknowns(const unsigned iter){

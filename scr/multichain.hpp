@@ -140,7 +140,8 @@ public:
     public:
         vector<ApproxBayesC::NumBadSnps*> nBadSnpVec;
         set<string> badSnpSet;
-        
+        set<unsigned> badSnpIdxSet;
+
         ofstream out;
 
         NumBadSnps(const string &title, const ChainVecSBayesR &chains): MultiChainParameter("NumSkeptSnp", chains.size()){
@@ -440,7 +441,8 @@ public:
     public:
         vector<ApproxBayesC::NumBadSnps*> nBadSnpVec;
         set<string> badSnpSet;
-        
+        set<unsigned> badSnpIdxSet;
+
         ofstream out;
 
         NumBadSnps(const string &title, const ChainVecSBayesRC &chains): MultiChainParameter("NumSkeptSnp", chains.size()){
@@ -700,6 +702,7 @@ public:
     public:
         vector<ApproxBayesC::NumBadSnps*> nBadSnpVec;
         set<string> badSnpSet;
+        set<unsigned> badSnpIdxSet;
         
         ofstream out;
 

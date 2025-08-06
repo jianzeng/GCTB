@@ -121,6 +121,11 @@ void Options::inputOptions(const int argc, const char* argv[]){
             outLDmatType = "block";
             ss << "--make-block-ldm " << "\n";
         }
+        else if (!strcmp(argv[i], "--make-block-sparse-ldm")) {
+            analysisType = "LDmatrix";
+            outLDmatType = "blockSparse";
+            ss << "--make-block-sparse-ldm " << "\n";
+        }
         else if (!strcmp(argv[i], "--xci")) {
             analysisType = "XCI";
             bayesType = argv[++i];
@@ -210,6 +215,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             ldmatrixFile = argv[++i];
             multiLDmat = true;
             ss << "--mldm " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--make-sparse-ldm-eigen")) {
+            analysisType = "sparseLDmatrixEigen";
+            ss << "--make-sparse-ldm-eigen " << "\n";
         }
         else if (!strcmp(argv[i], "--make-ldm-eigen")) {
             analysisType = "LDmatrixEigen";
@@ -858,19 +867,19 @@ void Options::setThread(void){
     omp_set_num_threads(numThread);
     if (numThread == 1) {
         if (analysisType == "SBayes") {
-            cout << "Multi-threading is available for --sbayes. Use --thead [number] to enable multi-threading." << endl;
+            cout << "Multi-threading is available for --sbayes. Use --thread [number] to enable multi-threading." << endl;
         } else if (analysisType == "GWFM") {
-            cout << "Multi-threading is available for --gwfm. Use --thead [number] to enable multi-threading." << endl;
+            cout << "Multi-threading is available for --gwfm. Use --thread [number] to enable multi-threading." << endl;
         } else if (analysisType == "LDmatrix") {
-            cout << "Multi-threading is available for --make-full-ldm or --make-block-ldm. Use --thead [number] to enable multi-threading." << endl;
+            cout << "Multi-threading is available for --make-full-ldm or --make-block-ldm. Use --thread [number] to enable multi-threading." << endl;
         } else if (analysisType == "LDmatrixEigen") {
-            cout << "Multi-threading is available for --make-ldm-eigen. Use --thead [number] to enable multi-threading." << endl;
+            cout << "Multi-threading is available for --make-ldm-eigen. Use --thread [number] to enable multi-threading." << endl;
         } else if (analysisType == "ImputeSumStats") {
-            cout << "Multi-threading is available for --impute-summary. Use --thead [number] to enable multi-threading." << endl;
+            cout << "Multi-threading is available for --impute-summary. Use --thread [number] to enable multi-threading." << endl;
         } else if (analysisType == "Convert") {
-            cout << "Multi-threading is available for --convert. Use --thead [number] to enable multi-threading." << endl;
+            cout << "Multi-threading is available for --convert. Use --thread [number] to enable multi-threading." << endl;
         } else if (analysisType == "GetLD") {
-            cout << "Multi-threading is available for --get-pwld. Use --thead [number] to enable multi-threading." << endl;
+            cout << "Multi-threading is available for --get-pwld. Use --thread [number] to enable multi-threading." << endl;
         }
         return;
     }
@@ -881,5 +890,5 @@ void Options::setThread(void){
     }
 //#pragma omp parallel
 //    printf("Hello from thread %d, nthreads %d\n", omp_get_thread_num(), omp_get_num_threads());
-    printf("Using %d threads.\n", omp_get_num_threads());
+    printf("Using %d threads.\n", omp_get_max_threads());
 }

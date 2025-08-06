@@ -17,7 +17,7 @@ using namespace std;
 int main(int argc, const char * argv[]) {
     
     cout << "*********************************************************\n";
-    cout << "* GCTB 2.5.3.26                                         *\n";
+    cout << "* GCTB 2.5.5beta                                        *\n";
     cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
     cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
     cout << "* Last updated: 23 Apr, 2025                            *\n";
@@ -106,7 +106,7 @@ int main(int argc, const char * argv[]) {
 //            }
             else { // manipulate an existing LD matrix or merge existing LD matrices
                 if (opt.mergeLdm) {
-                    data.mergeLdmInfo(opt.outLDmatType, opt.ldmatrixFile);
+                    data.mergeLdmInfo(opt.outLDmatType, opt.ldmatrixFile, true);
                 }
                 else if (opt.directPrune) {
                     data.directPruneLDmatrix(opt.ldmatrixFile, opt.outLDmatType, opt.chisqThreshold, opt.title, opt.writeLdmTxt);
@@ -121,7 +121,22 @@ int main(int argc, const char * argv[]) {
                     gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, "", opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.genMapN, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile, opt.windowFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold, opt.sampleOverlap, opt.imputeN, opt.noscale, opt.binSnp, opt.readLdmTxt);
                     data.binSnpByLDrsq(opt.rsqThreshold, opt.title);
                 }
-                else {
+                else if (opt.outLDmatType == "block") { // resize block matrix
+                    if (!opt.includeSnpFile.empty()) {
+                        data.resizeBlockLDmatrix(opt.ldmatrixFile, opt.outLDmatType, opt.includeSnpFile, opt.title, opt.writeLdmTxt);
+                    }
+                    else if (opt.writeLdmTxt) {
+                        data.outputBlockLDmatrixTxt(opt.ldmatrixFile, opt.includeBlock);
+                    }
+                }
+                else if (opt.outLDmatType == "blockSparse") {
+                    if (opt.includeSnpFile.empty()) {  // make block sparse LD matrix from block full LD matrix
+                        data.readBlockLDmatrixAndMakeItSparse(opt.ldmatrixFile, opt.includeBlock, opt.chisqThreshold, opt.writeLdmTxt);
+                    } else {  // resize block sparse matrix
+                        data.resizeBlockLDmatrix(opt.ldmatrixFile, opt.outLDmatType, opt.includeSnpFile, opt.title, opt.writeLdmTxt);
+                    }
+                }
+                else {  // resize existing non-block LD matrix
                     gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, "", opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.genMapN, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile, opt.windowFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold, opt.sampleOverlap, opt.imputeN, opt.noscale, opt.binSnp, opt.readLdmTxt);
                     data.resizeLDmatrix(opt.outLDmatType, opt.chisqThreshold, opt.windowWidth, opt.LDthreshold, opt.effpopNE, opt.cutOff, opt.genMapN);
                     data.outputLDmatrix(opt.outLDmatType, opt.title, opt.writeLdmTxt);
@@ -131,13 +146,29 @@ int main(int argc, const char * argv[]) {
         else if (opt.analysisType == "LDmatrixEigen") {
             readGenotypes = false;
             if (opt.eigenMatrixFile.empty()) { // perform eigen decomposition for the blocked LD matrices
-                //gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.mafmin, opt.mafmax, opt.noscale, readGenotypes);
-                //data.getEigenDataFromFullLDM(opt.title, opt.eigenCutoff);
-                data.readBlockLDmatrixAndDoEigenDecomposition(opt.ldmatrixFile, opt.includeBlock, opt.eigenCutoff.maxCoeff(), opt.writeLdmTxt);
+                if (!opt.gwasSummaryFile.empty()) { // match LD ref SNPs with GWAS SNPs
+                    gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile,
+                                      opt.gwasSummaryFile, opt.ldmatrixFile, opt.ldBlockInfoFile,
+                                      opt.includeChr, opt.excludeAmbiguousSNP,
+                                      opt.annotationFile, opt.transpose,
+                                      opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
+                                      opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
+                                      opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
+                                      opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock, opt.skipSnpFile, false);
+                    data.resizeBlockLDmatrixAndDoEigenDecomposition(opt.ldmatrixFile, opt.eigenCutoff.maxCoeff(), 0.5, opt.title, opt.writeLdmTxt);
+                } else {
+                    //gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.mafmin, opt.mafmax, opt.noscale, readGenotypes);
+                    //data.getEigenDataFromFullLDM(opt.title, opt.eigenCutoff);
+                    data.readBlockLDmatrixAndDoEigenDecomposition(opt.ldmatrixFile, opt.includeBlock, opt.eigenCutoff.maxCoeff(), opt.writeLdmTxt);
+                }
             }
             else { // merge existing eigen matrices
                 //gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, "", opt.eigenMatrixFile, opt.ldBlockInfoFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile, opt.eigenCutoff, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold, opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt);
             }
+        }
+        else if (opt.analysisType == "sparseLDmatrixEigen") {
+            readGenotypes = false;
+            data.readSparseBlockLDmatrixAndDoEigenDecomposition(opt.ldmatrixFile, opt.includeBlock, opt.eigenCutoff.maxCoeff(), opt.writeLdmTxt);
         }
         else if (opt.analysisType == "ImputeSumStats") {
             readGenotypes = false;
@@ -181,6 +212,7 @@ int main(int argc, const char * argv[]) {
             if (!opt.ldmatrixFile.empty()) {
                 gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.genMapN, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile, opt.windowFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold, opt.sampleOverlap, opt.imputeN, opt.noscale, opt.binSnp, opt.readLdmTxt);
             } else if (!opt.eigenMatrixFile.empty()) {  // low-rank model
+                data.mergeLdmInfo("block", opt.eigenMatrixFile, false); // if each block has its own .info file, then merge them
                 gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile,
                                   opt.gwasSummaryFile, opt.eigenMatrixFile, opt.ldBlockInfoFile,
                                   opt.includeChr, opt.excludeAmbiguousSNP,

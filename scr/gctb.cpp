@@ -103,7 +103,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
                         const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile,
                         const float eigenCutoff, const bool excludeMHC,
                         const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const float rsqThreshold,
-                        const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile, const bool imputeSummary, const unsigned includeBlock, const string &skipSnpFile){
+                        const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile, const bool imputeSummary, const unsigned includeBlock, const string &skipSnpFile, const bool buildMME){
     data.readEigenMatrix(eigenMatrixFile, eigenCutoff);
     if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
@@ -135,7 +135,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     /// partition ld into blocks
 //    if(!ldBlockInfoFile.empty()) data.readLDBlockInfoFile(ldBlockInfoFile);
         
-    if(!gwasSummaryFile.empty()) data.buildMMEeigen(eigenMatrixFile, sampleOverlap, eigenCutoff, noscale);
+    if(!gwasSummaryFile.empty() && buildMME) data.buildMMEeigen(eigenMatrixFile, sampleOverlap, eigenCutoff, noscale);
 }
 
 

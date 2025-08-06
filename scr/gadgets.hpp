@@ -19,6 +19,7 @@
 #include <map>
 #include <random>
 #include <Eigen/Eigen>
+#include <Eigen/Sparse>
 #include <omp.h>
 #include "stat.hpp"
 
@@ -90,6 +91,12 @@ float findMedian(const VectorXf &vec);
 vector<int> shuffle_index(const int start, const int end);
 void shuffle_vector(vector<int> &vec);
 void removeSecondElement(VectorXf &vec);
+
+
+// read/write sparse matrix
+void writeSparseMatrixBinary(const SparseMatrix<float>& mat, const std::string& filename);
+SparseMatrix<float> readSparseMatrixBinary(const std::string& filename);
+void writeSparseMatrixToText(const SparseMatrix<float>& mat, const std::string& filename);
 }
 
 #endif /* toolbox_hpp */

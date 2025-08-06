@@ -2227,7 +2227,7 @@ void ApproxBayesC::ResidualVar::sampleFromFC(const float ypy, const VectorXf &ef
     if (sse < 0) {
         value = sse/nobs;
         message = "Negative residual variance";
-        cout << message << endl;
+        cout << message << ": " << value << endl;
         return;
     }
     float dfTilde = df + nobs;

@@ -561,6 +561,8 @@ public:
         numSkeletonSnps = 0;
         numAnnos = 0;
         numWindows= 0;
+        numLDBlocks = 0;
+        numKeptLDBlocks = 0;
         
         reindexed = false;
         sparseLDM = false;
@@ -650,7 +652,7 @@ public:
     void readResidualDiagFile(const string &resDiagFile);
     void makeWindowAnno(const string &annoFile, const float windowWidth);
     
-    void mergeLdmInfo(const string &outLDmatType, const string &dirname);
+    void mergeLdmInfo(const string &outLDmatType, const string &dirname, const bool print);
     void inputNewSnpResults(const string &snpResFile);
     void getOverlapWindows(const unsigned windowWidth, const unsigned stepSize);
     
@@ -724,6 +726,19 @@ public:
     
     void outputEigenMatTxt(const string &title);
     void skipSnp(const string &skipSnpFile);
+    
+    void readBlockLDmatrixAndMakeItSparse(const string &LDmatrixFile, const unsigned block, const float chisqThreshold, const bool writeLdmTxt);
+    void readBlockLdmBinaryAndMakeItSparse(const string &dirname, const unsigned block, const float chisqThreshold, const bool writeLdmTxt);
+
+    void readSparseBlockLDmatrixAndDoEigenDecomposition(const string &LDmatrixFile, const unsigned block, const float eigenCutoff, const bool writeLdmTxt);
+    void readSparseBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, const unsigned block, const float eigenCutoff, const bool writeLdmTxt);
+    
+    void resizeBlockLDmatrix(const string &dirname, const string &outLDmatType, const string &includeSnpFile, const string &title, const bool writeLdmTxt);
+
+    void outputBlockLDmatrixTxt(const string &dirname, const unsigned block);
+    
+    void resizeBlockLDmatrixAndDoEigenDecomposition(const string &LDmatrixFile, const float eigenCutoff, const float rsqThreshold, const string &title, const bool writeLdmTxt);
+
 };
 
 #endif /* data_hpp */

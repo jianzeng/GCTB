@@ -166,3 +166,82 @@ void Gadget::removeSecondElement(VectorXf &vec){
     // Resize the vector to one less element
     vec.conservativeResize(vec.size() - 1);
 }
+
+void Gadget::writeSparseMatrixBinary(const SparseMatrix<float>& mat, const std::string& filename) {
+    std::ofstream out(filename, std::ios::binary);
+    if (!out) {
+        throw std::runtime_error("Failed to open file for writing.");
+    }
+
+    // Ensure matrix is compressed
+    SparseMatrix<float> m = mat;
+    m.makeCompressed();
+
+    int rows = m.rows();
+    int cols = m.cols();
+    int nnz  = m.nonZeros();  // number of non-zero entries
+
+    // Write metadata
+    out.write(reinterpret_cast<const char*>(&rows), sizeof(int));
+    out.write(reinterpret_cast<const char*>(&cols), sizeof(int));
+    out.write(reinterpret_cast<const char*>(&nnz),  sizeof(int));
+
+    // Write outer index (size: cols+1 for col-major, rows+1 for row-major)
+    int outerSize = m.outerSize();
+    out.write(reinterpret_cast<const char*>(m.outerIndexPtr()), sizeof(int) * (outerSize + 1));
+
+    // Write inner indices (row or column indices of non-zeros)
+    out.write(reinterpret_cast<const char*>(m.innerIndexPtr()), sizeof(int) * nnz);
+
+    // Write values
+    out.write(reinterpret_cast<const char*>(m.valuePtr()), sizeof(float) * nnz);
+
+    out.close();
+}
+
+SparseMatrix<float> Gadget::readSparseMatrixBinary(const std::string& filename) {
+    std::ifstream in(filename, std::ios::binary);
+    if (!in) throw std::runtime_error("Failed to open file.");
+
+    int rows, cols, nnz;
+    in.read(reinterpret_cast<char*>(&rows), sizeof(int));
+    in.read(reinterpret_cast<char*>(&cols), sizeof(int));
+    in.read(reinterpret_cast<char*>(&nnz),  sizeof(int));
+
+    std::vector<int> outer(rows + 1);
+    std::vector<int> inner(nnz);
+    std::vector<float> values(nnz);
+
+    in.read(reinterpret_cast<char*>(outer.data()), sizeof(int) * (rows + 1));
+    in.read(reinterpret_cast<char*>(inner.data()), sizeof(int) * nnz);
+    in.read(reinterpret_cast<char*>(values.data()), sizeof(float) * nnz);
+
+    SparseMatrix<float> mat(rows, cols);
+    mat.reserve(nnz);
+
+    std::copy(outer.begin(), outer.end(), const_cast<int*>(mat.outerIndexPtr()));
+    std::copy(inner.begin(), inner.end(), const_cast<int*>(mat.innerIndexPtr()));
+    std::copy(values.begin(), values.end(), const_cast<float*>(mat.valuePtr()));
+
+    mat.finalize();  // update internal structure
+
+    return mat;
+}
+
+void Gadget::writeSparseMatrixToText(const SparseMatrix<float>& mat, const std::string& filename) {
+    std::ofstream out(filename);
+    if (!out.is_open()) {
+        throw std::runtime_error("Failed to open file for writing.");
+    }
+
+    out << "# Rows: " << mat.rows() << ", Cols: " << mat.cols() << ", Nonzeros: " << mat.nonZeros() << "\n";
+    out << "# Format: row_index col_index value\n";
+
+    for (int k = 0; k < mat.outerSize(); ++k) {
+        for (SparseMatrix<float>::InnerIterator it(mat, k); it; ++it) {
+            out << it.row() << " " << it.col() << " " << it.value() << "\n";
+        }
+    }
+
+    out.close();
+}

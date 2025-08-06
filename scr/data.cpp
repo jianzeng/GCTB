@@ -2519,6 +2519,20 @@ void Data::readLDmatrixInfoFile(const string &ldmatrixFile){
             }
         }
     }
+    else if (token.back() == "Block") {
+        unsigned block;
+        while (in >> chr >> id >> idx >> genPos >> physPos >> allele1 >> allele2 >> af >> sampleSize >> block) {
+            SnpInfo *snp = new SnpInfo(idx, id, allele1, allele2, chr, genPos, physPos);
+            snp->af = af;
+            snp->twopq = 2.0*af*(1.0-af);
+            snp->sampleSize = sampleSize;
+            snp->block = block;
+            snpInfoVec.push_back(snp);
+            if (snpInfoMap.insert(pair<string, SnpInfo*>(id, snp)).second == false) {
+                throw ("Error: Duplicate SNP ID found: \"" + id + "\".");
+            }
+        }
+    }
     else {
         while (in >> chr >> id >> genPos >> physPos >> allele1 >> allele2 >> af >> idx >> windStart >> windEnd >> windSize >> windWidth >> sampleSize >> ldSamplVar) {
             SnpInfo *snp = new SnpInfo(idx, id, allele1, allele2, chr, genPos, physPos);
@@ -6214,7 +6228,8 @@ void Data::getLDfromEigenMatrix(const string &eigenMatrixFile, const float rsqTh
             SnpInfo *snp = block->snpInfoVec[j];
             for(unsigned k=0; k < j; k++){
                 float rsq = LDPerBlock(j,k)*LDPerBlock(j,k);
-                if(rsq > rsqThreshold){ ldSnpIdx[i][j].push_back(k);
+                if(rsq > rsqThreshold){
+                    ldSnpIdx[i][j].push_back(k);
                     ldcor[i][j].push_back(LDPerBlock(j,k));
                 }
             }
