@@ -14,9 +14,9 @@ ifeq ($(shell uname -s),Linux)
     CXXFLAGS = -I $(EIGEN_PATH) -I $(BOOST_PATH) -DUNIX -DNDEBUG -msse2 -m64 -fopenmp -O3 -std=c++0x -Wall -w
     LIB = -ldl
 else ifeq ($(shell uname -s),Darwin)
-    CXX = /usr/local/opt/llvm/bin/clang++
-    CXXFLAGS = -I /usr/local/include -I $(EIGEN_PATH) -I $(BOOST_PATH) -DUNIX -Dfopen64=fopen -stdlib=libc++ -m64 -fopenmp -O3 -std=c++0x -Wall -w
-    LIB = -lz -lm -L/usr/local/opt/libomp/lib
+    CXX = clang++
+    CXXFLAGS = -I $(EIGEN_PATH) -I $(BOOST_PATH) -DUNIX -Dfopen64=fopen -stdlib=libc++ -Xpreprocessor -fopenmp -I/opt/homebrew/opt/libomp/include -O3 -std=c++14 -Wall -w
+    LIB = -lz -lm -L/opt/homebrew/opt/libomp/lib -lomp
 endif
 
 # Set the source files and headers
