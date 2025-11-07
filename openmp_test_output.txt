@@ -1,0 +1,71 @@
+================================================================================
+GCTB OpenMP Scaling Test (Direct API)
+================================================================================
+
+Dataset: test/data/uk10k_chr1_1mb
+Chain: 2000, Burnin: 200
+Testing threads: [1, 2, 4, 8]
+
+
+================================================================================
+Testing with 1 thread(s)
+================================================================================
+
+  OMP_NUM_THREADS = 1
+  Loading data... Reading PLINK FAM file from [test/data/uk10k_chr1_1mb.fam].
+3642 individuals to be included from [test/data/uk10k_chr1_1mb.fam].
+Reading phenotypes from [test/data/test.phen].
+Non-missing phenotypes of trait 1 of 3642 individuals are included from [test/data/test.phen].
+3642 matched individuals are kept.
+Reading PLINK BIM file from [test/data/uk10k_chr1_1mb.bim].
+6717 SNPs to be included from [test/data/uk10k_chr1_1mb.bim].
+6717 SNPs on 1 chromosomes are included.
+Reading PLINK BED file from [test/data/uk10k_chr1_1mb.bed] in SNP-major format ...
+Genotype data for 3642 individuals and 6717 SNPs are included from [test/data/uk10k_chr1_1mb.bed].
+✓ (6717 SNPs, 3642 individuals)
+  Building model... 
+BayesC model fitted. Algorithm: Gibbs (default).
+scale factor: 0.822128
+✓
+  Running MCMC (2000 iterations)... MCMC launched ...
+  Chain length: 2000 iterations
+  Burn-in: 200 iterations
+
+   Iter         Pi         NnzSnp       SigmaSq      ResVar       GenVar         hsq       Rounding     TimeLeft  
+    500       0.0114         100        1.0704      115.7841     104.7196      0.4749       0.0013        0:0:3   
+   1000       0.0127         86         1.1136      113.1369     106.5785      0.4851       0.0013        0:0:3   
+   1500       0.0135         81         1.2775      108.9013     110.5732      0.5038       0.0012        0:0:1   
+   2000       0.0140         90         1.4579      109.5678     105.1615      0.4897       0.0015        0:0:0   
+
+MCMC cycles completed.
+✓ (6.70s)
+
+================================================================================
+Testing with 2 thread(s)
+================================================================================
+
+  OMP_NUM_THREADS = 2
+  Loading data... 
+Posterior statistics from MCMC samples:
+
+              Mean            SD             
+        Pi    0.013671        0.002172       
+    NnzSnp    90.349998       10.647986      
+   SigmaSq    1.353402        0.274293       
+    ResVar    112.229469      2.890134       
+    GenVar    109.164429      3.757739       
+       hsq    0.493016        0.011688       
+Reading PLINK FAM file from [test/data/uk10k_chr1_1mb.fam].
+3642 individuals to be included from [test/data/uk10k_chr1_1mb.fam].
+Reading phenotypes from [test/data/test.phen].
+Non-missing phenotypes of trait 1 of 3642 individuals are included from [test/data/test.phen].
+3642 matched individuals are kept.
+Reading PLINK BIM file from [test/data/uk10k_chr1_1mb.bim].
+6717 SNPs to be included from [test/data/uk10k_chr1_1mb.bim].
+6717 SNPs on 1 chromosomes are included.
+Reading PLINK BED file from [test/data/uk10k_chr1_1mb.bed] in SNP-major format ...
+Genotype data for 3642 individuals and 6717 SNPs are included from [test/data/uk10k_chr1_1mb.bed].
+✓ (6717 SNPs, 3642 individuals)
+  Building model... 
+BayesC model fitted. Algorithm: Gibbs (default).
+scale factor: 0.822128

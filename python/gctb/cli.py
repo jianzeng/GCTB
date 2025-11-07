@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from . import _core as gctb
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 
 def load_plink_data(bfile: str, pheno: str, mphen: int = 1, 

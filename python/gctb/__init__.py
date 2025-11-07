@@ -66,6 +66,6 @@ if _has_diagnostics:
     __all__.append('diagnostics')
 
 # Version info
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __author__ = "Jian Zeng, Luke Lloyd-Jones, Zhili Zheng, Shouye Liu"
 
