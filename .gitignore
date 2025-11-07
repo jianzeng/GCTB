@@ -1,0 +1,82 @@
+# C++ compiled files
+*.o
+*.a
+*.so
+*.dylib
+gctb
+scr/gctb
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.pyd
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# PyCharm
+.idea/
+
+# VSCode
+.vscode/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Build directories
+build/
+cmake-build-*/
+
+# macOS
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Test outputs
+test/res/*.mcmcsamples.*
+test/res/*.parRes
+test/res/*.snpRes
+test/res/*.covRes
+
+# Temporary files
+*.tmp
+*.log
+
