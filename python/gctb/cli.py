@@ -172,7 +172,7 @@ def bayes(bfile, pheno, bayes, chain_length, burnin, thin, pi, hsq, mphen, out, 
                     except Exception as e:
                         error_container.append(e)
                 
-                thread = threading.Thread(target=run_mcmc_thread)
+                thread = threading.Thread(target=run_mcmc_thread, daemon=True)
                 thread.start()
                 
                 # Update progress bar (estimated)
@@ -185,12 +185,13 @@ def bayes(bfile, pheno, bayes, chain_length, burnin, thin, pi, hsq, mphen, out, 
                     pbar.refresh()
                     time.sleep(0.5)
                 
-                # Ensure completion
+                # Wait for thread to complete
+                thread.join(timeout=3600)  # 1 hour timeout
+                
+                # Ensure completion and cleanup
                 pbar.n = chain_length
                 pbar.refresh()
                 pbar.close()
-                
-                thread.join()
                 
                 if error_container:
                     raise error_container[0]
@@ -378,7 +379,7 @@ def sbayes(ldm, gwas_summary, sbayes, chain_length, burnin, thin, hsq, pi, out, 
                     except Exception as e:
                         error_container.append(e)
                 
-                thread = threading.Thread(target=run_mcmc_thread)
+                thread = threading.Thread(target=run_mcmc_thread, daemon=True)
                 thread.start()
                 
                 # Update progress bar (estimated)
@@ -391,12 +392,13 @@ def sbayes(ldm, gwas_summary, sbayes, chain_length, burnin, thin, hsq, pi, out, 
                     pbar.refresh()
                     time.sleep(0.5)
                 
-                # Ensure completion
+                # Wait for thread to complete
+                thread.join(timeout=3600)  # 1 hour timeout
+                
+                # Ensure completion and cleanup
                 pbar.n = chain_length
                 pbar.refresh()
                 pbar.close()
-                
-                thread.join()
                 
                 if error_container:
                     raise error_container[0]
