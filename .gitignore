@@ -10,7 +10,8 @@ scr/gctb
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
+# Don't ignore our source .py files!
+# *.so  # Commented out - we need to track .so binaries for now
 .Python
 build/
 develop-eggs/
@@ -31,6 +32,9 @@ share/python-wheels/
 *.egg
 MANIFEST
 *.pyd
+
+# But DO ignore the compiled extension
+python/gctb/_core*.so
 
 # Virtual environments
 venv/
