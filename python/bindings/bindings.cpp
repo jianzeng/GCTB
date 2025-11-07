@@ -169,6 +169,18 @@ PYBIND11_MODULE(_core, m) {
             data.numKeptInds = (unsigned)data.keptIndInfoVec.size();
         }, "Build the list of kept individuals (call after reading FAM)")
         
+        .def("keep_matched_ind", [](Data& data, const std::string& keep_ind_file, 
+                                   unsigned keep_ind_max) {
+            try {
+                data.keepMatchedInd(keep_ind_file, keep_ind_max);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("keep_ind_file") = "", py::arg("keep_ind_max") = UINT_MAX,
+           "Process individuals - initializes matrices and filters based on phenotypes/covariates")
+        
         // Data properties
         .def_readonly("num_snps", &Data::numSnps, "Number of SNPs")
         .def_readonly("num_inds", &Data::numInds, "Number of individuals")

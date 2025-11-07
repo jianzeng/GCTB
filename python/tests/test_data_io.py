@@ -58,24 +58,41 @@ class TestDataIO:
         print(f"First SNP: {first_snp.ID}, chr{first_snp.chrom}:{first_snp.physPos}")
     
     def test_read_plink_data(self):
-        """Test reading complete PLINK dataset"""
+        """Test reading complete PLINK dataset with genotypes"""
         data = gctb.Data()
         
-        # Read .fam
+        # Proper initialization sequence (as per C++ code):
+        
+        # 1. Read individual info
         fam_file = str(TEST_BFILE) + ".fam"
         data.read_fam_file(fam_file)
         
-        # Read .bim
+        # 2. Read phenotypes (required for keep_matched_ind)
+        pheno_file = str(TEST_DATA_DIR / "test.phen")
+        data.read_phenotype_file(str(pheno_file), 1)
+        
+        # 3. Initialize matrices (CRITICAL!)
+        data.keep_matched_ind("", 999999)
+        
+        # 4. Read SNP info
         bim_file = str(TEST_BFILE) + ".bim"
         data.read_bim_file(bim_file)
         
-        # Read .bed (genotypes)
+        # 5. Build included SNP list
+        data.include_matched_snp()
+        
+        # 6. Read genotypes
         bed_file = str(TEST_BFILE) + ".bed"
         data.read_bed_file(False, bed_file)
         
-        print(f"Dataset: {data.num_snps} SNPs x {data.num_inds} individuals")
+        print(f"✅ Complete dataset: {data.num_incd_snps} SNPs x {data.num_kept_inds} individuals")
+        print(f"   Phenotypic variance: {data.var_phenotypic:.4f}")
+        
         assert data.num_snps > 0
         assert data.num_inds > 0
+        assert data.num_incd_snps > 0
+        assert data.num_kept_inds > 0
+        assert data.var_phenotypic > 0
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "-s"])
