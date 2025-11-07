@@ -1,0 +1,48 @@
+================================================================================
+GCTB OpenMP Scaling Test
+================================================================================
+
+Dataset: 6717 SNPs × 3642 individuals
+Chain: 2000 iterations, Burnin: 200
+Model: BayesC
+
+Running tests (this will take ~1-2 minutes total)...
+
+----------------------------------------------------------------------
+Testing with OMP_NUM_THREADS=1
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+Testing with OMP_NUM_THREADS=2
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+Testing with OMP_NUM_THREADS=4
+----------------------------------------------------------------------
+
+----------------------------------------------------------------------
+Testing with OMP_NUM_THREADS=8
+----------------------------------------------------------------------
+
+================================================================================
+Analysis
+================================================================================
+
+Compare the 'Computational time' above for each thread count.
+
+Expected results for this small dataset:
+  - 1 thread:  ~6-7 seconds (baseline)
+  - 2 threads: ~4-5 seconds (1.3-1.5x speedup)
+  - 4 threads: ~3-4 seconds (1.5-2x speedup)
+  - 8 threads: ~3-4 seconds (minimal additional benefit)
+
+Why limited speedup?
+  - Dataset is small (only 6717 SNPs)
+  - Single chromosome (limited parallelization opportunities)
+  - Threading overhead significant for small problems
+
+For REAL large-scale data (>50K SNPs, multiple chromosomes):
+  - Expected: 4-8x speedup with 4-8 threads
+  - Near-linear scaling with chromosome count
+
+================================================================================
