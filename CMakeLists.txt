@@ -82,7 +82,7 @@ set(CORE_SOURCES
     scr/predict.cpp
     scr/stat.cpp
     scr/stratify.cpp
-    scr/stratifyMixture.cpp
+    # scr/stratifyMixture.cpp  # Temporarily removed - uses MPI
     scr/vgmaf.cpp
     scr/xci.cpp
     scr/eigen.cpp
