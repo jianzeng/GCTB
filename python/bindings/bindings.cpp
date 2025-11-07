@@ -404,7 +404,7 @@ PYBIND11_MODULE(_core, m) {
     // ============================================================================
     // Version Info
     // ============================================================================
-    m.attr("__version__") = "3.0.0";
+    m.attr("__version__") = "1.0.0";
     m.attr("__author__") = "Jian Zeng, Luke Lloyd-Jones, Zhili Zheng, Shouye Liu";
 }
 
