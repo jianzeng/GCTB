@@ -98,7 +98,62 @@ Pi              0.0144      N/A        N/A    ? Unknown
 
 ---
 
-## 3. No Other Known Issues
+## 3. Subprocess + C++ Extension = Crashes
+
+### Symptom
+
+Using `subprocess.run()` or `subprocess.Popen()` to run GCTB causes crashes:
+
+```python
+subprocess.run(['python3', '-m', 'gctb.cli', 'bayes', ...])
+# Exit code: -5 (SIGTRAP)
+# "Python quit unexpectedly"
+```
+
+### Cause
+
+- pybind11 C++ extensions don't work well with subprocess
+- OpenMP + fork() = problems
+- Library initialization issues
+
+### Impact
+
+⚠️ **Affects testing/scripting:**
+- Can't use Python subprocess for benchmarking
+- Can't use multiprocessing.Pool
+- Scripts that call GCTB via subprocess will crash
+
+✅ **Does NOT affect normal usage:**
+- Direct Python API works ✅
+- CLI usage works ✅
+- Shell scripts work ✅
+
+### Workaround
+
+**Use shell scripts instead of subprocess:**
+
+```bash
+# ✅ This works
+#!/bin/bash
+OMP_NUM_THREADS=4 python3 -m gctb.cli bayes --bfile data --pheno pheno.txt
+```
+
+```python
+# ❌ This crashes  
+subprocess.run(['python3', '-m', 'gctb.cli', 'bayes', ...])
+```
+
+### Status
+
+- **Will fix:** Would require rewriting subprocess handling
+- **Priority:** Low (workaround is simple)
+- **Recommendation:** Use shell scripts for testing
+
+**See:** `SUBPROCESS_ISSUES.md` for complete details
+
+---
+
+## 4. No Other Known Issues
 
 ✅ All core functionality works:
 - Data loading ✅
@@ -129,6 +184,7 @@ If you find a bug:
 |-------|--------|------------|----------|
 | Progress bar warning | Cosmetic | Don't use `--progress` | Low |
 | Diagnostics N/A | Expected | Use means only | Low |
+| Subprocess crashes | Testing only | Use shell scripts | Low |
 
-**Both issues are non-critical and don't affect analysis results!** ✅
+**All issues are non-critical and don't affect normal usage!** ✅
 
