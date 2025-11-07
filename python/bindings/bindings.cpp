@@ -77,33 +77,98 @@ PYBIND11_MODULE(_core, m) {
     // ============================================================================
     py::class_<Data>(m, "Data", "Main data container for GCTB")
         .def(py::init<>())
-        // Data reading methods
-        .def("read_fam_file", &Data::readFamFile, 
-             py::arg("fam_file"),
-             "Read PLINK .fam file")
-        .def("read_bim_file", &Data::readBimFile, 
-             py::arg("bim_file"),
-             "Read PLINK .bim file")
-        .def("read_bed_file", &Data::readBedFile, 
-             py::arg("noscale"), py::arg("bed_file"),
-             "Read PLINK .bed file")
-        .def("read_phenotype_file", &Data::readPhenotypeFile, 
-             py::arg("pheno_file"), py::arg("mphen"),
-             "Read phenotype file")
-        .def("read_covariate_file", &Data::readCovariateFile, 
-             py::arg("covar_file"),
-             "Read covariate file")
-        .def("read_gwas_summary_file", &Data::readGwasSummaryFile,
-             py::arg("gwas_file"), py::arg("af_diff"), py::arg("maf_min"),
-             py::arg("maf_max"), py::arg("pvalue_threshold"), 
-             py::arg("impute_n"), py::arg("remove_outlier_n"),
-             "Read GWAS summary statistics file")
+        // Data reading methods with exception handling
+        .def("read_fam_file", [](Data& data, const std::string& fam_file) {
+            try {
+                data.readFamFile(fam_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            } catch (const std::exception& e) {
+                throw std::runtime_error(std::string("Error reading FAM file: ") + e.what());
+            }
+        }, py::arg("fam_file"), "Read PLINK .fam file")
+        
+        .def("read_bim_file", [](Data& data, const std::string& bim_file) {
+            try {
+                data.readBimFile(bim_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            } catch (const std::exception& e) {
+                throw std::runtime_error(std::string("Error reading BIM file: ") + e.what());
+            }
+        }, py::arg("bim_file"), "Read PLINK .bim file")
+        
+        .def("read_bed_file", [](Data& data, bool noscale, const std::string& bed_file) {
+            try {
+                data.readBedFile(noscale, bed_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            } catch (const std::exception& e) {
+                throw std::runtime_error(std::string("Error reading BED file: ") + e.what());
+            }
+        }, py::arg("noscale"), py::arg("bed_file"), "Read PLINK .bed file")
+        .def("read_phenotype_file", [](Data& data, const std::string& pheno_file, unsigned mphen) {
+            try {
+                data.readPhenotypeFile(pheno_file, mphen);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            } catch (const std::exception& e) {
+                throw std::runtime_error(std::string("Error reading phenotype file: ") + e.what());
+            }
+        }, py::arg("pheno_file"), py::arg("mphen"), "Read phenotype file")
+        
+        .def("read_covariate_file", [](Data& data, const std::string& covar_file) {
+            try {
+                data.readCovariateFile(covar_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            } catch (const std::exception& e) {
+                throw std::runtime_error(std::string("Error reading covariate file: ") + e.what());
+            }
+        }, py::arg("covar_file"), "Read covariate file")
+        
+        .def("read_gwas_summary_file", [](Data& data, const std::string& gwas_file, 
+                                          float af_diff, float maf_min, float maf_max,
+                                          float pvalue_threshold, bool impute_n, bool remove_outlier_n) {
+            try {
+                data.readGwasSummaryFile(gwas_file, af_diff, maf_min, maf_max, 
+                                        pvalue_threshold, impute_n, remove_outlier_n);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            } catch (const std::exception& e) {
+                throw std::runtime_error(std::string("Error reading GWAS summary file: ") + e.what());
+            }
+        }, py::arg("gwas_file"), py::arg("af_diff"), py::arg("maf_min"),
+           py::arg("maf_max"), py::arg("pvalue_threshold"), 
+           py::arg("impute_n"), py::arg("remove_outlier_n"),
+           "Read GWAS summary statistics file")
         .def("read_ld_matrix_info_file", &Data::readLDmatrixInfoFile,
              py::arg("ldm_file"),
              "Read LD matrix info file")
         .def("read_ld_matrix_bin_file", &Data::readLDmatrixBinFile,
              py::arg("ldm_file"),
              "Read LD matrix binary file")
+        // SNP/Individual selection methods
+        .def("include_matched_snp", &Data::includeMatchedSnp,
+             "Build the list of included SNPs (must call after reading BIM)")
+        .def("build_kept_individuals", [](Data& data) {
+            // Build kept individuals list (keeps all by default)
+            data.keptIndInfoVec = data.makeKeptIndInfoVec(data.indInfoVec);
+            data.numKeptInds = (unsigned)data.keptIndInfoVec.size();
+        }, "Build the list of kept individuals (call after reading FAM)")
+        
         // Data properties
         .def_readonly("num_snps", &Data::numSnps, "Number of SNPs")
         .def_readonly("num_inds", &Data::numInds, "Number of individuals")
