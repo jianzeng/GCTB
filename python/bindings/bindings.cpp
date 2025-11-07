@@ -187,7 +187,142 @@ PYBIND11_MODULE(_core, m) {
         }, py::return_value_policy::reference_internal, "Get individual info vector")
         .def("get_incd_snp_info_vec", [](const Data& data) {
             return data.incdSnpInfoVec;
-        }, py::return_value_policy::reference_internal, "Get included SNP info vector");
+        }, py::return_value_policy::reference_internal, "Get included SNP info vector")
+        
+        // Data initialization methods
+        .def("init_variances", &Data::initVariances,
+             py::arg("heritability"), py::arg("prop_var_random"),
+             "Initialize variance components (must call before building model)")
+        
+        // Matrix building methods (for summary stats)
+        .def("build_sparse_mme", [](Data& data, bool sample_overlap, bool noscale) {
+            try {
+                data.buildSparseMME(sample_overlap, noscale);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("sample_overlap") = false, py::arg("noscale") = false,
+           "Build sparse MME for summary statistics");
+
+    // ============================================================================
+    // Model Class (Opaque - don't expose internals)
+    // ============================================================================
+    py::class_<Model>(m, "Model", "Bayesian model (opaque - use via build_model)")
+        .def_readonly("num_snps", &Model::numSnps, "Number of SNPs in model");
+
+    // ============================================================================
+    // GCTB Class & Factory Functions
+    // ============================================================================
+    py::class_<GCTB>(m, "GCTB", "Main GCTB controller")
+        .def(py::init<Options&>());
+    
+    // Factory function for summary-stats models (ApproxBayes* - no genotypes needed)
+    m.def("build_model_summary", [](Data& data, const std::string& bayes_type,
+                                    float heritability, float pi) -> Model* {
+        try {
+            // Initialize variances
+            data.initVariances(heritability, 0.05f);
+            
+            // Create dummy options
+            Options dummy_opts;
+            GCTB gctb(dummy_opts);
+            
+            // Default parameters
+            VectorXf pis(4);
+            pis << 0.95f, 0.02f, 0.02f, 0.01f;
+            VectorXf gamma(4);  
+            gamma << 0.0f, 0.01f, 0.1f, 1.0f;
+            VectorXf piPar = VectorXf::Ones(4);
+            std::vector<float> S = {0.0f};
+            
+            // Pass "dummy" for gwasFile to force summary-stats path
+            return gctb.buildModel(data, "", "dummy", bayes_type, 0,
+                                  heritability, 0.05f, pi, 1.0f, 1.0f, 
+                                  true, false, pis, piPar, gamma, true,
+                                  0.0f, 10.0f, "Gibbs", 2, 1.0f, S, 0.0f, false,
+                                  0.0f, 0.0f, false, true, false, false, false);
+        } catch (const std::string& e) {
+            throw std::runtime_error(e);
+        } catch (const char* e) {
+            throw std::runtime_error(e);
+        } catch (const std::exception& e) {
+            throw std::runtime_error(std::string("Error building model: ") + e.what());
+        }
+    }, py::arg("data"), py::arg("bayes_type"),
+       py::arg("heritability") = 0.5f, py::arg("pi") = 0.01f,
+       py::return_value_policy::take_ownership,
+       "Build a summary-stats Bayesian model (ApproxBayes* - for summary data)");
+
+    // ============================================================================
+    // McmcSamples Class
+    // ============================================================================
+    py::class_<McmcSamples>(m, "McmcSamples", "MCMC sample storage")
+        .def_readonly("label", &McmcSamples::label, "Parameter label")
+        .def_readonly("chain_length", &McmcSamples::chainLength, "Chain length")
+        .def_readonly("burnin", &McmcSamples::burnin, "Burn-in iterations")
+        .def_readonly("thin", &McmcSamples::thin, "Thinning interval")
+        .def_readonly("nrow", &McmcSamples::nrow, "Number of rows (samples)")
+        .def_readonly("ncol", &McmcSamples::ncol, "Number of columns (parameters)")
+        .def_readonly("posterior_mean", &McmcSamples::posteriorMean, "Posterior mean")
+        .def_readonly("posterior_sqr_mean", &McmcSamples::posteriorSqrMean, "Posterior squared mean")
+        .def_readonly("pip", &McmcSamples::pip, "Posterior inclusion probability")
+        .def_readonly("last_sample", &McmcSamples::lastSample, "Last MCMC sample")
+        .def("to_dict", [](const McmcSamples& samples) {
+            py::dict d;
+            d["label"] = samples.label;
+            d["posterior_mean"] = samples.posteriorMean;
+            d["pip"] = samples.pip;
+            d["last_sample"] = samples.lastSample;
+            return d;
+        }, "Convert to Python dictionary");
+
+    // ============================================================================
+    // MCMC Class
+    // ============================================================================
+    py::class_<MCMC>(m, "MCMC", "MCMC sampler")
+        .def(py::init<>())
+        .def("run", [](MCMC& mcmc, Model& model, unsigned chain_length,
+                      unsigned burnin, unsigned thin, unsigned output_freq,
+                      const std::string& title) -> std::vector<McmcSamples*> {
+            try {
+                py::gil_scoped_release release;  // Release GIL during computation
+                return mcmc.run(model, chain_length, burnin, thin, true,
+                               output_freq, title, false, false);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            } catch (const std::exception& e) {
+                throw std::runtime_error(std::string("Error in MCMC: ") + e.what());
+            }
+        }, py::arg("model"), py::arg("chain_length") = 3000,
+           py::arg("burnin") = 1000, py::arg("thin") = 10,
+           py::arg("output_freq") = 100, py::arg("title") = "gctb",
+           py::return_value_policy::take_ownership,
+           "Run MCMC sampler");
+    
+    // Convenience function combining GCTB.runMcmc
+    m.def("run_mcmc", [](Model& model, unsigned chain_length, unsigned burnin,
+                        unsigned thin, unsigned output_freq, const std::string& title) {
+        try {
+            MCMC mcmc;
+            py::gil_scoped_release release;  // Release GIL  
+            return mcmc.run(model, chain_length, burnin, thin, true,
+                           output_freq, title, false, false);
+        } catch (const std::string& e) {
+            throw std::runtime_error(e);
+        } catch (const char* e) {
+            throw std::runtime_error(e);
+        } catch (const std::exception& e) {
+            throw std::runtime_error(std::string("Error running MCMC: ") + e.what());
+        }
+    }, py::arg("model"), py::arg("chain_length") = 3000,
+       py::arg("burnin") = 1000, py::arg("thin") = 10,
+       py::arg("output_freq") = 100, py::arg("title") = "gctb",
+       py::return_value_policy::take_ownership,
+       "Run MCMC sampler (convenience function)");
 
     // ============================================================================
     // Gadget::Timer Class
