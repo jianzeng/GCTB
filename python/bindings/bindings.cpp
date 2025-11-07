@@ -230,14 +230,12 @@ PYBIND11_MODULE(_core, m) {
     py::class_<GCTB>(m, "GCTB", "Main GCTB controller")
         .def(py::init<Options&>());
     
-    // Direct model construction (bypasses buildModel to avoid re-reading data)
+    // Model factory for individual-level data (Bayes*)
     m.def("build_model", [](Data& data, const std::string& bayes_type,
                            float heritability, float pi) -> Model* {
         try {
-            // Initialize variances if not already done
             data.initVariances(heritability, 0.05f);
             
-            // Directly instantiate model classes (data already loaded)
             if (bayes_type == "C") {
                 return new BayesC(data, data.varGenotypic, data.varResidual, data.varRandom,
                                  pi, 1.0f, 1.0f, true, false, "Gibbs");
@@ -274,7 +272,53 @@ PYBIND11_MODULE(_core, m) {
     }, py::arg("data"), py::arg("bayes_type"),
        py::arg("heritability") = 0.5f, py::arg("pi") = 0.01f,
        py::return_value_policy::take_ownership,
-       "Build a Bayesian model for individual-level data (requires complete data loaded)");
+       "Build Bayesian model for individual-level data (requires genotypes)");
+    
+    // Model factory for summary statistics (ApproxBayes*)
+    m.def("build_model_summary", [](Data& data, const std::string& sbayes_type,
+                                   float heritability, float pi) -> Model* {
+        try {
+            data.initVariances(heritability, 0.05f);
+            
+            // Default parameters
+            VectorXf pis(4);
+            pis << 0.95f, 0.02f, 0.02f, 0.01f;
+            VectorXf gamma(4);
+            gamma << 0.0f, 0.01f, 0.1f, 1.0f;
+            VectorXf piPar = VectorXf::Ones(4);
+            std::vector<float> S = {0.0f};
+            
+            // Create ApproxBayes* models for summary statistics
+            if (sbayes_type == "C") {
+                return new ApproxBayesC(data, data.lowRankModel, data.varGenotypic, 
+                                       data.varResidual, data.varRandom, pi, 1.0f, 1.0f, 
+                                       true, false, 0.0f, 0.0f, false, 0.0f, 0.0f, false, false);
+            }
+            else if (sbayes_type == "R") {
+                return new ApproxBayesR(data, data.lowRankModel, data.varGenotypic,
+                                       data.varResidual, pis, piPar, gamma, true, true,
+                                       false, true, 0.0f, false, 0.0f, false, false, "Gibbs", false);
+            }
+            else if (sbayes_type == "S") {
+                return new ApproxBayesS(data, data.lowRankModel, data.varGenotypic,
+                                       data.varResidual, pi, 1.0f, 1.0f, true, 0.0f, 0.0f,
+                                       false, 0.0f, 0.0f, 1.0f, S, "Gibbs", false, false);
+            }
+            else {
+                throw std::runtime_error("Unknown sbayes_type: " + sbayes_type +
+                                       ". Supported: C, R, S");
+            }
+        } catch (const std::string& e) {
+            throw std::runtime_error(e);
+        } catch (const char* e) {
+            throw std::runtime_error(e);
+        } catch (const std::exception& e) {
+            throw std::runtime_error(std::string("Error building summary-stats model: ") + e.what());
+        }
+    }, py::arg("data"), py::arg("sbayes_type"),
+       py::arg("heritability") = 0.5f, py::arg("pi") = 0.01f,
+       py::return_value_policy::take_ownership,
+       "Build ApproxBayes model for summary statistics (requires LD matrix)");
 
     // ============================================================================
     // McmcSamples Class
