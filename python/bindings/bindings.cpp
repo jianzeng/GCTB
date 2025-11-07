@@ -230,31 +230,40 @@ PYBIND11_MODULE(_core, m) {
     py::class_<GCTB>(m, "GCTB", "Main GCTB controller")
         .def(py::init<Options&>());
     
-    // Factory function for summary-stats models (ApproxBayes* - no genotypes needed)
-    m.def("build_model_summary", [](Data& data, const std::string& bayes_type,
-                                    float heritability, float pi) -> Model* {
+    // Direct model construction (bypasses buildModel to avoid re-reading data)
+    m.def("build_model", [](Data& data, const std::string& bayes_type,
+                           float heritability, float pi) -> Model* {
         try {
-            // Initialize variances
+            // Initialize variances if not already done
             data.initVariances(heritability, 0.05f);
             
-            // Create dummy options
-            Options dummy_opts;
-            GCTB gctb(dummy_opts);
-            
-            // Default parameters
-            VectorXf pis(4);
-            pis << 0.95f, 0.02f, 0.02f, 0.01f;
-            VectorXf gamma(4);  
-            gamma << 0.0f, 0.01f, 0.1f, 1.0f;
-            VectorXf piPar = VectorXf::Ones(4);
-            std::vector<float> S = {0.0f};
-            
-            // Pass "dummy" for gwasFile to force summary-stats path
-            return gctb.buildModel(data, "", "dummy", bayes_type, 0,
-                                  heritability, 0.05f, pi, 1.0f, 1.0f, 
-                                  true, false, pis, piPar, gamma, true,
-                                  0.0f, 10.0f, "Gibbs", 2, 1.0f, S, 0.0f, false,
-                                  0.0f, 0.0f, false, true, false, false, false);
+            // Directly instantiate model classes (data already loaded)
+            if (bayes_type == "C") {
+                return new BayesC(data, data.varGenotypic, data.varResidual, data.varRandom,
+                                 pi, 1.0f, 1.0f, true, false, "Gibbs");
+            } 
+            else if (bayes_type == "B") {
+                return new BayesB(data, data.varGenotypic, data.varResidual, data.varRandom,
+                                 pi, 1.0f, 1.0f, true, false);
+            }
+            else if (bayes_type == "R") {
+                VectorXf pis(4);
+                pis << 0.95f, 0.02f, 0.02f, 0.01f;
+                VectorXf gamma(4);
+                gamma << 0.0f, 0.01f, 0.1f, 1.0f;
+                VectorXf piPar = VectorXf::Ones(4);
+                return new BayesR(data, data.varGenotypic, data.varResidual, data.varRandom,
+                                 pis, piPar, gamma, true, false, true, "Gibbs");
+            }
+            else if (bayes_type == "S") {
+                std::vector<float> S = {0.0f};
+                return new BayesS(data, data.varGenotypic, data.varResidual, data.varRandom,
+                                 pi, 1.0f, 1.0f, true, 1.0f, S, "Gibbs");
+            }
+            else {
+                throw std::runtime_error("Unknown bayes_type: " + bayes_type + 
+                                       ". Supported: C, B, R, S");
+            }
         } catch (const std::string& e) {
             throw std::runtime_error(e);
         } catch (const char* e) {
@@ -265,7 +274,7 @@ PYBIND11_MODULE(_core, m) {
     }, py::arg("data"), py::arg("bayes_type"),
        py::arg("heritability") = 0.5f, py::arg("pi") = 0.01f,
        py::return_value_policy::take_ownership,
-       "Build a summary-stats Bayesian model (ApproxBayes* - for summary data)");
+       "Build a Bayesian model for individual-level data (requires complete data loaded)");
 
     // ============================================================================
     // McmcSamples Class
