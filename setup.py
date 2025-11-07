@@ -57,7 +57,7 @@ long_description = readme_file.read_text() if readme_file.exists() else ""
 
 setup(
     name="gctb",
-    version="3.0.0",
+    version="1.0.0",
     author="Jian Zeng, Luke Lloyd-Jones, Zhili Zheng, Shouye Liu",
     description="Genome-wide Complex Trait Bayesian Analysis with Python Interface",
     long_description=long_description,
