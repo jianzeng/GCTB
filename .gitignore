@@ -80,6 +80,11 @@ test/res/*.parRes
 test/res/*.snpRes
 test/res/*.covRes
 
+# Generated test data (can be regenerated)
+test/data/*.ldm.*.bin
+test/data/*.ldm.*.info
+test/data/*_gwas_summary.ma
+
 # Temporary files
 *.tmp
 *.log
