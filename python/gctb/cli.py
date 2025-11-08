@@ -8,14 +8,41 @@ Provides user-friendly commands for Bayesian genomic analysis.
 import click
 import sys
 from pathlib import Path
+from typing import Optional
 from . import _core as gctb
 
 __version__ = "1.1.0"
 
 
-def load_plink_data(bfile: str, pheno: str, mphen: int = 1, 
-                    keep_ind_file: str = "", keep_ind_max: int = 999999,
-                    verbose: bool = True):
+def load_plink_data(
+    bfile: str,
+    pheno: Optional[str] = None,
+    mphen: int = 1,
+    keep_ind_file: Optional[str] = None,
+    keep_ind_max: int = 999999,
+    covariate_file: Optional[str] = None,
+    random_covariate_file: Optional[str] = None,
+    residual_diag_file: Optional[str] = None,
+    include_snp_file: Optional[str] = None,
+    exclude_snp_file: Optional[str] = None,
+    include_chr: Optional[int] = None,
+    include_block: Optional[int] = None,
+    exclude_region_file: Optional[str] = None,
+    skeleton_snp_file: Optional[str] = None,
+    annotation_file: Optional[str] = None,
+    annotation_transpose: bool = False,
+    allow_multi_annotation: bool = True,
+    continuous_annotation_file: Optional[str] = None,
+    flank: int = 0,
+    eqtl_file: Optional[str] = None,
+    genetic_map_file: Optional[str] = None,
+    ld_block_info_file: Optional[str] = None,
+    exclude_ambiguous_snp: bool = False,
+    exclude_mhc: bool = False,
+    noscale: bool = False,
+    read_genotypes: bool = True,
+    verbose: bool = True,
+):
     """
     Load PLINK format data (individual-level).
     
@@ -39,20 +66,76 @@ def load_plink_data(bfile: str, pheno: str, mphen: int = 1,
     if verbose:
         click.echo("Loading PLINK data...")
     
-    data.read_fam_file(f"{bfile}.fam")
-    data.read_phenotype_file(pheno, mphen)
-    data.keep_matched_ind(keep_ind_file, keep_ind_max)
+    fam_path = f"{bfile}.fam"
+    data.read_fam_file(fam_path)
+
+    if covariate_file:
+        data.read_covariate_file(covariate_file)
+    if random_covariate_file:
+        data.read_random_covariate_file(random_covariate_file)
+    if residual_diag_file:
+        data.read_residual_diag_file(residual_diag_file)
+
+    pheno_path: Optional[str] = pheno
+    if pheno_path is None:
+        fallback = Path(fam_path)
+        if fallback.exists():
+            pheno_path = str(fallback)
+
+    if keep_ind_file and pheno_path is None:
+        raise click.BadParameter("Providing --keep-ind requires a phenotype file.")
+
+    if pheno_path:
+        data.read_phenotype_file(pheno_path, mphen)
+        data.keep_matched_ind(keep_ind_file or "", keep_ind_max)
+    else:
+        data.build_kept_individuals()
+
     data.read_bim_file(f"{bfile}.bim")
+
+    if include_snp_file:
+        data.include_snp(include_snp_file)
+    if exclude_snp_file:
+        data.exclude_snp(exclude_snp_file)
+    if include_chr:
+        data.include_chr(int(include_chr))
+    if include_block:
+        data.include_block(int(include_block))
+    if exclude_region_file:
+        data.exclude_region(exclude_region_file)
+    if exclude_mhc:
+        data.exclude_mhc()
+    if exclude_ambiguous_snp:
+        data.exclude_ambiguous_snp()
+    if skeleton_snp_file:
+        data.include_skeleton_snp(skeleton_snp_file)
+    if genetic_map_file:
+        data.read_genetic_map_file(genetic_map_file)
+    if ld_block_info_file:
+        data.read_ld_block_info_file(ld_block_info_file)
+
+    annotation_loaded = False
+    if annotation_file:
+        data.read_annotation_file(annotation_file, annotation_transpose, allow_multi_annotation)
+        annotation_loaded = True
+    elif continuous_annotation_file:
+        data.read_annotation_file_format2(continuous_annotation_file, flank * 1000, eqtl_file or "")
+        annotation_loaded = True
+
     data.include_matched_snp()
-    data.read_bed_file(False, f"{bfile}.bed")
-    
+
+    if annotation_loaded and data.num_annos:
+        data.set_annotation_info()
+
+    if read_genotypes:
+        data.read_bed_file(noscale, f"{bfile}.bed")
+
     if verbose:
         click.echo(f"  ✓ Loaded: {data.num_incd_snps} SNPs × {data.num_kept_inds} individuals")
-        click.echo(f"  ✓ Phenotypic variance: {data.var_phenotypic:.4f}")
+        if data.num_kept_inds:
+            click.echo(f"  ✓ Phenotypic variance: {data.var_phenotypic:.4f}")
     
     return data
-
-
 @click.group()
 @click.version_option(version=__version__)
 def main():
@@ -75,7 +158,7 @@ def main():
 @main.command()
 @click.option('--bfile', required=True, type=str,
               help='PLINK binary file prefix (.bed/.bim/.fam)')
-@click.option('--pheno', required=True, type=click.Path(exists=True),
+@click.option('--pheno', required=True, type=click.Path(exists=True, dir_okay=False),
               help='Phenotype file')
 @click.option('--bayes', type=click.Choice(['C', 'B', 'R', 'S'], case_sensitive=False),
               default='C', help='Bayes model type (default: C)')
@@ -91,6 +174,48 @@ def main():
               help='Heritability (default: 0.5)')
 @click.option('--mphen', default=1, type=int,
               help='Phenotype column to use (default: 1)')
+@click.option('--keep-ind', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='File listing individuals to keep (FID IID)')
+@click.option('--keep-ind-max', default=999999, type=int,
+              help='Maximum individuals to keep when filtering')
+@click.option('--covar', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Covariate file')
+@click.option('--random-covar', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Random covariate file')
+@click.option('--residual', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Residual diagonal file')
+@click.option('--include-snp', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='File of SNPs to include')
+@click.option('--exclude-snp', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='File of SNPs to exclude')
+@click.option('--include-chr', default=None, type=int,
+              help='Restrict analysis to a chromosome')
+@click.option('--include-block', default=None, type=int,
+              help='Restrict analysis to an LD block (requires --ld-block-info)')
+@click.option('--exclude-region', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='File of genomic regions to exclude')
+@click.option('--skeleton-snp', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Skeleton SNP list for LD operations')
+@click.option('--annotation', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Categorical annotation file')
+@click.option('--annotation-transpose', is_flag=True, default=False,
+              help='Annotation file is transposed (rows=annotations)')
+@click.option('--continuous-annotation', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Continuous annotation file (format 2)')
+@click.option('--flank', default=0, type=int,
+              help='Flanking distance (kb) when reading continuous annotations')
+@click.option('--eqtl', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='eQTL file for continuous annotations')
+@click.option('--genetic-map', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Genetic map file')
+@click.option('--ld-block-info', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='LD block information file')
+@click.option('--exclude-ambiguous', is_flag=True, default=False,
+              help='Exclude ambiguous SNPs (A/T, C/G)')
+@click.option('--exclude-mhc', is_flag=True, default=False,
+              help='Exclude the MHC region')
+@click.option('--noscale/--scale', default=False,
+              help='Disable genotype scaling when reading BED (default: scale)')
 @click.option('--out', default='gctb', type=str,
               help='Output prefix (default: gctb)')
 @click.option('--verbose/--quiet', default=True,
@@ -99,7 +224,42 @@ def main():
               help='Show progress bar during MCMC (default: off)')
 @click.option('--diagnostics/--no-diagnostics', default=False,
               help='Run convergence diagnostics after MCMC (default: off)')
-def bayes(bfile, pheno, bayes, chain_length, burnin, thin, pi, hsq, mphen, out, verbose, progress, diagnostics):
+def bayes(
+    bfile,
+    pheno,
+    bayes,
+    chain_length,
+    burnin,
+    thin,
+    pi,
+    hsq,
+    mphen,
+    keep_ind,
+    keep_ind_max,
+    covar,
+    random_covar,
+    residual,
+    include_snp,
+    exclude_snp,
+    include_chr,
+    include_block,
+    exclude_region,
+    skeleton_snp,
+    annotation,
+    annotation_transpose,
+    continuous_annotation,
+    flank,
+    eqtl,
+    genetic_map,
+    ld_block_info,
+    exclude_ambiguous,
+    exclude_mhc,
+    noscale,
+    out,
+    verbose,
+    progress,
+    diagnostics,
+):
     """
     Run Bayesian analysis on individual-level data.
     
@@ -117,7 +277,34 @@ def bayes(bfile, pheno, bayes, chain_length, burnin, thin, pi, hsq, mphen, out, 
             click.echo("=" * 70)
         
         # Load data
-        data = load_plink_data(bfile, pheno, mphen, verbose=verbose)
+        data = load_plink_data(
+            bfile=bfile,
+            pheno=pheno,
+            mphen=mphen,
+            keep_ind_file=keep_ind,
+            keep_ind_max=keep_ind_max,
+            covariate_file=covar,
+            random_covariate_file=random_covar,
+            residual_diag_file=residual,
+            include_snp_file=include_snp,
+            exclude_snp_file=exclude_snp,
+            include_chr=include_chr,
+            include_block=include_block,
+            exclude_region_file=exclude_region,
+            skeleton_snp_file=skeleton_snp,
+            annotation_file=annotation,
+            annotation_transpose=annotation_transpose,
+            continuous_annotation_file=continuous_annotation,
+            flank=flank,
+            eqtl_file=eqtl,
+            genetic_map_file=genetic_map,
+            ld_block_info_file=ld_block_info,
+            exclude_ambiguous_snp=exclude_ambiguous,
+            exclude_mhc=exclude_mhc,
+            noscale=noscale,
+            read_genotypes=True,
+            verbose=verbose,
+        )
         
         # Build model
         if verbose:
@@ -282,6 +469,174 @@ def bayes(bfile, pheno, bayes, chain_length, burnin, thin, pi, hsq, mphen, out, 
         sys.exit(1)
 
 
+@main.group()
+def ldmatrix():
+    """LD matrix utilities built on the C++ core."""
+    pass
+
+
+@ldmatrix.command("make")
+@click.option('--bfile', required=True, type=str,
+              help='PLINK binary file prefix (.bed/.bim/.fam)')
+@click.option('--pheno', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Phenotype file (defaults to .fam if omitted)')
+@click.option('--mphen', default=1, type=int,
+              help='Phenotype column to use (default: 1)')
+@click.option('--out', required=True, type=str,
+              help='Output prefix for LD matrix files')
+@click.option('--type', 'ldm_type', default='sparse',
+              type=click.Choice(['sparse', 'full', 'band', 'shrunk', 'block'], case_sensitive=False),
+              help='LD matrix type to build (default: sparse)')
+@click.option('--chisq-threshold', default=10.0, type=float,
+              help='Chi-square threshold for pruning (default: 10)')
+@click.option('--ld-threshold', default=0.0, type=float,
+              help='LD r^2 threshold for pruning (default: 0.0)')
+@click.option('--window-width', default=1000000, type=int,
+              help='Window width in base pairs (default: 1,000,000)')
+@click.option('--snp-range', default='', type=str,
+              help='Restrict to SNP index range (e.g. "1-1000")')
+@click.option('--write-txt/--no-write-txt', default=False,
+              help='Also write LD matrix in text format')
+@click.option('--keep-ind', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='File listing individuals to keep')
+@click.option('--keep-ind-max', default=999999, type=int,
+              help='Maximum individuals to keep when filtering')
+@click.option('--covar', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Covariate file')
+@click.option('--random-covar', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Random covariate file')
+@click.option('--residual', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Residual diagonal file')
+@click.option('--include-snp', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='File of SNPs to include')
+@click.option('--exclude-snp', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='File of SNPs to exclude')
+@click.option('--include-chr', default=None, type=int,
+              help='Restrict analysis to a chromosome')
+@click.option('--include-block', default=None, type=int,
+              help='Restrict analysis to an LD block (requires --ld-block-info)')
+@click.option('--exclude-region', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='File of genomic regions to exclude')
+@click.option('--skeleton-snp', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Skeleton SNP list')
+@click.option('--annotation', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Categorical annotation file')
+@click.option('--annotation-transpose', is_flag=True, default=False,
+              help='Annotation file is transposed (rows=annotations)')
+@click.option('--continuous-annotation', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Continuous annotation file (format 2)')
+@click.option('--flank', default=0, type=int,
+              help='Flanking distance (kb) for continuous annotations')
+@click.option('--eqtl', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='eQTL file for continuous annotations')
+@click.option('--genetic-map', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Genetic map file')
+@click.option('--ld-block-info', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='LD block information file')
+@click.option('--exclude-ambiguous', is_flag=True, default=False,
+              help='Exclude ambiguous SNPs (A/T, C/G)')
+@click.option('--exclude-mhc', is_flag=True, default=False,
+              help='Exclude the MHC region')
+@click.option('--noscale/--scale', default=False,
+              help='Disable genotype scaling when reading BED (default: scale)')
+@click.option('--verbose/--quiet', default=True,
+              help='Print progress messages')
+def make_ldmatrix(
+    bfile,
+    pheno,
+    mphen,
+    out,
+    ldm_type,
+    chisq_threshold,
+    ld_threshold,
+    window_width,
+    snp_range,
+    write_txt,
+    keep_ind,
+    keep_ind_max,
+    covar,
+    random_covar,
+    residual,
+    include_snp,
+    exclude_snp,
+    include_chr,
+    include_block,
+    exclude_region,
+    skeleton_snp,
+    annotation,
+    annotation_transpose,
+    continuous_annotation,
+    flank,
+    eqtl,
+    genetic_map,
+    ld_block_info,
+    exclude_ambiguous,
+    exclude_mhc,
+    noscale,
+    verbose,
+):
+    """Build an LD matrix directly from PLINK genotypes."""
+    try:
+        if window_width < 0:
+            raise click.BadParameter("window-width must be non-negative.")
+        if not 0.0 <= ld_threshold <= 1.0:
+            raise click.BadParameter("ld-threshold must be between 0 and 1.")
+        ldm_type = ldm_type.lower()
+
+        data = load_plink_data(
+            bfile=bfile,
+            pheno=pheno,
+            mphen=mphen,
+            keep_ind_file=keep_ind,
+            keep_ind_max=keep_ind_max,
+            covariate_file=covar,
+            random_covariate_file=random_covar,
+            residual_diag_file=residual,
+            include_snp_file=include_snp,
+            exclude_snp_file=exclude_snp,
+            include_chr=include_chr,
+            include_block=include_block,
+            exclude_region_file=exclude_region,
+            skeleton_snp_file=skeleton_snp,
+            annotation_file=annotation,
+            annotation_transpose=annotation_transpose,
+            continuous_annotation_file=continuous_annotation,
+            flank=flank,
+            eqtl_file=eqtl,
+            genetic_map_file=genetic_map,
+            ld_block_info_file=ld_block_info,
+            exclude_ambiguous_snp=exclude_ambiguous,
+            exclude_mhc=exclude_mhc,
+            noscale=noscale,
+            read_genotypes=False,
+            verbose=verbose,
+        )
+
+        if verbose:
+            click.echo(f"\nBuilding {ldm_type.upper()} LD matrix -> {out}")
+
+        bed_file = f"{bfile}.bed"
+        data.make_ld_matrix(
+            bed_file,
+            ldm_type,
+            chisq_threshold,
+            ld_threshold,
+            window_width,
+            snp_range or "",
+            out,
+            write_txt,
+        )
+
+        if verbose:
+            click.echo("  ✓ LD matrix construction complete")
+    except Exception as e:
+        click.echo(f"\nError: {e}", err=True)
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
 @main.command()
 @click.option('--ldm', required=True, type=str,
               help='LD matrix directory or info file prefix')
@@ -299,6 +654,50 @@ def bayes(bfile, pheno, bayes, chain_length, burnin, thin, pi, hsq, mphen, out, 
               help='Heritability (default: 0.5)')
 @click.option('--pi', default=0.01, type=float,
               help='Prior probability (default: 0.01)')
+@click.option('--include-snp', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='File of SNPs to include')
+@click.option('--exclude-snp', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='File of SNPs to exclude')
+@click.option('--include-chr', default=None, type=int,
+              help='Restrict analysis to a chromosome')
+@click.option('--include-block', default=None, type=int,
+              help='Restrict analysis to an LD block')
+@click.option('--exclude-region', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='File of genomic regions to exclude')
+@click.option('--skeleton-snp', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Skeleton SNP list for LD operations')
+@click.option('--annotation', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Categorical annotation file')
+@click.option('--annotation-transpose', is_flag=True, default=False,
+              help='Annotation file is transposed (rows=annotations)')
+@click.option('--continuous-annotation', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Continuous annotation file (format 2)')
+@click.option('--flank', default=0, type=int,
+              help='Flanking distance (kb) for continuous annotations')
+@click.option('--eqtl', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='eQTL file for continuous annotations')
+@click.option('--ldscore', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='LD score file')
+@click.option('--window-file', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Window definition file')
+@click.option('--genetic-map', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Genetic map file (for LD post-processing)')
+@click.option('--exclude-ambiguous', is_flag=True, default=False,
+              help='Exclude ambiguous SNPs (A/T, C/G)')
+@click.option('--exclude-mhc', is_flag=True, default=False,
+              help='Exclude the MHC region')
+@click.option('--multi-ldm/--single-ldm', default=False,
+              help='Treat --ldm as multi-LD matrix directory (default: single)')
+@click.option('--ldm-txt/--ldm-bin', default=False,
+              help='Read LD matrix from .txt instead of .bin (default: bin)')
+@click.option('--sample-overlap/--no-sample-overlap', default=False,
+              help='Specify whether summary stats include sample overlap')
+@click.option('--noscale/--scale', default=False,
+              help='Disable scaling when building sparse MME (default: scale)')
+@click.option('--rsq-threshold', default=1.0, type=float,
+              help='LD r^2 threshold for pruning/binning')
+@click.option('--bin-snp/--no-bin-snp', default=False,
+              help='Bin SNPs by LD r^2 threshold instead of pruning')
 @click.option('--out', default='sbayes', type=str,
               help='Output prefix (default: sbayes)')
 @click.option('--verbose/--quiet', default=True)
@@ -306,7 +705,42 @@ def bayes(bfile, pheno, bayes, chain_length, burnin, thin, pi, hsq, mphen, out, 
               help='Show progress bar during MCMC (default: off)')
 @click.option('--diagnostics/--no-diagnostics', default=False,
               help='Run convergence diagnostics after MCMC (default: off)')
-def sbayes(ldm, gwas_summary, sbayes, chain_length, burnin, thin, hsq, pi, out, verbose, progress, diagnostics):
+def sbayes(
+    ldm,
+    gwas_summary,
+    sbayes,
+    chain_length,
+    burnin,
+    thin,
+    hsq,
+    pi,
+    include_snp,
+    exclude_snp,
+    include_chr,
+    include_block,
+    exclude_region,
+    skeleton_snp,
+    annotation,
+    annotation_transpose,
+    continuous_annotation,
+    flank,
+    eqtl,
+    ldscore,
+    window_file,
+    genetic_map,
+    exclude_ambiguous,
+    exclude_mhc,
+    multi_ldm,
+    ldm_txt,
+    sample_overlap,
+    noscale,
+    rsq_threshold,
+    bin_snp,
+    out,
+    verbose,
+    progress,
+    diagnostics,
+):
     """
     Run SBayes analysis on GWAS summary statistics.
     
@@ -326,7 +760,34 @@ def sbayes(ldm, gwas_summary, sbayes, chain_length, burnin, thin, hsq, pi, out, 
             click.echo("=" * 70)
         
         # Load summary statistics data
-        data = load_summary_data(ldm, gwas_summary, verbose)
+        data = load_summary_data(
+            ldm_prefix=ldm,
+            gwas_file=gwas_summary,
+            verbose=verbose,
+            include_snp_file=include_snp,
+            exclude_snp_file=exclude_snp,
+            include_chr=include_chr,
+            include_block=include_block,
+            exclude_region_file=exclude_region,
+            skeleton_snp_file=skeleton_snp,
+            annotation_file=annotation,
+            annotation_transpose=annotation_transpose,
+            continuous_annotation_file=continuous_annotation,
+            flank=flank,
+            eqtl_file=eqtl,
+            ldscore_file=ldscore,
+            window_file=window_file,
+            genetic_map_file=genetic_map,
+            exclude_ambiguous_snp=exclude_ambiguous,
+            exclude_mhc=exclude_mhc,
+            multi_ldm=multi_ldm,
+            read_ldm_txt=ldm_txt,
+            sample_overlap=sample_overlap,
+            noscale=noscale,
+            rsq_threshold=rsq_threshold,
+            bin_snp=bin_snp,
+            title=out,
+        )
         
         # Build ApproxBayes model
         if verbose:
@@ -482,7 +943,35 @@ def sbayes(ldm, gwas_summary, sbayes, chain_length, burnin, thin, hsq, pi, out, 
         sys.exit(1)
 
 
-def load_summary_data(ldm_prefix: str, gwas_file: str, verbose: bool = True):
+def load_summary_data(
+    ldm_prefix: str,
+    gwas_file: str,
+    verbose: bool = True,
+    include_snp_file: Optional[str] = None,
+    exclude_snp_file: Optional[str] = None,
+    include_chr: Optional[int] = None,
+    include_block: Optional[int] = None,
+    exclude_region_file: Optional[str] = None,
+    skeleton_snp_file: Optional[str] = None,
+    annotation_file: Optional[str] = None,
+    annotation_transpose: bool = False,
+    allow_multi_annotation: bool = True,
+    continuous_annotation_file: Optional[str] = None,
+    flank: int = 0,
+    eqtl_file: Optional[str] = None,
+    ldscore_file: Optional[str] = None,
+    window_file: Optional[str] = None,
+    genetic_map_file: Optional[str] = None,
+    exclude_ambiguous_snp: bool = False,
+    exclude_mhc: bool = False,
+    multi_ldm: bool = False,
+    read_ldm_txt: bool = False,
+    sample_overlap: bool = False,
+    noscale: bool = False,
+    rsq_threshold: float = 1.0,
+    bin_snp: bool = False,
+    title: Optional[str] = None,
+):
     """
     Load GWAS summary statistics and LD matrix.
     
@@ -497,59 +986,110 @@ def load_summary_data(ldm_prefix: str, gwas_file: str, verbose: bool = True):
     """
     data = gctb.Data()
     
-    # Load LD matrix info (this also loads SNP information)
     if verbose:
-        click.echo("Loading LD matrix...")
+        click.echo("Loading LD matrix metadata...")
     
-    try:
-        data.read_ld_matrix_info_file(f"{ldm_prefix}.info")
-    except:
-        # Try without extension
-        data.read_ld_matrix_info_file(ldm_prefix)
+    if multi_ldm:
+        data.read_multi_ld_matrix_info_file(ldm_prefix)
+    else:
+        info_path = f"{ldm_prefix}.info"
+        try:
+            data.read_ld_matrix_info_file(info_path)
+        except Exception:
+            data.read_ld_matrix_info_file(ldm_prefix)
     
     if verbose:
         click.echo(f"  ✓ LD matrix info loaded: {data.num_snps} SNPs")
     
+    if include_snp_file:
+        data.include_snp(include_snp_file)
+    if exclude_snp_file:
+        data.exclude_snp(exclude_snp_file)
+    if include_chr:
+        data.include_chr(int(include_chr))
+    if include_block:
+        data.include_block(int(include_block))
+    if exclude_region_file:
+        data.exclude_region(exclude_region_file)
+    if exclude_mhc:
+        data.exclude_mhc()
+    if exclude_ambiguous_snp:
+        data.exclude_ambiguous_snp()
+    if skeleton_snp_file:
+        data.include_skeleton_snp(skeleton_snp_file)
+    if genetic_map_file:
+        data.read_genetic_map_file(genetic_map_file)
+    if ldscore_file:
+        data.read_ldscore_file(ldscore_file)
+    if window_file:
+        data.read_window_file(window_file)
+
+    annotation_loaded = False
+    if annotation_file:
+        data.read_annotation_file(annotation_file, annotation_transpose, allow_multi_annotation)
+        annotation_loaded = True
+    elif continuous_annotation_file:
+        data.read_annotation_file_format2(continuous_annotation_file, flank * 1000, eqtl_file or "")
+        annotation_loaded = True
+
     # Load GWAS summary statistics
     if verbose:
         click.echo("Loading GWAS summary statistics...")
     
     data.read_gwas_summary_file(
         gwas_file=gwas_file,
-        af_diff=0.2,         # Default: filter if AF differs by >0.2
-        maf_min=0.01,        # Default: minimum MAF 0.01
-        maf_max=0.0,         # Default: no max filter
-        pvalue_threshold=1.0, # Default: no p-value filter
+        af_diff=0.2,
+        maf_min=0.01,
+        maf_max=0.0,
+        pvalue_threshold=1.0,
         impute_n=False,
-        remove_outlier_n=False
+        remove_outlier_n=False,
     )
     
-    # Build included SNP list (CRITICAL for summary stats!)
     data.include_matched_snp()
+    
+    if annotation_loaded and data.num_annos:
+        data.set_annotation_info()
     
     if verbose:
         click.echo(f"  ✓ GWAS summary loaded: {data.num_incd_snps} matched SNPs")
     
-    # Load LD matrix binary data
     if verbose:
-        click.echo("Loading LD matrix binary data...")
+        click.echo("Loading LD matrix data...")
     
-    try:
-        data.read_ld_matrix_bin_file(f"{ldm_prefix}.bin")
-    except:
-        data.read_ld_matrix_bin_file(ldm_prefix)
+    if read_ldm_txt:
+        txt_path = f"{ldm_prefix}.txt"
+        try:
+            data.read_ld_matrix_txt_file(txt_path)
+        except Exception:
+            data.read_ld_matrix_txt_file(ldm_prefix)
+    elif multi_ldm:
+        data.read_multi_ld_matrix_bin_file(ldm_prefix)
+    else:
+        bin_path = f"{ldm_prefix}.bin"
+        try:
+            data.read_ld_matrix_bin_file(bin_path)
+        except Exception:
+            data.read_ld_matrix_bin_file(ldm_prefix)
+    
+    if rsq_threshold < 1.0 and not bin_snp:
+        data.filter_snp_by_ld_rsq(rsq_threshold)
+        data.include_matched_snp()
+
+    if bin_snp:
+        data.bin_snp_by_ld_rsq(rsq_threshold, title or Path(gwas_file).stem)
+
+    if window_file:
+        data.bin_snp_by_window_id()
     
     if verbose:
-        click.echo(f"  ✓ LD matrix loaded")
-    
-    # Build sparse mixed model equations
-    if verbose:
+        click.echo("  ✓ LD matrix loaded")
         click.echo("Building sparse mixed model equations...")
     
-    data.build_sparse_mme(sample_overlap=False, noscale=False)
+    data.build_sparse_mme(sample_overlap=sample_overlap, noscale=noscale)
     
     if verbose:
-        click.echo(f"  ✓ Sparse MME built")
+        click.echo("  ✓ Sparse MME built")
         click.echo(f"\nReady for analysis: {data.num_incd_snps} SNPs")
     
     return data
