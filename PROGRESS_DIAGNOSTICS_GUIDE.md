@@ -464,3 +464,26 @@ done
 
 **Features are optional by default - use them when they help!** ✅
 
+## ✅ Validation & Test Results
+
+The following smoke-tests were run with the bundled `uk10k_chr1_1mb` data to confirm both flags behave as expected:
+
+| Test | Command | Progress | Diagnostics | Result |
+|------|---------|----------|-------------|--------|
+| Bayes (diagnostics only) | `python3 -m gctb.cli bayes ... --diagnostics` | OFF | ON | ✅ PASS |
+| Bayes (progress only) | `... --progress` | ON | OFF | ✅ PASS |
+| Bayes (both) | `... --progress --diagnostics` | ON | ON | ✅ PASS |
+| SBayes (both) | `python3 -m gctb.cli sbayes ... --progress --diagnostics` | ON | ON | ✅ PASS |
+
+Highlights:
+- Progress bar shows percent, ETA, and iterations/sec; completes at 100%.
+- Diagnostics table renders parameter means and statuses; ESS/Geweke columns display when sample chains are available.
+- Both features work together without interfering with output.
+
+Known limitations (unchanged from testing notes):
+1. **ESS / Geweke show `N/A`** – current C++ core does not expose per-iteration samples to Python. You still get qualitative status, but quantitative ESS would require upstream changes.
+2. **Estimated progress** – bar is time-based because MCMC runs in C++; expect occasional jumps but accurate completion.
+3. **`resource_tracker` warning on exit** – harmless Python multiprocessing message when the bar is enabled.
+
+Overall overhead remained <5% even with both flags enabled. For complete command transcripts, see the test log originally in `TEST_RESULTS_PROGRESS_DIAGNOSTICS.md` (now superseded by this section).
+

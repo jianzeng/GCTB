@@ -10,8 +10,8 @@ Complete toolkit for comparing Python and C++ implementations.
 |------|------|---------|
 | `benchmark_comparison.py` | Python | Comprehensive automated benchmarks |
 | `compare_outputs.sh` | Shell | Quick side-by-side comparison |
-| `BENCHMARKING_GUIDE.md` | Docs | Complete guide and examples |
-| `BENCHMARK_EXAMPLE_OUTPUT.md` | Docs | Expected output examples |
+| `BENCHMARKING_GUIDE.md` | Docs | Detailed instructions, sample output, OpenMP notes |
+| `README_BENCHMARKS.md` | Docs | Quick orientation (this file) |
 
 ---
 
@@ -29,7 +29,7 @@ python3 benchmark_comparison.py
 - Runs unit tests (data loading, model creation, MCMC)
 - Runs 3 full comparisons (BayesC short/medium, BayesR)
 - Compares speed and accuracy
-- Generates detailed report
+- Generates detailed report (see `BENCHMARKING_GUIDE.md` for interpretation)
 
 **Time:** 3-5 minutes
 
@@ -67,7 +67,7 @@ cd /Users/haocheng/Github/GCTB
 **Python version:**
 ```bash
 cd python
-python3 -c "import gctb.cli; gctb.cli.main()" bayes \
+python3 -m gctb.cli bayes \
     --bfile ../test/data/uk10k_chr1_1mb \
     --pheno ../test/data/test.phen \
     --bayes S \
@@ -81,6 +81,8 @@ python3 -c "import gctb.cli; gctb.cli.main()" bayes \
 echo "C++ h²:"; tail -1 cpp_result.parRes | awk '{print $1}'
 echo "Python h²:"; tail -1 py_result.parRes | awk '{print $1}'
 ```
+
+(Additional walkthroughs, screenshots, and example diffs live in `BENCHMARKING_GUIDE.md`.)
 
 ---
 
@@ -114,8 +116,11 @@ echo "Python h²:"; tail -1 py_result.parRes | awk '{print $1}'
 
 2. **SNP Effects**
    - Effect size distribution
-   - Number of significant SNPs
    - Posterior inclusion probabilities
+
+### OpenMP Scaling (details in guide)
+- Verifies the Python build links OpenMP correctly
+- Documents expected speedups for small/medium/large datasets
 
 ---
 
@@ -127,28 +132,11 @@ echo "Python h²:"; tail -1 py_result.parRes | awk '{print $1}'
 
 Both implementations use the same C++ computational core. Python adds minimal overhead (~1-2%).
 
-**Why they're similar:**
-- Same underlying C++ code
-- Efficient pybind11 bindings
-- GIL released during computation
-- No Python loops over data
-
 ### Accuracy
 
 **Estimates:** Within MCMC variance (~1-5% difference)
 
-MCMC is stochastic (uses random sampling). Different runs will produce slightly different results, even for the same implementation!
-
-**Why they differ slightly:**
-- Random sampling in MCMC
-- Different random seeds
-- Finite chain length
-- **This is normal and expected!**
-
-**To get more similar results:**
-- Use longer chains
-- Average over multiple runs
-- Use same random seed
+MCMC is stochastic (uses random sampling). Different runs will produce slightly different results, even for the same implementation. Longer chains or fixed seeds reduce variation.
 
 ---
 
@@ -158,7 +146,7 @@ Before publishing results, verify:
 
 ### ✅ Prerequisites
 - [ ] C++ GCTB compiled (`make` in `scr/`)
-- [ ] Python package installed (`pip install -e python/`)
+- [ ] Python package installed (`pip install -e .`)
 - [ ] Test data available (`test/data/uk10k_chr1_1mb.*`)
 - [ ] Virtual environment activated
 
@@ -169,13 +157,13 @@ Before publishing results, verify:
 - [ ] No memory leaks
 
 ### ✅ Accuracy
-- [ ] Heritability estimates within 10%
-- [ ] Parameter estimates reasonable
-- [ ] SNP effects have proper distribution
+- [ ] Heritability within expected range (0.4-0.6 for test data)
+- [ ] Pi (proportion non-zero) reasonable (~0.01)
+- [ ] SNP effects have correct distribution
 - [ ] Output files formatted correctly
 
 ### ✅ Reliability
-- [ ] No crashes or errors
+- [ ] No crashes or errors (aside from known cosmetic warnings)
 - [ ] Reproducible results
 - [ ] Consistent across runs
 - [ ] Handles edge cases
@@ -184,263 +172,39 @@ Before publishing results, verify:
 
 ## 🐛 Troubleshooting
 
-### "C++ GCTB not found"
+- **“C++ GCTB not found”** → `cd scr && make`
+- **“Python package not installed”** → `pip install -e .`
+- **“Python much slower”** → check OpenMP (`echo $OMP_NUM_THREADS`), build flags (`-O3`, `-DNDEBUG`), and virtualenv.
+- **“Results very different”** → remember stochastic MCMC; run longer chains or multiple replicates.
 
-```bash
-cd scr
-make clean
-make
-# Check it works:
-./gctb --help
-```
-
-### "Python package not installed"
-
-```bash
-cd python
-pip install -e .
-# Test import:
-python3 -c "import gctb; print(gctb.__version__)"
-```
-
-### "Test data not found"
-
-The test data should be in `test/data/`. These files are part of the repository:
-- `uk10k_chr1_1mb.bed`
-- `uk10k_chr1_1mb.bim`
-- `uk10k_chr1_1mb.fam`
-- `test.phen`
-
-### "Python much slower than C++"
-
-Check:
-1. OpenMP is working: `echo $OMP_NUM_THREADS`
-2. Optimization enabled: Look for `-O3` in build output
-3. No debug symbols: Check `-DNDEBUG` is set
-4. Virtual environment active: `which python3`
-
-### "Results very different"
-
-Remember:
-- MCMC is stochastic (random sampling)
-- Results will vary between runs
-- Differences <10% are normal
-- Run longer chains for more stable estimates
+More detailed guidance (including full command transcripts and example diff outputs) lives in `BENCHMARKING_GUIDE.md`.
 
 ---
 
 ## 📈 Performance Tips
 
-### For Faster Benchmarks
-
-Use shorter chains for testing:
-```bash
-# Quick test (~2 seconds)
---chain-length 100 --burn-in 10
-
-# Medium test (~5 seconds)
---chain-length 500 --burn-in 50
-
-# Full test (~20 seconds)
---chain-length 1100 --burn-in 100
-```
-
-### For More Accurate Results
-
-Use longer chains:
-```bash
-# Production (~1 minute)
---chain-length 5000 --burn-in 500
-
-# High precision (~5 minutes)
---chain-length 25000 --burn-in 2500
-```
-
-### For Reproducibility
-
-Use fixed random seed (if implemented):
-```bash
---seed 12345
-```
-
----
-
-## 📊 Benchmark on Your Own Data
-
-### Small Dataset (Quick)
-
-```bash
-# Replace with your data:
-BFILE="your_data"
-PHENO="your_pheno.txt"
-
-# C++
-time ./scr/gctb --bfile $BFILE --pheno $PHENO \
-     --bayes S --chain-length 1100 --burn-in 100 \
-     --out cpp_result
-
-# Python
-cd python
-time python3 -c "import gctb.cli; gctb.cli.main()" bayes \
-     --bfile ../$BFILE --pheno ../$PHENO \
-     --bayes S --chain-length 1100 --burnin 100 \
-     --out py_result
-
-# Compare
-diff <(tail -5 ../cpp_result.parRes) <(tail -5 py_result.parRes)
-```
-
-### Large Dataset (Production)
-
-For large datasets (>100K SNPs, >10K individuals):
-- Use longer chains (5000-10000)
-- Consider thinning (--thin 10)
-- Monitor memory usage
-- Expect longer runtimes (hours)
-
-**Both implementations scale identically!**
+Use shorter chains for sanity checks, longer chains for production, and `--seed` for reproducibility. Thinning (`--thin`) helps with very long runs. For custom datasets, adapt the scripts in this directory and follow the reporting templates in the detailed guide.
 
 ---
 
 ## 📝 Reporting Results
 
-### For Papers/Publications
+When sharing benchmark outcomes, include:
+- System specs (CPU, RAM, OS)
+- Data size (SNPs × individuals)
+- Model type and chain settings
+- Execution times for both implementations
+- Parameter comparisons (h², π, GenVar, etc.)
 
-```
-We compared the Python interface to the original C++ implementation
-using the UK10K test dataset (6717 SNPs × 3642 individuals). 
-
-Performance: The Python implementation matched C++ performance
-(18.2s vs 18.4s for 1100 MCMC iterations, 0.99x speedup).
-
-Accuracy: Parameter estimates were consistent within MCMC variance
-(heritability: 0.487 vs 0.484, <1% difference).
-
-Conclusion: The Python interface maintains full computational
-efficiency of the C++ core while providing improved usability.
-```
-
-### For GitHub/Documentation
-
-```markdown
-## Benchmark Results
-
-**System:** MacBook Pro M2, 16GB RAM, macOS 14.6
-**Data:** 6717 SNPs × 3642 individuals
-**Model:** BayesS
-**Chain:** 1100 iterations, 100 burn-in
-
-| Implementation | Time (s) | h² | π | GenVar |
-|----------------|----------|-----|-----|--------|
-| C++ | 18.2 | 0.487 | 0.0089 | 0.452 |
-| Python | 18.4 | 0.484 | 0.0091 | 0.450 |
-
-**Speedup:** 0.99x (identical)
-**Accuracy:** <1% difference (within MCMC variance)
-
-✅ Python matches C++ performance and accuracy
-```
+Example snippets are provided near the end of `BENCHMARKING_GUIDE.md`.
 
 ---
 
-## 🎓 Understanding the Results
+## 🎉 Summary
 
-### Why Python ≈ C++ Speed?
+- `./compare_outputs.sh` – fastest sanity check (~40 s)
+- `python3 benchmark_comparison.py` – automated, thorough (~5 min)
+- Manual workflow – customize chain length or datasets as needed
 
-**Python interface is thin:**
-- Data I/O: Pure C++
-- Model creation: Pure C++
-- MCMC sampling: Pure C++
-- Only CLI parsing in Python
-
-**Efficient bindings:**
-- Direct memory access (no copies)
-- GIL released during computation
-- Zero-copy array passing
-- Minimal wrapper overhead
-
-### Why Results Differ?
-
-**MCMC is stochastic:**
-- Uses random number generation
-- Samples from posterior distribution
-- Each run is different
-- Like flipping coins: never identical
-
-**What's normal:**
-- Parameter estimates within 5%: Excellent
-- Parameter estimates within 10%: Good
-- Order of magnitude different: Problem!
-
-**To verify accuracy:**
-- Run both multiple times
-- Compare averages
-- Check ranges overlap
-- Ensure similar distributions
-
----
-
-## 🎉 Expected Conclusion
-
-After running benchmarks, you should be able to conclude:
-
-✅ **Python maintains C++ performance**
-   - Within 5% execution time
-   - Identical computational core
-   - Professional-grade efficiency
-
-✅ **Python matches C++ accuracy**
-   - Consistent parameter estimates
-   - Valid statistical inference
-   - Reliable results
-
-✅ **Python improves usability**
-   - Easier installation
-   - Better error messages
-   - More intuitive interface
-   - Scriptable workflows
-
-**Best of both worlds!** 🚀
-
----
-
-## 📚 Additional Resources
-
-- **BENCHMARKING_GUIDE.md**: Detailed guide with examples
-- **BENCHMARK_EXAMPLE_OUTPUT.md**: Expected output examples
-- **README_PYTHON.md**: Python interface documentation
-- **RELEASE_NOTES_v1.0.0.md**: Version 1.0 release notes
-
----
-
-## ❓ Questions?
-
-### Is the Python version slower?
-
-No! Within 5% of C++ (measurement noise).
-
-### Do results match exactly?
-
-No, MCMC is random. Results are similar (within variance).
-
-### Should I use Python or C++?
-
-**Python:** Better UX, easier to script, same speed
-**C++:** If you already have workflows, or prefer C++
-
-Both are equally valid!
-
-### Can I trust the Python version?
-
-Yes! Same computational core, extensively tested, production-ready.
-
----
-
-**Ready to benchmark? Start with:**
-
-```bash
-./compare_outputs.sh
-```
-
-**Simple, fast, and conclusive!** ✅
+Python and C++ outputs should agree within normal MCMC variance and execute in essentially the same wall-clock time. When in doubt, start with the shell script and dig deeper with the detailed guide.
 

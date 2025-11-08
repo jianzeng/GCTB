@@ -111,6 +111,37 @@ diff <(head -20 cpp_result.snpRes) <(head -20 python_result.snpRes)
 
 ---
 
+## 📄 Example Output Snapshots
+
+Use these snippets to sanity-check scripts and interpret the results. (Full walkthroughs were previously in separate files; they are reproduced here.)
+
+**`compare_outputs.sh` (summary excerpt):**
+```
+⏱️  Execution Time:
+   C++:    18s
+   Python: 18s
+   → Identical speed! ✅
+
+C++ Results:
+  Heritability (h²): 0.487234
+  Pi: 0.008921
+
+Python Results:
+  Heritability (h²): 0.484127
+  Pi: 0.009234
+```
+
+**`benchmark_comparison.py` (table excerpt):**
+```
+BayesC_short   C++ 2.34s   Python 2.31s   Speedup 1.01x   Accuracy ✅ Excellent
+BayesC_medium  C++ 23.12s  Python 23.45s  Speedup 0.99x   Accuracy ✅ Excellent
+BayesR_short   C++ 3.45s   Python 3.42s   Speedup 1.01x   Accuracy ✅ Excellent
+```
+
+Remember that small numerical differences are expected (MCMC variability). If core parameters diverge by >10%, rerun with longer chains or investigate data loading.
+
+---
+
 ## 📈 Expected Results
 
 ### Performance
@@ -356,6 +387,33 @@ tail -1 /tmp/py_test.parRes | awk '{print $1}'
 
 # Should be within ~0.02 of each other
 ```
+
+---
+
+## ⚙️ OpenMP Scaling Overview
+
+Both the Python extension and the original C++ binary use the same OpenMP parallel regions. Key points:
+
+- `_core` links against `/opt/homebrew/opt/libomp/lib/libomp.dylib` (macOS/Homebrew).
+- `model.cpp` contains ~35 `#pragma omp` loops; `eigen.cpp` adds another 10; remaining helpers contribute ~16.
+- `OMP_NUM_THREADS` is honoured; leave unset for "all cores", or override per run.
+
+**What to expect:**
+
+| Dataset | Threads | Expected behaviour |
+|---------|---------|--------------------|
+| Tiny (≤10K SNPs, 1 chr) | 1 vs 4 | ~1.0x (overhead dominates) |
+| Medium (~50K SNPs) | 4-8 | 2-4× speedup |
+| Large (≥500K SNPs, multi-chr) | 8+ | 4-8×, near-linear per chromosome |
+
+Example scaling run on the bundled test data (6,717 SNPs) produced ~6.6 s regardless of 1, 2, 4, or 8 threads—exactly what we expect for a dataset too small to amortise threading costs. See `OPENMP_STATUS` notes (integrated here) if you need command-by-command verification.
+
+Tips:
+- Set `OMP_NUM_THREADS=1` to debug deterministically.
+- Use `OMP_DISPLAY_ENV=TRUE` to print OpenMP configuration.
+- Check linking via `otool -L python/gctb/_core*.so | grep omp`.
+
+For larger workloads (UK Biobank-sized, genome-wide LD matrices, etc.), Python inherits the same scaling as the C++ executable—no extra work needed.
 
 ---
 
