@@ -134,6 +134,30 @@ PYBIND11_MODULE(_core, m) {
                 throw std::runtime_error(std::string("Error reading covariate file: ") + e.what());
             }
         }, py::arg("covar_file"), "Read covariate file")
+        .def("read_random_covariate_file", [](Data& data, const std::string& covar_file) {
+            try {
+                data.readRandomCovariateFile(covar_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            } catch (const std::exception& e) {
+                throw std::runtime_error(std::string("Error reading random covariate file: ") + e.what());
+            }
+        }, py::arg("covar_file"),
+           "Read random covariate file")
+        .def("read_residual_diag_file", [](Data& data, const std::string& resdiag_file) {
+            try {
+                data.readResidualDiagFile(resdiag_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            } catch (const std::exception& e) {
+                throw std::runtime_error(std::string("Error reading residual diag file: ") + e.what());
+            }
+        }, py::arg("resdiag_file"),
+           "Read residual diagonal file")
         
         .def("read_gwas_summary_file", [](Data& data, const std::string& gwas_file, 
                                           float af_diff, float maf_min, float maf_max,
@@ -152,6 +176,147 @@ PYBIND11_MODULE(_core, m) {
            py::arg("maf_max"), py::arg("pvalue_threshold"), 
            py::arg("impute_n"), py::arg("remove_outlier_n"),
            "Read GWAS summary statistics file")
+        .def("read_genetic_map_file", [](Data& data, const std::string& map_file) {
+            try {
+                data.readGeneticMapFile(map_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("map_file"),
+           "Read genetic map file")
+        .def("read_ld_block_info_file", [](Data& data, const std::string& ldb_file) {
+            try {
+                data.readLDBlockInfoFile(ldb_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("ldb_file"),
+           "Read LD block info file")
+        .def("include_snp", [](Data& data, const std::string& include_snp_file) {
+            try {
+                data.includeSnp(include_snp_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("include_snp_file"),
+           "Include SNPs based on file")
+        .def("exclude_snp", [](Data& data, const std::string& exclude_snp_file) {
+            try {
+                data.excludeSnp(exclude_snp_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("exclude_snp_file"),
+           "Exclude SNPs based on file")
+        .def("include_chr", [](Data& data, unsigned chr) {
+            try {
+                data.includeChr(chr);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("chromosome"),
+           "Restrict analysis to a chromosome")
+        .def("include_block", [](Data& data, unsigned block) {
+            try {
+                data.includeBlock(block);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("block"),
+           "Restrict analysis to an LD block")
+        .def("exclude_region", [](Data& data, const std::string& region_file) {
+            try {
+                data.excludeRegion(region_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("region_file"),
+           "Exclude SNPs in specified regions")
+        .def("exclude_mhc", [](Data& data) {
+            try {
+                data.excludeMHC();
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, "Exclude SNPs in the MHC region")
+        .def("exclude_ambiguous_snp", [](Data& data) {
+            try {
+                data.excludeAmbiguousSNP();
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, "Exclude ambiguous SNPs (A/T, C/G)")
+        .def("include_skeleton_snp", [](Data& data, const std::string& skeleton_file) {
+            try {
+                data.includeSkeletonSnp(skeleton_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("skeleton_file"),
+           "Include only skeleton SNPs")
+        .def("read_annotation_file", [](Data& data, const std::string& annotation_file,
+                                        bool transpose, bool allow_multi_anno) {
+            try {
+                data.readAnnotationFile(annotation_file, transpose, allow_multi_anno);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("annotation_file"), py::arg("transpose") = false,
+           py::arg("allow_multi_anno") = true,
+           "Read categorical annotation file")
+        .def("read_annotation_file_format2", [](Data& data, const std::string& continuous_file,
+                                                unsigned flank, const std::string& eqtl_file) {
+            try {
+                data.readAnnotationFileFormat2(continuous_file, flank, eqtl_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("continuous_annotation_file"), py::arg("flank"),
+           py::arg("eqtl_file") = "",
+           "Read continuous annotation file (format 2)")
+        .def("set_annotation_info", [](Data& data) {
+            try {
+                data.setAnnoInfoVec();
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, "Finalize annotation info structures")
+        .def("read_ldscore_file", [](Data& data, const std::string& ldsc_file) {
+            try {
+                data.readLDscoreFile(ldsc_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("ldsc_file"),
+           "Read LD score file")
         .def("read_ld_matrix_info_file", &Data::readLDmatrixInfoFile,
              py::arg("ldm_file"),
              "Read LD matrix info file")
@@ -184,6 +349,8 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("num_inds", &Data::numInds, "Number of individuals")
         .def_readonly("num_incd_snps", &Data::numIncdSnps, "Number of included SNPs")
         .def_readonly("num_kept_inds", &Data::numKeptInds, "Number of kept individuals")
+        .def_readonly("num_annos", &Data::numAnnos, "Number of annotations")
+        .def_readonly("num_ld_blocks", &Data::numLDBlocks, "Number of LD blocks")
         .def_readonly("var_phenotypic", &Data::varPhenotypic, "Phenotypic variance")
         .def_readonly("var_genotypic", &Data::varGenotypic, "Genotypic variance")
         .def_readonly("var_residual", &Data::varResidual, "Residual variance")
@@ -214,7 +381,238 @@ PYBIND11_MODULE(_core, m) {
                 throw std::runtime_error(e);
             }
         }, py::arg("sample_overlap") = false, py::arg("noscale") = false,
-           "Build sparse MME for summary statistics");
+           "Build sparse MME for summary statistics")
+        .def("read_multi_ld_matrix_info_file", [](Data& data, const std::string& mldm_file) {
+            try {
+                data.readMultiLDmatInfoFile(mldm_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("mldm_file"),
+           "Read multi-chromosome LD matrix info file")
+        .def("read_multi_ld_matrix_bin_file", [](Data& data, const std::string& mldm_file) {
+            try {
+                data.readMultiLDmatBinFile(mldm_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("mldm_file"),
+           "Read multi-chromosome LD matrix binary file")
+        .def("read_ld_matrix_txt_file", [](Data& data, const std::string& ldm_file) {
+            try {
+                data.readLDmatrixTxtFile(ldm_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("ldm_file"),
+           "Read LD matrix text file")
+        .def("read_plink_af_file", [](Data& data, const std::string& af_file) {
+            try {
+                data.readPlinkAFfile(af_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("af_file"),
+           "Read PLINK allele frequency file")
+        .def("read_plink_ld_txt_file", [](Data& data, const std::string& ld_txt_file) {
+            try {
+                data.readPlinkLDtxtfile(ld_txt_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("ld_txt_file"),
+           "Read PLINK LD text file")
+        .def("read_plink_ld_bin_file", [](Data& data, const std::string& ld_bin_file) {
+            try {
+                data.readPlinkLDbinfile(ld_bin_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("ld_bin_file"),
+           "Read PLINK LD binary file")
+        .def("part_ld_matrix", [](Data& data, const std::string& part_param,
+                                  const std::string& out_filename,
+                                  const std::string& ldmat_type) {
+            try {
+                return data.partLDMatrix(part_param, out_filename, ldmat_type);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("part_param"), py::arg("out_filename"), py::arg("ldmat_type"),
+           "Partition LD matrix according to parameter file")
+        .def("make_ld_matrix", [](Data& data, const std::string& bed_file,
+                                  const std::string& ldmat_type,
+                                  float chisq_threshold, float ld_threshold,
+                                  unsigned window_width, const std::string& snp_range,
+                                  const std::string& filename, bool write_ldm_txt) {
+            try {
+                data.makeLDmatrix(bed_file, ldmat_type, chisq_threshold, ld_threshold,
+                                  window_width, snp_range, filename, write_ldm_txt);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("bed_file"), py::arg("ldmat_type"), py::arg("chisq_threshold"),
+           py::arg("ld_threshold"), py::arg("window_width"), py::arg("snp_range"),
+           py::arg("filename"), py::arg("write_ldm_txt") = false,
+           "Construct LD matrix from genotype data")
+        .def("make_shrunk_ld_matrix", [](Data& data, const std::string& bed_file,
+                                         const std::string& ldmat_type,
+                                         const std::string& snp_range,
+                                         const std::string& filename, bool write_ldm_txt,
+                                         float effpop_ne, float cutoff, float gen_map_n) {
+            try {
+                data.makeshrunkLDmatrix(bed_file, ldmat_type, snp_range, filename,
+                                        write_ldm_txt, effpop_ne, cutoff, gen_map_n);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("bed_file"), py::arg("ldmat_type"), py::arg("snp_range"),
+           py::arg("filename"), py::arg("write_ldm_txt") = false,
+           py::arg("effpop_ne") = 11400.0f, py::arg("cutoff") = 1.0f,
+           py::arg("gen_map_n") = 0.0f,
+           "Construct shrunk LD matrix")
+        .def("make_block_ld_matrix", [](Data& data, const std::string& bed_file,
+                                        const std::string& ldmat_type, unsigned block,
+                                        const std::string& filename, bool write_ldm_txt,
+                                        int ld_block_region_wind) {
+            try {
+                data.makeBlockLDmatrix(bed_file, ldmat_type, block, filename,
+                                       write_ldm_txt, ld_block_region_wind);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("bed_file"), py::arg("ldmat_type"), py::arg("block"),
+           py::arg("filename"), py::arg("write_ldm_txt") = false,
+           py::arg("ld_block_region_wind") = 0,
+           "Construct block-specific LD matrix")
+        .def("resize_ld_matrix", [](Data& data, const std::string& ldmat_type,
+                                    float chisq_threshold, unsigned window_width,
+                                    float ld_threshold, float effpop_ne, float cutoff,
+                                    float gen_map_n) {
+            try {
+                data.resizeLDmatrix(ldmat_type, chisq_threshold, window_width,
+                                    ld_threshold, effpop_ne, cutoff, gen_map_n);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("ldmat_type"), py::arg("chisq_threshold"), py::arg("window_width"),
+           py::arg("ld_threshold"), py::arg("effpop_ne"), py::arg("cutoff"),
+           py::arg("gen_map_n"),
+           "Resize existing LD matrix according to thresholds")
+        .def("output_ld_matrix", [](Data& data, const std::string& ldmat_type,
+                                    const std::string& filename, bool write_ldm_txt) {
+            try {
+                data.outputLDmatrix(ldmat_type, filename, write_ldm_txt);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("ldmat_type"), py::arg("filename"),
+           py::arg("write_ldm_txt") = false,
+           "Write LD matrix to disk")
+        .def("direct_prune_ld_matrix", [](Data& data, const std::string& ldm_file,
+                                          const std::string& out_ldmat_type,
+                                          float chisq_threshold, const std::string& title,
+                                          bool write_ldm_txt) {
+            try {
+                data.directPruneLDmatrix(ldm_file, out_ldmat_type, chisq_threshold,
+                                         title, write_ldm_txt);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("ldm_file"), py::arg("out_ldmat_type"),
+           py::arg("chisq_threshold"), py::arg("title"),
+           py::arg("write_ldm_txt") = false,
+           "Directly prune LD matrix")
+        .def("jackknife_ld_matrix", [](Data& data, const std::string& ldm_file,
+                                       const std::string& out_ldmat_type,
+                                       const std::string& title, bool write_ldm_txt) {
+            try {
+                data.jackknifeLDmatrix(ldm_file, out_ldmat_type, title, write_ldm_txt);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("ldm_file"), py::arg("out_ldmat_type"),
+           py::arg("title"), py::arg("write_ldm_txt") = false,
+           "Perform jackknife on LD matrix")
+        .def("merge_ldm_info", [](Data& data, const std::string& out_ldmat_type,
+                                  const std::string& dirname) {
+            try {
+                data.mergeLdmInfo(out_ldmat_type, dirname);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("out_ldmat_type"), py::arg("dirname"),
+           "Merge LD matrix info files")
+        .def("filter_snp_by_ld_rsq", [](Data& data, float rsq_threshold) {
+            try {
+                data.filterSnpByLDrsq(rsq_threshold);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("rsq_threshold"),
+           "Filter SNPs by LD r-squared threshold")
+        .def("bin_snp_by_ld_rsq", [](Data& data, float rsq_threshold,
+                                     const std::string& title) {
+            try {
+                data.binSnpByLDrsq(rsq_threshold, title);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("rsq_threshold"), py::arg("title"),
+           "Bin SNPs by LD r-squared threshold")
+        .def("read_window_file", [](Data& data, const std::string& window_file) {
+            try {
+                data.readWindowFile(window_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("window_file"),
+           "Read window definition file")
+        .def("bin_snp_by_window_id", [](Data& data) {
+            try {
+                data.binSnpByWindowID();
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, "Assign SNPs to windows by ID");
 
     // ============================================================================
     // Model Class (Opaque - don't expose internals)
