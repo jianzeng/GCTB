@@ -17,8 +17,6 @@
 #include "options.hpp"
 #include "stat.hpp"
 #include "gadgets.hpp"
-#include "hsq.hpp"
-#include "predict.hpp"
 #include "stratify.hpp"
 #include "xci.hpp"
 #include "vgmaf.hpp"

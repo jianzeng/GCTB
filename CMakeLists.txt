@@ -65,27 +65,25 @@ find_package(OpenMP REQUIRED)
 
 # Include directories
 include_directories(
-    ${CMAKE_CURRENT_SOURCE_DIR}/scr
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${EIGEN3_INCLUDE_DIR}
     ${Boost_INCLUDE_DIRS}
 )
 
 # Core C++ source files
 set(CORE_SOURCES
-    scr/data.cpp
-    scr/gadgets.cpp
-    scr/gctb.cpp
-    scr/hsq.cpp
-    scr/mcmc.cpp
-    scr/model.cpp
-    scr/options.cpp
-    scr/predict.cpp
-    scr/stat.cpp
-    scr/stratify.cpp
-    # scr/stratifyMixture.cpp  # Temporarily removed - uses MPI
-    scr/vgmaf.cpp
-    scr/xci.cpp
-    scr/eigen.cpp
+    src/data.cpp
+    src/gadgets.cpp
+    src/gctb.cpp
+    src/mcmc.cpp
+    src/model.cpp
+    src/options.cpp
+    src/stat.cpp
+    src/stratify.cpp
+    # src/stratifyMixture.cpp  # Temporarily removed - uses MPI
+    src/vgmaf.cpp
+    src/xci.cpp
+    src/eigen.cpp
 )
 
 # Create Python module
@@ -99,11 +97,6 @@ target_link_libraries(_core PRIVATE
     Eigen3::Eigen
     Boost::boost
     OpenMP::OpenMP_CXX
-)
-
-# Set output directory
-set_target_properties(_core PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/python/gctb
 )
 
 # Compiler flags
