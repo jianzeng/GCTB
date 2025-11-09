@@ -8,10 +8,11 @@ Provides user-friendly commands for Bayesian genomic analysis.
 import click
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 from . import _core as gctb
+from . import workflows
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 
 def load_plink_data(
@@ -654,6 +655,8 @@ def make_ldmatrix(
               help='Heritability (default: 0.5)')
 @click.option('--pi', default=0.01, type=float,
               help='Prior probability (default: 0.01)')
+@click.option('--chains', default=1, type=int,
+              help='Number of MCMC chains (>=1). Default: 1')
 @click.option('--include-snp', default=None, type=click.Path(exists=True, dir_okay=False),
               help='File of SNPs to include')
 @click.option('--exclude-snp', default=None, type=click.Path(exists=True, dir_okay=False),
@@ -714,6 +717,7 @@ def sbayes(
     thin,
     hsq,
     pi,
+    chains,
     include_snp,
     exclude_snp,
     include_chr,
@@ -789,104 +793,103 @@ def sbayes(
             title=out,
         )
         
-        # Build ApproxBayes model
-        if verbose:
-            click.echo(f"\nBuilding ApproxBayes{sbayes.upper()} model...")
-        
-        model = gctb.build_model_summary(data, sbayes.upper(), heritability=hsq, pi=pi)
-        
-        if verbose:
-            click.echo(f"  ✓ Model created with {model.num_snps} SNPs")
-        
-        # Run MCMC
-        if verbose:
-            click.echo(f"\nRunning MCMC...")
-            click.echo(f"  Chain length: {chain_length}")
-            click.echo(f"  Burn-in: {burnin}")
-            click.echo("")
-        
-        # Progress bar (if enabled)
-        if progress:
-            try:
-                from tqdm import tqdm
-                import time
-                import threading
-                
-                # Estimate time per iteration
-                time_per_iter = 0.02  # 20ms per iteration (rough estimate)
-                
-                if verbose:
-                    click.echo("  Note: Progress bar is an estimate (MCMC runs in C++)")
-                
-                # Create progress bar
-                pbar = tqdm(total=chain_length, desc="  MCMC Progress", 
-                           unit="iter", ncols=80)
-                
-                # Run MCMC in background
-                results_container = []
-                error_container = []
-                
-                def run_mcmc_thread():
-                    try:
-                        res = gctb.run_mcmc(
-                            model=model,
-                            chain_length=chain_length,
-                            burnin=burnin,
-                            thin=thin,
-                            output_freq=max(chain_length // 10, 100),
-                            title=out
-                        )
-                        results_container.append(res)
-                    except Exception as e:
-                        error_container.append(e)
-                
-                thread = threading.Thread(target=run_mcmc_thread, daemon=True)
-                thread.start()
-                
-                # Update progress bar (estimated)
-                start_time = time.time()
-                while thread.is_alive():
-                    elapsed = time.time() - start_time
-                    estimated_iters = int(elapsed / time_per_iter)
-                    current_pos = min(estimated_iters, chain_length)
-                    pbar.n = current_pos
-                    pbar.refresh()
-                    time.sleep(0.5)
-                
-                # Wait for thread to complete
-                thread.join(timeout=3600)  # 1 hour timeout
-                
-                # Ensure completion and cleanup
-                pbar.n = chain_length
-                pbar.refresh()
-                pbar.close()
-                
-                if error_container:
-                    raise error_container[0]
-                
-                results = results_container[0]
-                
-            except ImportError:
-                if verbose:
-                    click.echo("  Warning: tqdm not installed, progress bar disabled")
-                results = gctb.run_mcmc(
+        if chains > 1:
+            if verbose:
+                click.echo(f"\nRunning {chains} independent chains...")
+                if progress:
+                    click.echo("  (Progress bar disabled for multi-chain mode)")
+            results_by_chain = workflows.run_multi_chain_sbayes(
+                data,
+                sbayes_type=sbayes.upper(),
+                heritability=hsq,
+                pi=pi,
+                num_chains=chains,
+                chain_length=chain_length,
+                burnin=burnin,
+                thin=thin,
+                output_prefix=out,
+                random_start=True,
+                verbose=verbose,
+            )
+            results = results_by_chain[0]
+            if verbose:
+                click.echo(f"  ✓ Completed {chains} chains (Gelman–Rubin written to {out}.gelman)")
+        else:
+            # Build ApproxBayes model
+            if verbose:
+                click.echo(f"\nBuilding ApproxBayes{sbayes.upper()} model...")
+            
+            model = gctb.build_model_summary(
+                data,
+                sbayes.upper(),
+                heritability=hsq,
+                pi=pi,
+            )
+            
+            if verbose:
+                click.echo(f"  ✓ Model created with {model.num_snps} SNPs")
+                click.echo(f"\nRunning MCMC...")
+                click.echo(f"  Chain length: {chain_length}")
+                click.echo(f"  Burn-in: {burnin}")
+                click.echo("")
+            
+            def _run_single_chain() -> Sequence[gctb.McmcSamples]:
+                return gctb.run_mcmc(
                     model=model,
                     chain_length=chain_length,
                     burnin=burnin,
                     thin=thin,
                     output_freq=max(chain_length // 10, 100),
-                    title=out
+                    title=out,
                 )
-        else:
-            # No progress bar
-            results = gctb.run_mcmc(
-                model=model,
-                chain_length=chain_length,
-                burnin=burnin,
-                thin=thin,
-                output_freq=max(chain_length // 10, 100),
-                title=out
-            )
+            
+            if progress:
+                try:
+                    from tqdm import tqdm
+                    import time
+                    import threading
+
+                    time_per_iter = 0.02  # rough estimate
+
+                    if verbose:
+                        click.echo("  Note: Progress bar is an estimate (MCMC runs in C++)")
+
+                    pbar = tqdm(total=chain_length, desc="  MCMC Progress", unit="iter", ncols=80)
+                    results_container: list[Sequence[gctb.McmcSamples]] = []
+                    error_container: list[Exception] = []
+
+                    def run_thread():
+                        try:
+                            results_container.append(_run_single_chain())
+                        except Exception as exc:
+                            error_container.append(exc)
+
+                    thread = threading.Thread(target=run_thread, daemon=True)
+                    thread.start()
+
+                    start_time = time.time()
+                    while thread.is_alive():
+                        elapsed = time.time() - start_time
+                        estimated_iters = int(elapsed / time_per_iter)
+                        pbar.n = min(estimated_iters, chain_length)
+                        pbar.refresh()
+                        time.sleep(0.5)
+
+                    thread.join(timeout=3600)
+                    pbar.n = chain_length
+                    pbar.refresh()
+                    pbar.close()
+
+                    if error_container:
+                        raise error_container[0]
+
+                    results = results_container[0]
+                except ImportError:
+                    if verbose:
+                        click.echo("  Warning: tqdm not installed, progress bar disabled")
+                    results = _run_single_chain()
+            else:
+                results = _run_single_chain()
         
         if verbose:
             click.echo("\n  ✓ MCMC completed!")

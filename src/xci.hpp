@@ -10,7 +10,9 @@
 #define xci_hpp
 
 #include <stdio.h>
-#include "gctb.hpp"
+#include "data.hpp"
+#include "model.hpp"
+#include "mcmc.hpp"
 
 class XCI {
 public:

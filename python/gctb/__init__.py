@@ -6,8 +6,6 @@ Authors: Jian Zeng, Luke Lloyd-Jones, Zhili Zheng, Shouye Liu
 License: MIT
 """
 
-from pathlib import Path
-
 # Import C++ core
 try:
     from ._core import (
@@ -19,7 +17,6 @@ try:
         Model,
         MCMC,
         McmcSamples,
-        GCTB,
         # Factory functions
         build_model,
         build_model_summary,
@@ -43,6 +40,9 @@ try:
 except ImportError:
     _has_diagnostics = False
 
+# High-level workflows (pure Python)
+from . import workflows
+
 __all__ = [
     # Data structures
     'SnpInfo',
@@ -52,7 +52,6 @@ __all__ = [
     'Model',
     'MCMC',
     'McmcSamples',
-    'GCTB',
     # Factory functions  
     'build_model',
     'build_model_summary',
@@ -60,12 +59,13 @@ __all__ = [
     # Utilities
     'Timer',
     '__version__',
+    'workflows',
 ]
 
 if _has_diagnostics:
     __all__.append('diagnostics')
 
 # Version info
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __author__ = "Jian Zeng, Luke Lloyd-Jones, Zhili Zheng, Shouye Liu"
 

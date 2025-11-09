@@ -74,10 +74,8 @@ include_directories(
 set(CORE_SOURCES
     src/data.cpp
     src/gadgets.cpp
-    src/gctb.cpp
     src/mcmc.cpp
     src/model.cpp
-    src/options.cpp
     src/stat.cpp
     src/stratify.cpp
     # src/stratifyMixture.cpp  # Temporarily removed - uses MPI

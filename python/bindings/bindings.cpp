@@ -9,12 +9,10 @@
 #include <pybind11/eigen.h>
 #include <pybind11/functional.h>
 
-// Include GCTB headers
+// Include headers
 #include "data.hpp"
-#include "gctb.hpp"
 #include "model.hpp"
 #include "mcmc.hpp"
-#include "options.hpp"
 #include "stat.hpp"
 #include "gadgets.hpp"
 #include "stratify.hpp"
@@ -533,6 +531,58 @@ PYBIND11_MODULE(_core, m) {
         }, py::arg("ldmat_type"), py::arg("filename"),
            py::arg("write_ldm_txt") = false,
            "Write LD matrix to disk")
+        .def("output_snp_results", py::overload_cast<
+                 const VectorXf&, const VectorXf&, const VectorXf&, bool, const std::string&
+             >(&Data::outputSnpResults, py::const_),
+             py::arg("posterior_mean"),
+             py::arg("posterior_sqr_mean"),
+             py::arg("pip"),
+             py::arg("noscale"),
+             py::arg("filename"),
+             "Write SNP summary results to a text file")
+        .def("output_snp_results", py::overload_cast<
+                 const VectorXf&, const VectorXf&, const VectorXf&, const VectorXf&, bool, const std::string&
+             >(&Data::outputSnpResults, py::const_),
+             py::arg("posterior_mean"),
+             py::arg("posterior_sqr_mean"),
+             py::arg("last_sample"),
+             py::arg("pip"),
+             py::arg("noscale"),
+             py::arg("filename"),
+             "Write SNP summary results (including last sample) to a text file")
+        .def("output_fixed_effects", [](const Data& data, const MatrixXf& effects,
+                                        const std::string& filename) {
+            try {
+                data.outputFixedEffects(effects, filename);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("effects"), py::arg("filename"),
+           "Write fixed-effects estimates to disk")
+        .def("output_random_effects", [](const Data& data, const MatrixXf& effects,
+                                         const std::string& filename) {
+            try {
+                data.outputRandomEffects(effects, filename);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("effects"), py::arg("filename"),
+           "Write random-effects estimates to disk")
+        .def("output_window_results", [](const Data& data, const VectorXf& posterior_mean,
+                                         const std::string& filename) {
+            try {
+                data.outputWindowResults(posterior_mean, filename);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("posterior_mean"), py::arg("filename"),
+           "Write window-based summaries to disk")
         .def("direct_prune_ld_matrix", [](Data& data, const std::string& ldm_file,
                                           const std::string& out_ldmat_type,
                                           float chisq_threshold, const std::string& title,
@@ -604,6 +654,47 @@ PYBIND11_MODULE(_core, m) {
             }
         }, py::arg("window_file"),
            "Read window definition file")
+        .def("input_new_snp_results", [](Data& data, const std::string& snp_res_file) {
+            try {
+                data.inputNewSnpResults(snp_res_file);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("snp_res_file"),
+           "Load SNP results back into the Data object")
+        .def("get_overlap_windows", [](Data& data, unsigned window_width, unsigned step_size) {
+            try {
+                data.getOverlapWindows(window_width, step_size);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("window_width"), py::arg("step_size"),
+           "Compute overlapping windows of the given width/step")
+        .def("get_nonoverlap_window_info", [](Data& data, unsigned window_width) {
+            try {
+                data.getNonoverlapWindowInfo(window_width);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("window_width"),
+           "Compute non-overlapping windows of the specified width")
+        .def_property_readonly("num_windows", [](const Data& data) {
+            return data.numWindows;
+        }, "Number of windows currently defined")
+        .def_property_readonly("window_starts", [](const Data& data) {
+            std::vector<int> starts(data.windStart.data(), data.windStart.data() + data.windStart.size());
+            return starts;
+        }, "Zero-based start indices for each window")
+        .def_property_readonly("window_sizes", [](const Data& data) {
+            std::vector<int> sizes(data.windSize.data(), data.windSize.data() + data.windSize.size());
+            return sizes;
+        }, "Number of SNPs in each window")
         .def("bin_snp_by_window_id", [](Data& data) {
             try {
                 data.binSnpByWindowID();
@@ -621,11 +712,6 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("num_snps", &Model::numSnps, "Number of SNPs in model");
 
     // ============================================================================
-    // GCTB Class & Factory Functions
-    // ============================================================================
-    py::class_<GCTB>(m, "GCTB", "Main GCTB controller")
-        .def(py::init<Options&>());
-    
     // Model factory for individual-level data (Bayes*)
     m.def("build_model", [](Data& data, const std::string& bayes_type,
                            float heritability, float pi) -> Model* {
@@ -672,7 +758,8 @@ PYBIND11_MODULE(_core, m) {
     
     // Model factory for summary statistics (ApproxBayes*)
     m.def("build_model_summary", [](Data& data, const std::string& sbayes_type,
-                                   float heritability, float pi) -> Model* {
+                                   float heritability, float pi,
+                                   bool random_start, bool verbose) -> Model* {
         try {
             data.initVariances(heritability, 0.05f);
             
@@ -688,17 +775,20 @@ PYBIND11_MODULE(_core, m) {
             if (sbayes_type == "C") {
                 return new ApproxBayesC(data, data.lowRankModel, data.varGenotypic, 
                                        data.varResidual, data.varRandom, pi, 1.0f, 1.0f, 
-                                       true, false, 0.0f, 0.0f, false, 0.0f, 0.0f, false, false);
+                                       true, false, 0.0f, 0.0f, false, 0.0f, 0.0f,
+                                       false, false, random_start, verbose);
             }
             else if (sbayes_type == "R") {
                 return new ApproxBayesR(data, data.lowRankModel, data.varGenotypic,
                                        data.varResidual, pis, piPar, gamma, true, true,
-                                       false, true, 0.0f, false, 0.0f, false, false, "Gibbs", false);
+                                       false, true, 0.0f, false, 0.0f, false,
+                                       verbose, "Gibbs", false);
             }
             else if (sbayes_type == "S") {
                 return new ApproxBayesS(data, data.lowRankModel, data.varGenotypic,
                                        data.varResidual, pi, 1.0f, 1.0f, true, 0.0f, 0.0f,
-                                       false, 0.0f, 0.0f, 1.0f, S, "Gibbs", false, false);
+                                       false, 0.0f, 0.0f, 1.0f, S, "Gibbs",
+                                       false, false, random_start, verbose);
             }
             else {
                 throw std::runtime_error("Unknown sbayes_type: " + sbayes_type +
@@ -713,6 +803,7 @@ PYBIND11_MODULE(_core, m) {
         }
     }, py::arg("data"), py::arg("sbayes_type"),
        py::arg("heritability") = 0.5f, py::arg("pi") = 0.01f,
+       py::arg("random_start") = false, py::arg("verbose") = true,
        py::return_value_policy::take_ownership,
        "Build ApproxBayes model for summary statistics (requires LD matrix)");
 
@@ -762,9 +853,23 @@ PYBIND11_MODULE(_core, m) {
            py::arg("burnin") = 1000, py::arg("thin") = 10,
            py::arg("output_freq") = 100, py::arg("title") = "gctb",
            py::return_value_policy::take_ownership,
-           "Run MCMC sampler");
+           "Run MCMC sampler")
+        .def("gelman_rubin", [](MCMC& mcmc, Model& model,
+                                std::vector<std::vector<McmcSamples*>> chains,
+                                const std::string& title) {
+            try {
+                mcmc.convergeDiagGelmanRubin(model, chains, title);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            } catch (const std::exception& e) {
+                throw std::runtime_error(std::string("Error running Gelman-Rubin diagnostics: ") + e.what());
+            }
+        }, py::arg("model"), py::arg("chains"), py::arg("title"),
+           "Run Gelman–Rubin convergence diagnostics across multiple chains");
     
-    // Convenience function combining GCTB.runMcmc
+    // Convenience function mirroring MCMC.run for ease-of-use
     m.def("run_mcmc", [](Model& model, unsigned chain_length, unsigned burnin,
                         unsigned thin, unsigned output_freq, const std::string& title) {
         try {
@@ -800,7 +905,7 @@ PYBIND11_MODULE(_core, m) {
     // ============================================================================
     // Version Info
     // ============================================================================
-    m.attr("__version__") = "1.1.0";
+    m.attr("__version__") = "1.2.0";
     m.attr("__author__") = "Jian Zeng, Luke Lloyd-Jones, Zhili Zheng, Shouye Liu";
 }
 
