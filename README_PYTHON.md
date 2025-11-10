@@ -128,6 +128,35 @@ python3 -c "import gctb.cli; gctb.cli.main()" sbayes \
     --out sbayes_results
 ```
 
+### Post-hoc Stratification (New)
+
+```bash
+python3 -c "import gctb.cli; gctb.cli.main()" posthoc-stratify --help
+
+# Example: reuse existing SBayes outputs and annotations
+python3 -c "import gctb.cli; gctb.cli.main()" posthoc-stratify \
+    --ldm ldmatrix/ldm \
+    --snp-res sbayes_results.snpRes \
+    --mcmc-prefix sbayes_results \
+    --type S \
+    --annotation annotations.tsv \
+    --out stratify_results
+```
+
+### Eigen Cutoff Tuning (New)
+
+```bash
+python3 -c "import gctb.cli; gctb.cli.main()" tune-eigen --help
+
+# Example: evaluate multiple eigen cutoffs
+python3 -c "import gctb.cli; gctb.cli.main()" tune-eigen \
+    --ldm ldmatrix/ldm \
+    --eigen eigen_decomp/chr1 \
+    --gwas-summary gwas_summary.ma \
+    --cutoffs 0.995,0.99,0.95 \
+    --out eigen_tuning
+```
+
 ---
 
 ## Testing
@@ -146,6 +175,22 @@ pytest tests/ -v
 # ✅ test_read_bim_file
 # ✅ test_read_plink_data
 ```
+
+### Benchmarking vs Legacy C++
+
+We provide an automated suite that runs BayesC and SBayesR through both the
+Python CLI and the original C++ binary, compares the results, and records
+runtime:
+
+```bash
+# From repo root
+python benchmarks/python_vs_cpp/run_benchmarks.py \
+    --work-dir /tmp/gctb_benchmarks
+```
+
+Outputs, logs, and summaries are stored under the chosen `--work-dir`.  See
+`benchmarks/python_vs_cpp/README.md` for advanced usage (post-hoc runs,
+custom data, tolerances, etc.).
 
 ---
 
@@ -196,10 +241,8 @@ python3 -c "import gctb.cli; gctb.cli.main()" sbayes \
 ### Optional Enhancements:
 
 - Add visualization (matplotlib plots)
-- Create workflows.py (cleaner API)
-- Add progress bars (tqdm)
-- More documentation
-- Jupyter notebooks
+- Interactive notebooks/examples
+- Visualization/diagnostics dashboards
 
 ---
 
@@ -277,6 +320,13 @@ pip install -e . --force-reinstall
 **Issues or Questions:**
 - Check documentation files
 - All deferred problems are fixed
+
+---
+
+## Legacy C++ Controllers
+
+The original orchestration layer (`gctb.cpp`/`options.cpp`) is no longer part of the Python build.  
+For reference it now lives in `src/deprecated/`; the Python CLI and workflows supersede those entry points.
 - SBayes needs LD matrix test data
 
 **Contributing:**
