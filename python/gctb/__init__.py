@@ -42,6 +42,7 @@ except ImportError:
 
 # High-level workflows (pure Python)
 from . import workflows
+from .workflows import compute_credible_sets
 
 __all__ = [
     # Data structures
@@ -60,6 +61,7 @@ __all__ = [
     'Timer',
     '__version__',
     'workflows',
+    'compute_credible_sets',
 ]
 
 if _has_diagnostics:

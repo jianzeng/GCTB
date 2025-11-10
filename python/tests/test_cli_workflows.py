@@ -126,6 +126,96 @@ def test_pip_to_pvalues_roundtrip():
     assert sorted_pairs[0][1] <= sorted_pairs[-1][1]
 
 
+def test_compute_credible_sets_basic():
+    class DummySnp:
+        def __init__(self, idx, name, chrom, pos, af, a1="A", a2="G"):
+            self.index = idx
+            self.ID = name
+            self.chrom = chrom
+            self.physPos = pos
+            self.af = af
+            self.a1 = a1
+            self.a2 = a2
+            self.pip = 0.0
+            self.varExplained = 0.0
+            self.effect = 0.0
+            self.unconverged = False
+
+    class DummyData:
+        def __init__(self, snps):
+            self._snps = snps
+            self._wind_start = [0]
+            self._wind_size = [len(snps)]
+
+        def get_snp_info_vec(self):
+            return self._snps
+
+        def get_incd_snp_info_vec(self):
+            return self._snps
+
+        def get_nonoverlap_window_info(self, window_width):
+            # windows already defined
+            return
+
+        @property
+        def window_starts(self):
+            return self._wind_start
+
+        @property
+        def window_sizes(self):
+            return self._wind_size
+
+    class DummySamples:
+        storage_mode = "dense"
+
+        def __init__(self, matrix, pip):
+            self._matrix = matrix
+            self.posterior_mean = matrix.mean(axis=0)
+            self.posterior_sqr_mean = (matrix ** 2).mean(axis=0)
+            self.pip = pip
+            self.ncol = matrix.shape[1]
+
+        def dense_matrix(self):
+            return self._matrix.copy()
+
+    matrix = np.array(
+        [
+            [0.4, 0.1],
+            [0.3, 0.2],
+            [0.0, 0.5],
+        ],
+        dtype=float,
+    )
+    pip = np.array([0.8, 0.3], dtype=float)
+
+    snps = [
+        DummySnp(1, "rs1", 1, 100, 0.25),
+        DummySnp(2, "rs2", 1, 200, 0.30),
+    ]
+    data = DummyData(snps)
+    samples = DummySamples(matrix, pip)
+
+    result = workflows.compute_credible_sets(
+        data,
+        samples,
+        pip_threshold=0.7,
+        pep_threshold=0.5,
+        window_width=None,
+    )
+
+    summary = result["summary"]
+    assert summary["num_cs"] == 1
+    assert summary["num_single"] == 1
+    assert np.isclose(summary["estimated_identified"], 0.8)
+
+    cs_entry = result["credible_sets"][0]
+    assert cs_entry["size"] == 1
+    assert cs_entry["snps"][0]["id"] == "rs1"
+
+    # varExplained for the first SNP should dominate
+    assert snps[0].varExplained > snps[1].varExplained
+
+
 def test_mcmc_sparse_extraction_helpers():
     class _StubSamples:
         storage_mode = "sparse"

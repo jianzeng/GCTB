@@ -8,7 +8,7 @@ Provides user-friendly commands for Bayesian genomic analysis.
 import click
 import sys
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 from . import _core as gctb
 from . import workflows
 
@@ -701,6 +701,14 @@ def make_ldmatrix(
               help='LD r^2 threshold for pruning/binning')
 @click.option('--bin-snp/--no-bin-snp', default=False,
               help='Bin SNPs by LD r^2 threshold instead of pruning')
+@click.option('--window-width', default=None, type=int,
+              help='Window width (bp) for credible set aggregation (default: uses existing windows or 1,000,000 bp)')
+@click.option('--credible-sets/--no-credible-sets', default=False,
+              help='Generate credible set summaries (default: off)')
+@click.option('--cs-pip-threshold', default=0.9, type=float,
+              help='PIP threshold for credible sets (default: 0.9)')
+@click.option('--cs-pep-threshold', default=0.9, type=float,
+              help='PEP threshold for credible sets (default: 0.9)')
 @click.option('--out', default='sbayes', type=str,
               help='Output prefix (default: sbayes)')
 @click.option('--verbose/--quiet', default=True)
@@ -740,6 +748,10 @@ def sbayes(
     noscale,
     rsq_threshold,
     bin_snp,
+    window_width,
+    credible_sets,
+    cs_pip_threshold,
+    cs_pep_threshold,
     out,
     verbose,
     progress,
@@ -931,6 +943,38 @@ def sbayes(
         
         save_parameter_results(results, out)
         save_snp_results(results, data, out)
+
+        if credible_sets:
+            snp_effects = next((res for res in results if res.label == "SnpEffects"), None)
+            if snp_effects is None:
+                click.echo("  Warning: credible sets requested but SnpEffects samples were not generated.", err=True)
+            else:
+                effective_width = window_width
+                existing_windows = len(getattr(data, "window_starts", []) or [])
+                if effective_width is None and existing_windows == 0:
+                    effective_width = 1_000_000
+                    if verbose:
+                        click.echo("  No window information found; defaulting to 1,000,000 bp windows.")
+                unconverged_file = Path(f"{out}.badSNPlist")
+                unconverged_path = str(unconverged_file) if unconverged_file.exists() else None
+                try:
+                    credible = workflows.compute_credible_sets(
+                        data,
+                        snp_effects,
+                        pip_threshold=cs_pip_threshold,
+                        pep_threshold=cs_pep_threshold,
+                        window_width=effective_width,
+                        unconverged_snplist=unconverged_path,
+                    )
+                    write_credible_set_outputs(out, credible)
+                    if verbose:
+                        summary = credible["summary"]
+                        click.echo("  ✓ Credible set summaries written")
+                        click.echo(f"    - Credible sets: {summary['num_cs']} (single: {summary['num_single']}, multi: {summary['num_multi']})")
+                        click.echo(f"    - Estimated causal variants: {summary['nnz']:.2f}")
+                        click.echo(f"    - Estimated power: {summary['estimated_power']:.4f}")
+                except Exception as exc:
+                    click.echo(f"  Warning: failed to compute credible sets: {exc}", err=True)
         
         if verbose:
             click.echo(f"  ✓ Results saved")
@@ -1144,6 +1188,69 @@ def save_snp_results(results, data, output_prefix):
             f.write(f"{i+1}\t{snp.ID}\t{snp.chrom}\t{snp.physPos}\t"
                    f"{snp.a1}\t{snp.a2}\t{snp.af:.4f}\t"
                    f"{snp_effects[i]:.6f}\t{snp_pip[i]:.4f}\n")
+
+
+def write_credible_set_outputs(output_prefix: str, results: Dict[str, Any]) -> None:
+    """Persist credible set summaries to disk."""
+    pip_threshold = results.get("pip_threshold", 0.9)
+    width = results.get("window_width")
+    width_label = f"{int(width // 1000)}kb" if width else "custom"
+    alpha_label = int(round(pip_threshold * 100))
+
+    cs_path = Path(f"{output_prefix}.{width_label}_{alpha_label}_CS.txt")
+    summary_path = Path(f"{output_prefix}.{width_label}_{alpha_label}_CS_summary.txt")
+    genome_path = Path(f"{output_prefix}.genomewide_{alpha_label}_CS.txt")
+    genome_summary_path = Path(f"{output_prefix}.genomewide_CS_summary.txt")
+    pep_path = Path(f"{output_prefix}.{width_label}_WPEP.txt")
+
+    credible_sets = results.get("credible_sets", [])
+
+    with cs_path.open('w') as f:
+        f.write("CS\tSize\tPIP\tPGV\tPGVenrich\tPEP\tSNP\n")
+        for cs in credible_sets:
+            snp_str = ",".join(snp["id"] for snp in cs["snps"])
+            f.write(
+                f"{cs['index']}\t{cs['size']}\t{cs['sum_pip']:.6f}\t{cs['prop_var']:.6f}\t"
+                f"{cs['wind_gen_var_enrich']:.6f}\t{cs['wind_gen_var_enrich_pp']:.6f}\t{snp_str}\n"
+            )
+
+    summary = results.get("summary", {})
+    with summary_path.open('w') as f:
+        lines = [
+            ("PIP threshold:", summary.get("pip_threshold", pip_threshold)),
+            ("PEP threshold:", summary.get("pep_threshold", results.get("pep_threshold", 0.9))),
+            ("Number of 1-SNP credible sets:", summary.get("num_single", 0)),
+            ("Number of multi-SNP credible sets:", summary.get("num_multi", 0)),
+            ("Total number of SNPs in credible sets:", summary.get("sum_cs_size", 0)),
+            ("Average credible set size:", summary.get("average_cs_size", 0.0)),
+            ("Estimated total number of causal variants:", summary.get("nnz", 0.0)),
+            ("Estimated power:", summary.get("estimated_power", 0.0)),
+            ("Estimated number of identified causal variants:", summary.get("estimated_identified", 0.0)),
+            ("Estimated proportion of variance explained:", summary.get("estimated_prop_var", 0.0)),
+        ]
+        for label, value in lines:
+            if isinstance(value, float):
+                f.write(f"{label}\t{value:.6f}\n")
+            else:
+                f.write(f"{label}\t{value}\n")
+
+    with genome_path.open('w') as f:
+        f.write("SNP\tPIP\tPropVar\n")
+        for snp in results.get("global_top_snps", []):
+            f.write(f"{snp['id']}\t{snp['pip']:.6f}\t{snp['var_explained']:.6f}\n")
+
+    with genome_summary_path.open('w') as f:
+        f.write("Threshold\tCS_size\tProp_hsq\n")
+        for row in results.get("threshold_curve", []):
+            f.write(f"{row['threshold']:.2f}\t{row['cs_size']}\t{row['prop_hsq']:.6f}\n")
+
+    with pep_path.open('w') as f:
+        f.write("Window\tSize\tPVE\tPVE_Enrich\tPVE_Enrich_PP\n")
+        for window in results.get("window_metrics", []):
+            f.write(
+                f"{window['index']}\t{window['size']}\t{window['prop_gen_var']:.6f}\t"
+                f"{window['gen_var_enrich']:.6f}\t{window['gen_var_enrich_pp']:.6f}\n"
+            )
 
 
 if __name__ == '__main__':

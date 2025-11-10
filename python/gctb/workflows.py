@@ -297,3 +297,364 @@ def mcmc_samples_to_csr(samples: gctb.McmcSamples):
     rows, cols, data, shape = mcmc_samples_sparse_matrix(samples)
     return sp.csr_matrix((data, (rows, cols)), shape=shape)
 
+
+# ---------------------------------------------------------------------------
+# Credible set helpers
+# ---------------------------------------------------------------------------
+
+_THRESHOLD_GRID = np.array([0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0], dtype=float)
+
+
+def _sum_columns(matrix: Any, indices: Sequence[int]) -> np.ndarray:
+    if not indices:
+        return np.zeros(matrix.shape[0], dtype=float)
+    if isinstance(matrix, np.ndarray):
+        return matrix[:, indices].sum(axis=1).astype(float, copy=False)
+    sub = matrix[:, indices]
+    return np.asarray(sub.sum(axis=1)).ravel().astype(float, copy=False)
+
+
+def _column_vector(matrix: Any, index: int) -> np.ndarray:
+    if isinstance(matrix, np.ndarray):
+        return matrix[:, index].astype(float, copy=True)
+    col = matrix.getcol(index)
+    return np.asarray(col.toarray()).ravel().astype(float, copy=False)
+
+
+def _normalised_mcmc_matrix(samples: gctb.McmcSamples) -> tuple[Any, Any, np.ndarray]:
+    if samples.storage_mode == "dense":
+        mat = samples.dense_matrix().astype(float, copy=True)
+        betas_sq = mat ** 2
+        total_var = betas_sq.sum(axis=1)
+        normalised = np.zeros_like(betas_sq, dtype=float)
+        mask = total_var > 0
+        if mask.any():
+            normalised[mask] = betas_sq[mask] / total_var[mask, None]
+        return normalised, betas_sq, total_var
+
+    if samples.storage_mode == "sparse":
+        csr = mcmc_samples_to_csr(samples)
+        csr_sq = csr.copy()
+        csr_sq.data = csr_sq.data.astype(float) ** 2
+        total_var = np.asarray(csr_sq.sum(axis=1)).ravel()
+        inv_total = np.zeros_like(total_var)
+        mask = total_var > 0
+        if mask.any():
+            inv_total[mask] = 1.0 / total_var[mask]
+        diag = sp.diags(inv_total) if mask.any() else sp.csr_matrix(np.zeros((csr_sq.shape[0], csr_sq.shape[0])))
+        normalised = diag.dot(csr_sq)
+        return normalised, csr_sq, total_var
+
+    raise ValueError(f"Unsupported storage mode {samples.storage_mode!r}")
+
+
+def compute_credible_sets(
+    data: Any,
+    mcmc_samples: Any,
+    *,
+    pip_threshold: float = 0.9,
+    pep_threshold: float = 0.9,
+    window_width: int | None = None,
+    snp_results_path: str | None = None,
+    unconverged_snplist: str | None = None,
+) -> Dict[str, Any]:
+    """
+    Python reimplementation of ``GCTB::calcCredibleSets``.
+    """
+    if not (0 < pip_threshold <= 1):
+        raise ValueError("pip_threshold must be in (0, 1]")
+    if not (0 < pep_threshold <= 1):
+        raise ValueError("pep_threshold must be in (0, 1]")
+
+    if window_width is not None and hasattr(data, "get_nonoverlap_window_info"):
+        data.get_nonoverlap_window_info(int(window_width))
+
+    if snp_results_path and hasattr(data, "input_new_snp_results"):
+        data.input_new_snp_results(snp_results_path)
+
+    if unconverged_snplist and hasattr(data, "read_unconverged_snplist"):
+        data.read_unconverged_snplist(unconverged_snplist)
+
+    window_starts = list(getattr(data, "window_starts", []))
+    window_sizes = list(getattr(data, "window_sizes", []))
+    num_windows = len(window_starts)
+    if num_windows == 0:
+        raise ValueError("No windows defined. Provide window_width or pre-computed windows.")
+
+    snp_info_vec = list(data.get_snp_info_vec())
+    num_snps = getattr(mcmc_samples, "ncol", len(mcmc_samples.posterior_mean))
+
+    posterior_mean = np.asarray(mcmc_samples.posterior_mean, dtype=float)
+    posterior_sqr_mean = np.asarray(mcmc_samples.posterior_sqr_mean, dtype=float)
+    pip = np.asarray(mcmc_samples.pip, dtype=float) if getattr(mcmc_samples, "pip", None) is not None else np.zeros(num_snps, dtype=float)
+
+    normalised, squared_matrix, total_var = _normalised_mcmc_matrix(mcmc_samples)
+    n_iterations = normalised.shape[0]
+    if n_iterations == 0:
+        raise ValueError("MCMC samples contain no iterations.")
+
+    if isinstance(normalised, np.ndarray):
+        var_explained = normalised.sum(axis=0) / n_iterations
+    else:
+        var_explained = np.asarray(normalised.sum(axis=0)).ravel() / n_iterations
+
+    records_by_index: Dict[int, Dict[str, Any]] = {}
+    snp_records: List[Dict[str, Any]] = []
+    improper_components = np.zeros(num_windows, dtype=float)
+
+    for snp in snp_info_vec:
+        idx = int(getattr(snp, "index", 0)) - 1
+        if idx < 0 or idx >= num_snps:
+            continue
+        effect = float(posterior_mean[idx])
+        snp.effect = effect
+        snp.pip = float(pip[idx]) if pip.size else float(getattr(snp, "pip", 0.0))
+        snp.varExplained = float(var_explained[idx])
+
+        record = {
+            "snp": snp,
+            "index": idx,
+            "id": str(snp.ID),
+            "chrom": int(snp.chrom),
+            "position": int(snp.physPos),
+            "pip": float(pip[idx]) if pip.size else float(getattr(snp, "pip", 0.0)),
+            "effect": effect,
+            "var_explained": float(var_explained[idx]),
+            "af": float(getattr(snp, "af", 0.0)),
+            "a1": str(getattr(snp, "a1", "")),
+            "a2": str(getattr(snp, "a2", "")),
+            "unconverged": bool(getattr(snp, "unconverged", False)),
+        }
+        records_by_index[idx] = record
+        snp_records.append(record)
+
+    if not snp_records:
+        raise ValueError("No SNP records available for credible set calculation.")
+
+    # Window initial metrics
+    window_entries: List[Dict[str, Any]] = []
+    for w_idx, (start, size) in enumerate(zip(window_starts, window_sizes), start=1):
+        window_snps: List[Dict[str, Any]] = []
+        column_indices: List[int] = []
+        effect_improper = 0.0
+        for offset in range(size):
+            snp = snp_info_vec[start + offset]
+            idx = int(getattr(snp, "index", 0)) - 1
+            if idx < 0 or idx >= num_snps:
+                continue
+            record = records_by_index.get(idx)
+            if record is None:
+                continue
+            window_snps.append(record)
+            column_indices.append(idx)
+            af = record["af"]
+            effect = record["effect"]
+            effect_improper += 2.0 * af * (1.0 - af) * effect * effect
+
+        if not column_indices:
+            continue
+
+        initial_vec = _sum_columns(normalised, column_indices)
+        window_entries.append(
+            {
+                "index": w_idx,
+                "size": len(column_indices),
+                "column_indices": column_indices,
+                "snps": window_snps,
+                "initial_vec": initial_vec.copy(),
+                "residual_vec": initial_vec.copy(),
+                "effect_improper": effect_improper,
+            }
+        )
+
+    if not window_entries:
+        raise ValueError("Unable to build windows with current configuration.")
+
+    num_windows_effective = len(window_entries)
+    average_window_share = 1.0 / num_windows_effective
+
+    for entry in window_entries:
+        initial_vec = entry["initial_vec"]
+        entry["initial_prop_gen_var"] = float(initial_vec.mean())
+        entry["initial_gen_var_enrich"] = float(initial_vec.mean() * num_windows_effective)
+        entry["initial_gen_var_enrich_pp"] = float(np.mean(initial_vec > average_window_share))
+
+    vg = sum(entry["effect_improper"] for entry in window_entries)
+    if vg > 0:
+        for entry in window_entries:
+            entry["pve_improper"] = entry["effect_improper"] / vg
+    else:
+        for entry in window_entries:
+            entry["pve_improper"] = 0.0
+
+    credible_sets: List[Dict[str, Any]] = []
+    num_cs = 0
+    num_single = 0
+    sum_cs_size = 0
+    cumsum_pip = 0.0
+    cumsum_prop_var = 0.0
+
+    for entry in window_entries:
+        window_vec = entry["residual_vec"]
+        sum_cs_snp_window = 0
+        cumulative_pip = 0.0
+        cumulative_prop_var = 0.0
+        top_snps: List[Dict[str, Any]] = []
+
+        for record in sorted(entry["snps"], key=lambda r: r["pip"], reverse=True):
+            if record["unconverged"]:
+                continue
+
+            varj = _column_vector(normalised, record["index"])
+            window_vec -= varj
+            np.maximum(window_vec, 0.0, out=window_vec)
+
+            prop_gen_var = float(window_vec.mean())
+            gen_var_enrich = float(prop_gen_var * num_windows_effective)
+            gen_var_enrich_pp = float(np.mean(window_vec > average_window_share))
+
+            if record["pip"] > pip_threshold:
+                num_cs += 1
+                num_single += 1
+                sum_cs_size += 1
+                cumsum_pip += record["pip"]
+                cumsum_prop_var += record["var_explained"]
+                credible_sets.append(
+                    {
+                        "index": num_cs,
+                        "size": 1,
+                        "sum_pip": record["pip"],
+                        "prop_var": record["var_explained"],
+                        "wind_size": entry["size"] - sum_cs_snp_window,
+                        "wind_prop_gen_var": prop_gen_var,
+                        "wind_gen_var_enrich": gen_var_enrich,
+                        "wind_gen_var_enrich_pp": gen_var_enrich_pp,
+                        "snps": [
+                            {
+                                "id": record["id"],
+                                "pip": record["pip"],
+                                "var_explained": record["var_explained"],
+                                "effect": record["effect"],
+                                "chrom": record["chrom"],
+                                "position": record["position"],
+                            }
+                        ],
+                    }
+                )
+                sum_cs_snp_window += 1
+                continue
+
+            if gen_var_enrich_pp > pep_threshold:
+                cumulative_pip += record["pip"]
+                cumulative_prop_var += record["var_explained"]
+                top_snps.append(record)
+                if cumulative_pip > pip_threshold:
+                    num_cs += 1
+                    sum_cs_size += len(top_snps)
+                    cumsum_pip += cumulative_pip
+                    cumsum_prop_var += cumulative_prop_var
+                    credible_sets.append(
+                        {
+                            "index": num_cs,
+                            "size": len(top_snps),
+                            "sum_pip": cumulative_pip,
+                            "prop_var": cumulative_prop_var,
+                            "wind_size": entry["size"] - sum_cs_snp_window,
+                            "wind_prop_gen_var": prop_gen_var,
+                            "wind_gen_var_enrich": gen_var_enrich,
+                            "wind_gen_var_enrich_pp": gen_var_enrich_pp,
+                            "snps": [
+                                {
+                                    "id": snp_rec["id"],
+                                    "pip": snp_rec["pip"],
+                                    "var_explained": snp_rec["var_explained"],
+                                    "effect": snp_rec["effect"],
+                                    "chrom": snp_rec["chrom"],
+                                    "position": snp_rec["position"],
+                                }
+                                for snp_rec in top_snps
+                            ],
+                        }
+                    )
+                    top_snps = []
+                    cumulative_pip = 0.0
+                    cumulative_prop_var = 0.0
+                    break
+            else:
+                break
+
+    pip_values = np.array([rec["pip"] for rec in snp_records], dtype=float)
+    nnz = float(len(pip_values)) * float(pip_values.mean()) if pip_values.size else 0.0
+    estimated_power = (cumsum_pip / nnz) if nnz else 0.0
+    average_cs_size = (sum_cs_size / num_cs) if num_cs else 0.0
+
+    sorted_snps = sorted(snp_records, key=lambda r: r["pip"], reverse=True)
+    target = pip_threshold * nnz
+    cumulative = 0.0
+    genomewide_top: List[Dict[str, Any]] = []
+    for rec in sorted_snps:
+        genomewide_top.append(
+            {
+                "id": rec["id"],
+                "pip": rec["pip"],
+                "var_explained": rec["var_explained"],
+            }
+        )
+        cumulative += rec["pip"]
+        if cumulative > target:
+            break
+
+    threshold_curve: List[Dict[str, Any]] = []
+    for threshold in _THRESHOLD_GRID:
+        limit = threshold * nnz
+        cum = 0.0
+        prop_var = 0.0
+        count = 0
+        for rec in sorted_snps:
+            cum += rec["pip"]
+            prop_var += rec["var_explained"]
+            count += 1
+            if cum > limit:
+                break
+        threshold_curve.append(
+            {
+                "threshold": threshold,
+                "cs_size": count,
+                "prop_hsq": prop_var,
+            }
+        )
+
+    return {
+        "credible_sets": credible_sets,
+        "summary": {
+            "pip_threshold": pip_threshold,
+            "pep_threshold": pep_threshold,
+            "num_cs": num_cs,
+            "num_single": num_single,
+            "num_multi": num_cs - num_single,
+            "sum_cs_size": sum_cs_size,
+            "nnz": nnz,
+            "estimated_power": estimated_power,
+            "estimated_identified": cumsum_pip,
+            "estimated_prop_var": cumsum_prop_var,
+            "average_cs_size": average_cs_size,
+        },
+        "global_top_snps": genomewide_top,
+        "threshold_curve": threshold_curve,
+        "window_metrics": [
+            {
+                "index": entry["index"],
+                "size": entry["size"],
+                "prop_gen_var": entry["initial_prop_gen_var"],
+                "gen_var_enrich": entry["initial_gen_var_enrich"],
+                "gen_var_enrich_pp": entry["initial_gen_var_enrich_pp"],
+                "pve_improper": entry["pve_improper"],
+            }
+            for entry in window_entries
+        ],
+        "pip_threshold": pip_threshold,
+        "pep_threshold": pep_threshold,
+        "window_width": window_width,
+        "num_windows": num_windows_effective,
+    }
+
