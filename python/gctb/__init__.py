@@ -42,7 +42,12 @@ except ImportError:
 
 # High-level workflows (pure Python)
 from . import workflows
-from .workflows import compute_credible_sets, run_posthoc_stratify, solve_snp_effects_cg
+from .workflows import (
+    compute_credible_sets,
+    run_posthoc_stratify,
+    solve_snp_effects_cg,
+    tune_eigen_cutoff,
+)
 
 __all__ = [
     # Data structures
@@ -64,6 +69,7 @@ __all__ = [
     'compute_credible_sets',
     'run_posthoc_stratify',
     'solve_snp_effects_cg',
+    'tune_eigen_cutoff',
 ]
 
 if _has_diagnostics:

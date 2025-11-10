@@ -250,6 +250,74 @@ def test_mcmc_samples_mean_empty():
     assert mean.size == 0
 
 
+def test_tune_eigen_cutoff():
+    class StubSample:
+        def __init__(self, value):
+            self.label = "SnpEffects"
+            self.posterior_mean = np.array([value, value], dtype=float)
+
+    class StubRunner:
+        def __init__(self, data):
+            self.data = data
+
+        def run(self, **kwargs):
+            value = getattr(self.data, "last_cutoff", 0.0)
+            return [StubSample(value)]
+
+    class StubData:
+        def __init__(self):
+            self._n = np.array([1.0, 1.0], dtype=float)
+            self._pseudo = np.array([2.0, 2.0], dtype=float)
+            self.b_val = np.array([0.5, 0.5], dtype=float)
+            self.var_phenotypic = 1.0
+            self.last_cutoff = None
+
+        @property
+        def n_gwas_block(self):
+            return self._n
+
+        @n_gwas_block.setter
+        def n_gwas_block(self, value):
+            self._n = np.asarray(value, dtype=float)
+
+        @property
+        def pseudo_gwas_ntrn_block(self):
+            return self._pseudo
+
+        def read_eigen_matrix_binary_file_and_make_wq(self, dirname, cutoff, noscale=False, make_pseudo_summary=False):
+            self.last_cutoff = cutoff
+
+        def init_variances(self, h, p):
+            pass
+
+        def __getattr__(self, item):
+            if item == "pseudo_gwas_effect_trn":
+                return []
+            raise AttributeError(item)
+
+    data = StubData()
+
+    def runner_factory(model):
+        return StubRunner(data)
+
+    def model_factory(data_obj, cutoff):
+        return object()
+
+    result = workflows.tune_eigen_cutoff(
+        data,
+        eigen_prefix="stub",
+        cutoffs=[0.5, 0.9],
+        heritability=0.5,
+        prop_var_random=0.05,
+        pi=0.01,
+        runner_factory=runner_factory,
+        model_factory=model_factory,
+    )
+
+    assert result["best_cutoff"] == 0.9
+    assert len(result["records"]) == 2
+
+
 def test_solve_snp_effects_cg(tmp_path):
     if workflows.sp is None:
         pytest.skip("scipy not available")

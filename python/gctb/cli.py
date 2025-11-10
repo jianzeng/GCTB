@@ -8,7 +8,7 @@ Provides user-friendly commands for Bayesian genomic analysis.
 import click
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Callable, Dict, Optional, Sequence
 from . import _core as gctb
 from . import workflows
 
@@ -137,6 +137,14 @@ def load_plink_data(
             click.echo(f"  ✓ Phenotypic variance: {data.var_phenotypic:.4f}")
     
     return data
+
+
+def _parse_float_list(value: str) -> Sequence[float]:
+    items = [item.strip() for item in value.split(",")]
+    floats = [float(item) for item in items if item]
+    if not floats:
+        raise click.BadParameter("Provide at least one numeric value.")
+    return floats
 @click.group()
 @click.version_option(version=__version__)
 def main():
@@ -1098,6 +1106,147 @@ def posthoc_stratify(
             click.echo("  ✓ Results saved")
             click.echo("\nPost-hoc stratified analysis completed successfully!")
             click.echo("=" * 70)
+
+    except Exception as e:
+        click.echo(f"\nError: {e}", err=True)
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+
+
+@main.command()
+@click.option('--ldm', required=True, type=str,
+              help='LD matrix directory or info file prefix')
+@click.option('--eigen', required=True, type=str,
+              help='Eigen-decomposed LD matrix directory/prefix')
+@click.option('--cutoffs', required=True, type=str,
+              help='Comma-separated list of eigen cutoffs, e.g. "0.995,0.99,0.95"')
+@click.option('--gwas-summary', required=True, type=click.Path(exists=True, dir_okay=False),
+              help='GWAS summary statistics file (.ma format)')
+@click.option('--pi', default=0.01, type=float,
+              help='Prior probability (default: 0.01)')
+@click.option('--hsq', default=0.5, type=float,
+              help='Prior heritability (default: 0.5)')
+@click.option('--prop-var-random', default=0.05, type=float,
+              help='Random effect variance proportion (default: 0.05)')
+@click.option('--annotation', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Categorical annotation file')
+@click.option('--annotation-transpose', is_flag=True, default=False,
+              help='Annotation file is transposed (rows=annotations)')
+@click.option('--continuous-annotation', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Continuous annotation file')
+@click.option('--flank', default=0, type=int,
+              help='Flanking distance (kb) for continuous annotations')
+@click.option('--eqtl', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='eQTL file for continuous annotations')
+@click.option('--ldscore', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='LD score file')
+@click.option('--window-file', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Window definition file')
+@click.option('--genetic-map', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Genetic map file (for LD shrinkage)')
+@click.option('--multi-ldm/--single-ldm', default=False,
+              help='Treat --ldm as multi-LD matrix directory (default: single)')
+@click.option('--read-ldm-txt/--read-ldm-bin', default=False,
+              help='Read LD matrix from text rather than binary (default: binary)')
+@click.option('--sample-overlap/--no-sample-overlap', default=False,
+              help='Specify whether summary stats include sample overlap')
+@click.option('--noscale/--scale', default=False,
+              help='Disable scaling when building sparse MME (default: scale)')
+@click.option('--bin-snp/--no-bin-snp', default=False,
+              help='Bin SNPs by LD r^2 threshold instead of pruning')
+@click.option('--rsq-threshold', default=1.0, type=float,
+              help='LD r^2 threshold for pruning/binning when --bin-snp is used')
+@click.option('--chain-length', default=150, type=int,
+              help='MCMC chain length for tuning evaluation (default: 150)')
+@click.option('--burnin', default=100, type=int,
+              help='Burn-in iterations (default: 100)')
+@click.option('--thin', default=1, type=int,
+              help='Thinning interval (default: 1)')
+@click.option('--verbose/--quiet', default=True)
+def tune_eigen(
+    ldm,
+    eigen,
+    cutoffs,
+    gwas_summary,
+    pi,
+    hsq,
+    prop_var_random,
+    annotation,
+    annotation_transpose,
+    continuous_annotation,
+    flank,
+    eqtl,
+    ldscore,
+    window_file,
+    genetic_map,
+    multi_ldm,
+    read_ldm_txt,
+    sample_overlap,
+    noscale,
+    bin_snp,
+    rsq_threshold,
+    chain_length,
+    burnin,
+    thin,
+    verbose,
+):
+    """
+    Tune eigen cutoffs using pseudo-summary validation (Python port of GCTB::tuneEigenCutoff).
+    """
+    try:
+        cutoff_values = _parse_float_list(cutoffs)
+        if verbose:
+            click.echo("=" * 70)
+            click.echo("Eigen Cutoff Tuning")
+            click.echo("=" * 70)
+            click.echo("Preparing data ...")
+
+        data = load_summary_data(
+            ldm_prefix=ldm,
+            gwas_file=gwas_summary,
+            verbose=verbose,
+            annotation_file=annotation,
+            annotation_transpose=annotation_transpose,
+            continuous_annotation_file=continuous_annotation,
+            flank=flank,
+            eqtl_file=eqtl,
+            ldscore_file=ldscore,
+            window_file=window_file,
+            genetic_map_file=genetic_map,
+            multi_ldm=multi_ldm,
+            read_ldm_txt=read_ldm_txt,
+            sample_overlap=sample_overlap,
+            noscale=noscale,
+            rsq_threshold=rsq_threshold,
+            bin_snp=bin_snp,
+            title="eigen_tune",
+        )
+
+        result = workflows.tune_eigen_cutoff(
+            data,
+            eigen_prefix=eigen,
+            cutoffs=cutoff_values,
+            heritability=hsq,
+            prop_var_random=prop_var_random,
+            pi=pi,
+            chain_length=chain_length,
+            burnin=burnin,
+            thin=thin,
+            noscale=noscale,
+            make_pseudo_summary=False,
+            verbose=verbose,
+        )
+
+        best = result["best_cutoff"]
+        if verbose:
+            click.echo("\nResults:\n")
+            for rec in result["records"]:
+                click.echo(f"  Cutoff {rec['cutoff']:.5f} -> correlation {rec['correlation']:.6f}, relative {rec['relative']:.6f}")
+            click.echo("\nBest cutoff: {}".format(best if best is not None else "N/A"))
+            if result["warning"]:
+                click.echo(f"Warning: {result['warning']}")
 
     except Exception as e:
         click.echo(f"\nError: {e}", err=True)

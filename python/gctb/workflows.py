@@ -8,7 +8,7 @@ tasks that previously lived in the C++ `GCTB` controller.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Sequence, Tuple
 
 import numpy as np
 
@@ -922,5 +922,107 @@ def run_posthoc_stratify(
         "snp_effects": snp_effects,
         "hsq": hsq,
         "delta_s": delta_s,
+    }
+
+
+def tune_eigen_cutoff(
+    data: gctb.Data,
+    eigen_prefix: str,
+    cutoffs: Sequence[float],
+    *,
+    heritability: float,
+    prop_var_random: float,
+    pi: float,
+    chain_length: int = 150,
+    burnin: int = 100,
+    thin: int = 1,
+    noscale: bool = False,
+    make_pseudo_summary: bool = False,
+    runner_factory: Callable[[Any], Any] | None = None,
+    model_factory: Callable[[gctb.Data, float], Any] | None = None,
+    verbose: bool = False,
+) -> Dict[str, Any]:
+    """
+    Python reimplementation of ``GCTB::tuneEigenCutoff``.
+    """
+    cutoffs = [float(c) for c in cutoffs]
+    if not cutoffs:
+        raise ValueError("At least one eigen cutoff must be supplied")
+
+    original_ngwas = np.asarray(data.n_gwas_block, dtype=float).copy()
+    pseudo_ngwas = np.asarray(data.pseudo_gwas_ntrn_block, dtype=float)
+
+    correlations: List[float] = []
+    records: List[Dict[str, Any]] = []
+    warning: str | None = None
+    base_corr: float | None = None
+
+    data.n_gwas_block = pseudo_ngwas
+
+    try:
+        for cutoff in cutoffs:
+            if verbose:
+                print(f"[tune_eigen_cutoff] Evaluating cutoff {cutoff}")
+            data.read_eigen_matrix_binary_file_and_make_wq(
+                eigen_prefix,
+                cutoff,
+                noscale=noscale,
+                make_pseudo_summary=make_pseudo_summary,
+            )
+            data.init_variances(heritability, prop_var_random)
+            if model_factory:
+                model = model_factory(data, cutoff)
+            else:
+                model = gctb.build_model_summary(
+                    data,
+                    "R",
+                    heritability=heritability,
+                    pi=pi,
+                )
+            runner = runner_factory(model) if runner_factory else gctb.MCMC()
+            samples = runner.run(
+                model=model,
+                chain_length=chain_length,
+                burnin=burnin,
+                thin=thin,
+                output_freq=_default_output_freq(chain_length),
+                title=f"{eigen_prefix}_cutoff_{cutoff:.3f}",
+            )
+            snp_effects = next((res for res in samples if res.label == "SnpEffects"), None)
+            if snp_effects is None:
+                raise RuntimeError("SnpEffects samples not produced during eigen cutoff tuning")
+
+            beta_mean = np.asarray(snp_effects.posterior_mean, dtype=float)
+            b_val = np.asarray(data.b_val, dtype=float)
+            var_pheno = float(data.var_phenotypic)
+            denom = np.sqrt(np.dot(beta_mean, beta_mean) * var_pheno)
+            corr = float(beta_mean.dot(b_val) / denom) if denom else 0.0
+            if base_corr is None:
+                base_corr = corr if corr != 0 else 1.0
+            rel = float(corr / base_corr) if base_corr else 0.0
+            correlations.append(corr)
+            records.append(
+                {
+                    "cutoff": cutoff,
+                    "correlation": corr,
+                    "relative": rel,
+                }
+            )
+    finally:
+        data.n_gwas_block = original_ngwas
+
+    best_idx = int(np.argmax(correlations)) if correlations else -1
+    best_cutoff = cutoffs[best_idx] if best_idx >= 0 else None
+
+    if best_cutoff is not None and np.isclose(best_cutoff, min(cutoffs)):
+        warning = (
+            "Best eigen cutoff equals the minimum candidate; consider extending the range lower."
+        )
+
+    return {
+        "records": records,
+        "correlations": correlations,
+        "best_cutoff": best_cutoff,
+        "warning": warning,
     }
 

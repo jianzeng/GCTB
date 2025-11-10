@@ -706,6 +706,17 @@ PYBIND11_MODULE(_core, m) {
             }
         }, py::arg("dirname"), py::arg("genetic_map_n"),
            "Read multi-LD matrix binary directory and apply shrinkage")
+        .def("read_eigen_matrix_binary_file_and_make_wq", [](Data& data, const std::string& dirname, float eigen_cutoff, bool noscale, bool make_pseudo_summary) {
+            try {
+                data.readEigenMatrixBinaryFileAndMakeWandQ(dirname, eigen_cutoff, data.pseudoGwasEffectTrn, data.pseudoGwasNtrnBlock, noscale, make_pseudo_summary);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("dirname"), py::arg("eigen_cutoff"),
+           py::arg("noscale") = false, py::arg("make_pseudo_summary") = false,
+           "Read eigen LD matrix and build W/Q structures using stored pseudo GWAS effects")
         .def("get_zpz_sparse_matrix", [](Data& data) {
             try {
                 data.getZPZspmat();
@@ -742,6 +753,27 @@ PYBIND11_MODULE(_core, m) {
         .def_property_readonly("zpy", [](const Data& data) {
             return data.ZPy;
         }, "Sparse MME right-hand side vector ZPy")
+        .def_property("n_gwas_block", [](const Data& data) {
+            return data.nGWASblock;
+        }, [](Data& data, const VectorXf& vec) {
+            data.nGWASblock = vec;
+        }, "Vector of GWAS block sample sizes")
+        .def_property_readonly("pseudo_gwas_ntrn_block", [](const Data& data) {
+            return data.pseudoGwasNtrnBlock;
+        }, "Pseudo GWAS training block sample sizes")
+        .def_property_readonly("pseudo_gwas_effect_trn", [](const Data& data) {
+            py::list lst;
+            for (const auto& vec : data.pseudoGwasEffectTrn) {
+                lst.append(vec);
+            }
+            return lst;
+        }, "Pseudo GWAS training effects")
+        .def_property_readonly("b_val", [](const Data& data) {
+            return data.b_val;
+        }, "Validation beta vector used in eigen cutoff tuning")
+        .def_property_readonly("var_phenotypic", [](const Data& data) {
+            return data.varPhenotypic;
+        }, "Phenotypic variance for eigen cutoff tuning")
         .def("get_overlap_windows", [](Data& data, unsigned window_width, unsigned step_size) {
             try {
                 data.getOverlapWindows(window_width, step_size);
