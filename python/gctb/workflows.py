@@ -300,6 +300,24 @@ def mcmc_samples_to_csr(samples: gctb.McmcSamples):
     return sp.csr_matrix((data, (rows, cols)), shape=shape)
 
 
+def aggregate_parameter_blocks(samples: Sequence[gctb.McmcSamples]) -> Dict[str, Dict[str, Any]]:
+    """
+    Aggregate MCMC samples for additional parameter blocks (DeltaPi, etc.).
+    """
+    summary: Dict[str, Dict[str, Any]] = {}
+    for block in samples:
+        label = getattr(block, "label", "Unknown")
+        if label in {"SnpEffects", "PIP", "CovEffects", "RandCovEffects", "WindowDelta"}:
+            continue
+        mean = np.asarray(block.mean(), dtype=float)
+        summary[label] = {
+            "mean": mean,
+            "posterior_mean": np.asarray(block.posterior_mean, dtype=float) if hasattr(block, "posterior_mean") else mean,
+            "posterior_sqr_mean": np.asarray(block.posterior_sqr_mean, dtype=float) if hasattr(block, "posterior_sqr_mean") else None,
+        }
+    return summary
+
+
 # ---------------------------------------------------------------------------
 # Credible set helpers
 # ---------------------------------------------------------------------------

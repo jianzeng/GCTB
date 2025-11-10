@@ -318,6 +318,29 @@ def test_tune_eigen_cutoff():
     assert len(result["records"]) == 2
 
 
+def test_aggregate_parameter_blocks():
+    class StubMcmc:
+        def __init__(self, label, mean):
+            self.label = label
+            self._mean = np.asarray(mean, dtype=float)
+            self.posterior_mean = self._mean + 0.1
+            self.posterior_sqr_mean = (self._mean + 0.2) ** 2
+
+        def mean(self):
+            return self._mean
+
+    blocks = [
+        StubMcmc("SnpEffects", [0.1, 0.2]),
+        StubMcmc("DeltaPi1", [0.3, 0.4]),
+        StubMcmc("DeltaPi2", [0.5, 0.6]),
+    ]
+    summary = workflows.aggregate_parameter_blocks(blocks)
+
+    assert "DeltaPi1" in summary and "DeltaPi2" in summary
+    assert "SnpEffects" not in summary
+    assert np.allclose(summary["DeltaPi1"]["mean"], [0.3, 0.4])
+
+
 def test_solve_snp_effects_cg(tmp_path):
     if workflows.sp is None:
         pytest.skip("scipy not available")

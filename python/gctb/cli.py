@@ -1460,6 +1460,19 @@ def save_snp_results(results, data, output_prefix):
             f.write(f"{i+1}\t{snp.ID}\t{snp.chrom}\t{snp.physPos}\t"
                    f"{snp.a1}\t{snp.a2}\t{snp.af:.4f}\t"
                    f"{snp_effects[i]:.6f}\t{snp_pip[i]:.4f}\n")
+    # Additional blocks (DeltaPi, etc.)
+    extras = workflows.aggregate_parameter_blocks([res for res in results if res.label not in {"SnpEffects", "PIP"}])
+    if extras:
+        extras_path = f"{output_prefix}.parSetRes"
+        with open(extras_path, "w") as f:
+            for label, info in extras.items():
+                f.write(f"{label}\t")
+                mean = info["mean"]
+                if mean.ndim == 1:
+                    f.write("\t".join(f"{val:.6f}" for val in mean))
+                else:
+                    f.write("\t".join(f"{val:.6f}" for val in mean.ravel()))
+                f.write("\n")
 
 
 def write_credible_set_outputs(output_prefix: str, results: Dict[str, Any]) -> None:
