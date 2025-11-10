@@ -8,7 +8,7 @@ tasks that previously lived in the C++ `GCTB` controller.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 import numpy as np
 
@@ -656,5 +656,72 @@ def compute_credible_sets(
         "pep_threshold": pep_threshold,
         "window_width": window_width,
         "num_windows": num_windows_effective,
+    }
+
+
+def compute_window_pip_trace(
+    data: gctb.Data,
+    snp_effects: gctb.McmcSamples,
+    *,
+    window_width: int,
+    step_size: int,
+    snp_results: str,
+) -> Dict[str, Any]:
+    """
+    Python analogue of ``GCTB::getWindowPIP``.
+    """
+    data.input_new_snp_results(snp_results)
+    data.get_overlap_windows(window_width, step_size)
+
+    num_windows = len(data.window_starts)
+    if snp_effects.storage_mode != "sparse":
+        raise ValueError("Expected sparse storage mode for window PIP trace")
+
+    rows, cols, values, shape = mcmc_samples_sparse_matrix(snp_effects)
+    num_iters = shape[0]
+    window_delta = np.zeros((num_iters, num_windows), dtype=float)
+    snp_pip_counts = np.zeros(shape[1], dtype=float)
+
+    window_assignments = [getattr(data.get_snp_info_vec()[i], "window", -1) for i in range(shape[1])]
+    iter_offsets = rows
+    snp_indices = cols
+
+    for iter_idx, snp_idx, value in zip(iter_offsets, snp_indices, values):
+        win_idx = window_assignments[snp_idx]
+        if 0 <= win_idx < num_windows:
+            window_delta[iter_idx, win_idx] = 1.0
+        snp_pip_counts[snp_idx] += 1.0
+
+    window_pip = window_delta.mean(axis=0)
+    snp_pip = snp_pip_counts / snp_effects.nrow if snp_effects.nrow else np.zeros_like(snp_pip_counts)
+
+    credible_windows: Dict[int, List[Dict[str, Any]]] = {}
+    snp_info = data.get_snp_info_vec()
+    for win_idx, pip in enumerate(window_pip):
+        if pip <= 0.9:
+            continue
+        start = data.window_starts[win_idx]
+        size = data.window_sizes[win_idx]
+        indices = range(start, start + size)
+        snp_pip_window = sorted(
+            [(i, snp_pip[i]) for i in indices],
+            key=lambda t: t[1],
+            reverse=True,
+        )
+        cumulative = 0.0
+        credible: List[Dict[str, Any]] = []
+        for snp_idx, pip_val in snp_pip_window:
+            snp = snp_info[snp_idx]
+            credible.append({"id": snp.ID, "pip": float(pip_val)})
+            cumulative += pip_val
+            if cumulative > 0.9:
+                break
+        credible_windows[win_idx + 1] = credible
+
+    return {
+        "window_delta": window_delta,
+        "window_pip": window_pip,
+        "snp_pip": snp_pip,
+        "credible_windows": credible_windows,
     }
 

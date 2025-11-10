@@ -128,7 +128,7 @@ def test_pip_to_pvalues_roundtrip():
 
 def test_compute_credible_sets_basic():
     class DummySnp:
-        def __init__(self, idx, name, chrom, pos, af, a1="A", a2="G"):
+        def __init__(self, idx, name, chrom, pos, af, window=0, a1="A", a2="G"):
             self.index = idx
             self.ID = name
             self.chrom = chrom
@@ -140,6 +140,7 @@ def test_compute_credible_sets_basic():
             self.varExplained = 0.0
             self.effect = 0.0
             self.unconverged = False
+            self.window = window
 
     class DummyData:
         def __init__(self, snps):
@@ -189,8 +190,8 @@ def test_compute_credible_sets_basic():
     pip = np.array([0.8, 0.3], dtype=float)
 
     snps = [
-        DummySnp(1, "rs1", 1, 100, 0.25),
-        DummySnp(2, "rs2", 1, 200, 0.30),
+        DummySnp(1, "rs1", 1, 100, 0.25, window=0),
+        DummySnp(2, "rs2", 1, 200, 0.30, window=0),
     ]
     data = DummyData(snps)
     samples = DummySamples(matrix, pip)

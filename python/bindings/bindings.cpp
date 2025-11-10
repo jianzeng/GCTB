@@ -9,6 +9,7 @@
 #include <pybind11/eigen.h>
 #include <pybind11/functional.h>
 #include <pybind11/numpy.h>
+#include <pybind11/numpy.h>
 
 // Include headers
 #include "data.hpp"
@@ -666,6 +667,45 @@ PYBIND11_MODULE(_core, m) {
             }
         }, py::arg("snp_res_file"),
            "Load SNP results back into the Data object")
+        .def("input_snp_info_and_results", [](Data& data, const std::string& snp_res_file, const std::string& bayes_type) {
+            try {
+                data.inputSnpInfoAndResults(snp_res_file, bayes_type);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("snp_res_file"), py::arg("bayes_type"),
+           "Load SNP metadata/results as required for post-hoc stratification")
+        .def("make_annowise_sparse_ldm", [](Data& data) {
+            try {
+                data.makeAnnowiseSparseLDM(data.ZPZsp, data.annoInfoVec, data.snpInfoVec);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, "Construct annotation-wise sparse LD matrices")
+        .def("read_ld_matrix_bin_file_and_shrink", [](Data& data, const std::string& filename) {
+            try {
+                data.readLDmatrixBinFileAndShrink(filename);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("filename"),
+           "Read LD matrix binary file and apply LD shrinkage")
+        .def("read_multi_ld_matrix_bin_file_and_shrink", [](Data& data, const std::string& dirname, float gen_map_n) {
+            try {
+                data.readMultiLDmatBinFileAndShrink(dirname, gen_map_n);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("dirname"), py::arg("genetic_map_n"),
+           "Read multi-LD matrix binary directory and apply shrinkage")
         .def("get_overlap_windows", [](Data& data, unsigned window_width, unsigned step_size) {
             try {
                 data.getOverlapWindows(window_width, step_size);
@@ -823,6 +863,7 @@ PYBIND11_MODULE(_core, m) {
     // McmcSamples Class
     // ============================================================================
     py::class_<McmcSamples>(m, "McmcSamples", "MCMC sample storage")
+        .def(py::init<const std::string&>(), py::arg("label"))
         .def_readonly("label", &McmcSamples::label, "Parameter label")
         .def_readonly("chain_length", &McmcSamples::chainLength, "Chain length")
         .def_readonly("burnin", &McmcSamples::burnin, "Burn-in iterations")
@@ -875,6 +916,36 @@ PYBIND11_MODULE(_core, m) {
                                   py::make_tuple(static_cast<py::ssize_t>(samples.nrow),
                                                  static_cast<py::ssize_t>(samples.ncol)));
         }, "Return COO-form sparse data (row indices, col indices, values, shape)")
+        .def("read_data_bin", [](McmcSamples& samples, const std::string& title) {
+            try {
+                samples.readDataBin(title);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("title"),
+           "Read sparse MCMC samples from <title>.mcmcsamples/<label>.mcmcsamples.bin")
+        .def("read_data_txt", [](McmcSamples& samples, const std::string& title) {
+            try {
+                samples.readDataTxt(title);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("title"),
+           "Read dense MCMC samples from <title>.mcmcsamples/<label>.mcmcsamples.txt")
+        .def("read_data_txt", [](McmcSamples& samples, const std::string& filename, const std::string& label) {
+            try {
+                samples.readDataTxt(filename, label);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("filename"), py::arg("label"),
+           "Read dense MCMC samples from a combined text file (helper overload)")
         .def("to_dict", [](const McmcSamples& samples) {
             py::dict d;
             d["label"] = samples.label;
