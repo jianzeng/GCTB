@@ -706,6 +706,42 @@ PYBIND11_MODULE(_core, m) {
             }
         }, py::arg("dirname"), py::arg("genetic_map_n"),
            "Read multi-LD matrix binary directory and apply shrinkage")
+        .def("get_zpz_sparse_matrix", [](Data& data) {
+            try {
+                data.getZPZspmat();
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+            const auto& mat = data.ZPZspmat;
+            py::ssize_t nnz = static_cast<py::ssize_t>(mat.nonZeros());
+            py::array_t<int> rows(nnz);
+            py::array_t<int> cols(nnz);
+            py::array_t<float> values(nnz);
+            auto rows_mut = rows.mutable_unchecked<1>();
+            auto cols_mut = cols.mutable_unchecked<1>();
+            auto vals_mut = values.mutable_unchecked<1>();
+            py::ssize_t idx = 0;
+            for (int k = 0; k < mat.outerSize(); ++k) {
+                for (SpMat::InnerIterator it(mat, k); it; ++it) {
+                    rows_mut(idx) = static_cast<int>(it.row());
+                    cols_mut(idx) = static_cast<int>(it.col());
+                    vals_mut(idx) = it.value();
+                    ++idx;
+                }
+            }
+            return py::make_tuple(rows, cols, values,
+                                  py::make_tuple(static_cast<py::ssize_t>(mat.rows()),
+                                                 static_cast<py::ssize_t>(mat.cols())));
+        }, "Return the sparse Z'Z matrix as COO data (rows, cols, values, shape)")
+        .def_property_readonly("wind_size", [](const Data& data) {
+            std::vector<int> vec(data.windSize.data(), data.windSize.data() + data.windSize.size());
+            return vec;
+        }, "Window sizes per SNP")
+        .def_property_readonly("zpy", [](const Data& data) {
+            return data.ZPy;
+        }, "Sparse MME right-hand side vector ZPy")
         .def("get_overlap_windows", [](Data& data, unsigned window_width, unsigned step_size) {
             try {
                 data.getOverlapWindows(window_width, step_size);

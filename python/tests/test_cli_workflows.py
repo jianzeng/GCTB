@@ -243,6 +243,50 @@ def test_mcmc_sparse_extraction_helpers():
         assert csr.nnz == 3
 
 
+def test_solve_snp_effects_cg(tmp_path):
+    if workflows.sp is None:
+        pytest.skip("scipy not available")
+
+    class StubSnp:
+        def __init__(self, idx, id_, chrom, pos, af, flipped=False):
+            self.index = idx
+            self.ID = id_
+            self.chrom = chrom
+            self.physPos = pos
+            self.af = af
+            self.a1 = "A"
+            self.a2 = "G"
+            self.flipped = flipped
+
+    class StubData:
+        def __init__(self):
+            self._snps = [
+                StubSnp(1, "rs1", 1, 100, 0.25),
+                StubSnp(2, "rs2", 1, 200, 0.3),
+            ]
+            self.zpy = np.array([1.0, 0.0], dtype=float)
+
+        def get_zpz_sparse_matrix(self):
+            rows = np.array([0, 0, 1, 1], dtype=np.int32)
+            cols = np.array([0, 1, 0, 1], dtype=np.int32)
+            vals = np.array([2.0, 1.0, 1.0, 2.0], dtype=np.float32)
+            shape = (2, 2)
+            return rows, cols, vals, shape
+
+        def get_incd_snp_info_vec(self):
+            return self._snps
+
+    data = StubData()
+    out = tmp_path / "cg.txt"
+    result = workflows.solve_snp_effects_cg(data, lambda_=0.0, output_path=str(out))
+
+    assert out.exists()
+    lines = out.read_text().strip().splitlines()
+    assert len(lines) == 3  # header + 2 rows
+    assert "rs1" in lines[1]
+    assert np.isclose(result["lambda"], 0.0)
+
+
 @pytest.mark.skipif(not TEST_DATA_DIR.exists(), reason="Test data not found")
 @pytest.mark.skip(reason="Known limitation: pybind11 MCMC bindings abort with Trace/BPT trap when run in-process on macOS (see KNOWN_ISSUES).")
 def test_multi_chain_sbayes(tmp_path):

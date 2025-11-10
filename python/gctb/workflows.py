@@ -14,8 +14,10 @@ import numpy as np
 
 try:
     import scipy.sparse as sp
+    import scipy.sparse.linalg as spla
 except ImportError:  # pragma: no cover - optional dependency
     sp = None
+    spla = None
 
 from . import _core as gctb
 
@@ -723,5 +725,79 @@ def compute_window_pip_trace(
         "window_pip": window_pip,
         "snp_pip": snp_pip,
         "credible_windows": credible_windows,
+    }
+
+
+def solve_snp_effects_cg(
+    data: gctb.Data,
+    *,
+    lambda_: float,
+    output_path: str,
+) -> Dict[str, Any]:
+    """
+    Python implementation of ``GCTB::solveSnpEffectsByConjugateGradientMethod``.
+    """
+    if sp is None or spla is None:
+        raise RuntimeError("scipy is required for conjugate gradient solver; install scipy to use this helper.")
+
+    rows, cols, values, shape = data.get_zpz_sparse_matrix()
+    mat = sp.csr_matrix((np.asarray(values, dtype=np.float64), (np.asarray(rows, dtype=np.int32), np.asarray(cols, dtype=np.int32))), shape=shape, dtype=np.float64)
+    if lambda_ != 0.0:
+        mat = mat + lambda_ * sp.identity(mat.shape[0], format="csr", dtype=np.float64)
+
+    zpy = np.asarray(data.zpy, dtype=np.float64)
+    if zpy.shape[0] != mat.shape[0]:
+        raise ValueError(f"ZPy length {zpy.shape[0]} does not match matrix dimension {mat.shape[0]}")
+
+    sol, info = spla.cg(mat, zpy, atol=0)
+    if info != 0:
+        raise RuntimeError(f"Conjugate gradient did not converge (info={info})")
+
+    snps = data.get_incd_snp_info_vec()
+    if len(snps) != len(sol):
+        raise ValueError("Number of SNPs does not match solution length")
+
+    results = []
+    for idx, snp in enumerate(snps):
+        af = float(getattr(snp, "af", 0.0))
+        sqrt2pq = np.sqrt(max(2.0 * af * (1.0 - af), 1e-12))
+        effect = float(sol[idx])
+        flipped = bool(getattr(snp, "flipped", False))
+        allele1 = getattr(snp, "a1", "A")
+        allele2 = getattr(snp, "a2", "G")
+        if flipped:
+            allele1, allele2 = allele2, allele1
+            freq = 1.0 - af
+            effect = -effect
+        else:
+            freq = af
+        results.append(
+            {
+                "index": idx + 1,
+                "id": getattr(snp, "ID", f"snp_{idx+1}"),
+                "chrom": int(getattr(snp, "chrom", 0)),
+                "position": int(getattr(snp, "physPos", 0)),
+                "a1": allele1,
+                "a2": allele2,
+                "freq": freq,
+                "effect": effect,
+                "scaled_effect": effect / sqrt2pq if sqrt2pq > 0 else effect,
+            }
+        )
+
+    header = "Index\tName\tChrom\tPosition\tA1\tA2\tA1Frq\tA1Sol\n"
+    with open(output_path, "w") as fout:
+        fout.write(header)
+        for rec in results:
+            fout.write(
+                f"{rec['index']}\t{rec['id']}\t{rec['chrom']}\t{rec['position']}\t"
+                f"{rec['a1']}\t{rec['a2']}\t{rec['freq']:.6f}\t{rec['effect']:.6f}\n"
+            )
+
+    return {
+        "lambda": lambda_,
+        "num_snps": len(sol),
+        "matrix_nnz": int(mat.nnz),
+        "output": output_path,
     }
 
