@@ -988,6 +988,129 @@ def sbayes(
             import traceback
             traceback.print_exc()
         sys.exit(1)
+        
+
+@main.command()
+@click.option('--ldm', required=True, type=str,
+              help='LD matrix directory or info file prefix')
+@click.option('--snp-res', required=True, type=click.Path(exists=True, dir_okay=False),
+              help='SNP results file (e.g., *.snpRes)')
+@click.option('--mcmc-prefix', required=True, type=str,
+              help='Prefix for MCMC sample outputs (same as --out used during SBayes run)')
+@click.option('--type', 'posthoc_type', type=click.Choice(['S', 'SMix'], case_sensitive=False),
+              default='S', help='Post-hoc model type (default: S)')
+@click.option('--gwas-summary', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='GWAS summary statistics file (optional)')
+@click.option('--annotation', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Categorical annotation file')
+@click.option('--annotation-transpose', is_flag=True, default=False,
+              help='Annotation file is transposed (rows=annotations)')
+@click.option('--continuous-annotation', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Continuous annotation file')
+@click.option('--flank', default=0, type=int,
+              help='Flanking distance (kb) for continuous annotations')
+@click.option('--eqtl', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='eQTL file for continuous annotations')
+@click.option('--genetic-map', default=None, type=click.Path(exists=True, dir_okay=False),
+              help='Genetic map file (for LD shrinkage)')
+@click.option('--gen-map-n', default=60000.0, type=float,
+              help='Effective population size for genetic map shrinkage (default: 60000)')
+@click.option('--multi-ldm/--single-ldm', default=False,
+              help='Treat --ldm as multi-LD matrix directory (default: single)')
+@click.option('--pvalue-threshold', default=1.0, type=float,
+              help='GWAS p-value threshold (default: 1.0)')
+@click.option('--impute-n/--no-impute-n', default=True,
+              help='Impute missing sample sizes (default: on)')
+@click.option('--chain-length', default=1500, type=int,
+              help='MCMC chain length (default: 1500)')
+@click.option('--burnin', default=500, type=int,
+              help='Burn-in iterations (default: 500)')
+@click.option('--thin', default=5, type=int,
+              help='Thinning interval (default: 5)')
+@click.option('--out', default='posthoc_stratify', type=str,
+              help='Output prefix (default: posthoc_stratify)')
+@click.option('--verbose/--quiet', default=True)
+def posthoc_stratify(
+    ldm,
+    snp_res,
+    mcmc_prefix,
+    posthoc_type,
+    gwas_summary,
+    annotation,
+    annotation_transpose,
+    continuous_annotation,
+    flank,
+    eqtl,
+    genetic_map,
+    gen_map_n,
+    multi_ldm,
+    pvalue_threshold,
+    impute_n,
+    chain_length,
+    burnin,
+    thin,
+    out,
+    verbose,
+):
+    """
+    Run post-hoc annotation-stratified analysis using existing SBayes MCMC outputs.
+    """
+    try:
+        if verbose:
+            click.echo("=" * 70)
+            click.echo(f"Post-hoc Stratified Analysis ({posthoc_type.upper()})")
+            click.echo("=" * 70)
+            click.echo("Loading inputs and preparing data ...")
+
+        result = workflows.run_posthoc_stratify(
+            ldm_prefix=ldm,
+            snp_results=snp_res,
+            mcmc_prefix=mcmc_prefix,
+            bayes_type=posthoc_type,
+            annotation_file=annotation,
+            annotation_transpose=annotation_transpose,
+            continuous_annotation=continuous_annotation,
+            flank=flank,
+            eqtl_file=eqtl,
+            genetic_map_file=genetic_map,
+            gen_map_n=gen_map_n,
+            gwas_summary=gwas_summary,
+            pvalue_threshold=pvalue_threshold,
+            impute_n=impute_n,
+            multi_ldm=multi_ldm,
+            chain_length=chain_length,
+            burnin=burnin,
+            thin=thin,
+            output_prefix=out,
+        )
+
+        samples = result["samples"]
+        data = result["data"]
+
+        if verbose:
+            click.echo("  ✓ MCMC completed")
+            click.echo("\nSaving results ...")
+
+        save_parameter_results(samples, out)
+        save_snp_results(samples, data, out)
+
+        if verbose:
+            click.echo("  ✓ Results saved")
+            click.echo("\nPost-hoc stratified analysis completed successfully!")
+            click.echo("=" * 70)
+
+    except Exception as e:
+        click.echo(f"\nError: {e}", err=True)
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"\nError: {e}", err=True)
+        if verbose:
+            import traceback
+            traceback.print_exc()
+        sys.exit(1)
 
 
 def load_summary_data(

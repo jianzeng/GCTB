@@ -895,6 +895,39 @@ PYBIND11_MODULE(_core, m) {
        py::return_value_policy::take_ownership,
        "Build ApproxBayes model for summary statistics (requires LD matrix)");
 
+    m.def("build_posthoc_model", [](Data& data,
+                                   const std::string& bayes_type,
+                                   McmcSamples& snp_effects,
+                                   McmcSamples& hsq,
+                                   unsigned thin,
+                                   float hsq_hat,
+                                   py::object delta_s_obj) -> Model* {
+        try {
+            if (bayes_type == "S") {
+                return new PostHocStratifyS(data, false, snp_effects, hsq, thin, hsq_hat);
+            } else if (bayes_type == "SMix") {
+                if (delta_s_obj.is_none()) {
+                    throw std::runtime_error("DeltaS samples required for SMix post-hoc stratification");
+                }
+                auto& delta_s = delta_s_obj.cast<McmcSamples&>();
+                return new PostHocStratifySMix(data, false, snp_effects, hsq, delta_s, thin, hsq_hat);
+            } else {
+                throw std::runtime_error("Unsupported bayes_type for post-hoc stratification: " + bayes_type);
+            }
+        } catch (const std::string& e) {
+            throw std::runtime_error(e);
+        } catch (const char* e) {
+            throw std::runtime_error(e);
+        } catch (const std::exception& e) {
+            throw std::runtime_error(std::string("Error building post-hoc model: ") + e.what());
+        }
+    }, py::arg("data"), py::arg("bayes_type"),
+       py::arg("snp_effects"), py::arg("hsq"),
+       py::arg("thin") = 1, py::arg("hsq_hat") = 0.0f,
+       py::arg("delta_s") = py::none(),
+       py::return_value_policy::take_ownership,
+       "Build post-hoc stratified model (BayesS or BayesSMix)");
+
     // ============================================================================
     // McmcSamples Class
     // ============================================================================
@@ -982,6 +1015,16 @@ PYBIND11_MODULE(_core, m) {
             }
         }, py::arg("filename"), py::arg("label"),
            "Read dense MCMC samples from a combined text file (helper overload)")
+        .def("mean", [](McmcSamples& samples) {
+            try {
+                return samples.mean();
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, "Compute posterior mean across samples")
+
         .def("to_dict", [](const McmcSamples& samples) {
             py::dict d;
             d["label"] = samples.label;

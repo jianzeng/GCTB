@@ -801,3 +801,126 @@ def solve_snp_effects_cg(
         "output": output_path,
     }
 
+
+def run_posthoc_stratify(
+    ldm_prefix: str,
+    snp_results: str,
+    mcmc_prefix: str,
+    bayes_type: str,
+    *,
+    annotation_file: str | None = None,
+    annotation_transpose: bool = False,
+    continuous_annotation: str | None = None,
+    flank: int = 0,
+    eqtl_file: str | None = None,
+    genetic_map_file: str | None = None,
+    gen_map_n: float = 60_000.0,
+    gwas_summary: str | None = None,
+    pvalue_threshold: float = 1.0,
+    impute_n: bool = True,
+    multi_ldm: bool = False,
+    chain_length: int = 1500,
+    burnin: int = 500,
+    thin: int = 5,
+    output_prefix: str = "posthoc_stratify",
+) -> List[gctb.McmcSamples]:
+    """
+    Reimplementation of the post-hoc stratified workflow from ``GCTB::stratify``.
+    """
+    bayes_type = bayes_type.upper()
+    data = gctb.Data()
+
+    # Load LD metadata
+    if multi_ldm:
+        data.read_multi_ld_matrix_info_file(ldm_prefix)
+    else:
+        info_path = f"{ldm_prefix}.info"
+        try:
+            data.read_ld_matrix_info_file(info_path)
+        except Exception:
+            data.read_ld_matrix_info_file(ldm_prefix)
+
+    data.input_snp_info_and_results(snp_results, bayes_type)
+
+    if annotation_file:
+        data.read_annotation_file(annotation_file, annotation_transpose, True)
+    elif continuous_annotation:
+        data.read_annotation_file_format2(continuous_annotation, flank * 1000, eqtl_file or "")
+
+    if gwas_summary:
+        data.read_gwas_summary_file(
+            gwas_file=gwas_summary,
+            af_diff=1.0,
+            maf_min=0.0,
+            maf_max=0.0,
+            pvalue_threshold=pvalue_threshold,
+            impute_n=impute_n,
+            remove_outlier_n=True,
+        )
+
+    data.include_matched_snp()
+
+    if genetic_map_file:
+        if multi_ldm:
+            data.read_multi_ld_matrix_bin_file_and_shrink(ldm_prefix, gen_map_n)
+        else:
+            bin_path = f"{ldm_prefix}.bin"
+            try:
+                data.read_ld_matrix_bin_file_and_shrink(bin_path)
+            except Exception:
+                data.read_ld_matrix_bin_file_and_shrink(ldm_prefix)
+    else:
+        if multi_ldm:
+            data.read_multi_ld_matrix_bin_file(ldm_prefix)
+        else:
+            bin_path = f"{ldm_prefix}.bin"
+            try:
+                data.read_ld_matrix_bin_file(bin_path)
+            except Exception:
+                data.read_ld_matrix_bin_file(ldm_prefix)
+
+    data.build_sparse_mme(sample_overlap=False, noscale=True)
+    data.make_annowise_sparse_ldm()
+
+    # Load MCMC samples
+    snp_effects = gctb.McmcSamples("SnpEffects")
+    snp_effects.read_data_bin(mcmc_prefix)
+
+    hsq = gctb.McmcSamples("hsq")
+    hsq.read_data_txt(f"{mcmc_prefix}.Par", "hsq")
+    hsq_hat_vec = hsq.mean()
+    hsq_hat = float(hsq_hat_vec[0]) if hsq_hat_vec.size > 0 else 0.0
+
+    delta_s = None
+    if bayes_type == "SMIX":
+        delta_s = gctb.McmcSamples("DeltaS")
+        delta_s.read_data_bin(mcmc_prefix)
+
+    model = gctb.build_posthoc_model(
+        data,
+        bayes_type,
+        snp_effects,
+        hsq,
+        thin=thin,
+        hsq_hat=hsq_hat,
+        delta_s=delta_s,
+    )
+
+    runner = gctb.MCMC()
+    samples = runner.run(
+        model=model,
+        chain_length=chain_length,
+        burnin=burnin,
+        thin=thin,
+        output_freq=_default_output_freq(chain_length),
+        title=output_prefix,
+    )
+
+    return {
+        "samples": samples,
+        "data": data,
+        "snp_effects": snp_effects,
+        "hsq": hsq,
+        "delta_s": delta_s,
+    }
+

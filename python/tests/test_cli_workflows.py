@@ -11,6 +11,7 @@ from click.testing import CliRunner
 # Ensure package imports resolve relative to repository root
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import gctb  # noqa: E402
 from gctb import cli  # noqa: E402
 from gctb import workflows  # noqa: E402
 
@@ -241,6 +242,12 @@ def test_mcmc_sparse_extraction_helpers():
         csr = workflows.mcmc_samples_to_csr(stub)
         assert csr.shape == (2, 3)
         assert csr.nnz == 3
+
+
+def test_mcmc_samples_mean_empty():
+    samples = gctb.McmcSamples("Empty")
+    mean = samples.mean()
+    assert mean.size == 0
 
 
 def test_solve_snp_effects_cg(tmp_path):
