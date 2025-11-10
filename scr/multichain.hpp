@@ -493,7 +493,7 @@ public:
     
     class AnnoPerSnpHsqEnrichment : public MultiChainParamSet {
     public:
-        AnnoPerSnpHsqEnrichment(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("AnnoPerSnpHsq_Enrichment", header, chains.size()){
+        AnnoPerSnpHsqEnrichment(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("Marginal_Heritability_Enrichment", header, chains.size()){
             for (unsigned i=0; i<numChains; ++i) {
                 chainVec.push_back(&chains[i]->annoPerSnpHsqEnrich);
             }
@@ -502,7 +502,7 @@ public:
 
     class AnnoPerSnpRsqEnrichment : public MultiChainParamSet {
     public:
-        AnnoPerSnpRsqEnrichment(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("AnnoPerSnpRsq_Enrichment", header, chains.size()){
+        AnnoPerSnpRsqEnrichment(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("Marginal_Predictability_Enrichment", header, chains.size()){
             for (unsigned i=0; i<numChains; ++i) {
                 chainVec.push_back(&chains[i]->annoPerSnpRsqEnrich);
             }
@@ -511,13 +511,22 @@ public:
 
     class AnnoJointPerSnpHsqEnrichment : public MultiChainParamSet {
     public:
-        AnnoJointPerSnpHsqEnrichment(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("AnnoJointPerSnpHsq_Enrichment", header, chains.size()){
+        AnnoJointPerSnpHsqEnrichment(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("Joint_Heritability_Enrichment", header, chains.size()){
             for (unsigned i=0; i<numChains; ++i) {
                 chainVec.push_back(&chains[i]->annoJointPerSnpHsqEnrich);
             }
         }
     };
     
+    class AnnoJointPerSnpRsqEnrichment : public MultiChainParamSet {
+    public:
+        AnnoJointPerSnpRsqEnrichment(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("Joint_Predictability_Enrichment", header, chains.size()){
+            for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->annoJointPerSnpRsqEnrich);
+            }
+        }
+    };
+
     class SnpHsqPEP : public MultiChainParamSet {
     public:
         SnpHsqPEP(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("PEP", header, chains.size()){
@@ -543,6 +552,7 @@ public:
     AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
     AnnoPerSnpRsqEnrichment annoPerSnpRsqEnrich;
     AnnoJointPerSnpHsqEnrichment annoJointPerSnpHsqEnrich;
+    AnnoJointPerSnpRsqEnrichment annoJointPerSnpRsqEnrich;
     MultiChainSBayesR::NumHighPIPs nHighPips;
     SnpHsqPEP snpHsqPep;
     
@@ -568,11 +578,12 @@ public:
     annoPerSnpHsqEnrich(data.annoNames, chainVec),
     annoPerSnpRsqEnrich(data.annoNames, chainVec),
     annoJointPerSnpHsqEnrich(data.annoNames, chainVec),
+    annoJointPerSnpRsqEnrich(data.annoNames, chainVec),
     snpHsqPep(data.snpEffectNames, chainVec),
     keptLdBlockInfoVec(data.keptLdBlockInfoVec),
     estimateRsqEnrich(opt.estimateRsqEnrich)
     {
-        
+
         paramVec    = {&hsq};
         paramVec.insert(paramVec.end(), numSnpMix.begin(), numSnpMix.end());
         paramVec.insert(paramVec.end(), vgMix.begin(), vgMix.end());
@@ -581,6 +592,7 @@ public:
         if (estimateRsqEnrich) {
             paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
             paramSetVec.push_back(&annoPerSnpRsqEnrich);
+            paramSetVec.push_back(&annoJointPerSnpRsqEnrich);
         }
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
         paramSetVec.insert(paramSetVec.end(), annoEffects.begin(), annoEffects.end());
@@ -598,6 +610,7 @@ public:
         if (estimateRsqEnrich) {
             paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
             paramSetToPrint.push_back(&annoPerSnpRsqEnrich);
+            paramSetToPrint.push_back(&annoJointPerSnpRsqEnrich);
         }
 
         if (message) {
@@ -754,7 +767,7 @@ public:
     
     class AnnoPerSnpHsqEnrichment : public MultiChainParamSet {
     public:
-        AnnoPerSnpHsqEnrichment(const vector<string> &header, const ChainVecSBayesRD &chains): MultiChainParamSet("AnnoPerSnpHsq_Enrichment", header, chains.size()){
+        AnnoPerSnpHsqEnrichment(const vector<string> &header, const ChainVecSBayesRD &chains): MultiChainParamSet("Marginal_Heritability_Enrichment", header, chains.size()){
             for (unsigned i=0; i<numChains; ++i) {
                 chainVec.push_back(&chains[i]->annoPerSnpHsqEnrich);
             }
@@ -763,13 +776,13 @@ public:
 
     class AnnoJointPerSnpHsqEnrichment : public MultiChainParamSet {
     public:
-        AnnoJointPerSnpHsqEnrichment(const vector<string> &header, const ChainVecSBayesRD &chains): MultiChainParamSet("AnnoJointPerSnpHsq_Enrichment", header, chains.size()){
+        AnnoJointPerSnpHsqEnrichment(const vector<string> &header, const ChainVecSBayesRD &chains): MultiChainParamSet("Joint_Heritability_Enrichment", header, chains.size()){
             for (unsigned i=0; i<numChains; ++i) {
                 chainVec.push_back(&chains[i]->annoJointPerSnpHsqEnrich);
             }
         }
     };
-    
+        
     class SnpHsqPEP : public MultiChainParamSet {
     public:
         SnpHsqPEP(const vector<string> &header, const ChainVecSBayesRD &chains): MultiChainParamSet("PEP", header, chains.size()){
@@ -843,9 +856,7 @@ public:
         paramVec.insert(paramVec.end(), vgMix.begin(), vgMix.end());
 
         paramSetVec = {&snpEffects, &pip, &snpHsqPep, &annoTotalGenVar, &annoPerSnpHsqEnrich, &annoPip};
-        if (estimateRsqEnrich) {
-            paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
-        }
+        paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
         paramSetVec.insert(paramSetVec.end(), annoEffects.begin(), annoEffects.end());
         paramSetVec.insert(paramSetVec.end(), annoJointProb.begin(), annoJointProb.end());
@@ -859,9 +870,7 @@ public:
         paramSetToPrint.insert(paramSetToPrint.end(), annoJointProb.begin(), annoJointProb.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
-        if (estimateRsqEnrich) {
-            paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
-        }
+        paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
         paramSetToPrint.push_back(&annoPip);
 
         if (message) {

@@ -42,8 +42,8 @@ namespace Stat {
     class Normal {
     public:
         boost::math::normal_distribution <> d;
-        float SQRT_2;
-        float Inv_SQRT_2;
+        double SQRT_2;
+        double Inv_SQRT_2;
         
         Normal(){
             d = boost::math::normal_distribution <> (0 ,1);
@@ -51,10 +51,10 @@ namespace Stat {
             Inv_SQRT_2 = 1.0/SQRT_2;
         }
         
-        float sample(const float mean, const float variance);
-        float cdf_01(const double value);
-        float quantile_01(const double value);
-        float pdf_01(const double value);
+        double sample(const double mean, const double variance);
+        double cdf_01(const double value);
+        double quantile_01(const double value);
+        double pdf_01(const double value);
     };
     
     class Flat : public Normal {

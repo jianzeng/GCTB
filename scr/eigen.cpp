@@ -472,20 +472,36 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
         }
         string outSnpfile = dirname + "/block" + ldblock->ID + ".snp.info";
         string outldmfile = dirname + "/block" + ldblock->ID + ".ldm.info";
+        string pwldfilename = dirname + "/block" + ldblock->ID + ".rsq0.5.pwld";  // pairwise LD file
 
         if(!i) cout << "Reading PLINK BED file from [" + bedFile + "] in SNP-major format ..." << endl;
             
         MatrixXf rval = generateLDmatrixPerBlock(bedFile, ldblock->snpNameVec);
         
+//        unsigned numSnpInBlock = ldblock->numSnpInBlock;
+//        uint64_t nElements = (uint64_t) numSnpInBlock * (uint64_t) numSnpInBlock;
+//        fwrite(rval.data(), sizeof(float), nElements, outbin);
+        
+        // save the lower trangular matrix only
         unsigned numSnpInBlock = ldblock->numSnpInBlock;
-        uint64_t nElements = (uint64_t) numSnpInBlock * (uint64_t) numSnpInBlock;
-        fwrite(rval.data(), sizeof(float), nElements, outbin);
+        for (unsigned row = 0; row < numSnpInBlock; ++row) {
+            for (unsigned col = 0; col <= row; ++col) {
+                float value = rval(row, col);
+                fwrite(&value, sizeof(float), 1, outbin);
+            }
+        }
         
         if (writeLdmTxt) {
-            for (unsigned ii=0; ii<numSnpInBlock; ++ii){
-                for (unsigned jj=0; jj<numSnpInBlock; ++jj) {
-                    outtxt << ldblock->ID << "\t" << ldblock->snpNameVec[ii] << "\t" << ldblock->snpNameVec[jj] << "\t" << rval(ii,jj) << endl;
+//            for (unsigned ii=0; ii<numSnpInBlock; ++ii){
+//                for (unsigned jj=0; jj<numSnpInBlock; ++jj) {
+//                    outtxt << ldblock->ID << "\t" << ldblock->snpNameVec[ii] << "\t" << ldblock->snpNameVec[jj] << "\t" << rval(ii,jj) << endl;
+//                }
+//            }
+            for (unsigned row = 0; row < numSnpInBlock; ++row) {
+                for (unsigned col = 0; col <= row; ++col) {
+                    outtxt << rval(row, col) << "\t";
                 }
+                outtxt << endl;
             }
         }
         
@@ -494,6 +510,9 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
         
         outputBlockLDmatrixInfo(*ldblock, outSnpfile, outldmfile);
         
+        outputLDfriends(rval, ldblock, dirname);
+        
+        
         if(!(i%1)) cout << " computed block " << ldblock->ID << "\r" << flush;
 
         if (block) {
@@ -501,6 +520,7 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
             if (writeLdmTxt) cout << "Written the LD matrix into file [" << outTxtfile << "]." << endl;
             cout << "Written the LD matrix SNP info into file [" << outSnpfile << "]." << endl;
             cout << "Written the LD matrix ldm info into file [" << outldmfile << "]." << endl;
+            cout << "Written the high pairwise LD correlations (rsq>0.5) into [" << pwldfilename << "]." << endl;
         }
     }
     
@@ -508,12 +528,15 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
         cout << "Written the LD matrix into folder [" << dirname << "/block*.ldm.bin]." << endl;
         if (writeLdmTxt) cout << "Written the LD matrix into text file [" << dirname << "/block*.ldm.txt]." << endl;
         
-        if (chromInfoVec.size() >= 22) {  // genome-wide build of LD matrices
+        //if (chromInfoVec.size() >= 22) {  // genome-wide build of LD matrices
+        
             mergeLdmInfo(LDmatType, dirname, true);
-        } else {
-            cout << "Written the LD matrix into folder [" << dirname << "/block*.snp.info]." << endl;
-            cout << "Written the LD matrix into folder [" << dirname << "/block*.ldm.info]." << endl;
-        }
+        
+        //} else {
+//            cout << "Written the LD matrix into folder [" << dirname << "/block*.snp.info]." << endl;
+//            cout << "Written the LD matrix into folder [" << dirname << "/block*.ldm.info]." << endl;
+//            cout << "Written the high pairwise LD correlations (rsq>0.5) into [" << dirname << "/block*.rsq0.5.pwld]." << endl;
+        //}
     }
 }
 
@@ -861,7 +884,7 @@ void Data::impG(const unsigned block, double diag_mod){
     cout << boost::format("%12s %12s %12s %12s\n") % "Block" % "TotalSNPs" % "ToImpute" % "Percentage";
     for (unsigned i = 0; i < numLDBlocks; i++ ){
         LDBlockInfo *ldblock = ldBlockInfoVec[i];
-        cout << boost::format("%12s %12s %12s %12.3f\n") % i % ldblock->numSnpInBlock % numImpSnp[i] % (float(numImpSnp[i])/float(ldblock->numSnpInBlock));
+        cout << boost::format("%12s %12s %12s %12.3f\n") % (i+1) % ldblock->numSnpInBlock % numImpSnp[i] % (float(numImpSnp[i])/float(ldblock->numSnpInBlock));
         if (ldblock->numSnpInBlock == numImpSnp[i]) {
             cout << "  Warning: All SNPs in block " << i+1 << " are missing!" << endl;
             ldblock->kept = false;
@@ -899,6 +922,11 @@ void Data::impG(const unsigned block, double diag_mod){
                     // typed snp
                     typedSnpIdx[idxTyp] = j;
                     zTypSnp[idxTyp] = snp->gwas_b / snp->gwas_se;
+                    if (!snp->gwas_se) {
+                        cout << "Error: " + snp->ID + " has a zero value for its SE which is incorrect!" << endl;
+                        throw std::string("Error: " + snp->ID + " has a zero value for its SE which is incorrect!");
+                    }
+                    //cout << snp->ID << " " << snp->gwas_b << " " << snp->gwas_se << " " << zTypSnp[idxTyp] << endl;
                     nTypSnp[idxTyp] = snp->gwas_n;
                     float hetj = 2.0 * snp->gwas_af * (1.0 - snp->gwas_af);
                     varyTypSnp[idxTyp] = hetj * (snp->gwas_n * snp->gwas_se * snp->gwas_se + snp->gwas_b * snp->gwas_b);
@@ -935,8 +963,9 @@ void Data::impG(const unsigned block, double diag_mod){
             }
         }
         
-        if(!(i%10)) cout << " imputed block " << i << "\r" << flush;
-        
+//        if(!(i%10)) cout << " imputed block " << i << "\r" << flush;
+        cout << " imputed block " << i << endl;
+
         if (block) {
             string outfile = title + ".block" + ldblock->ID + ".imputed.ma";
             ofstream out(outfile.c_str());
@@ -1147,8 +1176,16 @@ void Data::getEigenDataForLDBlock(const string &bedFile, const string &ldBlockIn
 }
 
 
-void Data::readBlockLdmInfoFile(const string &infoFile){
+void Data::readBlockLdmInfoFile(const string &dirname, const unsigned block){
     // Read bim file: recombination rate is defined between SNP i and SNP i-1
+    string infoFile;
+    if (block) {
+        infoFile = dirname + "/block" + to_string(block) + ".ldm.info";
+        ifstream in(infoFile.c_str());
+        if (!in) infoFile = dirname + "/ldm.info";
+    } else {
+        infoFile = dirname + "/ldm.info";
+    }
     ifstream in(infoFile.c_str());
     if (!in) throw ("Error: can not open the file [" + infoFile + "] to read.");
     cout << "Reading LDM info from file [" + infoFile + "]." << endl;
@@ -1156,8 +1193,8 @@ void Data::readBlockLdmInfoFile(const string &infoFile){
     ldBlockInfoMap.clear();
         
     string header;
-    string id;
-    int  chr, blockStart, blockEnd, snpNum;
+    int id;
+    int chr, blockStart, blockEnd, snpNum;
     int idx = 0;
     int snpCount =  1;
     string snpName;
@@ -1165,14 +1202,16 @@ void Data::readBlockLdmInfoFile(const string &infoFile){
     LDBlockInfo *ldblock;
     getline(in, header);
     while (in >> id >> chr >> blockStart >> startSnpID >> blockEnd >> endSnpID >> snpNum) {
-        
-        ldblock = new LDBlockInfo(idx++, id, chr);
+        if (block && id != block) continue;
+
+        string idstr = to_string(id);
+        ldblock = new LDBlockInfo(idx++, idstr, chr);
         ldblock->startSnpIdx = blockStart;
         ldblock->endSnpIdx   = blockEnd;
         ldblock->numSnpInBlock = snpNum;
                 
         ldBlockInfoVec.push_back(ldblock);
-        ldBlockInfoMap[id] = ldblock;
+        ldBlockInfoMap[idstr] = ldblock;
 
     }
     in.close();
@@ -1180,38 +1219,50 @@ void Data::readBlockLdmInfoFile(const string &infoFile){
     cout << numLDBlocks << " LD Blocks to be included from [" + infoFile + "]." << endl;
 }
 
-void Data::readBlockLdmSnpInfoFile(const string &snpInfoFile){
+void Data::readBlockLdmSnpInfoFile(const string &dirname, const unsigned block){
+    string snpInfoFile;
+    if (block) {
+        snpInfoFile = dirname + "/block" + to_string(block) + ".snp.info";
+        ifstream in(snpInfoFile.c_str());
+        if (!in) snpInfoFile = dirname + "/snp.info";
+    } else {
+        snpInfoFile = dirname + "/snp.info";
+    }
     ifstream in(snpInfoFile.c_str());
     if (!in) throw ("Error: can not open the file [" + snpInfoFile + "] to read.");
     cout << "Reading LDM SNP info from file [" + snpInfoFile + "]." << endl;
     snpInfoVec.clear();
     snpInfoMap.clear();
+    
     map<string,int> ld2snpMap;
     string header;
     string id, allele1, allele2;
     int chr, physPos,ld_n;
     float genPos;
     float allele1Freq;
-    int idx = 0;
     int index;
-    string blockID;
+    int blockID;
     LDBlockInfo *ldblock;
     getline(in, header);
     while (in >> chr >> id >> index >> genPos >> physPos >> allele1 >> allele2 >> allele1Freq >> ld_n >> blockID) {
-        SnpInfo *snp = new SnpInfo(idx++, id, allele1, allele2, chr, genPos, physPos);
+        if (block && blockID != block) continue;
+        
+        string blockIDstr = to_string(blockID);
+
+        SnpInfo *snp = new SnpInfo(index, id, allele1, allele2, chr, genPos, physPos);
         
 //        cout << idx << " " << id << " " << blockID << endl;
         
         snp->af = allele1Freq;
         snp->ld_n = ld_n;
-        snp->block = blockID;
+        snp->block = blockIDstr;
         snpInfoVec.push_back(snp);
         chromosomes.insert(snp->chrom);
         
-        ldblock = ldBlockInfoMap[blockID];
+        ldblock = ldBlockInfoMap[blockIDstr];
         
-        if (ld2snpMap.insert(pair<string, int>(blockID + "_" + id, idx)).second == false) {
-            throw ("Error: Duplicate LDBlock-SNP pair found: \"" + blockID + "_" + id + "\".");
+        if (ld2snpMap.insert(pair<string, int>(blockIDstr + "_" + id, index)).second == false) {
+            throw ("Error: Duplicate LDBlock-SNP pair found: \"" + blockIDstr + "_" + id + "\".");
         } else{
             ldblock->snpNameVec.push_back(id);
             ldblock->snpInfoVec.push_back(snp);
@@ -1255,7 +1306,7 @@ void Data::readBlockLdmBinaryAndMakeItSparse(const string &dirname, const unsign
 
 #pragma omp parallel for schedule(dynamic)
     for(int i = 0; i < numLDBlocks; i++){
-        if (block && i != block - 1) continue;
+        //if (block && i != block - 1) continue;
         
         LDBlockInfo *blockInfo = keptLdBlockInfoVec[i];
 
@@ -1275,25 +1326,20 @@ void Data::readBlockLdmBinaryAndMakeItSparse(const string &dirname, const unsign
         
         int32_t blockSize = blockInfo->numSnpInBlock;
         
-        MatrixXf ldm(blockSize, blockSize);
-        uint64_t nElements = (uint64_t)blockSize * (uint64_t)blockSize;
-                
-        if(fread(ldm.data(), sizeof(float), nElements, fp) != nElements){
-            cout << "fread(U.data(), sizeof(float), nElements, fp): " << fread(ldm.data(), sizeof(float), nElements, fp) << endl;
-            cout << "nEle: " << nElements << " ldm.size: " << ldm.size() <<  " ldm.col: " << ldm.cols() << " row: " << ldm.rows() << endl;
-            throw("In LD block " + blockInfo->ID + ",size error in " + outBinfile);
-            // cout << "Read " << svdLDfile << " error (U)" << endl;
-            // throw("read file error");
-        }
+//        MatrixXf ldm(blockSize, blockSize);
+//        uint64_t nElements = (uint64_t)blockSize * (uint64_t)blockSize;
+//                
+//        if(fread(ldm.data(), sizeof(float), nElements, fp) != nElements){
+//            cout << "fread(U.data(), sizeof(float), nElements, fp): " << fread(ldm.data(), sizeof(float), nElements, fp) << endl;
+//            cout << "nEle: " << nElements << " ldm.size: " << ldm.size() <<  " ldm.col: " << ldm.cols() << " row: " << ldm.rows() << endl;
+//            throw("In LD block " + blockInfo->ID + ",size error in " + outBinfile);
+//            // cout << "Read " << svdLDfile << " error (U)" << endl;
+//            // throw("read file error");
+//        }
         
-//        cout << " read block " << blockInfo->ID << endl;
+        MatrixXf ldm(blockSize, blockSize);
+        readBlockLDmatrix(dirname, blockInfo->ID, blockSize, ldm);
 
-        float ld_n = snpInfoVec[0]->ld_n;
-        for (unsigned j=0; j<blockSize; ++j) {
-            for (unsigned k=0; k<blockSize; ++k) {
-                if (ldm(j,k)*ldm(j,k) < chisqThreshold/ld_n) ldm(j,k) = 0.0;
-            }
-        }
         
 //        cout << " set zero " << blockInfo->ID << endl;
         SparseMatrix<float> ldmSp = ldm.sparseView();
@@ -1348,13 +1394,9 @@ void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, cons
     
 #pragma omp parallel for schedule(dynamic)
     for(int i = 0; i < numLDBlocks; i++){
-        if (block && i != block - 1) continue;
+        //if (block && i != block - 1) continue;
         
         LDBlockInfo *blockInfo = keptLdBlockInfoVec[i];
-
-        string infile = dirname + "/block" + blockInfo->ID + ".ldm.bin";
-        FILE *fp = fopen(infile.c_str(), "rb");
-        if(!fp){throw ("Error: can not open the file [" + infile + "] to read.");}
 
         string outBinfile = dirname + "/block" + blockInfo->ID + ".eigen.bin";
         FILE *outbin = fopen(outBinfile.c_str(), "wb");
@@ -1366,18 +1408,21 @@ void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, cons
             outtxt.open(outTxtfile.c_str());
         }
         
-        int32_t blockSize = blockInfo->numSnpInBlock;
         
-        MatrixXf ldm(blockSize, blockSize);
-        uint64_t nElements = (uint64_t)blockSize * (uint64_t)blockSize;
+//        MatrixXf ldm(blockSize, blockSize);
+//        uint64_t nElements = (uint64_t)blockSize * (uint64_t)blockSize;
+//                
+//        if(fread(ldm.data(), sizeof(float), nElements, fp) != nElements){
+//            cout << "fread(ldm.data(), sizeof(float), nElements, fp): " << fread(ldm.data(), sizeof(float), nElements, fp) << endl;
+//            cout << "nEle: " << nElements << " ldm.size: " << ldm.size() <<  " ldm.col: " << ldm.cols() << " row: " << ldm.rows() << endl;
+//            throw("In LD block " + blockInfo->ID + ",size error in " + outBinfile);
+//            // cout << "Read " << svdLDfile << " error (U)" << endl;
+//            // throw("read file error");
+//        }
+        
+        MatrixXf ldm;
+        readBlockLDmatrix(dirname, blockInfo->ID, blockInfo->numSnpInBlock, ldm);
                 
-        if(fread(ldm.data(), sizeof(float), nElements, fp) != nElements){
-            cout << "fread(U.data(), sizeof(float), nElements, fp): " << fread(ldm.data(), sizeof(float), nElements, fp) << endl;
-            cout << "nEle: " << nElements << " ldm.size: " << ldm.size() <<  " ldm.col: " << ldm.cols() << " row: " << ldm.rows() << endl;
-            throw("In LD block " + blockInfo->ID + ",size error in " + outBinfile);
-            // cout << "Read " << svdLDfile << " error (U)" << endl;
-            // throw("read file error");
-        }
         
         MatrixXf eigenVec;
         VectorXf eigenVal;
@@ -1392,7 +1437,7 @@ void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, cons
         blockInfo->sumPosEigVal = sumPosEigVal;
         
         int32_t numEigenValue = eigenVal.size();
-        int32_t numSnpInBlock = blockSize;
+        int32_t numSnpInBlock = blockInfo->numSnpInBlock;
 
         //cout << " Generate Eigen decomposition result for LD block " << i << ", number of SNPs " << numSnpInBlock << ", number of selected eigenvalues " << numEigenValue << endl;
         
@@ -1408,12 +1453,12 @@ void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, cons
         // 5. the selected eigenvalues
         fwrite(eigenVal.data(), sizeof(float), numEigenValue, outbin);
         // 6. the selected eigenvector;
-        nElements = (uint64_t) numSnpInBlock * (uint64_t) numEigenValue;
+        uint64_t nElements = (uint64_t) numSnpInBlock * (uint64_t) numEigenValue;
         fwrite(eigenVec.data(), sizeof(float), nElements, outbin);
         
         if (writeLdmTxt) {
             outtxt << "Block " << blockInfo->ID << endl;
-            outtxt << "numSnps " << numSnpInBlock << endl;
+            outtxt << "numSnps " << blockInfo->numSnpInBlock << endl;
             outtxt << "numEigenvalues " << numEigenValue << endl;
             outtxt << "SumPositiveEigenvalues " << sumPosEigVal << endl;
             outtxt << "EigenCutoff " << eigenCutoff << endl;
@@ -1422,7 +1467,6 @@ void Data::readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, cons
             outtxt << endl;
         }
         
-        fclose(fp);
         fclose(outbin);
         if (writeLdmTxt) outtxt.close();
 
@@ -1459,7 +1503,7 @@ void Data::readSparseBlockLdmBinaryAndDoEigenDecomposition(const string &dirname
     
 #pragma omp parallel for schedule(dynamic)
     for(int i = 0; i < numLDBlocks; i++){
-        if (block && i != block - 1) continue;
+        //if (block && i != block - 1) continue;
         
         LDBlockInfo *blockInfo = keptLdBlockInfoVec[i];
 
@@ -1712,7 +1756,6 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
 #pragma omp parallel for schedule(dynamic)
     for(int i = 0; i < numKeptLDBlocks; i++){
         LDBlockInfo *block = keptLdBlockInfoVec[i];
-        cout << block->ID << endl;
         int32_t cur_m = 0;
         int32_t cur_k = 0;
         float sumPosEigVal = 0;
@@ -1878,20 +1921,20 @@ void Data::truncateEigenMatrix(const float sumPosEigVal, const float eigenCutoff
 }
 
 void Data::readBlockLDmatrixAndMakeItSparse(const string &dirname, const unsigned block, const float chisqThreshold, const bool writeLdmTxt){
-    readBlockLdmInfoFile(dirname + "/ldm.info");
-    readBlockLdmSnpInfoFile(dirname + "/snp.info");
+    readBlockLdmInfoFile(dirname, block);
+    readBlockLdmSnpInfoFile(dirname, block);
     readBlockLdmBinaryAndMakeItSparse(dirname, block, chisqThreshold, writeLdmTxt);
 }
 
 void Data::readBlockLDmatrixAndDoEigenDecomposition(const string &dirname, const unsigned block, const float eigenCutoff, const bool writeLdmTxt){
-    readBlockLdmInfoFile(dirname + "/ldm.info");
-    readBlockLdmSnpInfoFile(dirname + "/snp.info");
+    readBlockLdmInfoFile(dirname, block);
+    readBlockLdmSnpInfoFile(dirname, block);
     readBlockLdmBinaryAndDoEigenDecomposition(dirname, block, eigenCutoff, writeLdmTxt);
 }
 
 void Data::readSparseBlockLDmatrixAndDoEigenDecomposition(const string &dirname, const unsigned block, const float eigenCutoff, const bool writeLdmTxt){
-    readBlockLdmInfoFile(dirname + "/ldm.info");
-    readBlockLdmSnpInfoFile(dirname + "/snp.info");
+    readBlockLdmInfoFile(dirname, block);
+    readBlockLdmSnpInfoFile(dirname, block);
     readSparseBlockLdmBinaryAndDoEigenDecomposition(dirname, block, eigenCutoff, writeLdmTxt);
 }
 
@@ -1900,8 +1943,8 @@ void Data::readEigenMatrix(const string &dirname, const float eigenCutoff, const
     //Gadget::Timer timer;
     //timer.setTime();
     
-    readBlockLdmInfoFile(dirname + "/ldm.info");
-    readBlockLdmSnpInfoFile(dirname + "/snp.info");
+    readBlockLdmInfoFile(dirname);
+    readBlockLdmSnpInfoFile(dirname);
     if (readBinary) readEigenMatrixBinaryFile(dirname, eigenCutoff, writeLdmTxt, outputDir);
     
     //timer.getTime();
@@ -2127,11 +2170,10 @@ void Data::includeMatchedBlocks(){
 
 
 void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const bool print) {
-    
     if (outLDmatType != "block") throw("Error: --merge-ldm-info only works for block LD matrices at the moment!");
     
     string dir_path = dirname; // Replace with your folder path
-    string search_str = outLDmatType;
+    string search_str = "snp.info";
     DIR* dirp = opendir(dir_path.c_str());
     
     if (dirp == NULL) {
@@ -2151,9 +2193,25 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
     
     closedir(dirp);
     
+    if (file_list.size() == 1) {
+        if (print) throw ("Error: there is only one info file in folder [" + dirname + "], so no need to merge.");
+        else return;
+    }
+
+    search_str = "block";
+
+    vector<string> filtered_list;
+    for (vector<string>::iterator it = file_list.begin(); it != file_list.end(); ++it) {
+        if (it->find("block") != string::npos) {
+            filtered_list.push_back(*it);
+        }
+    }
+    file_list.swap(filtered_list); // replace original with filtered
+
+    
     set<unsigned> blockIdxSet;
     blockIdxSet.clear();
-    
+
     for (vector<string>::iterator it = file_list.begin(); it != file_list.end(); ++it) {
         size_t block_pos = it->find(search_str);
         size_t dot_pos = it->find_first_of(".", block_pos);
@@ -2163,13 +2221,10 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
             blockIdxSet.insert(block_num);
         }
     }
-    
-    if (blockIdxSet.size() == 0) {
-        if (print) throw ("Error: there is no info file to merge in folder [" + dirname + "].");
-        else return;
-    }
-    
+        
     unsigned nldm = blockIdxSet.size();
+    
+    cout << "Merging " << nldm << " LD matrices info files" << endl;
     
     set<unsigned>::iterator it = blockIdxSet.begin();
     
@@ -2288,8 +2343,9 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
 
         ++it;
         
-        //remove(snpInfoFile.c_str());
-        //remove(ldmInfoFile.c_str());
+        remove(snpInfoFile.c_str());
+        remove(ldmInfoFile.c_str());
+        remove(pwldFile.c_str());
     }
     
     out1.close();
@@ -2298,8 +2354,7 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
     
     cout << "Written " << snpIdx << " SNPs info into file [" + outSnpInfoFile + "]." << endl;
     cout << "Written " << ldmIdx << " LDMs info into file [" + outldmInfoFile + "]." << endl;
-    cout << "Written pairwise LD correlations into file [" + outpwldFile + "]." << endl;
-
+    cout << "Written pairwise LD correlations (rsq>0.5) into file [" + outpwldFile + "]." << endl;
 }
 
 void Data::mergeBlockGwasSummary(const string &gwasSummaryFile, const string &title) {
@@ -2569,8 +2624,8 @@ void Data::scaleGwasEffects(){
 
 
 void Data::resizeBlockLDmatrix(const string &inDirname, const string &outLDmatType, const string &includeSnpFile, const string &outDirname, const bool writeLdmTxt){
-    readBlockLdmInfoFile(inDirname + "/ldm.info");
-    readBlockLdmSnpInfoFile(inDirname + "/snp.info");
+    readBlockLdmInfoFile(inDirname);
+    readBlockLdmSnpInfoFile(inDirname);
 
     includeSnp(includeSnpFile);
     //includeMatchedSnp();
@@ -2626,20 +2681,8 @@ void Data::resizeBlockLDmatrix(const string &inDirname, const string &outLDmatTy
         if (outLDmatType == "block") {
             
             MatrixXf ldm(blockSize, blockSize);
-            uint64_t nElements = (uint64_t)blockSize * (uint64_t)blockSize;
-            
-            string infile = inDirname + "/block" + blockInfo->ID + ".ldm.bin";
-            FILE *fp = fopen(infile.c_str(), "rb");
-            if(!fp){throw ("Error: can not open the file [" + infile + "] to read.");}
-            
-            if(fread(ldm.data(), sizeof(float), nElements, fp) != nElements){
-                cout << "fread(U.data(), sizeof(float), nElements, fp): " << fread(ldm.data(), sizeof(float), nElements, fp) << endl;
-                cout << "nEle: " << nElements << " ldm.size: " << ldm.size() <<  " ldm.col: " << ldm.cols() << " row: " << ldm.rows() << endl;
-                throw("In LD block " + blockInfo->ID + ",size error in " + infile);
-                // cout << "Read " << svdLDfile << " error (U)" << endl;
-                // throw("read file error");
-            }
-            
+            readBlockLDmatrix(inDirname, blockInfo->ID, blockSize, ldm);
+
             //        cout << " read block " << blockInfo->ID << endl;
                         
             vector<string> newSnpNameVec;
@@ -2669,7 +2712,7 @@ void Data::resizeBlockLDmatrix(const string &inDirname, const string &outLDmatTy
             
             string outBinfile = outDirname + "/block" + blockInfo->ID + ".ldm.bin";
             FILE *outbin = fopen(outBinfile.c_str(), "wb");
-            nElements = (uint64_t) newBlockSize * (uint64_t) newBlockSize;
+            uint64_t nElements = (uint64_t) newBlockSize * (uint64_t) newBlockSize;
             fwrite(ldm_resized.data(), sizeof(float), nElements, outbin);
             fclose(outbin);
             
@@ -2754,8 +2797,8 @@ void Data::resizeBlockLDmatrix(const string &inDirname, const string &outLDmatTy
 }
 
 void Data::outputBlockLDmatrixTxt(const string &dirname, const unsigned int block){
-    readBlockLdmInfoFile(dirname + "/ldm.info");
-    readBlockLdmSnpInfoFile(dirname + "/snp.info");
+    readBlockLdmInfoFile(dirname, block);
+    readBlockLdmSnpInfoFile(dirname, block);
 
     struct stat sb;
     if (stat(dirname.c_str(), &sb) != 0 || !S_ISDIR(sb.st_mode)) {
@@ -2769,14 +2812,12 @@ void Data::outputBlockLDmatrixTxt(const string &dirname, const unsigned int bloc
         LDBlockInfo *block = ldBlockInfoVec[i];
         numSnpInRegion[i] = block->numSnpInBlock;
     }
-        
-    keptLdBlockInfoVec = ldBlockInfoVec;
-    
+            
 #pragma omp parallel for schedule(dynamic)
     for(int i = 0; i < numLDBlocks; i++){
-        if (block && i != block - 1) continue;
+//        if (block && i != block - 1) continue;
         
-        LDBlockInfo *blockInfo = keptLdBlockInfoVec[i];
+        LDBlockInfo *blockInfo = ldBlockInfoVec[i];
         
         string infile = dirname + "/block" + blockInfo->ID + ".ldm.bin";
         FILE *fp = fopen(infile.c_str(), "rb");
@@ -2789,22 +2830,33 @@ void Data::outputBlockLDmatrixTxt(const string &dirname, const unsigned int bloc
         int32_t blockSize = blockInfo->numSnpInBlock;
         
         MatrixXf ldm(blockSize, blockSize);
-        uint64_t nElements = (uint64_t)blockSize * (uint64_t)blockSize;
+        readBlockLDmatrix(dirname, blockInfo->ID, blockSize, ldm);
         
-        if(fread(ldm.data(), sizeof(float), nElements, fp) != nElements){
-            cout << "fread(U.data(), sizeof(float), nElements, fp): " << fread(ldm.data(), sizeof(float), nElements, fp) << endl;
-            cout << "nEle: " << nElements << " ldm.size: " << ldm.size() <<  " ldm.col: " << ldm.cols() << " row: " << ldm.rows() << endl;
-            throw("In LD block " + blockInfo->ID + ",size error in " + infile);
-            // cout << "Read " << svdLDfile << " error (U)" << endl;
-            // throw("read file error");
-        }
+//        uint64_t nElements = (uint64_t)blockSize * (uint64_t)blockSize;
+//        
+//        if(fread(ldm.data(), sizeof(float), nElements, fp) != nElements){
+//            cout << "fread(U.data(), sizeof(float), nElements, fp): " << fread(ldm.data(), sizeof(float), nElements, fp) << endl;
+//            cout << "nEle: " << nElements << " ldm.size: " << ldm.size() <<  " ldm.col: " << ldm.cols() << " row: " << ldm.rows() << endl;
+//            throw("In LD block " + blockInfo->ID + ",size error in " + infile);
+//            // cout << "Read " << svdLDfile << " error (U)" << endl;
+//            // throw("read file error");
+//        }
         
 //        for (unsigned ii=0; ii<blockSize; ++ii){
 //            for (unsigned jj=0; jj<blockSize; ++jj) {
 //                outtxt << blockInfo->ID << "\t" << blockInfo->snpNameVec[ii] << "\t" << blockInfo->snpNameVec[jj] << "\t" << ldm(ii,jj) << endl;
 //            }
 //        }
-        outtxt << ldm << endl;
+
+        //        outtxt << ldm << endl;
+        
+        for (unsigned row = 0; row < blockSize; ++row) {
+            for (unsigned col = 0; col <= row; ++col) {
+                outtxt << ldm(row, col) << "\t";
+            }
+            outtxt << endl;
+        }
+
         outtxt.close();
 
     }
@@ -2869,21 +2921,8 @@ void Data::resizeBlockLDmatrixAndDoEigenDecomposition(const string &inDirname, c
             keptLdBlockInfoVec.push_back(blockInfo);
         }
         
-        
         MatrixXf ldm(blockSize, blockSize);
-        uint64_t nElements = (uint64_t)blockSize * (uint64_t)blockSize;
-        
-        string infile = inDirname + "/block" + blockInfo->ID + ".ldm.bin";
-        FILE *fp = fopen(infile.c_str(), "rb");
-        if(!fp){throw ("Error: can not open the file [" + infile + "] to read.");}
-        
-        if(fread(ldm.data(), sizeof(float), nElements, fp) != nElements){
-            cout << "fread(U.data(), sizeof(float), nElements, fp): " << fread(ldm.data(), sizeof(float), nElements, fp) << endl;
-            cout << "nEle: " << nElements << " ldm.size: " << ldm.size() <<  " ldm.col: " << ldm.cols() << " row: " << ldm.rows() << endl;
-            throw("In LD block " + blockInfo->ID + ",size error in " + infile);
-            // cout << "Read " << svdLDfile << " error (U)" << endl;
-            // throw("read file error");
-        }
+        readBlockLDmatrix(inDirname, blockInfo->ID, blockSize, ldm);
         
         //        cout << " read block " << blockInfo->ID << endl;
         
@@ -2941,7 +2980,7 @@ void Data::resizeBlockLDmatrixAndDoEigenDecomposition(const string &inDirname, c
         // 5. the selected eigenvalues
         fwrite(eigenVal.data(), sizeof(float), numEigenValue, outbin);
         // 6. the selected eigenvector;
-        nElements = (uint64_t) numSnpInBlock * (uint64_t) numEigenValue;
+        uint64_t nElements = (uint64_t) numSnpInBlock * (uint64_t) numEigenValue;
         fwrite(eigenVec.data(), sizeof(float), nElements, outbin);
         
         fclose(outbin);
@@ -2968,44 +3007,8 @@ void Data::resizeBlockLDmatrixAndDoEigenDecomposition(const string &inDirname, c
         
         outputBlockLDmatrixInfo(*blockInfo, outSnpfile, outldmfile);
         
+        outputLDfriends(ldm_resized, blockInfo, outDirname);
         
-        // find LD friends for each SNP
-        vector<vector<int> > ldSnpIdxBlk(newBlockSize);
-        vector<vector<float> > ldcorBlk(newBlockSize);
-        for(unsigned j=0; j < newBlockSize; j++){
-            SnpInfo *snp = blockInfo->snpInfoVec[j];
-            for(unsigned k=0; k < j; k++){
-                float rsq = ldm_resized(j,k)*ldm_resized(j,k);
-                if(rsq > rsqThreshold){
-                    ldSnpIdxBlk[j].push_back(k);
-                    ldcorBlk[j].push_back(ldm_resized(j,k));
-                }
-            }
-        }
-        
-        string pwldfilename = outDirname + "/block" + blockInfo->ID + ".rsq0.5.pwld";  // pairwise LD file
-        ofstream out(pwldfilename.c_str());
-
-        out << boost::format("%12s %12s %12s\n")
-        % "SNP1"
-        % "SNP2"
-        % "LDcorrelation";
-        
-        for (unsigned j=0; j<blockInfo->numSnpInBlock; ++j) {
-            unsigned numLDfrd = ldSnpIdxBlk[j].size();
-            if (!numLDfrd) continue;
-            SnpInfo *snpj = blockInfo->snpInfoVec[j];
-            for (unsigned k=0; k<numLDfrd; ++k) {
-                SnpInfo *snpk = blockInfo->snpInfoVec[ldSnpIdxBlk[j][k]];
-                
-                out << boost::format("%12s %12s %12.6f\n")
-                % snpj->ID
-                % snpk->ID
-                % ldcorBlk[j][k];
-            }
-        }
-        out.close();
-
         if(!(i%1)) cout << " computed block " << blockInfo->ID << "\r" << flush;
     }
     
@@ -3015,12 +3018,174 @@ void Data::resizeBlockLDmatrixAndDoEigenDecomposition(const string &inDirname, c
     if (numKeptLDBlocks == 1) {
         cout << "Written the LD matrix data into file [" << outDirname << "/block" << keptLdBlockInfoVec[0]->ID << ".eigen.bin]." << endl;
         if (writeLdmTxt) cout << "Written the LD matrix data into file [" << outDirname << "/block" << keptLdBlockInfoVec[0]->ID << ".eigen.txt]." << endl;
-        cout << "Output LD information into [" << outDirname << "/block" << keptLdBlockInfoVec[0]->ID << ".rsq0.5.pwld]." << endl;
+        cout << "Written the high pairwise LD correlations (rsq>0.5) into [" << outDirname << "/block" << keptLdBlockInfoVec[0]->ID << ".rsq0.5.pwld]." << endl;
     } else {
         cout << "Written the LD matrix data into file [" << outDirname << "/block*.eigen.bin]." << endl;
         if (writeLdmTxt) cout << "Written the LD matrix data into file [" << outDirname << "/block*.eigen.txt]." << endl;
-        cout << "Output LD information into [" << outDirname << "/block*.rsq0.5.pwld]." << endl;
+        mergeLdmInfo("block", outDirname, true);
+    }
+}
+
+
+void Data::readBlockLDmatrix(const string &dirname, const string &blockID, const int32_t blockSize, MatrixXf &ldm) {
+    string infile = dirname + "/block" + blockID + ".ldm.bin";
+
+    // Get file size
+    struct stat stat_buf;
+    if (stat(infile.c_str(), &stat_buf) != 0) {
+        throw("Error: cannot stat the file [" + infile + "]");
+    }
+    size_t file_bytes = stat_buf.st_size;
+    size_t n_floats = file_bytes / sizeof(float);
+
+    // Expected sizes
+    size_t n_full = (size_t)blockSize * blockSize;
+    size_t n_lower_tri = (size_t)blockSize * (blockSize + 1) / 2;
+
+    FILE *fp = fopen(infile.c_str(), "rb");
+    if (!fp) {
+        throw("Error: cannot open the file [" + infile + "] to read.");
+    }
+
+    ldm.setZero(blockSize, blockSize);
+
+    if (n_floats == n_full) {
+        // Full square matrix
+        if (fread(ldm.data(), sizeof(float), n_full, fp) != n_full) {
+            throw("Error reading full matrix from " + infile);
+        }
+    } else if (n_floats == n_lower_tri) {
+        // Lower triangular matrix
+        vector<float> buffer(n_lower_tri);
+        if (fread(buffer.data(), sizeof(float), n_lower_tri, fp) != n_lower_tri) {
+            throw("Error reading lower-triangular matrix from " + infile);
+        }
+
+        size_t idx = 0;
+        for (int i = 0; i < blockSize; ++i) {
+            for (int j = 0; j <= i; ++j) {
+                ldm(i, j) = buffer[idx];
+                if (i != j) ldm(j, i) = buffer[idx];
+                ++idx;
+            }
+        }
+    } else {
+        fclose(fp);
+        throw("Unrecognized matrix format in " + infile +
+              ": got " + to_string(n_floats) + " elements, but expected " +
+              to_string(n_full) + " (full) or " + to_string(n_lower_tri) + " (lower-triangular).");
+    }
+
+    fclose(fp);
+}
+
+void Data::convertToBlockTriangularMatrix(const string &inDirname, const bool writeLdmTxt, const string &outDirname){
+    readBlockLdmInfoFile(inDirname);
+    readBlockLdmSnpInfoFile(inDirname);
+
+    struct stat sb;
+    if (stat(outDirname.c_str(), &sb) != 0 || !S_ISDIR(sb.st_mode)) {
+        // Folder doesn't exist, create it
+        string create_cmd = "mkdir " + outDirname;
+        system(create_cmd.c_str());
+        cout << "Created folder [" << outDirname << "] to store LD matrices." << endl;
+    }
+
+#pragma omp parallel for schedule(dynamic)
+    for(int i = 0; i < numLDBlocks; i++){
+        LDBlockInfo *blockInfo = ldBlockInfoVec[i];
+                
+        int32_t blockSize = blockInfo->numSnpInBlock;
+        
+        MatrixXf ldm(blockSize, blockSize);
+        readBlockLDmatrix(inDirname, blockInfo->ID, blockSize, ldm);
+
+        string outBinfile = outDirname + "/block" + blockInfo->ID + ".ldm.bin";
+        FILE *outbin = fopen(outBinfile.c_str(), "wb");
+        ofstream outtxt;
+        string outTxtfile;
+        if (writeLdmTxt) {
+            outTxtfile = outDirname + "/block" + blockInfo->ID + ".ldm.txt";
+            outtxt.open(outTxtfile.c_str());
+        }
+
+        // save the lower trangular matrix only
+        unsigned numSnpInBlock = blockInfo->numSnpInBlock;
+        for (unsigned row = 0; row < numSnpInBlock; ++row) {
+            for (unsigned col = 0; col <= row; ++col) {
+                float value = ldm(row, col);
+                fwrite(&value, sizeof(float), 1, outbin);
+            }
+        }
+        
+        if (writeLdmTxt) {
+            for (unsigned row = 0; row < numSnpInBlock; ++row) {
+                for (unsigned col = 0; col <= row; ++col) {
+                    outtxt << ldm(row, col) << "\t";
+                }
+                outtxt << endl;
+            }
+        }
+        
+        fclose(outbin);
+        if (writeLdmTxt) outtxt.close();
+        
+        string outSnpfile = outDirname + "/block" + blockInfo->ID + ".snp.info";
+        string outldmfile = outDirname + "/block" + blockInfo->ID + ".ldm.info";
+
+        outputBlockLDmatrixInfo(*blockInfo, outSnpfile, outldmfile);
+        
+        outputLDfriends(ldm, blockInfo, outDirname);
+       
+        if(!(i%1)) cout << " computed block " << blockInfo->ID << "\r" << flush;
+
     }
     
+    cout << "Written the LD matrix into folder [" << outDirname << "/block*.ldm.bin]." << endl;
+    if (writeLdmTxt) cout << "Written the LD matrix into text file [" << outDirname << "/block*.ldm.txt]." << endl;
+    
+    mergeLdmInfo("block", outDirname, true);
+}
+
+
+void Data::outputLDfriends(const MatrixXf &ldm, const LDBlockInfo *blockInfo, const string &outDirname){
+    // find LD friends for each SNP with LD rsq > threshold
+    float rsqThreshold = 0.5;
+    int blockSize = ldm.rows();
+    vector<vector<int> > ldSnpIdxBlk(blockSize);
+    vector<vector<float> > ldcorBlk(blockSize);
+    for(unsigned j=0; j < blockSize; j++){
+        SnpInfo *snp = blockInfo->snpInfoVec[j];
+        for(unsigned k=0; k < j; k++){
+            float rsq = ldm(j,k)*ldm(j,k);
+            if(rsq > rsqThreshold){
+                ldSnpIdxBlk[j].push_back(k);
+                ldcorBlk[j].push_back(ldm(j,k));
+            }
+        }
+    }
+    
+    string pwldfilename = outDirname + "/block" + blockInfo->ID + ".rsq0.5.pwld";  // pairwise LD file
+    ofstream out(pwldfilename.c_str());
+
+    out << boost::format("%12s %12s %12s\n")
+    % "SNP1"
+    % "SNP2"
+    % "LDcorrelation";
+    
+    for (unsigned j=0; j<blockInfo->numSnpInBlock; ++j) {
+        unsigned numLDfrd = ldSnpIdxBlk[j].size();
+        if (!numLDfrd) continue;
+        SnpInfo *snpj = blockInfo->snpInfoVec[j];
+        for (unsigned k=0; k<numLDfrd; ++k) {
+            SnpInfo *snpk = blockInfo->snpInfoVec[ldSnpIdxBlk[j][k]];
+            
+            out << boost::format("%12s %12s %12.6f\n")
+            % snpj->ID
+            % snpk->ID
+            % ldcorBlk[j][k];
+        }
+    }
+    out.close();
 
 }

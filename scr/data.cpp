@@ -669,12 +669,14 @@ void Data::includeChr(const unsigned chr){
 
 void Data::includeBlock(const unsigned block){
     if (!block) return;
-    if (block > ldBlockInfoVec.size()) throw("Error: Request to include block " + to_string(block) + " but there are only " + to_string(ldBlockInfoVec.size()) + " in total!");
+    LDBlockInfo *blockInfo;
     for (unsigned i=0; i<numLDBlocks; ++i) {
-        LDBlockInfo *blockInfo = ldBlockInfoVec[i];
-        if (block != i+1) blockInfo->kept = false;
+        ldBlockInfoVec[i]->kept = false;
+        if (block == std::stoi(ldBlockInfoVec[i]->ID)) {
+            blockInfo = ldBlockInfoVec[i];
+            blockInfo->kept = true;
+        }
     }
-    LDBlockInfo *blockInfo = ldBlockInfoVec[block-1];
     unsigned cnt = 0;
         
     if (blockInfo->numSnpInBlock) {
@@ -1313,6 +1315,7 @@ void Data::inputMatchedSnpResults(const string &snpResFile){
         if (snp->included) {
             snp->effect = atof(colData[a1effectIdx].c_str());
             snp->pip = atof(colData[pipIdx].c_str());
+            snp->gwas_af = atof(colData[a1frqIdx].c_str());
             ++match;
         }
     }
@@ -1368,6 +1371,7 @@ void Data::inputNewSnpResults(const string &snpResFile){
         snp->af = atof(colData[a1frqIdx].c_str());
         snp->effect = atof(colData[a1effectIdx].c_str());
         snp->pip = atof(colData[pipIdx].c_str());
+        if (varIdx != -1) snp->varExplained = atof(colData[varIdx].c_str());
         if (GelmanRubinIdx != -1) snp->GelmanRubinR = atof(colData[GelmanRubinIdx].c_str());
         snpInfoVec.push_back(snp);
         snpInfoMap.insert(pair<string, SnpInfo*>(name, snp));
@@ -4625,6 +4629,7 @@ void Data::setAnnoInfoVec() {
             anno->sd = sqrt(Gadget::calcVariance(annoMat.col(i)));
             anno->sum = annoMat.col(i).sum();
             anno->ssq = annoMat.col(i).squaredNorm();
+//            annoMat.col(i).array() /= anno->sd;  // standardize the quantitative annotation
         }
     }
         
@@ -5970,7 +5975,7 @@ void Data::convert(const string &eigenMatrixFile, const string &snplistFile, con
     if (!in) {
         throw("Error: cannot open file " + snplistFile);
     }
-
+    
     for (unsigned i=0; i<numSnps; ++i) {
         SnpInfo *snp = snpInfoVec[i];
         snp->included = false;
@@ -5979,7 +5984,7 @@ void Data::convert(const string &eigenMatrixFile, const string &snplistFile, con
     string id;
     unsigned line = 0;
     map<string, SnpInfo*>::iterator it, end = snpInfoMap.end();
-
+    
     while (in >> id) {
         it = snpInfoMap.find(id);
         if (it != end) {
@@ -5990,7 +5995,7 @@ void Data::convert(const string &eigenMatrixFile, const string &snplistFile, con
     
     in.close();
     if (line) cout << "\nConverting the joint effects of " << line << " SNPs..." << endl;
-
+    
     
     vector<int> numSnpInRegion(numLDBlocks);
     
@@ -6010,12 +6015,12 @@ void Data::convert(const string &eigenMatrixFile, const string &snplistFile, con
         string infile = eigenMatrixFile + "/block" + block->ID + ".eigen.bin";
         FILE *fp = fopen(infile.c_str(), "rb");
         if(!fp){throw ("Error: can not open the file [" + infile + "] to read.");}
-
+        
         // 1. marker number
         if(fread(&cur_m, sizeof(int32_t), 1, fp) != 1){
             throw("Read " + infile + " error (m)");
         }
-                
+        
         if(cur_m != numSnpInRegion[i]){
             throw("In LD block " + block->ID + ", inconsistent marker number to marker information in " + infile);
         }
@@ -6054,12 +6059,12 @@ void Data::convert(const string &eigenMatrixFile, const string &snplistFile, con
             // cout << "Read " << eigenBinFile << " error (U)" << endl;
             // throw("read file error");
         }
-                
+        
         /// Step 1. construct LD
         MatrixXf LDPerBlock = U * lambda.asDiagonal() * U.transpose();
         float diag_mod = 0.1;
         LDPerBlock.diagonal().array() += diag_mod;
-                
+        
         /// Step 2. Construct the LD correlation matrix among the target SNPs(LDtt) and the LD correlation matrix among the target SNPs and the current full SNPs (LDtf).
         
         unsigned windowSize = 1000; // 1000 SNPs as a window
@@ -6067,7 +6072,7 @@ void Data::convert(const string &eigenMatrixFile, const string &snplistFile, con
         unsigned winCnt = 0;
         int numTargetSNPsTotal = 0;
         for (unsigned k=0; k<numWindow; ++k) {
-            cout << k << endl;
+            //            cout << k << endl;
             int numTargetSNPs = 0;
             unsigned start = windowSize*winCnt;
             unsigned end = windowSize*(winCnt+1);
@@ -6087,46 +6092,52 @@ void Data::convert(const string &eigenMatrixFile, const string &snplistFile, con
                 VectorXi targetSnpIdx(numTargetSNPs);
                 VectorXi fullSnpIdx(windowSize);
                 VectorXf betaFullSnp(windowSize);
+                VectorXf fullSnpDsqrt(windowSize);
+                VectorXf targetSnpDsqrt(numTargetSNPs);
                 for(unsigned j=0, idxTar=0; j < windowSize; j++){
                     SnpInfo *snp = block->snpInfoVec[start+j];
                     fullSnpIdx[j] = start+j;
                     betaFullSnp[j] = snp->effect;
+                    fullSnpDsqrt[j] = sqrt(2.0*snp->gwas_af*(1.0-snp->gwas_af));
                     if(snp->included){
                         // target snp
-                        targetSnpIdx[idxTar++] = start+j;
+                        targetSnpIdx[idxTar] = start+j;
+                        targetSnpDsqrt[idxTar] = fullSnpDsqrt[j];
+                        ++idxTar;
                     }
                 }
-                                
+                
                 // Step 2.2 construct LDtt and LDft
                 MatrixXf LDtt = LDPerBlock(targetSnpIdx,targetSnpIdx);
                 MatrixXf LDtf = LDPerBlock(targetSnpIdx,fullSnpIdx);
                 
                 // Step 2.3 compute joint effects for the target SNPs;
-                VectorXf betaTargetSnp = LDtt.ldlt().solve(LDtf*betaFullSnp);
-    //            if (i == 0) {
-    //                string outfile = title + ".LDtt";
-    //                ofstream tmp(outfile.c_str());
-    //                tmp << LDtt << endl;
-    //                tmp.close();
-    //            }
+                VectorXf betaTargetSnp = LDtt.ldlt().solve(LDtf*(betaFullSnp.cwiseProduct(fullSnpDsqrt)));
+                betaTargetSnp.array() /= targetSnpDsqrt.array();
+                //            if (i == 0) {
+                //                string outfile = title + ".LDtt";
+                //                ofstream tmp(outfile.c_str());
+                //                tmp << LDtt << endl;
+                //                tmp.close();
+                //            }
                 
                 for(unsigned j = 0; j < numTargetSNPs; j++){
                     SnpInfo *snp = block->snpInfoVec[targetSnpIdx[j]];
                     snp->effect = betaTargetSnp[j];
                 }
             }
-
+            
             numTargetSNPsTotal += numTargetSNPs;
         }
         
         if(!(i%10)) cout << " Converted block " << i << " numSnpInBlock " << block->numSnpInBlock << " numTargetSnps " << numTargetSNPsTotal << "\r" << flush;
-
-//        if(!(i%10)) cout << " Converted block " << i << "\r" << flush;
+        
+        //        if(!(i%10)) cout << " Converted block " << i << "\r" << flush;
         
         fclose(fp);
     }
-
-
+    
+    
     string outfile = title + ".converted.snpRes";
     ofstream out(outfile.c_str());
     out << boost::format("%15s %10s %10s %15s\n") % "SNP" % "A1" % "A2" % "A1Effect";
@@ -6140,10 +6151,10 @@ void Data::convert(const string &eigenMatrixFile, const string &snplistFile, con
         % snp->effect;
     }
     out.close();
-
+    
     cout << "Conversion of SNP joint effects to a sub panel is completed." << endl;
     cout << "Converted SNP joint effects are saved into file [" + outfile + "]." << endl;
-
+    
 }
 
 void Data::getLDfromEigenMatrix(const string &eigenMatrixFile, const float rsqThreshold, const string &title){
@@ -6480,3 +6491,706 @@ void Data::skipSnp(const string &skipSnpFile){
     in.close();
     cout << "Skip samplling effects for " << line << " SNPs from [" + skipSnpFile + "]." << endl;
 }
+
+
+void Data::calcMarginalEnrichmentPermute(const string &paramStr, const string &title){
+    
+    VectorXf genVarSnp;
+    VectorXf genVarAnno;
+    genVarSnp.setZero(numIncdSnps);
+    genVarAnno.setZero(numAnnos);
+    
+    string paramName;
+    if (paramStr == "hsq") {
+        paramName = "Heritability";
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            SnpInfo *snp = incdSnpInfoVec[j];
+            genVarSnp[j] = snp->varExplained;
+        }
+    } else if (paramStr == "rsq") {
+        paramName = "Predictability";
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            SnpInfo *snp = incdSnpInfoVec[j];
+            genVarSnp[j] = 2*snp->af*(1-snp->af)*snp->effect*snp->effect;
+        }
+    } else if (paramStr == "pip") {
+        paramName = "PIP";
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            SnpInfo *snp = incdSnpInfoVec[j];
+            genVarSnp[j] = snp->pip;
+        }
+    } else {
+        throw("Error: what parameter do you want to calculate enrichment for?\n");
+    }
+    
+    cout << "Calculating " << paramName << " marginal enrichment..." << endl;
+    
+    
+    for (unsigned j=0; j<numIncdSnps; ++j) {
+        for (unsigned i=0; i<numAnnos; ++i) {
+            if (annoMat(j,i)) {
+                genVarAnno[i] += annoMat(j,i) * genVarSnp[j];
+            }
+        }
+    }
+    
+    VectorXf enrich(numAnnos);
+    VectorXf invSnpProp(numAnnos);
+    for (unsigned i=0; i<numAnnos; ++i) {
+        AnnoInfo *anno = annoInfoVec[i];
+        invSnpProp[i] = 1.0/anno->fraction;
+    }
+    for (unsigned i=0; i<numAnnos; ++i) {
+        AnnoInfo *anno = annoInfoVec[i];
+        if (anno->isBinary) {
+            enrich[i] = genVarAnno[i]/genVarAnno[0] * invSnpProp[i];
+        } else {
+            MatrixXf XPX(2,2);
+            XPX(0,0) = numAnnos;
+            XPX(0,1) = XPX(1,0) = anno->sum;
+            XPX(1,1) = anno->ssq;
+            VectorXf XPy(2);
+            XPy(0) = genVarAnno[0];
+            XPy(1) = genVarAnno[i];
+            VectorXf coef = XPX.householderQr().solve(XPy);
+            enrich[i] = 1.0 + coef(1) / genVarAnno[0] * invSnpProp[0];
+        }
+    }
+    
+    // get empirical P-value by randomly sampling SNPs
+    Stat::Normal normal;
+    VectorXf se(numAnnos);
+    VectorXd pval(numAnnos);
+    VectorXd zscore(numAnnos);
+    vector<int> snpIndexPermu(numIncdSnps);
+    for (unsigned j=0; j<numIncdSnps; ++j) {
+        snpIndexPermu[j] = j;
+    }
+    unsigned nPermutation = 100;
+    MatrixXf genVarControl;
+    genVarControl.setZero(nPermutation, numAnnos);
+    for (unsigned t=0; t<nPermutation; ++t) {
+        Gadget::shuffle_vector(snpIndexPermu);
+        genVarControl(t,0) = genVarAnno[0];
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            for (unsigned i=1; i<numAnnos; ++i) { // the first annotation is intercept
+                if (annoMat(j,i)) {
+                    genVarControl(t,i) += annoMat(j,i) * genVarSnp[snpIndexPermu[j]];
+                }
+            }
+        }
+    }
+    
+    se[0] = 0; // the first annotation is intercept
+    zscore[0] = 0;
+    pval[0] = 1;
+    for (unsigned i=1; i<numAnnos; ++i) { // the first annotation is intercept
+        se[i] = std::sqrt(Gadget::calcVariance(genVarControl.col(i)));
+        zscore[i] = (genVarAnno[i]-genVarControl.col(i).mean())/se[i];
+        pval[i] = 1.0-normal.cdf_01(zscore[i]);
+        //        cout << i << " " << pvali << " " << abs(genVarAnno[i]-genVarControl.col(i).mean())/se[i] << " " << normal.cdf_01(abs(genVarAnno[i]-genVarControl.col(i).mean())/se[i]) << endl;
+    }
+    
+    // get standard error for fold enrichment
+    VectorXf seEnrich(numAnnos);
+    seEnrich[0] = 0;
+    for (unsigned i=1; i<numAnnos; ++i) {  // the first annotation is intercept
+        AnnoInfo *anno = annoInfoVec[i];
+        VectorXf enrichControl(nPermutation);
+        for (unsigned t=0; t<nPermutation; ++t) {
+            if (anno->isBinary) {
+                enrichControl[t] = genVarControl(t,i)/genVarControl(t,0) * invSnpProp[i];
+            } else {
+                MatrixXf XPX(2,2);
+                XPX(0,0) = numAnnos;
+                XPX(0,1) = XPX(1,0) = anno->sum;
+                XPX(1,1) = anno->ssq;
+                VectorXf XPy(2);
+                XPy(0) = genVarControl(t,0);
+                XPy(1) = genVarControl(t,i);
+                VectorXf coef = XPX.householderQr().solve(XPy);
+                enrichControl[t] = 1.0 + coef(1) / genVarControl(t,0) * invSnpProp[0];
+            }
+        }
+        seEnrich[i] = std::sqrt(Gadget::calcVariance(enrichControl));
+    }
+    
+    string outfile = title + "." + paramStr + "Enrich";
+    ofstream out(outfile.c_str());
+    out << boost::format("%40s %40s %2s %-15s %-15s %-15s %-18s\n") % "Parameter" % "Annotation" % "" % "Fold" % "SE " % "Z " % "Pvalue";
+    for (unsigned i=0; i<numAnnos; ++i) {
+        out << boost::format("%40s %40s %2s %-15s %-15s %-15s %-18s\n")
+        % ("Marginal_" + paramName + "_enrichment")
+        % annoNames[i]
+        % ""
+        % enrich[i]
+        % seEnrich[i]
+        % zscore[i]
+        % pval[i];
+    }
+    out.close();
+    
+    cout << "Output " << paramName << " enrichment results into file [" + outfile + "]." << endl;
+}
+
+void Data::calcMarignalEnrichmentJackknife(const string &paramStr, const string &title){
+    VectorXf genVarSnp;
+    VectorXf genVarAnno;
+    genVarSnp.setZero(numIncdSnps);
+    genVarAnno.setZero(numAnnos);
+    
+    string paramName;
+    if (paramStr == "hsq") {
+        paramName = "Heritability";
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            SnpInfo *snp = incdSnpInfoVec[j];
+            genVarSnp[j] = snp->varExplained;
+        }
+    } else if (paramStr == "rsq") {
+        paramName = "Predictability";
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            SnpInfo *snp = incdSnpInfoVec[j];
+            genVarSnp[j] = 2*snp->af*(1-snp->af)*snp->effect*snp->effect;
+        }
+    } else if (paramStr == "pip") {
+        paramName = "PIP";
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            SnpInfo *snp = incdSnpInfoVec[j];
+            genVarSnp[j] = snp->pip;
+        }
+    } else {
+        throw("Error: what parameter do you want to calculate enrichment for?\n");
+    }
+    
+    cout << "Calculating " << paramName << " marginal enrichment..." << endl;
+
+    float genVarSnpNull = genVarSnp.sum()/float(numIncdSnps);
+
+    for (unsigned j=0; j<numIncdSnps; ++j) {
+        for (unsigned i=0; i<numAnnos; ++i) {
+            if (annoMat(j,i)) {
+                genVarAnno[i] += annoMat(j,i) * genVarSnp[j];
+            }
+        }
+    }
+    
+    VectorXf enrich(numAnnos);
+    VectorXf invSnpProp(numAnnos);
+    for (unsigned i=0; i<numAnnos; ++i) {
+        AnnoInfo *anno = annoInfoVec[i];
+        invSnpProp[i] = 1.0/anno->fraction;
+    }
+    for (unsigned i=0; i<numAnnos; ++i) {
+        AnnoInfo *anno = annoInfoVec[i];
+        if (anno->isBinary) {
+            enrich[i] = genVarAnno[i]/genVarAnno[0] * invSnpProp[i];
+        } else {
+            MatrixXf XPX(2,2);
+            XPX(0,0) = numAnnos;
+            XPX(0,1) = XPX(1,0) = anno->sum;
+            XPX(1,1) = anno->ssq;
+            VectorXf XPy(2);
+            XPy(0) = genVarAnno[0];
+            XPy(1) = genVarAnno[i];
+            VectorXf coef = XPX.householderQr().solve(XPy);
+            enrich[i] = 1.0 + coef(1) / genVarAnno[0] * invSnpProp[0];
+        }
+    }
+
+    // get empirical P-value by randomly sampling SNPs
+    Stat::Normal normal;
+    VectorXf se(numAnnos);
+    VectorXd pval(numAnnos);
+    VectorXd zscore(numAnnos);
+    
+    unsigned numJKblocks = 100;
+    std::vector<unsigned> blockStart(numJKblocks);
+    std::vector<unsigned> blockEnd(numJKblocks);
+    
+    // Compute block size (ceil to make sure we cover all SNPs)
+    unsigned blockSize = std::ceil(static_cast<double>(numIncdSnps) / numJKblocks);
+    
+    for (unsigned b = 0; b < numJKblocks; ++b) {
+        blockStart[b] = b * blockSize;
+        unsigned end = (b + 1) * blockSize - 1;
+        if (end >= numIncdSnps) end = numIncdSnps - 1;
+        blockEnd[b] = end;
+    }
+    
+    MatrixXf genVarJK;
+    VectorXf genVarSnpNullJK;  // genome average
+    genVarJK.setZero(numJKblocks, numAnnos);
+    genVarSnpNullJK.setZero(numJKblocks);
+    for (unsigned t=0; t<numJKblocks; ++t) {
+        float blockSizet = blockEnd[t] - blockStart[t] + 1;
+        float numSnpJK = numIncdSnps - blockSizet;
+        genVarJK(t,0) = genVarSnp.sum() - genVarSnp.segment(blockStart[t], blockSizet).sum();
+        genVarSnpNullJK[t] = genVarJK(t,0) / numSnpJK;
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            if (j >= blockStart[t] && j <= blockEnd[t]) continue;
+            for (unsigned i=1; i<numAnnos; ++i) {
+                if (annoMat(j,i)) {
+                    genVarJK(t,i) += annoMat(j,i) * genVarSnp[j];
+                }
+            }
+        }
+    }
+        
+    se[0] = 0; // the first annotation is intercept
+    zscore[0] = 0;
+    pval[0] = 1;
+    for (unsigned i=1; i<numAnnos; ++i) { // the first annotation is intercept
+        AnnoInfo *anno = annoInfoVec[i];
+        genVarJK.col(i).array() -= genVarSnpNullJK.array()*anno->size;
+        se[i] = std::sqrt(Gadget::calcVariance(genVarJK.col(i))*float(numJKblocks-1));
+        zscore[i] = (genVarAnno[i] - genVarSnpNull*anno->size)/se[i];
+        pval[i] = 1.0-normal.cdf_01(zscore[i]);
+//        cout << i << " " << genVarAnno[i] << " " << se[i] << " " << zscore[i] << " " << pval[i] << endl;
+    }
+
+    // get standard error for fold enrichment
+    VectorXf seEnrich(numAnnos);
+    seEnrich[0] = 0;
+    for (unsigned i=1; i<numAnnos; ++i) {  // the first annotation is intercept
+        AnnoInfo *anno = annoInfoVec[i];
+        VectorXf enrichJK(numJKblocks);
+        for (unsigned t=0; t<numJKblocks; ++t) {
+            if (anno->isBinary) {
+                enrichJK[t] = genVarJK(t,i)/genVarJK(t,0) * invSnpProp[i];
+            } else {
+                MatrixXf XPX(2,2);
+                XPX(0,0) = numAnnos;
+                XPX(0,1) = XPX(1,0) = anno->sum;
+                XPX(1,1) = anno->ssq;
+                VectorXf XPy(2);
+                XPy(0) = genVarJK(t,0);
+                XPy(1) = genVarJK(t,i);
+                VectorXf coef = XPX.householderQr().solve(XPy);
+                enrichJK[t] = 1.0 + coef(1) / genVarJK(t,0) * invSnpProp[0];
+            }
+        }
+        seEnrich[i] = std::sqrt(Gadget::calcVariance(enrichJK)*float(numJKblocks-1));
+    }
+
+    string outfile = title + "." + paramStr + "Enrich";
+    ofstream out(outfile.c_str());
+    out << boost::format("%40s %40s %2s %-15s %-15s %-15s %-18s\n") % "Parameter" % "Annotation" % "" % "Fold" % "SE " % "Z " % "Pvalue";
+    for (unsigned i=0; i<numAnnos; ++i) {
+        out << boost::format("%40s %40s %2s %-15s %-15s %-15s %-18s\n")
+        % ("Marginal_" + paramName + "_enrichment")
+        % annoNames[i]
+        % ""
+        % enrich[i]
+        % seEnrich[i]
+        % zscore[i]
+        % pval[i];
+    }
+    out.close();
+
+    cout << "Output " << paramName << " enrichment results into file [" + outfile + "]." << endl;
+
+}
+
+void Data::calcJointEnrichmentPermute(const string &paramStr, const string &title){
+    // get number of nonzero annotations for each SNP
+    VectorXf snpAnnoCnt;
+    snpAnnoCnt.setZero(numIncdSnps);
+    for (unsigned j=0; j<numIncdSnps; ++j) {
+        for (unsigned i=0; i<numAnnos; ++i) {
+            if (annoMat(j,i)) ++snpAnnoCnt[j];
+        }
+    }
+    int numEffects = snpAnnoCnt.sum();
+    VectorXf snpAnnoCntInv = snpAnnoCnt.array().inverse();
+    
+    VectorXf genVarSnp;
+    VectorXf genVarAnno;
+    VectorXf genVarAnnoNull;
+    genVarSnp.setZero(numIncdSnps);
+    genVarAnno.setZero(numAnnos);
+    genVarAnnoNull.setZero(numAnnos);
+    
+    string paramName;
+    if (paramStr == "hsq") {
+        paramName = "Heritability";
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            SnpInfo *snp = incdSnpInfoVec[j];
+            genVarSnp[j] = snp->varExplained;
+        }
+    } else if (paramStr == "rsq") {
+        paramName = "Predictability";
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            SnpInfo *snp = incdSnpInfoVec[j];
+            genVarSnp[j] = 2*snp->af*(1-snp->af)*snp->effect*snp->effect;
+        }
+    } else if (paramStr == "pip") {
+        paramName = "PIP";
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            SnpInfo *snp = incdSnpInfoVec[j];
+            genVarSnp[j] = snp->pip;
+        }
+    } else {
+        throw("Error: what parameter do you want to calculate enrichment for?\n");
+    }
+    
+    cout << "Calculating " << paramName << " joint enrichment..." << endl;
+
+    float genVarSnpNull = genVarSnp.sum()/float(numIncdSnps);
+    
+    for (unsigned j=0; j<numIncdSnps; ++j) {
+        for (unsigned i=0; i<numAnnos; ++i) {
+            if (annoMat(j,i)) {
+                genVarAnno[i] += annoMat(j,i) * genVarSnp[j] * snpAnnoCntInv[j];
+                genVarAnnoNull[i] += annoMat(j,i) * genVarSnpNull * snpAnnoCntInv[j];
+            }
+        }
+    }
+        
+    VectorXf enrich = genVarAnno.array()/genVarAnnoNull.array();
+
+    // get empirical P-value by permuting y vector (genVarSnp)
+    Stat::Normal normal;
+    VectorXf se(numAnnos);
+    VectorXd pval(numAnnos);
+    VectorXd zscore(numAnnos);
+    vector<int> snpIndexPermu(numIncdSnps);
+    for (unsigned j=0; j<numIncdSnps; ++j) {
+        snpIndexPermu[j] = j;
+    }
+    unsigned nPermutation = 100;
+    MatrixXf genVarControl;
+    genVarControl.setZero(nPermutation, numAnnos);
+    for (unsigned t=0; t<nPermutation; ++t) {
+//        cout << "t " << t << endl;
+        Gadget::shuffle_vector(snpIndexPermu);
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            for (unsigned i=0; i<numAnnos; ++i) {
+                if (annoMat(j,i)) {
+                    genVarControl(t,i) += annoMat(j,i) * genVarSnp[snpIndexPermu[j]] * snpAnnoCntInv[j];
+                }
+            }
+        }
+    }
+    
+    for (unsigned i=0; i<numAnnos; ++i) {
+        se[i] = std::sqrt(Gadget::calcVariance(genVarControl.col(i)));
+        zscore[i] = (genVarAnno[i]-genVarControl.col(i).mean())/se[i];
+        pval[i] = 1.0-normal.cdf_01(zscore[i]);
+//        cout << i << " " << genVarAnno[i] << " " << genVarControl.col(i).mean() << " " << se[i] << " " << abs(genVarAnno[i]-genVarControl.col(i).mean())/se[i] << endl;
+    }
+
+    // get standard error for fold enrichment
+    VectorXf seEnrich(numAnnos);
+    for (unsigned i=0; i<numAnnos; ++i) {
+        AnnoInfo *anno = annoInfoVec[i];
+        VectorXf enrichControl(nPermutation);
+        for (unsigned t=0; t<nPermutation; ++t) {
+            enrichControl[t] = genVarControl(t,i)/genVarAnnoNull[i];
+        }
+        seEnrich[i] = std::sqrt(Gadget::calcVariance(enrichControl));
+    }
+
+    string outfile = title + "." + paramStr + "Enrich";
+    ofstream out(outfile.c_str(), std::ios::app);
+//    out << boost::format("%40s %40s %2s %-15s %-15s %-18s\n") % "Parameter" % "Annotation" % "" % "Fold" % "SE " % "Pvalue";
+    for (unsigned i=0; i<numAnnos; ++i) {
+        out << boost::format("%40s %40s %2s %-15s %-15s %-15s %-18s\n")
+        % ("Joint_" + paramName + "_enrichment")
+        % annoNames[i]
+        % ""
+        % enrich[i]
+        % seEnrich[i]
+        % zscore[i]
+        % pval[i];
+    }
+    out.close();
+    
+    cout << "Output " << paramName << " enrichment results into file [" + outfile + "]." << endl;
+
+}
+
+void Data::calcJointEnrichmentJackknife(const string &paramStr, const string &title){
+    // get number of nonzero annotations for each SNP
+    VectorXf snpAnnoCnt;
+    snpAnnoCnt.setZero(numIncdSnps);
+    for (unsigned j=0; j<numIncdSnps; ++j) {
+        for (unsigned i=0; i<numAnnos; ++i) {
+            if (annoMat(j,i)) ++snpAnnoCnt[j];
+        }
+    }
+    int numEffects = snpAnnoCnt.sum();
+    VectorXf snpAnnoCntInv = snpAnnoCnt.array().inverse();
+    
+    VectorXf genVarSnp;
+    VectorXf genVarAnno;
+    VectorXf genVarAnnoNull;
+    genVarSnp.setZero(numIncdSnps);
+    genVarAnno.setZero(numAnnos);
+    genVarAnnoNull.setZero(numAnnos);
+    
+    string paramName;
+    if (paramStr == "hsq") {
+        paramName = "Heritability";
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            SnpInfo *snp = incdSnpInfoVec[j];
+            genVarSnp[j] = snp->varExplained;
+        }
+    } else if (paramStr == "rsq") {
+        paramName = "Predictability";
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            SnpInfo *snp = incdSnpInfoVec[j];
+            genVarSnp[j] = 2*snp->af*(1-snp->af)*snp->effect*snp->effect;
+        }
+    } else if (paramStr == "pip") {
+        paramName = "PIP";
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            SnpInfo *snp = incdSnpInfoVec[j];
+            genVarSnp[j] = snp->pip;
+        }
+    } else {
+        throw("Error: what parameter do you want to calculate enrichment for?\n");
+    }
+    
+    cout << "Calculating " << paramName << " joint enrichment..." << endl;
+
+    float genVarSnpNull = genVarSnp.sum()/float(numIncdSnps);
+    
+    for (unsigned j=0; j<numIncdSnps; ++j) {
+        for (unsigned i=0; i<numAnnos; ++i) {
+            if (annoMat(j,i)) {
+                genVarAnno[i] += annoMat(j,i) * genVarSnp[j] * snpAnnoCntInv[j];
+                genVarAnnoNull[i] += annoMat(j,i) * genVarSnpNull * snpAnnoCntInv[j];
+            }
+        }
+    }
+        
+    VectorXf enrich = genVarAnno.array()/genVarAnnoNull.array();
+
+    // get empirical P-value by permuting y vector (genVarSnp)
+    Stat::Normal normal;
+    VectorXf se(numAnnos);
+    VectorXd pval(numAnnos);
+    VectorXd zscore(numAnnos);
+
+    unsigned numJKblocks = 100;
+    std::vector<unsigned> blockStart(numJKblocks);
+    std::vector<unsigned> blockEnd(numJKblocks);
+
+    // Compute block size (ceil to make sure we cover all SNPs)
+    unsigned blockSize = std::ceil(static_cast<double>(numIncdSnps) / numJKblocks);
+
+    for (unsigned b = 0; b < numJKblocks; ++b) {
+        blockStart[b] = b * blockSize;
+        unsigned end = (b + 1) * blockSize - 1;
+        if (end >= numIncdSnps) end = numIncdSnps - 1;
+        blockEnd[b] = end;
+    }
+
+    MatrixXf genVarJK;
+    MatrixXf genVarAnnoNullJK;
+    VectorXf genVarSnpNullJK;
+    MatrixXf annoFractionJK;
+    genVarJK.setZero(numJKblocks, numAnnos);
+    genVarAnnoNullJK.setZero(numJKblocks, numAnnos);
+    genVarSnpNullJK.setZero(numJKblocks);
+    annoFractionJK.setZero(numJKblocks, numAnnos);
+    for (unsigned t=0; t<numJKblocks; ++t) {
+//        cout << "t " << t << endl;
+        VectorXf snpAnnoCntJK;
+        snpAnnoCntJK.setZero(numAnnos);
+        
+        float blockSizet = blockEnd[t] - blockStart[t] + 1;
+        float numSnpJK = numIncdSnps - blockSizet;
+        genVarSnpNullJK[t] = (genVarSnp.sum() - genVarSnp.segment(blockStart[t], blockSizet).sum()) / numSnpJK;
+        
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            if (j >= blockStart[t] && j <= blockEnd[t]) continue;
+            for (unsigned i=0; i<numAnnos; ++i) {
+                if (annoMat(j,i)) {
+                    genVarJK(t,i) += annoMat(j,i) * genVarSnp[j] * snpAnnoCntInv[j];
+                    genVarAnnoNullJK(t,i) += annoMat(j,i) * genVarSnpNullJK[t] * snpAnnoCntInv[j];
+                    ++snpAnnoCntJK[i];
+                }
+            }
+        }
+        for (unsigned i=0; i<numAnnos; ++i) {
+            annoFractionJK(t,i) = snpAnnoCntJK[i] / numSnpJK;
+        }
+    }
+    
+    for (unsigned i=0; i<numAnnos; ++i) {
+        AnnoInfo *anno = annoInfoVec[i];
+        genVarJK.col(i).array() -= genVarAnnoNullJK.col(i).array();
+        se[i] = std::sqrt(Gadget::calcVariance(genVarJK.col(i))*float(numJKblocks-1));
+        zscore[i] = (genVarAnno[i] - genVarAnnoNull[i])/se[i];
+        //cout << i << " " << genVarAnno[i] << " " << se[i] << " " << zscore[i] << endl;
+        pval[i] = 1.0-normal.cdf_01(zscore[i]);
+//        cout << i << " " << genVarAnno[i] << " " << se[i] << " " << zscore[i] << " " << pval[i] << endl;
+    }
+
+    // get standard error for fold enrichment
+    VectorXf seEnrich(numAnnos);
+    for (unsigned i=0; i<numAnnos; ++i) {
+        AnnoInfo *anno = annoInfoVec[i];
+        VectorXf enrichJK(numJKblocks);
+        for (unsigned t=0; t<numJKblocks; ++t) {
+            enrichJK[t] = genVarJK(t,i)/genVarAnnoNullJK(t,i);
+        }
+        seEnrich[i] = std::sqrt(Gadget::calcVariance(enrichJK)*float(numJKblocks-1));
+    }
+
+    string outfile = title + "." + paramStr + "Enrich";
+    ofstream out(outfile.c_str(), std::ios::app);
+//    out << boost::format("%40s %40s %2s %-15s %-15s %-18s\n") % "Parameter" % "Annotation" % "" % "Fold" % "SE " % "Pvalue";
+    for (unsigned i=0; i<numAnnos; ++i) {
+        out << boost::format("%40s %40s %2s %-15s %-15s %-15s %-18s\n")
+        % ("Joint_" + paramName + "_enrichment")
+        % annoNames[i]
+        % ""
+        % enrich[i]
+        % seEnrich[i]
+        % zscore[i]
+        % pval[i];
+    }
+    out.close();
+    
+    cout << "Output " << paramName << " enrichment results into file [" + outfile + "]." << endl;
+
+}
+
+void Data::calcJointEnrichmentJackknifeLM(const string &paramStr, const string &title){
+        
+    VectorXf genVarSnp;
+    genVarSnp.setZero(numIncdSnps);
+    
+    string paramName;
+    if (paramStr == "hsq") {
+        paramName = "Heritability";
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            SnpInfo *snp = incdSnpInfoVec[j];
+            genVarSnp[j] = snp->varExplained;
+        }
+    } else if (paramStr == "rsq") {
+        paramName = "Predictability";
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            SnpInfo *snp = incdSnpInfoVec[j];
+            genVarSnp[j] = 2*snp->af*(1-snp->af)*snp->effect*snp->effect;
+        }
+    } else if (paramStr == "pip") {
+        paramName = "PIP";
+        for (unsigned j=0; j<numIncdSnps; ++j) {
+            SnpInfo *snp = incdSnpInfoVec[j];
+            genVarSnp[j] = snp->pip;
+        }
+    } else {
+        throw("Error: what parameter do you want to calculate enrichment for?\n");
+    }
+    
+    cout << "Calculating " << paramName << " joint enrichment..." << endl;
+
+    float genVarSnpNull = genVarSnp.sum()/float(numIncdSnps);
+    
+    MatrixXf XPX = annoMat.transpose()*annoMat;
+    VectorXf XPy = annoMat.transpose()*genVarSnp;
+    VectorXf coef = XPX.householderQr().solve(XPy);
+        
+    VectorXf enrich = 1.0 + coef.array()/genVarSnpNull;
+
+    // get empirical P-value by permuting y vector (genVarSnp)
+    Stat::Normal normal;
+    VectorXf se(numAnnos);
+    VectorXd pval(numAnnos);
+    VectorXd zscore(numAnnos);
+
+    unsigned numJKblocks = 100;
+    std::vector<unsigned> blockStart(numJKblocks);
+    std::vector<unsigned> blockEnd(numJKblocks);
+
+    // Compute block size (ceil to make sure we cover all SNPs)
+    unsigned blockSize = std::ceil(static_cast<double>(numIncdSnps) / numJKblocks);
+
+    for (unsigned b = 0; b < numJKblocks; ++b) {
+        blockStart[b] = b * blockSize;
+        unsigned end = (b + 1) * blockSize - 1;
+        if (end >= numIncdSnps) end = numIncdSnps - 1;
+        blockEnd[b] = end;
+    }
+
+    MatrixXf coefJK;
+    coefJK.setZero(numJKblocks, numAnnos);
+    VectorXf genVarSnpNullJK;
+    genVarSnpNullJK.setZero(numJKblocks);
+    for (unsigned t=0; t<numJKblocks; ++t) {
+//        cout << "t " << t << endl;
+
+        MatrixXf annoMat_jk;
+        VectorXf genVarSnp_jk;
+        
+        if (t == 0) {
+            annoMat_jk = annoMat.bottomRows(numIncdSnps - (blockEnd[t]+1));
+            genVarSnp_jk = genVarSnp.tail(numIncdSnps - (blockEnd[t]+1));
+        } else if (t == numJKblocks-1) {
+            annoMat_jk = annoMat.topRows(blockStart[t]);
+            genVarSnp_jk = genVarSnp.head(blockStart[t]);
+        } else {
+            MatrixXf part1mat = annoMat.topRows(blockStart[t]);
+            MatrixXf part2mat = annoMat.bottomRows(numIncdSnps - (blockEnd[t]+1));
+            VectorXf part1vec = genVarSnp.head(blockStart[t]);
+            VectorXf part2vec = genVarSnp.tail(numIncdSnps - (blockEnd[t]+1));
+
+            annoMat_jk.resize(part1mat.rows() + part2mat.rows(), annoMat.cols());
+            annoMat_jk << part1mat, part2mat;   // row-combine
+
+            genVarSnp_jk.resize(part1vec.size() + part2vec.size());
+            genVarSnp_jk << part1vec, part2vec; // concatenate
+        }
+        
+        MatrixXf XPX = annoMat_jk.transpose()*annoMat_jk;
+        VectorXf XPy = annoMat_jk.transpose()*genVarSnp_jk;
+        coefJK.row(t) = XPX.householderQr().solve(XPy).transpose();
+        
+        float blockSizet = blockEnd[t] - blockStart[t] + 1;
+        float numSnpJK = numIncdSnps - blockSizet;
+        genVarSnpNullJK[t] = (genVarSnp.sum() - genVarSnp.segment(blockStart[t], blockSizet).sum()) / numSnpJK;
+    }
+    
+    for (unsigned i=0; i<numAnnos; ++i) {
+        AnnoInfo *anno = annoInfoVec[i];
+        se[i] = std::sqrt(Gadget::calcVariance(coefJK.col(i))*float(numJKblocks-1));
+        zscore[i] = coef[i]/se[i];
+        //cout << i << " " << genVarAnno[i] << " " << se[i] << " " << zscore[i] << endl;
+        pval[i] = 1.0-normal.cdf_01(zscore[i]);
+        //cout << i << " " << genVarAnno[i] << " " << se[i] << " " << zscore[i] << " " << pval[i] << endl;
+    }
+
+    // get standard error for fold enrichment
+    VectorXf seEnrich(numAnnos);
+    for (unsigned i=0; i<numAnnos; ++i) {
+        AnnoInfo *anno = annoInfoVec[i];
+        VectorXf enrichJK(numJKblocks);
+        for (unsigned t=0; t<numJKblocks; ++t) {
+            enrichJK[t] = 1.0 + coefJK(t,i)/genVarSnpNullJK[t];
+        }
+        seEnrich[i] = std::sqrt(Gadget::calcVariance(enrichJK)*float(numJKblocks-1));
+//        cout << "i " << anno->label << " " << enrichJK.mean() << endl;
+    }
+
+    string outfile = title + "." + paramStr + "Enrich";
+    ofstream out(outfile.c_str(), std::ios::app);
+//    out << boost::format("%40s %40s %2s %-15s %-15s %-15s %-18s\n") % "Parameter" % "Annotation" % "" % "Fold" % "SE " % "Z " % "Pvalue";
+    for (unsigned i=0; i<numAnnos; ++i) {
+        out << boost::format("%40s %40s %2s %-15s %-15s %-15s %-18s\n")
+        % ("Joint_" + paramName + "_enrichment")
+        % annoNames[i]
+        % ""
+        % enrich[i]
+        % seEnrich[i]
+        % zscore[i]
+        % pval[i];
+    }
+    out.close();
+    
+    cout << "Output " << paramName << " enrichment results into file [" + outfile + "]." << endl;
+
+}
+

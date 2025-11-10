@@ -900,7 +900,7 @@ void BayesS::Sp::hmcSampler(const unsigned numNonZeros, const float sigmaSq, con
     unsigned nnz = 0;
     for (unsigned i=0; i<numSnps; ++i)
         if (snpEffects[i]) ++nnz;
-    
+        
     // Prepare
     ArrayXf snpEffectDelta1(nnz);
     ArrayXf snp2pqDelta1(nnz);
@@ -976,6 +976,7 @@ float BayesS::Sp::gradientU(const float S, const ArrayXf &snpEffects, const floa
     // compute the first derivative of the negative log posterior    
     long size = snp2pq.size();
     long chunkSize = size/omp_get_max_threads();
+    if (!chunkSize) chunkSize = 1;
     ArrayXf snp2pqPowS(size);
 #pragma omp parallel for schedule(dynamic, chunkSize)
     for (unsigned i=0; i<size; ++i) {
@@ -3657,12 +3658,14 @@ void ApproxBayesS::sampleUnknowns(const unsigned iter){
 //    hsq.compute(varg.value, vare.value);
     hsq.value = varg.value / data.varPhenotypic;
 
-    if (robustMode) {
-        S.sampleFromFC2(snpEffects.numNonZeros, snpEffects.values, data.snp2pq, snp2pqPowS, logSnp2pq, varg.value, snpEffects.sum2pqSplusOne);
-        sigmaSq.value = varg.value/snpEffects.sum2pqSplusOne;
-    } else {
-        sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
-        S.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros, sigmaSq.value, snpEffects.values, data.snp2pq, snp2pqPowS, logSnp2pq, genVarPrior, sigmaSq.scale, snpEffects.sum2pqSplusOne);
+    if (snpEffects.numNonZeros) {
+        if (robustMode) {
+            S.sampleFromFC2(snpEffects.numNonZeros, snpEffects.values, data.snp2pq, snp2pqPowS, logSnp2pq, varg.value, snpEffects.sum2pqSplusOne);
+            sigmaSq.value = varg.value/snpEffects.sum2pqSplusOne;
+        } else {
+            sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
+            S.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros, sigmaSq.value, snpEffects.values, data.snp2pq, snp2pqPowS, logSnp2pq, genVarPrior, sigmaSq.scale, snpEffects.sum2pqSplusOne);
+        }
     }
     
     if (iter < 1000) {
@@ -4026,30 +4029,34 @@ void ApproxBayesST::sampleStartVal(){
 
 void ApproxBayesR::VgMixComps::compute(const VectorXf &snpEffects, const VectorXf &ZPy, const VectorXf &rcorr, const vector<vector<unsigned> > &snpset, const float varg, const float nobs) {
     values.setZero(size);
-    for (unsigned k=1; k<size; ++k) {
-        unsigned snpSetSize = snpset[k].size();
-        for (unsigned j=0; j<snpSetSize; ++j) {
-            unsigned snpIdx = snpset[k][j];
-            float varj = snpEffects[snpIdx] * (ZPy[snpIdx] - rcorr[snpIdx]);
-            values[k] += varj;
+    if (varg) {
+        for (unsigned k=1; k<size; ++k) {
+            unsigned snpSetSize = snpset[k].size();
+            for (unsigned j=0; j<snpSetSize; ++j) {
+                unsigned snpIdx = snpset[k][j];
+                float varj = snpEffects[snpIdx] * (ZPy[snpIdx] - rcorr[snpIdx]);
+                values[k] += varj;
+            }
+            values[k] /= varg * nobs;
+            (*this)[k]->value = values[k];
         }
-        values[k] /= varg * nobs;
-        (*this)[k]->value = values[k];
     }
 }
 
 void ApproxBayesR::VgMixComps::compute(const VectorXf &snpEffects, const vector<vector<unsigned> > &snpset) {
     values.setZero(size);
     float totalVar = snpEffects.squaredNorm();
-    for (unsigned k=1; k<size; ++k) {
-        unsigned snpSetSize = snpset[k].size();
-        for (unsigned j=0; j<snpSetSize; ++j) {
-            unsigned snpIdx = snpset[k][j];
-            float varj = snpEffects[snpIdx] * snpEffects[snpIdx];
-            values[k] += varj;
+    if (totalVar) {
+        for (unsigned k=1; k<size; ++k) {
+            unsigned snpSetSize = snpset[k].size();
+            for (unsigned j=0; j<snpSetSize; ++j) {
+                unsigned snpIdx = snpset[k][j];
+                float varj = snpEffects[snpIdx] * snpEffects[snpIdx];
+                values[k] += varj;
+            }
+            values[k] /= totalVar;
+            (*this)[k]->value = values[k];
         }
-        values[k] /= totalVar;
-        (*this)[k]->value = values[k];
     }
 }
 
@@ -7276,7 +7283,302 @@ void ApproxBayesRC::AnnoJointPerSnpHsqEnrichment::compute(const AnnoJointProb &a
         }
     }
 }
+
+void ApproxBayesRC::AnnoJointPerSnpHsqEnrichment::compute(const VectorXf &snpEffects, const MatrixXf &annoMat, const AnnoJointProb &annoJointProb, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &gamma, const VectorXf &snpAnnoCntInv){
+    unsigned numAnno = annoMat.cols();
+    unsigned numSnps = annoMat.rows();
+    unsigned numDist = annoJointProb.numDist;
+    VectorXf hsqAnnoObs;
+    VectorXf hsqAnnoNull;
+    hsqAnnoObs.setZero(numAnno);
+    hsqAnnoNull.setZero(numAnno);
     
+    float betaSqNull = snpEffects.squaredNorm()/float(numSnps);
+    VectorXf probAnnoObs(numAnno);
+    for (unsigned j=0; j<numSnps; ++j) {
+        if (snpEffects[j]) {
+            probAnnoObs.setZero(numAnno);
+            for (unsigned i=0; i<numAnno; ++i) {
+                if (annoMat(j,i)) {
+                    for (unsigned k=1; k<numDist; ++k) {  // loop over nonzero distributions
+                        probAnnoObs[i]  += annoJointProb[k]->values[i] * gamma[k];
+                    }
+                }
+            }
+            probAnnoObs  /= probAnnoObs.sum();
+            float betajSq = snpEffects[j]*snpEffects[j];
+            for (unsigned i=0; i<numAnno; ++i) {
+                if (annoMat(j,i)) {
+                    hsqAnnoObs[i]  += probAnnoObs[i]  * betajSq;
+                    hsqAnnoNull[i] += snpAnnoCntInv[j] * betaSqNull;
+                }
+            }
+        } else {
+            for (unsigned i=0; i<numAnno; ++i) {
+                if (annoMat(j,i)) {
+                    hsqAnnoNull[i] += snpAnnoCntInv[j] * betaSqNull;
+                }
+            }
+        }
+    }
+    
+    values = hsqAnnoObs.array()/hsqAnnoNull.array();
+    
+//    cout << "Intercept " << values[0] << endl;
+
+}
+
+void ApproxBayesRC::AnnoJointPerSnpHsqEnrichment::compute(const VectorXf &snpEffects, const MatrixXf &annoMat, const AnnoCondProb &annoCondProb, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &snpAnnoCntInv){
+    unsigned numAnno = annoMat.cols();
+    unsigned numSnps = annoMat.rows();
+    VectorXf hsqAnnoObs;
+    VectorXf hsqAnnoNull;
+    hsqAnnoObs.setZero(numAnno);
+    hsqAnnoNull.setZero(numAnno);
+    
+    float betaSqNull = snpEffects.squaredNorm()/float(numSnps);
+    VectorXf probAnnoObs(numAnno);
+    for (unsigned j=0; j<numSnps; ++j) {
+        if (snpEffects[j]) {
+            //cout << j << endl;
+            probAnnoObs.setZero(numAnno);
+            for (unsigned i=0; i<numAnno; ++i) {
+                if (annoMat(j,i)) probAnnoObs[i] = annoCondProb[0]->values[i];
+            }
+            probAnnoObs /= probAnnoObs.sum();
+//            cout << j << " annoCondProb " << annoCondProb[0]->values.head(5).transpose() << endl;
+//            cout << j << " annoMat " << annoMat.row(j).head(5) << endl;
+//            cout << j << " probAnno " << probAnno.head(5).transpose() << endl;
+            float betajSq = snpEffects[j]*snpEffects[j];
+            for (unsigned i=0; i<numAnno; ++i) {
+                if (annoMat(j,i)) {
+                    hsqAnnoObs[i]  += probAnnoObs[i] * betajSq;
+                    hsqAnnoNull[i] += snpAnnoCntInv[j] * betaSqNull;
+                }
+            }
+        } else {
+            for (unsigned i=0; i<numAnno; ++i) {
+                if (annoMat(j,i)) {
+                    hsqAnnoNull[i] += snpAnnoCntInv[j] * betaSqNull;
+                }
+            }
+        }
+    }
+    
+    values = hsqAnnoObs.array()/hsqAnnoNull.array();
+    
+//    cout << "annoCondProb " << annoCondProb[0]->values.head(5).transpose() << endl;
+//    cout << "hsqAnnoObs " << hsqAnnoObs.head(5).transpose() << endl;
+//    cout << "hsqAnnoNull " << hsqAnnoNull.head(5).transpose() << endl;
+//    cout << "Intercept " << values[0] << " Coding_UCSC " << values[1] << endl;
+
+}
+
+//void ApproxBayesRC::AnnoJointPerSnpHsqEnrichment::compute(const VectorXf &snpEffects, const MatrixXf &annoMat, const AnnoEffects &alpha, const vector<AnnoInfo*> &annoInfoVec, const MatrixXf &snpPi){
+//    // partition the SNP effect into annotation-specific components based on SBayesRC model
+//    unsigned numAnno = annoMat.cols();
+//    unsigned numSnps = annoMat.rows();
+//    VectorXf hsqAnnoVec;
+//    hsqAnnoVec.setZero(size);
+//    
+//    float cdfMu = Normal::cdf_01(alpha[0]->values[0]);
+//    float pdfMu = Normal::pdf_01(alpha[0]->values[0]);
+//    VectorXf weights = pdfMu * alpha[0]->values;
+//    weights[0] = cdfMu;
+//    
+//    VectorXf betajc;
+//    for (unsigned j=0; j<numSnps; ++j) {
+//        if (snpEffects[j]) {
+//            float p2 = annoMat.row(j).dot(weights);
+//            betajc = weights/p2 * snpEffects[j];
+////            cout << j << " " << snpEffects[j] << " " << betajc[0] << " " << p2 << " " << 1.0-snpPi(j,0) << endl;
+//            for (unsigned i=0; i<numAnno; ++i) {
+//                if (0==i) {
+//                    hsqAnnoVec[i] += betajc[0]*betajc[0];
+//                } else {
+//                    float tmp = betajc[0] + annoMat(j,i)*betajc[i];
+//                    hsqAnnoVec[i] += tmp*tmp;
+//                }
+//            }
+//        }
+//    }
+//    
+//    float gwPerSnpHsq = snpEffects.squaredNorm()/(float)numSnps;
+//    for (unsigned i=0; i<numAnno; ++i) {
+//        AnnoInfo *anno = annoInfoVec[i];
+//        if (anno->isBinary) {
+//            values[i] = hsqAnnoVec[i]/(float)anno->size /gwPerSnpHsq;
+//        } else {
+//            values[i] = hsqAnnoVec[i]/anno->ssq /gwPerSnpHsq;
+//        }
+//        if(0==i) cout << i << " " << values[i] << endl;
+//    }
+//    
+//    if (values[0] > 20) {
+//        for (unsigned j=0; j<numSnps; ++j) {
+//            if (snpEffects[j]) {
+//                float p2 = annoMat.row(j).dot(weights);
+//                betajc = weights/p2 * snpEffects[j];
+//                cout << j << " " << snpEffects[j] << " " << betajc[0] << " " << p2 << " " << 1.0-snpPi(j,0) << endl;
+//            }
+//        }
+//    }
+//}
+
+//void ApproxBayesRC::AnnoJointPerSnpHsqEnrichment::compute(const VectorXf &snpEffects, const MatrixXf &annoMat, const AnnoEffects &alpha, const vector<AnnoInfo*> &annoInfoVec, const MatrixXf &snpPi){
+//    // partition the SNP effect into annotation-specific components based on SBayesRC model
+//    unsigned numAnno = annoMat.cols();
+//    unsigned numSnps = annoMat.rows();
+//    VectorXf hsqAnnoVec;
+//    hsqAnnoVec.setZero(size);
+//    
+//    float CDFmu = Normal::cdf_01(alpha[0]->values[0]);
+//    float PDFmu = Normal::pdf_01(alpha[0]->values[0]);
+//    float logCDFmu = log(CDFmu);
+//    VectorXf weights = PDFmu/CDFmu * alpha[0]->values;  // Taylor expansion of logCDF(mu+delta)
+//    weights[0] = logCDFmu;
+//    
+//    for (unsigned j=0; j<numSnps; ++j) {
+//        if (snpEffects[j]) {
+//            float pj2 = expf(annoMat.row(j).dot(weights));
+//            float wj0 = 2.0f*weights[0] + logf(snpEffects[j]*snpEffects[j]/(pj2*pj2));
+////            cout << j << " " << snpEffects[j] << " " << betajc[0] << " " << pj2 << " " << 1.0-snpPi(j,0) << endl;
+//            for (unsigned i=0; i<numAnno; ++i) {
+//                if (0==i) {
+//                    hsqAnnoVec[i] += expf(wj0);
+//                } else {
+//                    float wjc = 2.0f*weights[i];
+//                    hsqAnnoVec[i] += expf(wj0 + annoMat(j,i)*wjc);
+//                }
+//            }
+//        }
+//    }
+//    
+//    float gwPerSnpHsq = snpEffects.squaredNorm()/(float)numSnps;
+//    for (unsigned i=0; i<numAnno; ++i) {
+//        AnnoInfo *anno = annoInfoVec[i];
+//        if (anno->isBinary) {
+//            values[i] = hsqAnnoVec[i]/(float)anno->size /gwPerSnpHsq;
+//        } else {
+//            values[i] = hsqAnnoVec[i]/anno->ssq /gwPerSnpHsq;
+//        }
+//        if(0==i) cout << i << " " << values[i] << endl;
+//    }
+//    
+//    if (values[0] > 20) {
+//        for (unsigned j=0; j<numSnps; ++j) {
+//            if (snpEffects[j]) {
+//                float pj2 = expf(annoMat.row(j).dot(weights));
+//                float wj0 = 2.0f*weights[0] + logf(snpEffects[j]*snpEffects[j]/(pj2*pj2));
+//                cout << j << " " << snpEffects[j]*snpEffects[j] << " " << expf(wj0) << " " << pj2 << " " << 1.0-snpPi(j,0) << endl;
+//            }
+//        }
+//    }
+//}
+//
+//void ApproxBayesRC::AnnoJointPerSnpRsqEnrichment::compute(const VectorXf &snpEffectMeans, const MatrixXf &annoMat, const AnnoEffects &alpha, const vector<AnnoInfo*> &annoInfoVec){
+//    // partition the SNP effect into annotation-specific components based on SBayesRC model
+//    unsigned numAnno = annoMat.cols();
+//    unsigned numSnps = annoMat.rows();
+//    VectorXf hsqAnnoVec;
+//    hsqAnnoVec.setZero(size);
+//    
+//    float cdfMu = Normal::cdf_01(alpha[0]->values[0]);
+//    float pdfMu = Normal::pdf_01(alpha[0]->values[0]);
+//    VectorXf weights = pdfMu * alpha[0]->values;
+//    weights[0] = cdfMu;
+//    
+//    VectorXf betajc;
+//    for (unsigned j=0; j<numSnps; ++j) {
+//        float p2 = annoMat.row(j).dot(weights);
+//        betajc = weights/p2 * snpEffectMeans[j];
+//        for (unsigned i=0; i<numAnno; ++i) {
+//            if (0==i) {
+//                hsqAnnoVec[i] += betajc[0]*betajc[0];
+//            } else {
+//                float tmp = betajc[0] + annoMat(j,i)*betajc[i];
+//                hsqAnnoVec[i] += tmp*tmp;
+//            }
+//        }
+//    }
+//    
+//    float gwPerSnpHsq = snpEffectMeans.squaredNorm()/(float)numSnps;
+//    for (unsigned i=0; i<numAnno; ++i) {
+//        AnnoInfo *anno = annoInfoVec[i];
+//        if (anno->isBinary) {
+//            values[i] = hsqAnnoVec[i]/(float)anno->size /gwPerSnpHsq;
+//        } else {
+//            values[i] = hsqAnnoVec[i]/anno->ssq /gwPerSnpHsq;
+//        }
+//    }
+//
+//}
+
+void ApproxBayesRC::AnnoJointPerSnpRsqEnrichment::compute(const VectorXf &snpEffectMeans, const MatrixXf &annoMat, const AnnoJointProb &annoJointProb, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &gamma, const VectorXf &snpAnnoCntInv){
+    unsigned numAnno = annoMat.cols();
+    unsigned numSnps = annoMat.rows();
+    unsigned numDist = annoJointProb.numDist;
+    VectorXf rsqAnnoObs;
+    VectorXf rsqAnnoNull;
+    rsqAnnoObs.setZero(numAnno);
+    rsqAnnoNull.setZero(numAnno);
+    
+    float betaSqNull = snpEffectMeans.squaredNorm()/float(numSnps);
+    VectorXf probAnnoObs(numAnno);
+    for (unsigned j=0; j<numSnps; ++j) {
+        probAnnoObs.setZero(numAnno);
+        for (unsigned i=0; i<numAnno; ++i) {
+            if (annoMat(j,i)) {
+                for (unsigned k=1; k<numDist; ++k) {  // loop over nonzero distributions
+                    probAnnoObs[i]  += annoJointProb[k]->values[i] * gamma[k];
+                }
+            }
+        }
+        probAnnoObs  /= probAnnoObs.sum();
+        float betajSq = snpEffectMeans[j]*snpEffectMeans[j];
+        for (unsigned i=0; i<numAnno; ++i) {
+            if (annoMat(j,i)) {
+                rsqAnnoObs[i]  += probAnnoObs[i]  * betajSq;
+                rsqAnnoNull[i] += snpAnnoCntInv[j] * betaSqNull;
+            }
+        }
+    }
+    
+    values = rsqAnnoObs.array()/rsqAnnoNull.array();
+    
+//    cout << "Intercept " << values[0] << endl;
+
+}
+
+void ApproxBayesRC::AnnoJointPerSnpRsqEnrichment::compute(const VectorXf &snpEffectMeans, const MatrixXf &annoMat, const AnnoCondProb &annoCondProb, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &snpAnnoCntInv){
+    unsigned numAnno = annoMat.cols();
+    unsigned numSnps = annoMat.rows();
+    VectorXf rsqAnnoObs;
+    VectorXf rsqAnnoNull;
+    rsqAnnoObs.setZero(numAnno);
+    rsqAnnoNull.setZero(numAnno);
+    
+    float betaSqNull = snpEffectMeans.squaredNorm()/float(numSnps);
+    VectorXf probAnnoObs(numAnno);
+    for (unsigned j=0; j<numSnps; ++j) {
+        probAnnoObs.setZero(numAnno);
+        for (unsigned i=0; i<numAnno; ++i) {
+            if (annoMat(j,i)) probAnnoObs[i] = annoCondProb[0]->values[i];
+        }
+        probAnnoObs /= probAnnoObs.sum();
+        float betajSq = snpEffectMeans[j]*snpEffectMeans[j];
+        for (unsigned i=0; i<numAnno; ++i) {
+            if (annoMat(j,i)) {
+                rsqAnnoObs[i]  += probAnnoObs[i] * betajSq;
+                rsqAnnoNull[i] += snpAnnoCntInv[j] * betaSqNull;
+            }
+        }
+    }
+    
+    values = rsqAnnoObs.array()/rsqAnnoNull.array();
+}
+
+
 //void ApproxBayesRC::computeSnpVarg(const MatrixXf &annoMat, const VectorXf &annoPerSnpHsqEnrich, const float varg, const unsigned numSnps){
 //    VectorXf tau = annoPerSnpHsqEnrich.array() - 1.0;
 //    for (unsigned i=0; i<numSnps; ++i) {
@@ -7310,6 +7612,19 @@ void ApproxBayesRC::AnnoDistribution::compute(const MatrixXf &z, const MatrixXf 
     }
 }
 
+void ApproxBayesRC::getSnpAnnoCntInv(const MatrixXf &annoMat, VectorXf &snpAnnoCntInv){
+    // get number of nonzero annotations for each SNP
+    unsigned numAnno = annoMat.cols();
+    unsigned numSnps = annoMat.rows();
+    VectorXf snpAnnoCnt;
+    snpAnnoCnt.setZero(numSnps);
+    for (unsigned j=0; j<numSnps; ++j) {
+        for (unsigned i=0; i<numAnno; ++i) {
+            if (annoMat(j,i)) ++snpAnnoCnt[j];
+        }
+    }
+    snpAnnoCntInv = snpAnnoCnt.array().inverse();
+}
 
 void ApproxBayesRC::sampleUnknowns(const unsigned iter){
     if (lowRankModel) {
@@ -7370,9 +7685,10 @@ void ApproxBayesRC::sampleUnknowns(const unsigned iter){
     annoGenVar.compute(snpEffects.values, snpEffects.snpset, data.annoMat);
     annoTotalGenVar.compute(annoGenVar);
     annoPerSnpHsqEnrich.compute(annoTotalGenVar.values, data.annoInfoVec);
+    annoJointPerSnpHsqEnrich.compute(snpEffects.values, data.annoMat, annoJointProb, data.annoInfoVec, gamma.values, snpAnnoCntInv);
     if (estimateRsqEnrich) {
-        annoJointPerSnpHsqEnrich.compute(annoJointProb, data.annoInfoVec, gamma.values, varg.value, hsqPercModel, sigmaSq.value);
         annoPerSnpRsqEnrich.compute(snpEffects.fcMean, data.annoMat, data.annoInfoVec);
+        annoJointPerSnpRsqEnrich.compute(snpEffects.fcMean, data.annoMat, annoJointProb, data.annoInfoVec, gamma.values, snpAnnoCntInv);
     }
 
     Vgs.compute(snpEffects.values, snpEffects.snpset);
@@ -7536,6 +7852,20 @@ void BayesRC::initSnpPandPi(const VectorXf &pis, const unsigned numSnps, MatrixX
     }
 }
 
+void BayesRC::getSnpAnnoCntInv(const MatrixXf &annoMat, VectorXf &snpAnnoCntInv){
+    // get number of nonzero annotations for each SNP
+    unsigned numAnno = annoMat.cols();
+    unsigned numSnps = annoMat.rows();
+    VectorXf snpAnnoCnt;
+    snpAnnoCnt.setZero(numSnps);
+    for (unsigned j=0; j<numSnps; ++j) {
+        for (unsigned i=0; i<numAnno; ++i) {
+            if (annoMat(j,i)) ++snpAnnoCnt[j];
+        }
+    }
+    snpAnnoCntInv = snpAnnoCnt.array().inverse();
+}
+
 void BayesRC::sampleUnknowns(const unsigned iter){
     fixedEffects.sampleFromFC(ycorr, data.X, data.XPXdiag, vare.value);
     if (data.numRandomEffects) {
@@ -7571,7 +7901,8 @@ void BayesRC::sampleUnknowns(const unsigned iter){
     annoGenVar.compute(snpEffects.values, snpEffects.snpset, data.annoMat);
     annoTotalGenVar.compute(annoGenVar);
     annoPerSnpHsqEnrich.compute(annoTotalGenVar.values, data.annoInfoVec);
-    annoJointPerSnpHsqEnrich.compute(annoJointProb, data.annoInfoVec, gamma.values, varg.value, hsqPercModel, sigmaSq.value);
+//    annoJointPerSnpHsqEnrich.compute(annoJointProb, data.annoInfoVec, gamma.values, varg.value, hsqPercModel, sigmaSq.value);
+    annoJointPerSnpHsqEnrich.compute(snpEffects.values, data.annoMat, annoJointProb, data.annoInfoVec, gamma.values, snpAnnoCntInv);
 
     Vgs.compute(snpEffects.values, data.Z, snpEffects.snpset, varg.value);
     

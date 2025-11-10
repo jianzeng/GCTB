@@ -2238,7 +2238,7 @@ public:
     public:
         VectorXf invSnpProp;
         
-        AnnoPerSnpHsqEnrichment(const vector<string> &header, const vector<AnnoInfo*> &annoVec, const string &lab = "AnnoPerSnpHsq_Enrichment"):
+        AnnoPerSnpHsqEnrichment(const vector<string> &header, const vector<AnnoInfo*> &annoVec, const string &lab = "Marginal_Heritability_Enrichment"):
         ParamSet(lab, header) {
             values.setOnes(size);
             invSnpProp.setZero(size);
@@ -2255,7 +2255,7 @@ public:
     public:
         VectorXf invSnpProp;
         
-        AnnoPerSnpRsqEnrichment(const vector<string> &header, const vector<AnnoInfo*> &annoVec, const string &lab = "AnnoPerSnpRsq_Enrichment"):
+        AnnoPerSnpRsqEnrichment(const vector<string> &header, const vector<AnnoInfo*> &annoVec, const string &lab = "Marginal_Predictability_Enrichment"):
         ParamSet(lab, header) {
             values.setOnes(size);
             invSnpProp.setZero(size);
@@ -2270,11 +2270,24 @@ public:
     class AnnoJointPerSnpHsqEnrichment : public AnnoPerSnpHsqEnrichment, public Stat::Normal {
     public:
         
-        AnnoJointPerSnpHsqEnrichment(const vector<string> &header, const vector<AnnoInfo*> &annoVec): AnnoPerSnpHsqEnrichment(header, annoVec, "AnnoJointPerSnpHsq_Enrichment") {}
+        AnnoJointPerSnpHsqEnrichment(const vector<string> &header, const vector<AnnoInfo*> &annoVec): AnnoPerSnpHsqEnrichment(header, annoVec, "Joint_Heritability_Enrichment") {}
         
         void compute(const AnnoJointProb &annoJointProb, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &gamma, const float varg, const bool hsqPercModel, const float sigmaSq);
+        void compute(const VectorXf &snpEffects, const MatrixXf &annoMat, const AnnoCondProb &annoCondProb, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &snpAnnoCntInv);
+        void compute(const VectorXf &snpEffects, const MatrixXf &annoMat, const AnnoJointProb &AnnoJointProb, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &gamma, const VectorXf &snpAnnoCntInv);
+//        void compute(const VectorXf &snpEffectMeans, const MatrixXf &annoMat, const AnnoEffects &alpha, const vector<AnnoInfo*> &annoInfoVec, const MatrixXf &snpPi);
     };
     
+    class AnnoJointPerSnpRsqEnrichment : public AnnoPerSnpRsqEnrichment, public Stat::Normal {
+    public:
+        
+        AnnoJointPerSnpRsqEnrichment(const vector<string> &header, const vector<AnnoInfo*> &annoVec): AnnoPerSnpRsqEnrichment(header, annoVec, "Joint_Predictability_Enrichment") {}
+        
+//        void compute(const VectorXf &snpEffectMeans, const MatrixXf &annoMat, const AnnoEffects &alpha, const vector<AnnoInfo*> &annoInfoVec);
+        void compute(const VectorXf &snpEffectMeans, const MatrixXf &annoMat, const AnnoCondProb &annoCondProb, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &snpAnnoCntInv);
+        void compute(const VectorXf &snpEffectMeans, const MatrixXf &annoMat, const AnnoJointProb &AnnoJointProb, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &gamma, const VectorXf &snpAnnoCntInv);
+    };
+
     class AnnoDistribution : public vector<ParamSet*> {
     public:
         vector<string> colnames;
@@ -2304,10 +2317,13 @@ public:
     AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
     AnnoPerSnpRsqEnrichment annoPerSnpRsqEnrich;
     AnnoJointPerSnpHsqEnrichment annoJointPerSnpHsqEnrich;
+    AnnoJointPerSnpRsqEnrichment annoJointPerSnpRsqEnrich;
     AnnoDistribution annoDist;
         
     MatrixXf snpP;    // p = Pr(k>i | k>i-1); p2 = pi2+pi3+pi4; p3 = (pi3+pi4)/(pi2+pi3+pi4); p4 = pi4/(pi3+pi4)
     MatrixXf snpPi;   // pi1 = 1-p2; pi2 = (1-p3)*p2; pi3 = (1-p4)*p2*p3; pi4 = p2*p3*p4
+    
+    VectorXf snpAnnoCntInv;
     
     bool estimateRsqEnrich;
             
@@ -2323,6 +2339,7 @@ public:
     annoPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
     annoPerSnpRsqEnrich(data.annoNames, data.annoInfoVec),
     annoJointPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
+    annoJointPerSnpRsqEnrich(data.annoNames, data.annoInfoVec),
     annoDist(data.annoNames, pis.size()),
     estimateRsqEnrich(estimateRsqEnrich)
     {
@@ -2342,9 +2359,10 @@ public:
         paramSetVec.insert(paramSetVec.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetVec.push_back(&annoTotalGenVar);
         paramSetVec.push_back(&annoPerSnpHsqEnrich);
+        paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
         if (estimateRsqEnrich) {
             paramSetVec.push_back(&annoPerSnpRsqEnrich);
-            paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
+            paramSetVec.push_back(&annoJointPerSnpRsqEnrich);
         }
 
         paramVec    = {&nnzSnp, &sigmaSq, &hsq, &vare};
@@ -2358,9 +2376,10 @@ public:
         paramSetToPrint.insert(paramSetToPrint.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
+        paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
         if (estimateRsqEnrich) {
             paramSetToPrint.push_back(&annoPerSnpRsqEnrich);
-            paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
+            paramSetToPrint.push_back(&annoJointPerSnpRsqEnrich);
         }
 
         paramToPrint = {&sigmaSq, &hsq, &vare};
@@ -2389,6 +2408,8 @@ public:
             if (robustMode) cout << "Using a more robust parameterisation " << endl;
             if (algorithm == tgs_thin) cout << "Using tempered Gibbs sampling (TGS)" << endl;
         }
+        
+        getSnpAnnoCntInv(data.annoMat, snpAnnoCntInv);
     }
 
     void sampleUnknowns(const unsigned iter);
@@ -2396,6 +2417,7 @@ public:
     void computePfromPi(const MatrixXf &snpPi, MatrixXf &snpP);
     void computePiFromP(const MatrixXf &snpP, MatrixXf &snpPi);
     void initSnpPandPi(const VectorXf &pis, const unsigned numSnps, MatrixXf &snpP, MatrixXf &snpPi);
+    void getSnpAnnoCntInv(const MatrixXf &annoMat, VectorXf &snpAnnoCntInv);
 };
 
 
@@ -2429,7 +2451,9 @@ public:
     ApproxBayesRC::AnnoGenVar annoGenVar;
     ApproxBayesRC::AnnoTotalGenVar annoTotalGenVar;
     ApproxBayesRC::AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
+    ApproxBayesRC::AnnoPerSnpRsqEnrichment annoPerSnpRsqEnrich;
     ApproxBayesRC::AnnoJointPerSnpHsqEnrichment annoJointPerSnpHsqEnrich;
+    ApproxBayesRC::AnnoJointPerSnpRsqEnrichment annoJointPerSnpRsqEnrich;
 
     MatrixXf snpP;    // p = Pr(k>i | k>i-1); p2 = pi2+pi3+pi4; p3 = (pi3+pi4)/(pi2+pi3+pi4); p4 = pi4/(pi3+pi4)
     MatrixXf snpPi;   // pi1 = 1-p2; pi2 = (1-p3)*p2; pi3 = (1-p4)*p2*p3; pi4 = p2*p3*p4
@@ -2437,6 +2461,8 @@ public:
     enum {gibbs, mh} algorithm;
     
     bool estimateRsqEnrich;
+
+    VectorXf snpAnnoCntInv;
 
     BayesRC(const Data &data, const float varGenotypic, const float varResidual, const float varRandom, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool estimateRsqEnrich,
             const string &alg, const bool message = true):
@@ -2449,7 +2475,9 @@ public:
     annoGenVar(data.annoNames, pis.size(), data.numKeptInds),
     annoTotalGenVar(data.annoNames),
     annoPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
+    annoPerSnpRsqEnrich(data.annoNames, data.annoInfoVec),
     annoJointPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
+    annoJointPerSnpRsqEnrich(data.annoNames, data.annoInfoVec),
     estimateRsqEnrich(estimateRsqEnrich)
     {
         initSnpPandPi(pis, data.numIncdSnps, snpP, snpPi);
@@ -2470,8 +2498,10 @@ public:
         paramSetVec.insert(paramSetVec.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetVec.push_back(&annoTotalGenVar);
         paramSetVec.push_back(&annoPerSnpHsqEnrich);
+        paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
         if (estimateRsqEnrich) {
-            paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
+            paramSetVec.push_back(&annoPerSnpRsqEnrich);
+            paramSetVec.push_back(&annoJointPerSnpRsqEnrich);
         }
 
         paramVec     = {&nnzSnp, &sigmaSq, &varg, &vare, &hsq};
@@ -2485,8 +2515,10 @@ public:
         paramSetToPrint.insert(paramSetToPrint.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
+        paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
         if (estimateRsqEnrich) {
-            paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
+            paramSetToPrint.push_back(&annoPerSnpRsqEnrich);
+            paramSetToPrint.push_back(&annoJointPerSnpRsqEnrich);
         }
 
         paramToPrint = {&sigmaSq, &varg, &vare, &hsq};
@@ -2506,11 +2538,14 @@ public:
             cout << "scale factor: " << sigmaSq.scale << endl;
             cout << "Gamma: " << gamma.transpose() << endl;
         }
+        
+        getSnpAnnoCntInv(data.annoMat, snpAnnoCntInv);
     }
     
     void sampleUnknowns(const unsigned iter);
     void computePiFromP(const MatrixXf &snpP, MatrixXf &snpPi);
     void initSnpPandPi(const VectorXf &pis, const unsigned numSnps, MatrixXf &snpP, MatrixXf &snpPi);
+    void getSnpAnnoCntInv(const MatrixXf &annoMat, VectorXf &snpAnnoCntInv);
 };
 
 
@@ -2601,9 +2636,7 @@ public:
         paramSetVec.insert(paramSetVec.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetVec.push_back(&annoTotalGenVar);
         paramSetVec.push_back(&annoPerSnpHsqEnrich);
-        if (estimateRsqEnrich) {
-            paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
-        }
+        paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
 
         paramVec = {&nnzSnp, &sigmaSq, &hsq, &vare, &piAnno};
         paramVec.insert(paramVec.end(), numSnps.begin(), numSnps.end());
@@ -2616,9 +2649,7 @@ public:
         paramSetToPrint.insert(paramSetToPrint.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
-        if (estimateRsqEnrich) {
-            paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
-        }
+        paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
         paramSetToPrint.push_back(&annoPip);
 
         paramToPrint = {&sigmaSq, &hsq, &vare, &piAnno};

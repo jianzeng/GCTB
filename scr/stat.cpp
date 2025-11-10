@@ -18,11 +18,11 @@ void Stat::seedEngine(const int seed){
     }
 }
 
-float Stat::Normal::sample(const float mean, const float variance){
+double Stat::Normal::sample(const double mean, const double variance){
     return mean + snorm()*sqrtf(variance);
 }
 
-float Stat::Normal::cdf_01(const double value){
+double Stat::Normal::cdf_01(const double value){
 //    if (std::isinf(value)) {
 //        return value < 0 ? 0.0f : 1.0f; // Return 0 for -inf, 1 for +inf
 //    }
@@ -30,7 +30,7 @@ float Stat::Normal::cdf_01(const double value){
     //return 0.5 * boost::math::erfc(-value * Inv_SQRT_2);
 }
 
-float Stat::Normal::quantile_01(const double value){
+double Stat::Normal::quantile_01(const double value){
     double clamped_value = std::max(0.0, std::min(1.0, value)); // Clamp to [0, 1]
     if (clamped_value == 0.0) return -std::numeric_limits<float>::infinity();
     if (clamped_value == 1.0) return std::numeric_limits<float>::infinity();
@@ -39,7 +39,7 @@ float Stat::Normal::quantile_01(const double value){
     //return - SQRT_2 * boost::math::erfc_inv(2.0 * value);
 }
 
-float Stat::Normal::pdf_01(const double value) {
+double Stat::Normal::pdf_01(const double value) {
 //    if (std::isinf(value)) {
 //        return 0.0f; // PDF is 0 at +/-inf
 //    }

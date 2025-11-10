@@ -121,6 +121,11 @@ void Options::inputOptions(const int argc, const char* argv[]){
             outLDmatType = "block";
             ss << "--make-block-ldm " << "\n";
         }
+        else if (!strcmp(argv[i], "--make-block-tri-ldm")) {
+            analysisType = "LDmatrix";
+            outLDmatType = "blockTri";
+            ss << "--make-block-tri-ldm " << "\n";
+        }
         else if (!strcmp(argv[i], "--make-block-sparse-ldm")) {
             analysisType = "LDmatrix";
             outLDmatType = "blockSparse";
@@ -623,6 +628,30 @@ void Options::inputOptions(const int argc, const char* argv[]){
         else if (!strcmp(argv[i], "--simu")) {
             simuMode = true;
             ss << "--simu " << "\n";
+        }
+        else if (!strcmp(argv[i], "--calc-rsq-enrich")) {
+            analysisType = "CalcRsqEnrichment";
+            ss << "--calc-rsq-enrich " << "\n";
+        }
+        else if (!strcmp(argv[i], "--calc-hsq-enrich")) {
+            analysisType = "CalcHsqEnrichment";
+            ss << "--calc-hsq-enrich " << "\n";
+        }
+        else if (!strcmp(argv[i], "--calc-pip-enrich")) {
+            analysisType = "CalcPipEnrichment";
+            ss << "--calc-pip-enrich " << "\n";
+        }
+        else if (!strcmp(argv[i], "--calc-rsq-enrich-part")) {
+            analysisType = "CalcRsqEnrichmentPart";
+            ss << "--calc-rsq-enrich-part " << "\n";
+        }
+        else if (!strcmp(argv[i], "--calc-hsq-enrich-part")) {
+            analysisType = "CalcHsqEnrichmentPart";
+            ss << "--calc-hsq-enrich-part " << "\n";
+        }
+        else if (!strcmp(argv[i], "--calc-pip-enrich-part")) {
+            analysisType = "CalcPipEnrichmentPart";
+            ss << "--calc-pip-enrich-part " << "\n";
         }
         else if (!strcmp(argv[i], "--hsq-percentage-model")) {
             if (!strcmp(argv[i+1], "true")) {

@@ -681,8 +681,8 @@ public:
     ///////////// read LD matrix eigen-decomposition data for LD blocks
     void readEigenMatrix(const string &eigenMatrixFile, const float eigenCutoff, const bool readBinary = false, const bool writeLdmTxt = false, const string &outputDir = ".");
     void readBlockLDmatrixAndDoEigenDecomposition(const string &LDmatrixFile, const unsigned block, const float eigenCutoff, const bool writeLdmTxt);
-    void readBlockLdmInfoFile(const string &infoFile);
-    void readBlockLdmSnpInfoFile(const string &snpInfoFile);
+    void readBlockLdmInfoFile(const string &dirname, const unsigned block = 0);
+    void readBlockLdmSnpInfoFile(const string &dirname, const unsigned block = 0);
     void readBlockLDMbinaryFile(const string &svdLDfile, const float eigenCutoff);
     vector<LDBlockInfo *> makeKeptLDBlockInfoVec(const vector<LDBlockInfo *> &ldBlockInfoVec);
     
@@ -738,6 +738,16 @@ public:
     void outputBlockLDmatrixTxt(const string &dirname, const unsigned block);
     
     void resizeBlockLDmatrixAndDoEigenDecomposition(const string &LDmatrixFile, const float eigenCutoff, const float rsqThreshold, const string &title, const bool writeLdmTxt);
+    
+    void readBlockLDmatrix(const string &dirname, const string &blockID, const int32_t blockSize, MatrixXf &ldm);
+    void convertToBlockTriangularMatrix(const string &dirname, const bool writeLdmTxt, const string &title);
+    void outputLDfriends(const MatrixXf &ldm, const LDBlockInfo *blockInfo, const string &outDirname);
+    
+    void calcMarginalEnrichmentPermute(const string &paramStr, const string &title);
+    void calcMarignalEnrichmentJackknife(const string &paramStr, const string &title);
+    void calcJointEnrichmentPermute(const string &paramStr, const string &title);
+    void calcJointEnrichmentJackknife(const string &paramStr, const string &title);
+    void calcJointEnrichmentJackknifeLM(const string &paramStr, const string &title);
 
 };
 

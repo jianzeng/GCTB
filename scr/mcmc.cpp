@@ -483,12 +483,12 @@ void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vecto
         throw("Error: cannot open file " + enrich);
     }
     if (numChains > 1) {
-        out << boost::format("%25s %40s %2s %-15s %-15s %-18s %-12s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "PostProbAboveZero" % "GelmanRubin_R";
-        out2 << boost::format("%25s %40s %2s %-15s %-15s %-18s %-12s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "PostProbAboveOne" % "GelmanRubin_R";
+        out << boost::format("%40s %40s %2s %-15s %-15s %-18s %-12s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "PostProbAboveZero" % "GelmanRubin_R";
+        out2 << boost::format("%40s %40s %2s %-15s %-15s %-18s %-12s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "PostProbAboveOne" % "GelmanRubin_R";
 
     } else {
-        out << boost::format("%25s %40s %2s %-15s %-15s %-18s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "PostProbAboveZero";
-        out2 << boost::format("%25s %40s %2s %-15s %-15s %-18s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "PostProbAboveOne";
+        out << boost::format("%40s %40s %2s %-15s %-15s %-18s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "PostProbAboveZero";
+        out2 << boost::format("%40s %40s %2s %-15s %-15s %-18s\n") % "Parameter" % "Annotation" % "" % "Mean" % "SD " % "PostProbAboveOne";
     }
     for (unsigned i=0; i<paramSetToPrint.size(); ++i) {
         ParamSet *parset = paramSetToPrint[i];
@@ -502,8 +502,8 @@ void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vecto
                 token.getTokens(parset->label, "_");
                 if (token.back() == "Enrichment") {
                     for (unsigned col=0; col<parset->size; ++col) {
-                        out2 << boost::format("%25s %40s %2s %-15.6f %-15.6f %-18.6f ")
-                        % token.front()
+                        out2 << boost::format("%40s %40s %2s %-15.6f %-15.6f %-18.6f ")
+                        % parset->label //token.front()
                         % parset->header[col]
                         % ""
                         % mean[col]
@@ -514,7 +514,7 @@ void MCMC::printSetSummary(const vector<ParamSet*> &paramSetToPrint, const vecto
                     }
                 } else {
                     for (unsigned col=0; col<parset->size; ++col) {
-                        out << boost::format("%25s %40s %2s %-15.6f %-15.6f %-18.6f ")
+                        out << boost::format("%40s %40s %2s %-15.6f %-15.6f %-18.6f ")
                         % parset->label
                         % parset->header[col]
                         % ""

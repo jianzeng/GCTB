@@ -129,6 +129,9 @@ int main(int argc, const char * argv[]) {
                         data.outputBlockLDmatrixTxt(opt.ldmatrixFile, opt.includeBlock);
                     }
                 }
+                else if (opt.outLDmatType == "blockTri") { // only save the lower triangular matrix
+                    data.convertToBlockTriangularMatrix(opt.ldmatrixFile, opt.writeLdmTxt, opt.title);
+                }
                 else if (opt.outLDmatType == "blockSparse") {
                     if (opt.includeSnpFile.empty()) {  // make block sparse LD matrix from block full LD matrix
                         data.readBlockLDmatrixAndMakeItSparse(opt.ldmatrixFile, opt.includeBlock, opt.chisqThreshold, opt.writeLdmTxt);
@@ -274,6 +277,48 @@ int main(int argc, const char * argv[]) {
                 if (!opt.geneMapFile.empty()) data.readGeneMapFile(opt.geneMapFile, opt.flank, opt.genomeBuild);
                 gctb.calcCredibleSets(data, *snpEffects, opt.pipThreshold, opt.pepThreshold, opt.title);
             }
+        }
+        else if (opt.analysisType == "CalcRsqEnrichment") {
+            data.inputNewSnpResults(opt.snpResFile + ".snpRes");
+            data.readAnnotationFile(opt.annotationFile, opt.transpose, true);
+            data.setAnnoInfoVec();
+            data.calcMarignalEnrichmentJackknife("rsq", opt.title);
+            data.calcJointEnrichmentJackknifeLM("rsq", opt.title);
+        }
+        else if (opt.analysisType == "CalcHsqEnrichment") {
+            data.inputNewSnpResults(opt.snpResFile + ".snpRes");
+            data.readAnnotationFile(opt.annotationFile, opt.transpose, true);
+            data.setAnnoInfoVec();
+            data.calcMarignalEnrichmentJackknife("hsq", opt.title);
+            data.calcJointEnrichmentJackknifeLM("hsq", opt.title);
+        }
+        else if (opt.analysisType == "CalcPipEnrichment") {
+            data.inputNewSnpResults(opt.snpResFile + ".snpRes");
+            data.readAnnotationFile(opt.annotationFile, opt.transpose, true);
+            data.setAnnoInfoVec();
+            data.calcMarignalEnrichmentJackknife("pip", opt.title);
+            data.calcJointEnrichmentJackknifeLM("pip", opt.title);
+        }
+        else if (opt.analysisType == "CalcRsqEnrichmentPart") {
+            data.inputNewSnpResults(opt.snpResFile + ".snpRes");
+            data.readAnnotationFile(opt.annotationFile, opt.transpose, true);
+            data.setAnnoInfoVec();
+            data.calcMarignalEnrichmentJackknife("rsq", opt.title);
+            data.calcJointEnrichmentJackknife("rsq", opt.title);
+        }
+        else if (opt.analysisType == "CalcHsqEnrichmentPart") {
+            data.inputNewSnpResults(opt.snpResFile + ".snpRes");
+            data.readAnnotationFile(opt.annotationFile, opt.transpose, true);
+            data.setAnnoInfoVec();
+            data.calcMarignalEnrichmentJackknife("hsq", opt.title);
+            data.calcJointEnrichmentJackknife("hsq", opt.title);
+        }
+        else if (opt.analysisType == "CalcPipEnrichmentPart") {
+            data.inputNewSnpResults(opt.snpResFile + ".snpRes");
+            data.readAnnotationFile(opt.annotationFile, opt.transpose, true);
+            data.setAnnoInfoVec();
+            data.calcMarignalEnrichmentJackknife("pip", opt.title);
+            data.calcJointEnrichmentJackknife("pip", opt.title);
         }
         else if (opt.analysisType == "ConjugateGradient") {
             gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.genMapN, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile, opt.windowFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold, opt.sampleOverlap, opt.imputeN, opt.noscale, opt.binSnp, opt.readLdmTxt);
@@ -439,7 +484,7 @@ int main(int argc, const char * argv[]) {
             throw(" Error: Wrong analysis type: " + opt.analysisType);
         }
     }
-    catch (const string &err_msg) {
+    catch (const std::string &err_msg) {
         cerr << "\n" << err_msg << endl;
     }
     catch (const char *err_msg) {

@@ -200,10 +200,11 @@ void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
     annoEffects.getValues();
     annoJointProb.getValues();
     annoTotalGenVar.getValues();
+    annoJointPerSnpHsqEnrich.getValues();
     annoPerSnpHsqEnrich.getValues();
     if (estimateRsqEnrich) {
         annoPerSnpRsqEnrich.getValues();
-        annoJointPerSnpHsqEnrich.getValues();
+        annoJointPerSnpRsqEnrich.getValues();
     }
     snpHsqPep.getValues();
 
@@ -287,9 +288,7 @@ void MultiChainSBayesRD::sampleUnknowns(const unsigned iter){
     annoJointProb.getValues();
     annoTotalGenVar.getValues();
     annoPerSnpHsqEnrich.getValues();
-    if (estimateRsqEnrich) {
-        annoJointPerSnpHsqEnrich.getValues();
-    }
+    annoJointPerSnpHsqEnrich.getValues();
     snpHsqPep.getValues();
     piAnno.getValues();
     annoPip.getValues();
