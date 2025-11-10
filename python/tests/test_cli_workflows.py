@@ -3,6 +3,7 @@
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
 from click.testing import CliRunner
 
@@ -123,6 +124,32 @@ def test_pip_to_pvalues_roundtrip():
     # Higher PIP should correspond to smaller p-value proxy
     sorted_pairs = sorted(zip(pips, pvals), key=lambda t: t[0], reverse=True)
     assert sorted_pairs[0][1] <= sorted_pairs[-1][1]
+
+
+def test_mcmc_sparse_extraction_helpers():
+    class _StubSamples:
+        storage_mode = "sparse"
+
+        def sparse_data(self):
+            import numpy as np  # local import for stub
+            rows = np.array([0, 1, 1], dtype=np.int32)
+            cols = np.array([0, 0, 2], dtype=np.int32)
+            data = np.array([1.0, 0.5, -0.25], dtype=np.float32)
+            shape = (2, 3)
+            return rows, cols, data, shape
+
+    stub = _StubSamples()
+    rows, cols, vals, shape = workflows.mcmc_samples_sparse_matrix(stub)
+
+    assert rows.tolist() == [0, 1, 1]
+    assert cols.tolist() == [0, 0, 2]
+    assert np.allclose(vals, [1.0, 0.5, -0.25])
+    assert shape == (2, 3)
+
+    if workflows.sp is not None:
+        csr = workflows.mcmc_samples_to_csr(stub)
+        assert csr.shape == (2, 3)
+        assert csr.nnz == 3
 
 
 @pytest.mark.skipif(not TEST_DATA_DIR.exists(), reason="Test data not found")

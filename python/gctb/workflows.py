@@ -8,9 +8,14 @@ tasks that previously lived in the C++ `GCTB` controller.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Sequence, Tuple
 
 import numpy as np
+
+try:
+    import scipy.sparse as sp
+except ImportError:  # pragma: no cover - optional dependency
+    sp = None
 
 from . import _core as gctb
 
@@ -262,4 +267,33 @@ def pip_to_pvalues(pips: Sequence[float], prop_null: float) -> List[float]:
     restored = np.empty_like(p_values)
     restored[sorted_idx] = p_values
     return restored.tolist()
+
+
+def mcmc_samples_sparse_matrix(samples: gctb.McmcSamples) -> Tuple[np.ndarray, np.ndarray, np.ndarray, Tuple[int, int]]:
+    """
+    Retrieve sparse COO data for an MCMC samples object.
+
+    Returns
+    -------
+    rows : ndarray[int]
+    cols : ndarray[int]
+    data : ndarray[float]
+    shape : tuple[int, int]
+    """
+    if samples.storage_mode != "sparse":
+        raise ValueError("Expected sparse storage mode for MCMC samples")
+
+    rows, cols, data, shape = samples.sparse_data()
+    return np.asarray(rows, dtype=np.int32), np.asarray(cols, dtype=np.int32), np.asarray(data, dtype=np.float32), tuple(shape)
+
+
+def mcmc_samples_to_csr(samples: gctb.McmcSamples):
+    """
+    Convert sparse MCMC samples to a SciPy CSR matrix if SciPy is available.
+    """
+    if sp is None:
+        raise RuntimeError("scipy is required to materialise sparse MCMC samples; install scipy to use this helper.")
+
+    rows, cols, data, shape = mcmc_samples_sparse_matrix(samples)
+    return sp.csr_matrix((data, (rows, cols)), shape=shape)
 

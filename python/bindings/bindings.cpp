@@ -8,6 +8,7 @@
 #include <pybind11/stl.h>
 #include <pybind11/eigen.h>
 #include <pybind11/functional.h>
+#include <pybind11/numpy.h>
 
 // Include headers
 #include "data.hpp"
@@ -42,6 +43,7 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("af", &SnpInfo::af, "Allele frequency")
         .def_readwrite("twopq", &SnpInfo::twopq, "2pq")
         .def_readwrite("included", &SnpInfo::included, "Inclusion flag")
+        .def_readwrite("unconverged", &SnpInfo::unconverged, "Flag indicating MCMC non-convergence")
         .def_readwrite("effect", &SnpInfo::effect, "Estimated effect")
         .def_readwrite("pip", &SnpInfo::pip, "Posterior inclusion probability")
         .def_readwrite("varExplained", &SnpInfo::varExplained, "Variance explained")
@@ -684,6 +686,16 @@ PYBIND11_MODULE(_core, m) {
             }
         }, py::arg("window_width"),
            "Compute non-overlapping windows of the specified width")
+        .def("read_unconverged_snplist", [](Data& data, const std::string& filename) {
+            try {
+                data.readUnconvergedSnplist(filename);
+            } catch (const std::string& e) {
+                throw std::runtime_error(e);
+            } catch (const char* e) {
+                throw std::runtime_error(e);
+            }
+        }, py::arg("filename"),
+           "Mark SNPs listed in a .badSNPlist file as unconverged")
         .def_property_readonly("num_windows", [](const Data& data) {
             return data.numWindows;
         }, "Number of windows currently defined")
@@ -821,6 +833,48 @@ PYBIND11_MODULE(_core, m) {
         .def_readonly("posterior_sqr_mean", &McmcSamples::posteriorSqrMean, "Posterior squared mean")
         .def_readonly("pip", &McmcSamples::pip, "Posterior inclusion probability")
         .def_readonly("last_sample", &McmcSamples::lastSample, "Last MCMC sample")
+        .def_property_readonly("storage_mode", [](const McmcSamples& samples) {
+            return samples.storageMode == McmcSamples::dense ? std::string("dense") : std::string("sparse");
+        }, "Underlying storage mode for MCMC samples")
+        .def("dense_matrix", [](const McmcSamples& samples) {
+            if (samples.storageMode != McmcSamples::dense) {
+                throw std::runtime_error("Samples are not stored in dense mode");
+            }
+            py::array_t<float> mat({static_cast<py::ssize_t>(samples.nrow),
+                                    static_cast<py::ssize_t>(samples.ncol)});
+            auto buf = mat.mutable_unchecked<2>();
+            for (py::ssize_t i = 0; i < buf.shape(0); ++i) {
+                for (py::ssize_t j = 0; j < buf.shape(1); ++j) {
+                    buf(i, j) = samples.datMat(i, j);
+                }
+            }
+            return mat;
+        }, "Return samples as a dense numpy array")
+        .def("sparse_data", [](const McmcSamples& samples) {
+            if (samples.storageMode != McmcSamples::sparse) {
+                throw std::runtime_error("Samples are not stored in sparse mode");
+            }
+            const auto& mat = samples.datMatSp;
+            py::ssize_t nnz = static_cast<py::ssize_t>(mat.nonZeros());
+            py::array_t<int> rows(nnz);
+            py::array_t<int> cols(nnz);
+            py::array_t<float> values(nnz);
+            auto rows_mut = rows.mutable_unchecked<1>();
+            auto cols_mut = cols.mutable_unchecked<1>();
+            auto vals_mut = values.mutable_unchecked<1>();
+            py::ssize_t idx = 0;
+            for (int k = 0; k < mat.outerSize(); ++k) {
+                for (SpMat::InnerIterator it(mat, k); it; ++it) {
+                    rows_mut(idx) = static_cast<int>(it.row());
+                    cols_mut(idx) = static_cast<int>(it.col());
+                    vals_mut(idx) = it.value();
+                    ++idx;
+                }
+            }
+            return py::make_tuple(rows, cols, values,
+                                  py::make_tuple(static_cast<py::ssize_t>(samples.nrow),
+                                                 static_cast<py::ssize_t>(samples.ncol)));
+        }, "Return COO-form sparse data (row indices, col indices, values, shape)")
         .def("to_dict", [](const McmcSamples& samples) {
             py::dict d;
             d["label"] = samples.label;
