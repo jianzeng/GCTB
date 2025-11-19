@@ -2804,8 +2804,170 @@ public:
 
 };
 
+// -----------------------------------------------------------------------------------------------
+// SBayesAPP: Bivariate Bayesian Analysis with Annotation and Pleiotropy
+// -----------------------------------------------------------------------------------------------
 
-
+class SBayesAPP : public ApproxBayesC {
+    // Bivariate summary statistics Bayesian model with:
+    // - 4-state inclusion model: [1,1], [1,0], [0,1], [0,0]
+    // - Annotation-based variance components
+    // - LD block structure with eigen decomposition
+public:
+    
+    // 4-state inclusion indicator: [δ₁, δ₂] for each SNP
+    class DeltaBivariate : public ParamSet {
+    public:
+        MatrixXf deltaMatrix;  // nSNPs × 2: [delta1, delta2] for each SNP
+        
+        DeltaBivariate(const vector<string> &header, const string &lab = "DeltaBivariate"):
+        ParamSet(lab, header) {
+            deltaMatrix.setZero(size, 2);
+        }
+    };
+    
+    // Bivariate SNP effects: [β₁, β₂] for each SNP
+    class SnpEffects : public ApproxBayesC::SnpEffects {
+    public:
+        MatrixXf betaMatrix;  // nSNPs × 2: [beta1, beta2] for each SNP
+        MatrixXf alphaMatrix; // nSNPs × 2: [alpha1, alpha2] = delta * beta
+        
+        SnpEffects(const vector<string> &header): ApproxBayesC::SnpEffects(header) {
+            betaMatrix.setZero(size, 2);
+            alphaMatrix.setZero(size, 2);
+        }
+        
+        // Sample bivariate SNP effects with 4-state inclusion model
+        void sampleFromFC(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, 
+                          vector<VectorXf> &whatBlocks, const vector<LDBlockInfo*> &keptLdBlockInfoVec,
+                          const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
+                          const vector<Matrix2f> &A_vec, const PiBivariate &Pi,
+                          const VectorXf &snp2pq, const MatrixXf &annoMat,
+                          const vector<Matrix2f> &R_blk);
+    };
+    
+    // 4-state inclusion probabilities per annotation category
+    // States: 0=[1,1], 1=[1,0], 2=[0,1], 3=[0,0]
+    class PiBivariate : public vector<ParamSet*> {
+    public:
+        vector<VectorXf> piVec;  // per category: VectorXf(4) with probabilities for [1,1], [1,0], [0,1], [0,0]
+        VectorXf alphaVec;  // Dirichlet hyperparameters (size 4)
+        unsigned numCategories;
+        
+        PiBivariate(const vector<string> &header, const unsigned nCat):
+        numCategories(nCat) {
+            alphaVec = VectorXf::Ones(4);
+            
+            for (unsigned c = 0; c < numCategories; ++c) {
+                VectorXf pi_c = VectorXf::Constant(4, 0.25);  // uniform prior
+                piVec.push_back(pi_c);
+            }
+        }
+        
+        // Get probability for state [δ₁, δ₂]
+        // States: 0=[1,1], 1=[1,0], 2=[0,1], 3=[0,0]
+        float getPi(unsigned cat, float delta1, float delta2) const {
+            unsigned idx = (delta1 < 0.5 ? 2 : 0) + (delta2 < 0.5 ? 1 : 0);
+            return piVec[cat][idx];
+        }
+        
+        void sampleFromFC(const vector<VectorXf> &nLociCounts);  // counts per category (each VectorXf size 4)
+    };
+    
+    // Bivariate marker effect variance matrix (2×2) per annotation category
+    class VarEffectsBivariate : public vector<Parameter*> {
+    public:
+        vector<Matrix2f> A_vec;  // per category: 2×2 covariance matrix
+        vector<Matrix2f> Ainv_vec;  // inverse matrices
+        
+        VarEffectsBivariate(const unsigned numCategories, const float varGenotypic1, 
+                           const float varGenotypic2, const VectorXf &nLociAnno):
+        numCategories(numCategories) {
+            A_vec.resize(numCategories);
+            Ainv_vec.resize(numCategories);
+            
+            for (unsigned c = 0; c < numCategories; ++c) {
+                // Initialize with scaled heritability estimates
+                float scale = nLociAnno[c] / nLociAnno.sum();
+                A_vec[c] << varGenotypic1 * scale, 0.0,
+                           0.0, varGenotypic2 * scale;
+                Ainv_vec[c] = A_vec[c].inverse();
+            }
+        }
+        
+        void sampleFromFC(const vector<Matrix2f> &SSE_vec, const VectorXf &nLociAnno);
+        
+        unsigned numCategories;
+    };
+    
+    // Bivariate residual variance matrix (2×2) per LD block
+    class ResidualVarBivariate : public ParamSet {
+    public:
+        vector<Matrix2f> R_blk;  // per block: 2×2 residual covariance
+        Matrix2f Rprior;  // prior matrix
+        const float df_R;
+        Matrix2f scale_R;
+        
+        ResidualVarBivariate(const vector<string> &header, const float varPhenotypic1,
+                            const float varPhenotypic2, const string &lab = "ResidualVarBivariate"):
+        ParamSet(lab, header), df_R(6) {  // df = 4 + nTraits
+            Rprior << varPhenotypic1, 0.0,
+                     0.0, varPhenotypic2;
+            scale_R = Rprior * (df_R - 3);  // df_R - nTraits - 1
+            R_blk.resize(size);
+            for (unsigned b = 0; b < size; ++b) {
+                R_blk[b] = Rprior;
+            }
+        }
+        
+        void sampleFromFC(vector<VectorXf> &wcorrBlocks, const VectorXf &nGWASblocks,
+                          const VectorXf &numEigenvalBlock);
+    };
+    
+    // Bivariate genetic variance matrix (2×2) per annotation category
+    class GenotypicVarBivariate : public vector<ParamSet*> {
+    public:
+        vector<Matrix2f> G_vec;  // per category: 2×2 genetic covariance
+        
+        GenotypicVarBivariate(const vector<string> &header, const unsigned numCategories):
+        numCategories(numCategories) {
+            G_vec.resize(numCategories);
+            for (unsigned c = 0; c < numCategories; ++c) {
+                G_vec[c].setZero();
+            }
+        }
+        
+        void compute(const vector<VectorXf> &whatBlocks, const vector<MatrixXf> &Qblocks,
+                    const vector<LDBlockInfo*> &keptLdBlockInfoVec,
+                    const MatrixXf &alphaMatrix, const MatrixXf &annoMatrix);
+        
+        unsigned numCategories;
+    };
+    
+    SnpEffects snpEffects;
+    DeltaBivariate delta;
+    PiBivariate pi;
+    VarEffectsBivariate sigmaSq;
+    ResidualVarBivariate vare;
+    GenotypicVarBivariate varg;
+    
+    // Total genetic variance (sum across categories)
+    Matrix2f vargTotal;
+    
+    SBayesAPP(const Data &data, const bool lowrank, const float varGenotypic1, 
+              const float varGenotypic2, const float varResidual1, const float varResidual2,
+              const VectorXf &nLociAnno, const bool estimatePi, const bool estimateVare,
+              const bool estimateVara, const bool message = true);
+    
+    void sampleUnknowns(void);
+    void sampleStartVal(void);
+    
+private:
+    bool estimatePi;
+    bool estimateVare;
+    bool estimateVara;
+    unsigned numCategories;
+};
 
 #endif /* model_hpp */
 

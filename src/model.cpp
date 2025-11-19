@@ -7477,3 +7477,455 @@ void BayesRC::sampleUnknowns(){
 //    }
 }
 
+// ============================================================================
+// SBayesAPP: Bivariate Bayesian Analysis with Annotation and Pleiotropy
+// ============================================================================
+
+// Helper function to sample from Inverse-Wishart distribution (2x2)
+// X ~ InvWishart(df, scale) means: X^-1 ~ Wishart(df, scale^-1)
+static Matrix2f sampleInverseWishart2x2(float df, const Matrix2f &scale) {
+    // Sample from Wishart(df, scale^-1) then invert
+    Matrix2f scaleInv = scale.inverse();
+    
+    // Sample from Wishart(df, scaleInv) using Bartlett decomposition
+    // For 2x2 Wishart: W = L * L' where L is lower triangular
+    Matrix2f L;
+    L.setZero();
+    
+    // L[0,0] ~ sqrt(Chi^2(df)) where Chi^2(df) = Gamma(df/2, 2)
+    float chi2_0 = Stat::Gamma::sample(0.5f * df, 2.0f);
+    L(0,0) = sqrtf(chi2_0);
+    
+    // L[1,0] ~ N(0, 1) (standard normal)
+    L(1,0) = Stat::snorm();
+    
+    // L[1,1] ~ sqrt(Chi^2(df-1))
+    float chi2_1 = Stat::Gamma::sample(0.5f * (df - 1.0f), 2.0f);
+    L(1,1) = sqrtf(chi2_1);
+    
+    // Scale by Cholesky of scaleInv
+    LLT<Matrix2f> chol(scaleInv);
+    if (chol.info() != Success) {
+        // If Cholesky fails, use identity
+        Matrix2f W = L * L.transpose();
+        return W.inverse();
+    }
+    Matrix2f L_scale = chol.matrixL();
+    L = L_scale * L;
+    
+    Matrix2f W = L * L.transpose();
+    return W.inverse();
+}
+
+// Constructor
+SBayesAPP::SBayesAPP(const Data &data, const bool lowrank, const float varGenotypic1, 
+                     const float varGenotypic2, const float varResidual1, const float varResidual2,
+                     const VectorXf &nLociAnno, const bool estPi, const bool estVare,
+                     const bool estVara, const bool message):
+ApproxBayesC(data, lowrank, varGenotypic1, varResidual1, 0.0, 0.01, 1.0, 1.0, false, false, 0, 0, false, 0, 0, false, false, false, false),
+snpEffects(data.snpEffectNames),
+delta(data.snpEffectNames),
+pi(data.annoNames.size() > 0 ? data.annoNames : vector<string>(1, "Category1"), 
+   data.numAnnos > 0 ? data.numAnnos : 1),
+sigmaSq(data.numAnnos > 0 ? data.numAnnos : 1, varGenotypic1, varGenotypic2, 
+        nLociAnno.size() > 0 ? nLociAnno : VectorXf::Constant(1, data.numIncdSnps)),
+vare(data.keptLdBlockInfoVec.size() > 0 ? data.ldblockNames : vector<string>(1, "ResidualVar"), 
+     varResidual1, varResidual2),
+varg(data.annoNames.size() > 0 ? data.annoNames : vector<string>(1, "Category1"), 
+     data.numAnnos > 0 ? data.numAnnos : 1),
+estimatePi(estPi),
+estimateVare(estVare),
+estimateVara(estVara),
+numCategories(data.numAnnos > 0 ? data.numAnnos : 1)
+{
+    vargTotal.setZero();
+    
+    paramSetVec = {&snpEffects, &delta, &fixedEffects};
+    paramVec = {&nnzSnp};
+    paramToPrint = {&nnzSnp};
+    
+    if (lowRankModel) {
+        paramSetVec.push_back(&vargBlk);
+        paramSetVec.push_back(&vareBlk);
+    }
+    
+    if (message) {
+        cout << "\nSBayesAPP: Bivariate Bayesian Analysis with Annotation and Pleiotropy" << endl;
+        cout << "Number of annotation categories: " << numCategories << endl;
+        cout << "Estimate Pi: " << (estimatePi ? "Yes" : "No") << endl;
+        cout << "Estimate residual variance: " << (estimateVare ? "Yes" : "No") << endl;
+        cout << "Estimate marker variance: " << (estimateVara ? "Yes" : "No") << endl;
+    }
+}
+
+void SBayesAPP::sampleStartVal(void) {
+    // Initialize starting values
+    delta.deltaMatrix.setZero();
+    snpEffects.betaMatrix.setZero();
+    snpEffects.alphaMatrix.setZero();
+    
+    // Initialize Pi with uniform probabilities
+    for (unsigned c = 0; c < numCategories; ++c) {
+        pi.piVec[c] = VectorXf::Constant(4, 0.25);
+    }
+}
+
+void SBayesAPP::PiBivariate::sampleFromFC(const vector<VectorXf> &nLociCounts) {
+    // Sample from Dirichlet distribution for each category
+    for (unsigned c = 0; c < numCategories; ++c) {
+        VectorXf counts = nLociCounts[c];
+        VectorXf alpha = counts.array() + alphaVec.array();
+        piVec[c] = Stat::Dirichlet().sample(4, alpha);
+    }
+}
+
+void SBayesAPP::VarEffectsBivariate::sampleFromFC(const vector<Matrix2f> &SSE_vec, const VectorXf &nLociAnno) {
+    // Sample from Inverse-Wishart for each category
+    const float df_G = 6.0f;  // df = 4 + nTraits
+    
+    for (unsigned c = 0; c < numCategories; ++c) {
+        // Compute prior scale from current A_vec
+        Matrix2f scale_G = A_vec[c] * (df_G - 3.0f);  // df_G - nTraits - 1
+        Matrix2f SSE = SSE_vec[c];
+        Matrix2f scale_tilde = scale_G + SSE;
+        
+        // Ensure scale_tilde is positive definite
+        LLT<Matrix2f> chol(scale_tilde);
+        if (chol.info() != Success) {
+            // If not positive definite, add small value to diagonal
+            scale_tilde(0,0) += 0.01f;
+            scale_tilde(1,1) += 0.01f;
+        }
+        
+        A_vec[c] = sampleInverseWishart2x2(df_G + nLociAnno[c], scale_tilde);
+        Ainv_vec[c] = A_vec[c].inverse();
+    }
+}
+
+void SBayesAPP::ResidualVarBivariate::sampleFromFC(vector<VectorXf> &wcorrBlocks, const VectorXf &nGWASblocks,
+                                                    const VectorXf &numEigenvalBlock) {
+    // Sample residual variance per block, then average
+    unsigned nBlocks = wcorrBlocks.size();
+    
+    // Compute SSE for each block
+    Matrix2f SSE_total = Matrix2f::Zero();
+    float nTotal = 0.0;
+    
+    for (unsigned b = 0; b < nBlocks; ++b) {
+        unsigned nEigen = wcorrBlocks[b].size() / 2;  // Assuming wcorr is [w1; w2]
+        VectorXf w1 = wcorrBlocks[b].segment(0, nEigen);
+        VectorXf w2 = wcorrBlocks[b].segment(nEigen, nEigen);
+        
+        float n1 = nGWASblocks[b];
+        float n2 = nGWASblocks[b];
+        
+        // Compute SSE as in Julia: dot(ycorri, ycorrj) * sqrt(nInd[i] * nInd[j])
+        Matrix2f SSE_blk;
+        SSE_blk(0,0) = w1.dot(w1) * sqrtf(n1);
+        SSE_blk(1,1) = w2.dot(w2) * sqrtf(n2);
+        SSE_blk(0,1) = SSE_blk(1,0) = w1.dot(w2) * sqrtf(n1 * n2);
+        
+        Matrix2f scale_tilde = scale_R + SSE_blk;
+        
+        // Ensure positive definite
+        LLT<Matrix2f> chol(scale_tilde);
+        if (chol.info() != Success) {
+            scale_tilde(0,0) += 0.01f;
+            scale_tilde(1,1) += 0.01f;
+        }
+        
+        R_blk[b] = sampleInverseWishart2x2(df_R + numEigenvalBlock[b], scale_tilde);
+        SSE_total += SSE_blk;
+        nTotal += numEigenvalBlock[b];
+    }
+    
+    // Average across blocks for next iteration (as in Julia code)
+    Matrix2f R_mean = Matrix2f::Zero();
+    for (unsigned b = 0; b < nBlocks; ++b) {
+        R_mean += R_blk[b];
+    }
+    R_mean /= nBlocks;
+    
+    // Update all blocks with mean
+    for (unsigned b = 0; b < nBlocks; ++b) {
+        R_blk[b] = R_mean;
+    }
+}
+
+void SBayesAPP::GenotypicVarBivariate::compute(const vector<VectorXf> &whatBlocks, const vector<MatrixXf> &Qblocks,
+                                                const vector<LDBlockInfo*> &keptLdBlockInfoVec,
+                                                const MatrixXf &alphaMatrix, const MatrixXf &annoMatrix) {
+    // Compute genetic variance per category
+    unsigned nBlocks = keptLdBlockInfoVec.size();
+    
+    // Reset
+    for (unsigned c = 0; c < numCategories; ++c) {
+        G_vec[c].setZero();
+    }
+    
+    for (unsigned b = 0; b < nBlocks; ++b) {
+        LDBlockInfo *blockInfo = keptLdBlockInfoVec[b];
+        unsigned blockStart = blockInfo->startSnpIdx;
+        unsigned blockEnd = blockInfo->endSnpIdx;
+        
+        Ref<const MatrixXf> Q = Qblocks[b];
+        
+        for (unsigned c = 0; c < numCategories; ++c) {
+            VectorXf what1_c = VectorXf::Zero(Q.rows());
+            VectorXf what2_c = VectorXf::Zero(Q.rows());
+            
+            for (unsigned i = blockStart; i <= blockEnd; ++i) {
+                if (annoMatrix(i, c) != 0.0) {  // SNP in this category
+                    Ref<const VectorXf> Qi = Q.col(i - blockStart);
+                    what1_c += Qi * alphaMatrix(i, 0);
+                    what2_c += Qi * alphaMatrix(i, 1);
+                }
+            }
+            
+            G_vec[c](0,0) += what1_c.dot(what1_c);
+            G_vec[c](1,1) += what2_c.dot(what2_c);
+            G_vec[c](0,1) = G_vec[c](1,0) += what1_c.dot(what2_c);
+        }
+    }
+}
+
+void SBayesAPP::SnpEffects::sampleFromFC(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, 
+                                         vector<VectorXf> &whatBlocks, const vector<LDBlockInfo*> &keptLdBlockInfoVec,
+                                         const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
+                                         const vector<Matrix2f> &A_vec, const PiBivariate &Pi,
+                                         const VectorXf &snp2pq, const MatrixXf &annoMat,
+                                         const vector<Matrix2f> &R_blk) {
+    
+    unsigned nBlocks = keptLdBlockInfoVec.size();
+    whatBlocks.resize(nBlocks);
+    for (unsigned i = 0; i < nBlocks; ++i) {
+        whatBlocks[i].resize(wcorrBlocks[i].size());
+        whatBlocks[i].setZero();
+    }
+    
+    // Random numbers for sampling
+    vector<float> urnd(size);
+    vector<Vector2f> nrnd(size);
+    for (unsigned i = 0; i < size; ++i) {
+        urnd[i] = Stat::ranf();
+        nrnd[i][0] = Stat::snorm();
+        nrnd[i][1] = Stat::snorm();
+    }
+    
+    // Process each block
+    for (unsigned blk = 0; blk < nBlocks; ++blk) {
+        Ref<const MatrixXf> Q = Qblocks[blk];
+        Ref<VectorXf> wcorr = wcorrBlocks[blk];
+        Ref<VectorXf> what = whatBlocks[blk];
+        
+        LDBlockInfo *blockInfo = keptLdBlockInfoVec[blk];
+        unsigned blockStart = blockInfo->startSnpIdx;
+        unsigned blockEnd = blockInfo->endSnpIdx;
+        
+        float nInd = nGWASblocks[blk];
+        float vare_blk = vareBlocks[blk];
+        
+        // Get R for this block and normalize by sample size
+        Matrix2f R = R_blk[blk];
+        for (unsigned traiti = 0; traiti < 2; ++traiti) {
+            for (unsigned traitj = traiti; traitj < 2; ++traitj) {
+                R(traiti, traitj) = R(traiti, traitj) / sqrtf(nInd * nInd);
+                R(traitj, traiti) = R(traiti, traitj);
+            }
+        }
+        Matrix2f Rinv = R.inverse();
+        
+        // Shuffle marker order
+        vector<unsigned> markerOrder;
+        for (unsigned i = blockStart; i <= blockEnd; ++i) {
+            markerOrder.push_back(i);
+        }
+        random_shuffle(markerOrder.begin(), markerOrder.end());
+        
+        for (unsigned idx = 0; idx < markerOrder.size(); ++idx) {
+            unsigned i = markerOrder[idx];
+            Ref<const VectorXf> Qi = Q.col(i - blockStart);
+            
+            // Get annotation categories for this SNP
+            VectorXf annoVec = annoMat.row(i).transpose();
+            
+            // Current values
+            Vector2f beta_old, alpha_old, delta_old;
+            beta_old[0] = betaMatrix(i, 0);
+            beta_old[1] = betaMatrix(i, 1);
+            delta_old[0] = deltaMatrix(i, 0);
+            delta_old[1] = deltaMatrix(i, 1);
+            alpha_old = delta_old.cwiseProduct(beta_old);
+            
+            // Compute w = Q' * (ycorr + Q * alpha_old) - from Julia: w = dot(x, wArray[trait]) + xpx * oldAlpha
+            unsigned nEigen = wcorr.size() / 2;
+            Vector2f w;
+            w[0] = Qi.dot(wcorr.segment(0, nEigen)) + Qi.dot(Qi) * alpha_old[0];
+            w[1] = Qi.dot(wcorr.segment(nEigen, nEigen)) + Qi.dot(Qi) * alpha_old[1];
+            
+            float xpx = Qi.dot(Qi);
+            
+            // Find which category this SNP belongs to (assume one primary category)
+            unsigned cat = 0;
+            for (unsigned c = 0; c < annoVec.size(); ++c) {
+                if (annoVec[c] != 0.0) {
+                    cat = c;
+                    break;
+                }
+            }
+            
+            Matrix2f Ginv = A_vec[cat].inverse();
+            
+            // Sample delta and beta for each trait (as in Julia: TraitOrder = shuffle(1:nTraits))
+            vector<unsigned> traitOrder = {0, 1};
+            random_shuffle(traitOrder.begin(), traitOrder.end());
+            
+            Vector2f delta_new = delta_old;
+            Vector2f beta_new = beta_old;
+            Vector2f alpha_new = alpha_old;
+            
+            for (unsigned k_idx = 0; k_idx < 2; ++k_idx) {
+                unsigned k = traitOrder[k_idx];
+                unsigned nok = 1 - k;
+                
+                float Ginv11 = Ginv(k, k);
+                float Ginv12 = Ginv(k, nok);
+                
+                // When delta[k] = 0
+                float invLhs0 = 1.0f / Ginv11;
+                float rhs0 = -Ginv12 * beta_new[nok];
+                float gHat0 = rhs0 * invLhs0;
+                
+                // When delta[k] = 1
+                float C11 = Ginv11 + Rinv(k, k) * xpx;
+                float C12 = Ginv12 + xpx * delta_new[nok] * Rinv(k, nok);
+                float invLhs1 = 1.0f / C11;
+                Vector2f w_vec;
+                w_vec << w[0], w[1];
+                float rhs1 = w_vec.dot(Rinv.col(k)) - C12 * beta_new[nok];
+                float gHat1 = rhs1 * invLhs1;
+                
+                // Compute log probabilities
+                Vector2f d0 = delta_new;
+                Vector2f d1 = delta_new;
+                d0[k] = 0.0;
+                d1[k] = 1.0;
+                
+                float logDelta0 = -0.5f * (logf(Ginv11) - gHat0*gHat0*Ginv11) + logf(Pi.getPi(cat, d0[0], d0[1]));
+                float logDelta1 = -0.5f * (logf(C11) - gHat1*gHat1*C11) + logf(Pi.getPi(cat, d1[0], d1[1]));
+                float probDelta1 = 1.0f / (1.0f + expf(logDelta0 - logDelta1));
+                
+                // Sample delta[k]
+                if (urnd[i] < probDelta1) {
+                    delta_new[k] = 1.0;
+                    beta_new[k] = gHat1 + nrnd[i][k] * sqrtf(invLhs1);
+                    alpha_new[k] = beta_new[k];
+                    wcorr.segment(k * nEigen, nEigen) += Qi * (alpha_old[k] - alpha_new[k]);
+                } else {
+                    delta_new[k] = 0.0;
+                    beta_new[k] = gHat0 + nrnd[i][k] * sqrtf(invLhs0);
+                    alpha_new[k] = 0.0;
+                    if (alpha_old[k] != 0.0) {
+                        wcorr.segment(k * nEigen, nEigen) += Qi * alpha_old[k];
+                    }
+                }
+            }
+            
+            // Store final values
+            deltaMatrix(i, 0) = delta_new[0];
+            deltaMatrix(i, 1) = delta_new[1];
+            betaMatrix(i, 0) = beta_new[0];
+            betaMatrix(i, 1) = beta_new[1];
+            alphaMatrix(i, 0) = alpha_new[0];
+            alphaMatrix(i, 1) = alpha_new[1];
+            
+            // Update what
+            what.segment(0, nEigen) += Qi * alpha_new[0];
+            what.segment(nEigen, nEigen) += Qi * alpha_new[1];
+        }
+    }
+}
+
+void SBayesAPP::sampleUnknowns(void) {
+    // Main MCMC sampling loop
+    
+    // 1. Sample SNP effects (delta and beta)
+    snpEffects.sampleFromFC(wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec,
+                           data.nGWASblock, vareBlk.values, sigmaSq.A_vec, pi,
+                           data.snp2pq, data.annoMat, vare.R_blk);
+    
+    // 2. Count loci in each state per category
+    vector<VectorXf> nLociCounts(numCategories);
+    for (unsigned c = 0; c < numCategories; ++c) {
+        nLociCounts[c] = VectorXf::Zero(4);
+    }
+    
+    for (unsigned i = 0; i < size; ++i) {
+        Vector2f d;
+        d << delta.deltaMatrix(i, 0), delta.deltaMatrix(i, 1);
+        // Find which category this SNP belongs to (primary category)
+        for (unsigned c = 0; c < numCategories; ++c) {
+            if (data.annoMat(i, c) != 0.0) {
+                unsigned idx = (d[0] < 0.5 ? 2 : 0) + (d[1] < 0.5 ? 1 : 0);
+                nLociCounts[c][idx] += 1.0;
+                break;  // Assume SNP in one primary category
+            }
+        }
+    }
+    
+    // 3. Sample Pi
+    if (estimatePi) {
+        pi.sampleFromFC(nLociCounts);
+    }
+    
+    // 4. Compute SSE for variance sampling (sum of beta*beta for each category)
+    vector<Matrix2f> SSE_vec(numCategories);
+    for (unsigned c = 0; c < numCategories; ++c) {
+        SSE_vec[c].setZero();
+        for (unsigned i = 0; i < size; ++i) {
+            if (data.annoMat(i, c) != 0.0) {
+                Vector2f beta;
+                beta << snpEffects.betaMatrix(i, 0), snpEffects.betaMatrix(i, 1);
+                SSE_vec[c](0,0) += beta[0] * beta[0];
+                SSE_vec[c](1,1) += beta[1] * beta[1];
+                SSE_vec[c](0,1) += beta[0] * beta[1];
+            }
+        }
+        SSE_vec[c](1,0) = SSE_vec[c](0,1);
+    }
+    
+    // 5. Sample marker effect variance
+    if (estimateVara) {
+        // Compute nLociAnno (number of loci per annotation)
+        VectorXf nLociAnno(numCategories);
+        for (unsigned c = 0; c < numCategories; ++c) {
+            nLociAnno[c] = data.annoMat.col(c).sum();
+        }
+        sigmaSq.sampleFromFC(SSE_vec, nLociAnno);
+    }
+    
+    // 6. Sample residual variance
+    if (estimateVare) {
+        vare.sampleFromFC(wcorrBlocks, data.nGWASblock, data.numEigenvalBlock);
+    }
+    
+    // 7. Compute genetic variance
+    varg.compute(whatBlocks, data.Qblocks, data.keptLdBlockInfoVec,
+                 snpEffects.alphaMatrix, data.annoMat);
+    
+    // 8. Compute total genetic variance
+    vargTotal.setZero();
+    for (unsigned c = 0; c < numCategories; ++c) {
+        vargTotal += varg.G_vec[c];
+    }
+    
+    // Update nnz
+    unsigned nnz = 0;
+    for (unsigned i = 0; i < size; ++i) {
+        float d0 = delta.deltaMatrix(i, 0);
+        float d1 = delta.deltaMatrix(i, 1);
+        if (d0 > 0.5 || d1 > 0.5) ++nnz;
+    }
+    nnzSnp.getValue(nnz);
+}
+
