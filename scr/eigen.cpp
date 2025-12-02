@@ -1845,15 +1845,15 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
         //MatrixDat matrixDat = MatrixDat(block->snpNameVec, tmpQblocks);
         Qblocks[i] = sqrtLambda.asDiagonal() * eigenVecLdBlock[i].transpose();
         
-        if (noscale) {
-            VectorXf Dsqrt(block->numSnpInBlock);
-            for (unsigned j=0; j<block->numSnpInBlock; ++j) {
-                SnpInfo *snp = block->snpInfoVec[j];
-                //Dsqrt[j] = sqrt(snp->twopq);
-                Dsqrt[j] = snp->gwas_scalar;
-            }
-            Qblocks[i] = Qblocks[i] * Dsqrt.asDiagonal();
-        }
+        // if (noscale) {
+        //     VectorXf Dsqrt(block->numSnpInBlock);
+        //     for (unsigned j=0; j<block->numSnpInBlock; ++j) {
+        //         SnpInfo *snp = block->snpInfoVec[j];
+        //         Dsqrt[j] = sqrt(snp->twopq)*snp->gwas_scalar;
+        //         //Dsqrt[j] = snp->gwas_scalar;
+        //     }
+        //     Qblocks[i] = Qblocks[i] * Dsqrt.asDiagonal();
+        // }
 
         numSnpsBlock[i] = Qblocks[i].cols();
         numEigenvalBlock[i] = Qblocks[i].rows();
@@ -2611,6 +2611,11 @@ void Data::scaleGwasEffects(){
         }
     }
     
+    // calculate ypy (total sum of squares) for summary statistics
+    // ypy = mean phenotypic variance which is one after scaling * number of individuals
+    ypy = numKeptInds;
+
+
     // output GWAS data
 //    string outfile = "ma.txt";
 //    ofstream out(outfile.c_str());

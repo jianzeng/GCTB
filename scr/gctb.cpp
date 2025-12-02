@@ -40,7 +40,7 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &include
 }
 
 void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const float genMapN, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile, const string &windowFile, const bool multiLDmat, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const float rsqThreshold, const bool sampleOverlap, const bool imputeN, const bool noscale, const bool binSnp, const bool readLDMfromTxtFile){
-    if (multiLDmat)
+     if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
         data.readLDmatrixInfoFile(ldmatrixFile + ".info");

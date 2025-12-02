@@ -1199,7 +1199,7 @@ void Data::buildSparseMME(const string &bedFile, const unsigned windowWidth){
 
 void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const bool noscale, const string &filename) const {
     ofstream out(filename.c_str());
-    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s ")
+    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s %8s")
     % "Index"
     % "Name"
     % "Chrom"
@@ -1209,7 +1209,8 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
     % "A1Frq"
     % "A1Effect"
     % "SE"
-    % "VarExplained";
+    % "VarExplained"
+    % "PIP";
     if (makeWindows) out << boost::format("%8s") % "Window";
     out << endl;
     for (unsigned i=0, idx=0; i<numSnps; ++i) {
@@ -1636,28 +1637,32 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
             snp = snpInfoVec[i];
             if (snp->included && snp->gwas_n != -999) ++size;
         }
-        ArrayXf perSnpN(size);
-        vector<SnpInfo*> snpvec(size);
-        for (unsigned i=0, j=0; i<numSnps; ++i) {
-            snp = snpInfoVec[i];
-            if (snp->included && snp->gwas_n != -999) {
-                perSnpN[j] = snp->gwas_n;
-                snpvec[j] = snp;
-                ++j;
+        if (size == 0) {
+            cout << "Warning: No SNPs with valid sample sizes found. Skipping outlier removal based on sample size." << endl;
+        } else if (size > 0) {
+            ArrayXf perSnpN(size);
+            vector<SnpInfo*> snpvec(size);
+            for (unsigned i=0, j=0; i<numSnps; ++i) {
+                snp = snpInfoVec[i];
+                if (snp->included && snp->gwas_n != -999) {
+                    perSnpN[j] = snp->gwas_n;
+                    snpvec[j] = snp;
+                    ++j;
+                }
             }
-        }
-        
-        float n_med = Gadget::findMedian(perSnpN);
-        float sd = sqrt(Gadget::calcVariance(perSnpN));
-        for (unsigned i=0; i<size; ++i) {
-            snp = snpvec[i];
-            if (perSnpN[i] < n_med - 3*sd || perSnpN[i] > n_med + 3*sd) {
-                snp->included = false;
-                ++numOutlierN;
+            
+            float n_med = Gadget::findMedian(perSnpN);
+            float sd = sqrt(Gadget::calcVariance(perSnpN));
+            for (unsigned i=0; i<size; ++i) {
+                snp = snpvec[i];
+                if (perSnpN[i] < n_med - 3*sd || perSnpN[i] > n_med + 3*sd) {
+                    snp->included = false;
+                    ++numOutlierN;
+                }
             }
+            
+            match -= numOutlierN;
         }
-        
-        match -= numOutlierN;
     }
     
     numIncdSnps = 0;
@@ -4243,8 +4248,7 @@ void Data::buildSparseMME(const bool sampleOverlap, const bool noscale){
 //    }
 //    out.close();
 
-    if (numAnnos) setAnnoInfoVec();
-
+    if (numAnnos) setAnnoInfoVec();    
 }
 
 

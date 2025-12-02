@@ -1103,7 +1103,10 @@ public:
     
     class ResidualVar : public BayesC::ResidualVar {
     public:
-        ResidualVar(const float vare, const unsigned nobs): BayesC::ResidualVar(vare, nobs){}
+        unsigned nNegVal;
+        ResidualVar(const float vare, const unsigned nobs): BayesC::ResidualVar(vare, nobs){
+            nNegVal = 0;
+        }
         
         void sampleFromFC(const float ypy, const VectorXf &effects, const VectorXf &ZPy, const VectorXf &rcorr, string &message);
     };
@@ -1418,6 +1421,17 @@ public:
                           const VectorXf &snp2pqPowS, const VectorXf &snp2pq);
 
     };
+
+    class Sp : public BayesS::Sp {
+    public:
+        Sp(const unsigned m, const float var, const float start, const string &alg): BayesS::Sp(m, var, start, alg){}
+        
+        void sampleFromFC(const float snpEffWtdSumSq, const unsigned numNonZeros, float &sigmaSq, const VectorXf &snpEffects,
+                          const VectorXf &snp2pq, ArrayXf &snp2pqPowS, const ArrayXf &logSnp2pq,
+                          const float vg, float &scale, bool scaledGeno);
+        float gradientU(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float sigmaSq, const float vg, bool scaledGeno);
+        float computeU(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float sigmaSq, const float vg, float &scale, float &U_chisq, bool scaledGeno);
+   };
     
     class MeanEffects : public Parameter, public Stat::Normal {
     public:
@@ -1449,6 +1463,7 @@ public:
 
 public:
     VectorXf rcorr;
+    ArrayXf snp2pqPowSplusOne;
         
     bool sparse;
     bool robustMode;
@@ -1456,6 +1471,7 @@ public:
     bool estimateEffectMean;
 
     SnpEffects snpEffects;
+    Sp S;
     ApproxBayesC::ResidualVar vare;
     ApproxBayesC::GenotypicVar varg;
     ApproxBayesC::Rounding rounding;
@@ -1468,6 +1484,8 @@ public:
 
     MeanEffects mu;
     Smu Su;
+
+    bool scaledGeno;
         
     ApproxBayesS(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi,
                  const float varS, const vector<float> &svalue,
@@ -1476,6 +1494,7 @@ public:
     , rcorr(data.ZPy)
     , wcorrBlocks(data.wcorrBlocks)
     , snpEffects(data.snpEffectNames, data.snp2pq, pival)
+    , S(data.numIncdSnps, varS, svalue[0], algorithm)
     , vare(varResidual, data.numKeptInds)
     , varg(varGenotypic, data.numKeptInds)
     , mu(data.numIncdSnps)
@@ -1486,22 +1505,28 @@ public:
     , sparse(data.sparseLDM)
     , lowRankModel(lowRank)
    {
+        scaledGeno = false;
+        if (lowRankModel) scaledGeno = true;
+
+        snp2pqPowSplusOne = data.snp2pq.array().pow(S.value + 1.0f);        
+        sigmaSq.value = varGenotypic/(snp2pqPowSplusOne.sum()*pival);
+        scale.value = sigmaSq.scale = 0.5*sigmaSq.value;
+
         estimateEffectMean = false;
-        
-        paramSetVec = {&snpEffects, &snpPip};
+
+        if (scaledGeno) {
+            snp2pqPowS = snp2pqPowSplusOne;
+        }
+    
+        // Override paramVec to use ApproxBayesS's own varg and vare members
+        paramSetVec = {&snpEffects, &fixedEffects, &snpPip};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &varg, &vare, &hsq};
-        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &varg, &vare, &hsq, &S.ar, &S.tuner};
-       
-       if (lowRankModel) {
-           paramSetVec.push_back(&vargBlk);
-           paramSetVec.push_back(&vareBlk);
-           paramToPrint.push_back(&nBadSnps);
-       }
-        if (estimateEffectMean) {
-            paramVec.push_back(&mu);
-            paramVec.push_back(&Su);
-            paramToPrint.push_back(&mu);
-            paramToPrint.push_back(&Su);
+        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &scale, &S, &varg, &vare, &hsq, &S.ar, &S.tuner};
+        if (data.numRandomEffects) {
+            paramSetVec.push_back(&randomEffects);
+            paramVec.push_back(&sigmaSqRand);
+            paramVec.push_back(&varRand);
+            paramToPrint.push_back(&varRand);
         }
 
        if (message) {
