@@ -297,3 +297,65 @@ void MultiChainSBayesRD::sampleUnknowns(const unsigned iter){
     nBadSnps.output();
 }
 
+void MultiChainSBayesS::NumBadSnps::output(){
+    value = 0;
+    for (unsigned i=0; i<numChains; ++i) {
+        vector<unsigned> badSnpIdxVec = nBadSnpVec[i]->badSnpIdx;
+        vector<string> badSnpNameVec = nBadSnpVec[i]->badSnpName;
+        for (unsigned j=0; j<badSnpNameVec.size(); ++j) {
+            if(badSnpSet.insert(badSnpNameVec[j]).second) {
+                badSnpIdxSet.insert(badSnpIdxVec[j]);
+                out << badSnpIdxVec[j] << "\t" << badSnpNameVec[j] << endl;
+                ++value;
+            }
+        }
+    }
+    
+    for (unsigned i=0; i<numChains; ++i) {
+        nBadSnpVec[i]->badSnpIdx.resize(badSnpSet.size());
+        nBadSnpVec[i]->badSnpName.resize(badSnpSet.size());
+        set<string>::iterator it1;
+        unsigned j=0;
+        for (it1 = badSnpSet.begin(); it1 != badSnpSet.end(); ++it1) {
+            nBadSnpVec[i]->badSnpName[j++] = *it1;
+        }
+        set<unsigned>::iterator it2;
+        j=0;
+        for (it2 = badSnpIdxSet.begin(); it2 != badSnpIdxSet.end(); ++it2) {
+            nBadSnpVec[i]->badSnpIdx[j++] = *it2;
+        }
+    }
+}
+
+void MultiChainSBayesS::NumHighPIPs::getValue(const VectorXf &PIP){
+    value = 0;
+    unsigned size = PIP.size();
+    for (unsigned i=0; i<size; ++i) {
+        if (PIP[i] > threshold) ++value;
+    }
+}
+
+void MultiChainSBayesS::sampleUnknowns(const unsigned iter){
+
+#pragma omp parallel for num_threads(numThreadLevel1)
+    for (unsigned i=0; i<numChains; ++i) {
+        // Restrict inner parallelism to numThreadLevel2 threads
+        omp_set_num_threads(numThreadLevel2);
+
+        chainVec[i]->sampleUnknowns(iter);
+    }
+    
+    snpEffects.getValues();
+    pip.getValues();
+    hsq.getValues();
+    S.getValues();
+    pi.getValues();
+    nnzSnp.getValues();
+    sigmaSq.getValues();
+    varg.getValues();
+    vare.getValues();
+    
+    nHighPips.getValue(pip.values);
+    nBadSnps.output();
+}
+

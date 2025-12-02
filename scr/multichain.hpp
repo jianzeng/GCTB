@@ -891,3 +891,194 @@ public:
     
     void sampleUnknowns(const unsigned iter);
 };
+
+class MultiChainSBayesS : public ApproxBayesS {
+public:
+    
+    class ChainVecSBayesS : public vector<ApproxBayesS*> {
+    public:
+        ChainVecSBayesS(const Data &data, const Options &opt){
+            for (unsigned i=0; i<opt.numChains; ++i) {
+                this->push_back(new ApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.varS, opt.S, opt.algorithm, opt.robustMode, false));
+            }
+        }
+    };
+    
+    class Heritability : public MultiChainParameter {
+    public:
+        Heritability(const ChainVecSBayesS &chains): MultiChainParameter("hsq", chains.size()){
+           for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->hsq);
+            }
+        }
+    };
+    
+    class SnpPIP : public MultiChainParamSet {
+    public:
+        SnpPIP(const vector<string> &header, const ChainVecSBayesS &chains): MultiChainParamSet("PIP", header, chains.size()){
+           for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->snpPip);
+            }
+        }
+    };
+    
+    class SnpEffects : public MultiChainParamSet {
+    public:
+        SnpEffects(const vector<string> &header, const ChainVecSBayesS &chains): MultiChainParamSet("SnpEffects", header, chains.size()){
+            for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->snpEffects);
+            }
+        }
+    };
+    
+    class SParameter : public MultiChainParameter {
+    public:
+        SParameter(const ChainVecSBayesS &chains): MultiChainParameter("S", chains.size()){
+           for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->S);
+            }
+        }
+    };
+    
+    class Pi : public MultiChainParameter {
+    public:
+        Pi(const ChainVecSBayesS &chains): MultiChainParameter("Pi", chains.size()){
+           for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->pi);
+            }
+        }
+    };
+    
+    class NnzSnp : public MultiChainParameter {
+    public:
+        NnzSnp(const ChainVecSBayesS &chains): MultiChainParameter("NnzSnp", chains.size()){
+           for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->nnzSnp);
+            }
+        }
+    };
+    
+    class SigmaSq : public MultiChainParameter {
+    public:
+        SigmaSq(const ChainVecSBayesS &chains): MultiChainParameter("SigmaSq", chains.size()){
+           for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->sigmaSq);
+            }
+        }
+    };
+    
+    class GenVar : public MultiChainParameter {
+    public:
+        GenVar(const ChainVecSBayesS &chains): MultiChainParameter("GenVar", chains.size()){
+           for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->varg);
+            }
+        }
+    };
+    
+    class ResVar : public MultiChainParameter {
+    public:
+        ResVar(const ChainVecSBayesS &chains): MultiChainParameter("ResVar", chains.size()){
+           for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->vare);
+            }
+        }
+    };
+    
+    class NumBadSnps : public MultiChainParameter {
+    public:
+        vector<ApproxBayesC::NumBadSnps*> nBadSnpVec;
+        set<string> badSnpSet;
+        set<unsigned> badSnpIdxSet;
+
+        ofstream out;
+
+        NumBadSnps(const string &title, const ChainVecSBayesS &chains): MultiChainParameter("NumSkeptSnp", chains.size()){
+           for (unsigned i=0; i<numChains; ++i) {
+               chainVec.push_back(&chains[i]->nBadSnps);
+               nBadSnpVec.push_back(&chains[i]->nBadSnps);
+               chains[i]->nBadSnps.writeTxt = false;
+               chains[i]->nBadSnps.out.close();
+            }
+            string filename = title + ".skepticalSNPs";
+            out.open(filename.c_str());
+        }
+        void output(void);
+    };
+    
+    class NumHighPIPs : public Parameter {
+    public:
+        float threshold;
+        
+        NumHighPIPs(const string &lab = "NumHighPIP"): Parameter(lab){
+            threshold = 0.9;
+        }
+        
+        void getValue(const VectorXf &PIP);
+    };
+
+    unsigned numChains;
+    
+    // for nested OMP
+    unsigned numThreadTotal;
+    unsigned numThreadLevel1;
+    unsigned numThreadLevel2;
+
+    ChainVecSBayesS chainVec;
+    Heritability hsq;
+    SnpPIP pip;
+    SnpEffects snpEffects;
+    SParameter S;
+    Pi pi;
+    NnzSnp nnzSnp;
+    SigmaSq sigmaSq;
+    GenVar varg;
+    ResVar vare;
+    NumBadSnps nBadSnps;
+    NumHighPIPs nHighPips;
+    
+    MultiChainSBayesS(const Data &data, const Options &opt, const bool message = true):
+    ApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.varS, opt.S, opt.algorithm, opt.robustMode, false),
+    numChains(opt.numChains),
+    chainVec(data, opt),
+    hsq(chainVec),
+    pip(data.snpEffectNames, chainVec),
+    snpEffects(data.snpEffectNames, chainVec),
+    S(chainVec),
+    pi(chainVec),
+    nnzSnp(chainVec),
+    sigmaSq(chainVec),
+    varg(chainVec),
+    vare(chainVec),
+    nBadSnps(opt.title, chainVec),
+    nHighPips()
+    {
+        
+        // for nested OMP
+        omp_set_max_active_levels(1);  // reset previous nested parallelism if any
+        omp_set_max_active_levels(2);  // Enable nested parallelism
+        numThreadTotal = omp_get_max_threads();
+        numThreadLevel1 = std::min(numChains, numThreadTotal);
+        numThreadLevel2 = std::floor(numThreadTotal/numThreadLevel1);
+        
+        paramVec    = {&pi, &nnzSnp, &sigmaSq, &S, &varg, &vare, &hsq};
+        paramSetVec = {&snpEffects, &pip};
+        
+        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &varg, &vare, &hsq, &nHighPips, &nBadSnps};
+
+        if (message) {
+            cout << "\nMulti-chain SBayesS (" << numChains << " chains)" << endl;
+            if (lowRankModel) {
+                cout << "Using the low-rank model" << endl;
+            }
+            if (numThreadTotal == 1) {
+                cout << "\nSUGGESTION: Enabling multi-threading is recommended when using multiple chains. You can set this by --thread [any value that is the multiple of the number of chains].\n" << endl;
+            } else {
+                cout << "Using nested multi-threading (" << numThreadTotal << " threads in total):\n  Level 1: " << numThreadLevel1 << " threads\n    Level 2: " << numThreadLevel2 << " threads" << endl;
+            }
+            cout << endl;
+        }
+    }
+    
+    void sampleUnknowns(const unsigned iter);
+};
