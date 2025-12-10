@@ -1,0 +1,77 @@
+[
+  {
+    "directory": "/Users/uqjzeng1/XCode/GCTB/scr",
+    "command": "/opt/homebrew/opt/llvm/bin/clang++ -I /usr/local/include -I /Users/uqjzeng1/XCode/eigen-3.4.0 -I /Users/uqjzeng1/XCode/boost_1_81_0 -DUNIX -Dfopen64=fopen -stdlib=libc++ -m64 -fopenmp -O3 -std=c++0x -Wall -w -c gctb.cpp -o gctb.o",
+    "file": "/Users/uqjzeng1/XCode/GCTB/scr/gctb.cpp"
+  },
+  {
+    "directory": "/Users/uqjzeng1/XCode/GCTB/scr",
+    "command": "/opt/homebrew/opt/llvm/bin/clang++ -I /usr/local/include -I /Users/uqjzeng1/XCode/eigen-3.4.0 -I /Users/uqjzeng1/XCode/boost_1_81_0 -DUNIX -Dfopen64=fopen -stdlib=libc++ -m64 -fopenmp -O3 -std=c++0x -Wall -w -c data.cpp -o data.o",
+    "file": "/Users/uqjzeng1/XCode/GCTB/scr/data.cpp"
+  },
+  {
+    "directory": "/Users/uqjzeng1/XCode/GCTB/scr",
+    "command": "/opt/homebrew/opt/llvm/bin/clang++ -I /usr/local/include -I /Users/uqjzeng1/XCode/eigen-3.4.0 -I /Users/uqjzeng1/XCode/boost_1_81_0 -DUNIX -Dfopen64=fopen -stdlib=libc++ -m64 -fopenmp -O3 -std=c++0x -Wall -w -c gadgets.cpp -o gadgets.o",
+    "file": "/Users/uqjzeng1/XCode/GCTB/scr/gadgets.cpp"
+  },
+  {
+    "directory": "/Users/uqjzeng1/XCode/GCTB/scr",
+    "command": "/opt/homebrew/opt/llvm/bin/clang++ -I /usr/local/include -I /Users/uqjzeng1/XCode/eigen-3.4.0 -I /Users/uqjzeng1/XCode/boost_1_81_0 -DUNIX -Dfopen64=fopen -stdlib=libc++ -m64 -fopenmp -O3 -std=c++0x -Wall -w -c hsq.cpp -o hsq.o",
+    "file": "/Users/uqjzeng1/XCode/GCTB/scr/hsq.cpp"
+  },
+  {
+    "directory": "/Users/uqjzeng1/XCode/GCTB/scr",
+    "command": "/opt/homebrew/opt/llvm/bin/clang++ -I /usr/local/include -I /Users/uqjzeng1/XCode/eigen-3.4.0 -I /Users/uqjzeng1/XCode/boost_1_81_0 -DUNIX -Dfopen64=fopen -stdlib=libc++ -m64 -fopenmp -O3 -std=c++0x -Wall -w -c main.cpp -o main.o",
+    "file": "/Users/uqjzeng1/XCode/GCTB/scr/main.cpp"
+  },
+  {
+    "directory": "/Users/uqjzeng1/XCode/GCTB/scr",
+    "command": "/opt/homebrew/opt/llvm/bin/clang++ -I /usr/local/include -I /Users/uqjzeng1/XCode/eigen-3.4.0 -I /Users/uqjzeng1/XCode/boost_1_81_0 -DUNIX -Dfopen64=fopen -stdlib=libc++ -m64 -fopenmp -O3 -std=c++0x -Wall -w -c mcmc.cpp -o mcmc.o",
+    "file": "/Users/uqjzeng1/XCode/GCTB/scr/mcmc.cpp"
+  },
+  {
+    "directory": "/Users/uqjzeng1/XCode/GCTB/scr",
+    "command": "/opt/homebrew/opt/llvm/bin/clang++ -I /usr/local/include -I /Users/uqjzeng1/XCode/eigen-3.4.0 -I /Users/uqjzeng1/XCode/boost_1_81_0 -DUNIX -Dfopen64=fopen -stdlib=libc++ -m64 -fopenmp -O3 -std=c++0x -Wall -w -c model.cpp -o model.o",
+    "file": "/Users/uqjzeng1/XCode/GCTB/scr/model.cpp"
+  },
+  {
+    "directory": "/Users/uqjzeng1/XCode/GCTB/scr",
+    "command": "/opt/homebrew/opt/llvm/bin/clang++ -I /usr/local/include -I /Users/uqjzeng1/XCode/eigen-3.4.0 -I /Users/uqjzeng1/XCode/boost_1_81_0 -DUNIX -Dfopen64=fopen -stdlib=libc++ -m64 -fopenmp -O3 -std=c++0x -Wall -w -c options.cpp -o options.o",
+    "file": "/Users/uqjzeng1/XCode/GCTB/scr/options.cpp"
+  },
+  {
+    "directory": "/Users/uqjzeng1/XCode/GCTB/scr",
+    "command": "/opt/homebrew/opt/llvm/bin/clang++ -I /usr/local/include -I /Users/uqjzeng1/XCode/eigen-3.4.0 -I /Users/uqjzeng1/XCode/boost_1_81_0 -DUNIX -Dfopen64=fopen -stdlib=libc++ -m64 -fopenmp -O3 -std=c++0x -Wall -w -c stat.cpp -o stat.o",
+    "file": "/Users/uqjzeng1/XCode/GCTB/scr/stat.cpp"
+  },
+  {
+    "directory": "/Users/uqjzeng1/XCode/GCTB/scr",
+    "command": "/opt/homebrew/opt/llvm/bin/clang++ -I /usr/local/include -I /Users/uqjzeng1/XCode/eigen-3.4.0 -I /Users/uqjzeng1/XCode/boost_1_81_0 -DUNIX -Dfopen64=fopen -stdlib=libc++ -m64 -fopenmp -O3 -std=c++0x -Wall -w -c vgmaf.cpp -o vgmaf.o",
+    "file": "/Users/uqjzeng1/XCode/GCTB/scr/vgmaf.cpp"
+  },
+  {
+    "directory": "/Users/uqjzeng1/XCode/GCTB/scr",
+    "command": "/opt/homebrew/opt/llvm/bin/clang++ -I /usr/local/include -I /Users/uqjzeng1/XCode/eigen-3.4.0 -I /Users/uqjzeng1/XCode/boost_1_81_0 -DUNIX -Dfopen64=fopen -stdlib=libc++ -m64 -fopenmp -O3 -std=c++0x -Wall -w -c predict.cpp -o predict.o",
+    "file": "/Users/uqjzeng1/XCode/GCTB/scr/predict.cpp"
+  },
+  {
+    "directory": "/Users/uqjzeng1/XCode/GCTB/scr",
+    "command": "/opt/homebrew/opt/llvm/bin/clang++ -I /usr/local/include -I /Users/uqjzeng1/XCode/eigen-3.4.0 -I /Users/uqjzeng1/XCode/boost_1_81_0 -DUNIX -Dfopen64=fopen -stdlib=libc++ -m64 -fopenmp -O3 -std=c++0x -Wall -w -c xci.cpp -o xci.o",
+    "file": "/Users/uqjzeng1/XCode/GCTB/scr/xci.cpp"
+  },
+  {
+    "directory": "/Users/uqjzeng1/XCode/GCTB/scr",
+    "command": "/opt/homebrew/opt/llvm/bin/clang++ -I /usr/local/include -I /Users/uqjzeng1/XCode/eigen-3.4.0 -I /Users/uqjzeng1/XCode/boost_1_81_0 -DUNIX -Dfopen64=fopen -stdlib=libc++ -m64 -fopenmp -O3 -std=c++0x -Wall -w -c stratify.cpp -o stratify.o",
+    "file": "/Users/uqjzeng1/XCode/GCTB/scr/stratify.cpp"
+  },
+  {
+    "directory": "/Users/uqjzeng1/XCode/GCTB/scr",
+    "command": "/opt/homebrew/opt/llvm/bin/clang++ -I /usr/local/include -I /Users/uqjzeng1/XCode/eigen-3.4.0 -I /Users/uqjzeng1/XCode/boost_1_81_0 -DUNIX -Dfopen64=fopen -stdlib=libc++ -m64 -fopenmp -O3 -std=c++0x -Wall -w -c eigen.cpp -o eigen.o",
+    "file": "/Users/uqjzeng1/XCode/GCTB/scr/eigen.cpp"
+  },
+  {
+    "directory": "/Users/uqjzeng1/XCode/GCTB/scr",
+    "command": "/opt/homebrew/opt/llvm/bin/clang++ -I /usr/local/include -I /Users/uqjzeng1/XCode/eigen-3.4.0 -I /Users/uqjzeng1/XCode/boost_1_81_0 -DUNIX -Dfopen64=fopen -stdlib=libc++ -m64 -fopenmp -O3 -std=c++0x -Wall -w -c multichain.cpp -o multichain.o",
+    "file": "/Users/uqjzeng1/XCode/GCTB/scr/multichain.cpp"
+  }
+]

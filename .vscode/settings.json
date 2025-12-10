@@ -1,0 +1,27 @@
+{
+    "C_Cpp.intelliSenseEngine": "default",
+    "C_Cpp.errorSquiggles": "enabled",
+    "C_Cpp.default.includePath": [
+        "${workspaceFolder}/scr",
+        "/usr/local/include",
+        "/Users/uqjzeng1/XCode/eigen-3.4.0",
+        "/Users/uqjzeng1/XCode/boost_1_81_0",
+        "/opt/homebrew/opt/llvm/include"
+    ],
+    "C_Cpp.default.defines": [
+        "UNIX",
+        "fopen64=fopen"
+    ],
+    "C_Cpp.default.compilerPath": "/opt/homebrew/opt/llvm/bin/clang++",
+    "C_Cpp.default.cppStandard": "c++14",
+    "C_Cpp.default.intelliSenseMode": "macos-clang-x64",
+    "C_Cpp.default.browse.limitSymbolsToIncludedHeaders": false,
+    "files.associations": {
+        "*.hpp": "cpp",
+        "*.cpp": "cpp",
+        "*.h": "c"
+    },
+    "editor.inlayHints.enabled": "off",
+    "clangd.inlayHints.parameterNames": false
+}
+

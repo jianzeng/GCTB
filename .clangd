@@ -1,0 +1,14 @@
+CompileFlags:
+  Add:
+    - -I/usr/local/include
+    - -I/Users/uqjzeng1/XCode/eigen-3.4.0
+    - -I/Users/uqjzeng1/XCode/boost_1_81_0
+    - -I/Users/uqjzeng1/XCode/GCTB/scr
+    - -DUNIX
+    - -Dfopen64=fopen
+    - -stdlib=libc++
+    - -m64
+    - -fopenmp
+    - -std=c++14
+CompilationDatabase: .
+

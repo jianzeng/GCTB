@@ -1489,7 +1489,7 @@ public:
         
     ApproxBayesS(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi,
                  const float varS, const vector<float> &svalue,
-                 const string &algorithm, const bool robustMode, const bool message = true)
+                 const string &algorithm, const bool robustMode, const bool noscale = false, const bool message = true)
     : BayesS(data, varGenotypic, varResidual, 0.0, pival, piAlpha, piBeta, estimatePi, varS, svalue, algorithm, false)
     , rcorr(data.ZPy)
     , wcorrBlocks(data.wcorrBlocks)
@@ -1505,8 +1505,7 @@ public:
     , sparse(data.sparseLDM)
     , lowRankModel(lowRank)
    {
-        scaledGeno = false;
-        if (lowRankModel) scaledGeno = true;
+        scaledGeno = !noscale || lowRankModel;
 
         snp2pqPowSplusOne = data.snp2pq.array().pow(S.value + 1.0f);        
         sigmaSq.value = varGenotypic/(snp2pqPowSplusOne.sum()*pival);
@@ -1535,6 +1534,11 @@ public:
             cout << "\nSBayesS" << endl;
             if (lowRankModel) {
                 cout << "Using the low-rank model" << endl;
+            }
+            if (scaledGeno) {
+                cout << "Fitting model assuming scaled genotypes " << endl;
+            } else {
+                cout << "Fitting model assuming unscaled genotypes " << endl;
             }
             cout << "Algorithm: " << alg << "." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
@@ -1608,8 +1612,8 @@ public:
     Tp T;
     
     ApproxBayesST(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const float pival,
-                  const float piAlpha, const float piBeta, const bool estimatePi, const float varS, const vector<float> &svalue, const bool estimateS, const bool message = true):
-    ApproxBayesS(data, lowRank, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, varS, svalue, "HMC", false, false),
+                  const float piAlpha, const float piBeta, const bool estimatePi, const float varS, const vector<float> &svalue, const bool estimateS, const bool noscale = false, const bool message = true):
+    ApproxBayesS(data, lowRank, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, varS, svalue, "HMC", false, noscale, false),
     estimateS(estimateS),
     logLdsc(data.LDscore.array().log()),
     hSlT(snp2pqPowS),
@@ -2015,8 +2019,8 @@ public:
     HeritabilityMixComp hsqMixComp;
     
     ApproxBayesSMix(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const float pival, const float varS, const vector<float> &svalue,
-                  const bool message = true):
-    ApproxBayesS(data, lowRank, varGenotypic, varResidual, pival, 1, 1, true, varS, svalue, "HMC", false, false),
+                  const bool noscale = false, const bool message = true):
+    ApproxBayesS(data, lowRank, varGenotypic, varResidual, pival, 1, 1, true, varS, svalue, "HMC", false, noscale, false),
     snpEffects(data.snpEffectNames, data.snp2pq, 0.5*pival),
     deltaS(data.snpEffectNames),
     piMixComp(pival),

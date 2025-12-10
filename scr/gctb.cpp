@@ -168,13 +168,15 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
             return new MultiChainSBayesRC(data, opt);
         else if (bayesType == "RD")
             return new MultiChainSBayesRD(data, opt);
+        else if (bayesType == "S")
+            return new MultiChainSBayesS(data, opt);
         else
             throw(" Error: " + bayesType + " is not available for multi-chain analysis.");
     }
     if (!gwasFile.empty()) {
         if (data.numAnnos) {
             if (bayesType == "S")
-                return new StratApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, robustMode);
+                return new StratApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, robustMode, noscale);
             else if (bayesType == "RC")
                 return new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, algorithm);
             else if (bayesType == "RD")
@@ -188,13 +190,13 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
             else if (bayesType == "B")
             return new ApproxBayesB(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, noscale);
             else if (bayesType == "S")
-                return new ApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, robustMode);
+                return new ApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, robustMode, noscale);
             else if (bayesType == "ST")
-                return new ApproxBayesST(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, true);
+                return new ApproxBayesST(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, true, noscale);
             else if (bayesType == "T")
-                return new ApproxBayesST(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, false);
+                return new ApproxBayesST(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, false, noscale);
             else if (bayesType == "SMix")
-                return new ApproxBayesSMix(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, varS, S);
+                return new ApproxBayesSMix(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, varS, S, noscale);
             else if (bayesType == "R")
                 return new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, algorithm);
             else if (bayesType == "RS")
@@ -252,7 +254,7 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
     }
     else if (bayesType == "Sap") {
         data.buildSparseMME(bedFile + ".bed", windowWidth);
-        return new ApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, robustMode);
+        return new ApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, robustMode, noscale);
     }
     else {
         throw(" Error: Wrong bayes type: " + bayesType);
@@ -329,7 +331,7 @@ vector<McmcSamples*> GCTB::multi_chain_mcmc(Data &data, const string &bayesType,
     for (unsigned i=0; i<numChains; ++i) {
         if (data.numAnnos) {
             if (bayesType == "S")
-                modelVec[i] = new StratApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, robustMode, !i);
+                modelVec[i] = new StratApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, robustMode, false, !i);
             else
                 throw(" Error: " + bayesType + " is not available in the multi-chain annotation-stratified Bayesian analysis.");
         }
@@ -337,11 +339,11 @@ vector<McmcSamples*> GCTB::multi_chain_mcmc(Data &data, const string &bayesType,
             if (bayesType == "C")
                 modelVec[i] = new ApproxBayesC(data, data.lowRankModel, data.varGenotypic, data.varResidual, data.varRandom, pi, piAlpha, piBeta, estimatePi, false, robustMode, !i);
             else if (bayesType == "S")
-                modelVec[i] = new ApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, robustMode, !i);
+                modelVec[i] = new ApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, robustMode, false, !i);
             else if (bayesType == "ST")
-                modelVec[i] = new ApproxBayesST(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, true, !i);
+                modelVec[i] = new ApproxBayesST(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, true, false, !i);
             else if (bayesType == "T")
-                modelVec[i] = new ApproxBayesST(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, false, !i);
+                modelVec[i] = new ApproxBayesST(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, false, false, !i);
             else
                 throw(" Error: " + bayesType + " is not currently available in the multi-chain Bayesian analysis.");
         }

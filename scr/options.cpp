@@ -727,10 +727,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
     }
     
     // BayesS type of model do not allow scaled genotypes
-    if (bayesType == "S" || bayesType == "ST" || bayesType == "T" || bayesType == "SMix" || bayesType == "RS") {
-        if (!eigenMatrixFile.empty()) noscale = false;
-        else noscale = true;
-    }
+    // if (bayesType == "S" || bayesType == "ST" || bayesType == "T" || bayesType == "SMix" || bayesType == "RS") {
+    //     if (!eigenMatrixFile.empty()) noscale = false;
+    //     else noscale = true;
+    // }
    
     if (analysisType == "hsq") noscale = true;
     

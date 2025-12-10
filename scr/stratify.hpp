@@ -271,8 +271,8 @@ public:
     
     StratApproxBayesS(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi,
                       const float varS, const vector<float> &svalue,
-                      const string &algorithm, const bool robustMode, const bool message = true):
-    ApproxBayesS(data, lowRank, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, varS, svalue, "HMC", robustMode, false),
+                      const string &algorithm, const bool robustMode, const bool noscale = false, const bool message = true):
+    ApproxBayesS(data, lowRank, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, varS, svalue, "HMC", robustMode, noscale, false),
     snpEffects(data.snpEffectNames, data.snp2pq, pival, data.annoInfoVec),
     snpAnnoMembership(data.snpAnnoPairNames, data.numAnnoPerSnpVec),
     sigmaSqStrat(data.annoNames, data.annoInfoVec, varGenotypic, pival),

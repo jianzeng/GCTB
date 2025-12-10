@@ -1,0 +1,43 @@
+{
+    "configurations": [
+        {
+            "name": "Mac",
+            "compileCommands": "${workspaceFolder}/compile_commands.json",
+            "includePath": [
+                "${workspaceFolder}/scr",
+                "${workspaceFolder}",
+                "/usr/local/include",
+                "/Users/uqjzeng1/XCode/eigen-3.4.0",
+                "/Users/uqjzeng1/XCode/boost_1_81_0",
+                "/opt/homebrew/opt/llvm/include"
+            ],
+            "defines": [
+                "UNIX",
+                "fopen64=fopen"
+            ],
+            "macFrameworkPath": [],
+            "compilerPath": "/opt/homebrew/opt/llvm/bin/clang++",
+            "cStandard": "c11",
+            "cppStandard": "c++14",
+            "intelliSenseMode": "macos-clang-x64",
+            "compilerArgs": [
+                "-fopenmp",
+                "-stdlib=libc++",
+                "-m64"
+            ],
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/scr",
+                    "${workspaceFolder}",
+                    "/usr/local/include",
+                    "/Users/uqjzeng1/XCode/eigen-3.4.0",
+                    "/Users/uqjzeng1/XCode/boost_1_81_0"
+                ],
+                "limitSymbolsToIncludedHeaders": false
+            }
+        }
+    ],
+    "version": 4
+}
+
+
