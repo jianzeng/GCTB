@@ -1,0 +1,34 @@
+# Build artifacts
+*.o
+gctb
+gctb.old
+*.a
+*.so
+*.dylib
+
+# macOS system files
+.DS_Store
+**/.DS_Store
+
+# Test results and output files
+tutorial/results/*.covRes
+tutorial/results/*.parRes
+tutorial/results/*.snpRes
+tutorial/results/*.log
+tutorial/results/*.skepticalSNPs
+tutorial/data/*.phen
+test/res/*.inp
+
+# Editor and IDE files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.code-workspace
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+
