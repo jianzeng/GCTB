@@ -20,9 +20,9 @@ This tutorial demonstrates:
 
 1. Loading 1000G genotype data
 2. Simulating individual-level phenotypes
-3. Generating GWAS summary statistics
-4. Generating reference LD matrix (full and block)
-5. Running BayesS analysis using individual-level data
+3. Running BayesS analysis using individual-level data
+4. Generating GWAS summary statistics
+5. Generating reference LD matrix (full and block)
 6. Running SBayesS analysis using GWAS summary statistics
 
 # Requirements
@@ -76,12 +76,12 @@ cat("After MAF filtering (MAF >= 0.01):", n_snp, "SNPs\n")
 # Simulate phenotypes
 
 ```{r}
-set.seed(123)
+set.seed(555)
 
 # Simulation settings
 h2 <- 0.5  # heritability
 n_causal <- 10  # number of causal variants
-S <- 0  # the S parameter
+S <- -1  # the S parameter
 
 # Sample causal variants
 causal_idx <- sample(n_snp, n_causal)
@@ -107,76 +107,6 @@ y <- g + e
 phen_path <- file.path(data_dir, "sim.phen")
 write.table(data.frame(FID = fam$FID, IID = fam$IID, PHENO = y),
             phen_path, quote = FALSE, sep = "\t", row.names = FALSE, col.names = FALSE)
-```
-
-# Generate GWAS summary statistics
-
-```{r}
-# Calculate allele frequencies
-af <- colMeans(geno, na.rm = TRUE) / 2
-
-# Simple linear regression for each SNP
-gwas_sumstats <- data.frame(
-  SNP = bim$SNP,
-  A1 = bim$ALLELE_B,
-  A2 = bim$ALLELE_A,
-  FREQ = af,
-  BETA = NA,
-  SE = NA,
-  P = NA,
-  N = n_ind
-)
-
-for (i in 1:n_snp) {
-  fit <- lm(y ~ geno[, i])
-  gwas_sumstats$BETA[i] <- coef(fit)[2]
-  gwas_sumstats$SE[i] <- summary(fit)$coefficients[2, 2]
-  gwas_sumstats$P[i] <- summary(fit)$coefficients[2, 4]
-}
-
-# Save summary statistics
-sumstats_path <- file.path(data_dir, "sim.ma")
-write.table(gwas_sumstats, sumstats_path, quote = FALSE, sep = "\t",
-            row.names = FALSE, col.names = TRUE)
-head(gwas_sumstats)
-```
-
-# Generate reference LD matrix
-
-```{r}
-# Generate full LD matrix
-system2(gctb, c(
-  "--bfile", bed_file,
-  "--make-full-ldm",
-  "--out", file.path(data_dir, "sim")
-))
-
-ldm_path <- file.path(data_dir, "sim.ldm.full")
-```
-
-# Generate block LD matrix
-
-```{r}
-# Compute block LD matrix based on LD block map
-# Note: You need to provide a block info file (e.g., ref_b37_1588blocks.pos)
-block_info_file <- "data/ref_b37_1588blocks.pos"  # Update with your block info file path
-
-system2(gctb, c(
-  "--bfile", bed_file,
-  "--make-block-ldm",
-  "--block-info", block_info_file,
-  "--out", file.path(data_dir, "ldm")
-))
-
-ldm_path <- file.path(data_dir, "ldm")
-
-# Perform eigen-decomposition on the LD matrices with matched SNPs in GWAS data
-system2(gctb, c(
-  "--ldm", ldm_path,
-  "--gwas-summary", sumstats_path, 
-  "--make-ldm-eigen",
-  "--out", ldm_path
-))
 ```
 
 # Run BayesS using individual-level data
@@ -251,6 +181,76 @@ if (file.exists(snp_res_path)) {
             paste(colnames(snp_res), collapse = ", "))
   }
 }
+```
+
+# Generate GWAS summary statistics
+
+```{r}
+# Calculate allele frequencies
+af <- colMeans(geno, na.rm = TRUE) / 2
+
+# Simple linear regression for each SNP
+gwas_sumstats <- data.frame(
+  SNP = bim$SNP,
+  A1 = bim$ALLELE_B,
+  A2 = bim$ALLELE_A,
+  FREQ = af,
+  BETA = NA,
+  SE = NA,
+  P = NA,
+  N = n_ind
+)
+
+for (i in 1:n_snp) {
+  fit <- lm(y ~ geno[, i])
+  gwas_sumstats$BETA[i] <- coef(fit)[2]
+  gwas_sumstats$SE[i] <- summary(fit)$coefficients[2, 2]
+  gwas_sumstats$P[i] <- summary(fit)$coefficients[2, 4]
+}
+
+# Save summary statistics
+sumstats_path <- file.path(data_dir, "sim.ma")
+write.table(gwas_sumstats, sumstats_path, quote = FALSE, sep = "\t",
+            row.names = FALSE, col.names = TRUE)
+head(gwas_sumstats)
+```
+
+# Generate reference LD matrix
+
+```{r}
+# Generate full LD matrix
+system2(gctb, c(
+  "--bfile", bed_file,
+  "--make-full-ldm",
+  "--out", file.path(data_dir, "sim")
+))
+
+ldm_path <- file.path(data_dir, "sim.ldm.full")
+```
+
+# Generate block LD matrix
+
+```{r}
+# Compute block LD matrix based on LD block map
+# Note: You need to provide a block info file (e.g., ref_b37_1588blocks.pos)
+block_info_file <- "data/ref_b37_1588blocks.pos"  # Update with your block info file path
+
+system2(gctb, c(
+  "--bfile", bed_file,
+  "--make-block-ldm",
+  "--block-info", block_info_file,
+  "--out", file.path(data_dir, "ldm")
+))
+
+ldm_path <- file.path(data_dir, "ldm")
+
+# Perform eigen-decomposition on the LD matrices with matched SNPs in GWAS data
+system2(gctb, c(
+  "--ldm", ldm_path,
+  "--gwas-summary", sumstats_path, 
+  "--make-ldm-eigen",
+  "--out", ldm_path
+))
 ```
 
 # Run SBayesS using GWAS summary statistics
