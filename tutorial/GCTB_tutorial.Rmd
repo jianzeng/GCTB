@@ -22,7 +22,7 @@ This tutorial demonstrates:
 2. Simulating individual-level phenotypes
 3. Running BayesS analysis using individual-level data
 4. Generating GWAS summary statistics
-5. Generating reference LD matrix (full and block)
+5. Generating reference LD matrix
 6. Running SBayesS analysis using GWAS summary statistics
 
 # Requirements
@@ -213,19 +213,6 @@ sumstats_path <- file.path(data_dir, "sim.ma")
 write.table(gwas_sumstats, sumstats_path, quote = FALSE, sep = "\t",
             row.names = FALSE, col.names = TRUE)
 head(gwas_sumstats)
-```
-
-# Generate reference LD matrix
-
-```{r}
-# Generate full LD matrix
-system2(gctb, c(
-  "--bfile", bed_file,
-  "--make-full-ldm",
-  "--out", file.path(data_dir, "sim")
-))
-
-ldm_path <- file.path(data_dir, "sim.ldm.full")
 ```
 
 # Generate block LD matrix

@@ -1494,7 +1494,7 @@ border-radius: 0px;
 <li>Simulating individual-level phenotypes</li>
 <li>Running BayesS analysis using individual-level data</li>
 <li>Generating GWAS summary statistics</li>
-<li>Generating reference LD matrix (full and block)</li>
+<li>Generating reference LD matrix</li>
 <li>Running SBayesS analysis using GWAS summary statistics</li>
 </ol>
 </div>
@@ -1715,20 +1715,8 @@ head(gwas_sumstats)</code></pre>
 ## rs9605923_A   rs9605923  T  A 0.26322751  0.5973020 0.2959073 0.04424412 378
 ## rs9605927_C   rs9605927  T  C 0.03042328  0.5031080 0.6807538 0.46034049 378</code></pre>
 </div>
-<div id="generate-reference-ld-matrix" class="section level1" number="8">
-<h1><span class="header-section-number">8</span> Generate reference LD
-matrix</h1>
-<pre class="r"><code># Generate full LD matrix
-system2(gctb, c(
-  &quot;--bfile&quot;, bed_file,
-  &quot;--make-full-ldm&quot;,
-  &quot;--out&quot;, file.path(data_dir, &quot;sim&quot;)
-))
-
-ldm_path &lt;- file.path(data_dir, &quot;sim.ldm.full&quot;)</code></pre>
-</div>
-<div id="generate-block-ld-matrix" class="section level1" number="9">
-<h1><span class="header-section-number">9</span> Generate block LD
+<div id="generate-block-ld-matrix" class="section level1" number="8">
+<h1><span class="header-section-number">8</span> Generate block LD
 matrix</h1>
 <pre class="r"><code># Compute block LD matrix based on LD block map
 # Note: You need to provide a block info file (e.g., ref_b37_1588blocks.pos)
@@ -1751,8 +1739,8 @@ system2(gctb, c(
   &quot;--out&quot;, ldm_path
 ))</code></pre>
 </div>
-<div id="run-sbayess-using-gwas-summary-statistics" class="section level1" number="10">
-<h1><span class="header-section-number">10</span> Run SBayesS using GWAS
+<div id="run-sbayess-using-gwas-summary-statistics" class="section level1" number="9">
+<h1><span class="header-section-number">9</span> Run SBayesS using GWAS
 summary statistics</h1>
 <pre class="r"><code># Summary-data-based analysis
 system2(gctb, c(
@@ -1762,8 +1750,8 @@ system2(gctb, c(
   &quot;--out&quot;, file.path(result_dir, &quot;sim_sumstats&quot;)
 ))</code></pre>
 </div>
-<div id="inspect-sbayess-results" class="section level1" number="11">
-<h1><span class="header-section-number">11</span> Inspect SBayesS
+<div id="inspect-sbayess-results" class="section level1" number="10">
+<h1><span class="header-section-number">10</span> Inspect SBayesS
 results</h1>
 <pre class="r"><code>snp_res_sumstats_path &lt;- file.path(result_dir, &quot;sim_sumstats.snpRes&quot;)
 par_res_sumstats_path &lt;- file.path(result_dir, &quot;sim_sumstats.parRes&quot;)
