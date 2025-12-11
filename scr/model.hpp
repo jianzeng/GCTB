@@ -403,6 +403,11 @@ public:
             if (alg!="HMC") alg = "Gibbs (default)";
             cout << "\nBayesC model fitted. Algorithm: " << alg << "." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
+            if (noscale) {
+                cout << "Fitting model assuming unscaled genotypes " << endl;
+            } else {
+                cout << "Fitting model assuming scaled genotypes " << endl;
+            }
         }
     }
     
@@ -460,6 +465,11 @@ public:
         if (message) {
             cout << "\nBayesB model fitted." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
+            if (noscale) {
+                cout << "Fitting model assuming unscaled genotypes " << endl;
+            } else {
+                cout << "Fitting model assuming scaled genotypes " << endl;
+            }
         }
     }
     
@@ -558,6 +568,11 @@ public:
         if (message) {
             cout << "\nBayesN model fitted." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
+            if (noscale) {
+                cout << "Fitting model assuming unscaled genotypes " << endl;
+            } else {
+                cout << "Fitting model assuming scaled genotypes " << endl;
+            }
         }
     }
 
@@ -712,6 +727,11 @@ public:
             cout << "\nBayesR model fitted. Algorithm: " << alg << "." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
             cout << "Gamma: " << gamma.transpose() << endl;
+            if (noscale) {
+                cout << "Fitting model assuming unscaled genotypes " << endl;
+            } else {
+                cout << "Fitting model assuming scaled genotypes " << endl;
+            }
         }
     }
     
@@ -775,25 +795,18 @@ public:
         // note that the scale factor of sigmaSq will be simultaneously updated
         void sampleFromFC(const float snpEffWtdSumSq, const unsigned numNonZeros, float &sigmaSq, const VectorXf &snpEffects,
                           const VectorXf &snp2pq, ArrayXf &snp2pqPowS, const ArrayXf &logSnp2pq,
-                          const float vg, float &scale, float &sum2pqSplusOne);
+                          const float vg, float &scale, float &sum2pqSplusOne, bool scaledGeno);
         void sampleFromPrior(void);
         void randomWalkMHsampler(const float snpEffWtdSumSq, const unsigned numNonZeros, const float sigmaSq, const VectorXf &snpEffects,
                                  const VectorXf &snp2pq, ArrayXf &snp2pqPowS, const ArrayXf &logSnp2pq,
                                  const float vg, float &scale, float &sum2pqSplusOne);
         void hmcSampler(const unsigned numNonZeros, const float sigmaSq, const VectorXf &snpEffects,
                         const VectorXf &snp2pq, ArrayXf &snp2pqPowS, const ArrayXf &logSnp2pq,
-                        const float vg, float &scale, float &sum2pqSplusOne);
-        float gradientU(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float sigmaSq, const float vg);
-        float computeU(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float sigmaSq, const float vg, float &scale, float &U_chisq);
+                        const float vg, float &scale, float &sum2pqSplusOne, bool scaledGeno);
+        float gradientU(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float sigmaSq, const float vg, bool scaledGeno);
+        float computeU(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float sigmaSq, const float vg, float &scale, float &U_chisq, bool scaledGeno);
         void regression(const VectorXf &snpEffects, const ArrayXf &logSnp2pq, ArrayXf &snp2pqPowS, float &sigmaSq);
-        
-        // for the robust parameterisation
-        void sampleFromFC2(const unsigned numNonZeros, const VectorXf &snpEffects,
-                          const VectorXf &snp2pq, ArrayXf &snp2pqPowS, const ArrayXf &logSnp2pq,
-                          const float varg, float &sum2pqSplusOne);
-        float gradientU2(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float varg);
-        float computeU2(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float varg);
-
+ 
     };
     
     class SnpEffects : public BayesC::SnpEffects {
@@ -818,28 +831,33 @@ public:
     float scalePrior;
 
     ArrayXf snp2pqPowS;
+    ArrayXf snp2pqPowSplusOne;  // snp2pq^S-1
     const ArrayXf logSnp2pq;
     
     Sp S;
     SnpEffects snpEffects;
     
+    bool scaledGeno;  // whether genotypes are scaled
+    
     BayesS(const Data &data, const float varGenotypic, const float varResidual, const float varRandom, const float pival, const float piAlpha, const float piBeta, const bool estimatePi, const float varS, const vector<float> &svalue,
-           const string &algorithm, const bool message = true):
-    BayesC(data, varGenotypic, varResidual, varRandom, pival, piAlpha, piBeta, estimatePi, true, "Gibbs", false),
+           const string &algorithm, const bool noscale = false, const bool message = true):
+    BayesC(data, varGenotypic, varResidual, varRandom, pival, piAlpha, piBeta, estimatePi, noscale, "Gibbs", false),
     logSnp2pq(data.snp2pq.array().log()),
     S(data.numIncdSnps, varS, svalue[0], algorithm),
     snpEffects(data.snpEffectNames, data.snp2pq, pival),
     genVarPrior(varGenotypic),
     scalePrior(sigmaSq.scale)
     {
+        scaledGeno = !noscale;
+        
         bayesType = "S";
         
         findStartValueForS(svalue);
-        
-        snp2pqPowS = data.snp2pq.array().pow(S.value);
-        sigmaSq.value = varGenotypic/((snp2pqPowS*data.snp2pq.array()).sum()*pival);
-        scale.value = sigmaSq.scale = 0.5*sigmaSq.value;
 
+        snp2pqPowS = scaledGeno ? data.snp2pq.array().pow(S.value + 1.0f) : data.snp2pq.array().pow(S.value);
+        sigmaSq.value = scaledGeno ? varGenotypic/(snp2pqPowS.sum()*pival) : varGenotypic/((snp2pqPowS*data.snp2pq.array()).sum()*pival);        
+        scale.value = sigmaSq.scale = 0.5*sigmaSq.value;
+ 
         paramSetVec = {&snpEffects, &fixedEffects, &snpPip};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &S, &varg, &vare, &hsq};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &scale, &S, &varg, &vare, &hsq, &S.ar, &S.tuner};
@@ -855,6 +873,11 @@ public:
             if (alg!="RWMH" && alg!="Reg") alg = "HMC";
             cout << "\nBayesS model fitted. Algorithm: " << alg << "." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
+            if (scaledGeno) {
+                cout << "Fitting model assuming scaled genotypes " << endl;
+            } else {
+                cout << "Fitting model assuming unscaled genotypes " << endl;
+            }
         }
     }
     
@@ -990,6 +1013,8 @@ public:
     float genVarPrior;
     float scalePrior;
 
+    bool scaledGeno;  // whether genotypes are scaled
+    
     BayesRS(const Data &data, const float varGenotypic, const float varResidual, const float varRandom, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const float varS, const vector<float> &svalue, const bool noscale, const bool hsqPercModel, const string &algorithm, const bool message = true):
     BayesR(data, varGenotypic, varResidual, varRandom, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, algorithm, false),
     snpEffects(data.snpEffectNames, data.snp2pq, pis),
@@ -997,6 +1022,8 @@ public:
     genVarPrior(varGenotypic),
     scalePrior(sigmaSq.scale)
     {
+        scaledGeno = !noscale;  // scaled genotypes by default
+        
         bayesType = "RS";
         
         logSnp2pq = data.snp2pq.array().log();
@@ -1422,17 +1449,6 @@ public:
 
     };
 
-    class Sp : public BayesS::Sp {
-    public:
-        Sp(const unsigned m, const float var, const float start, const string &alg): BayesS::Sp(m, var, start, alg){}
-        
-        void sampleFromFC(const float snpEffWtdSumSq, const unsigned numNonZeros, float &sigmaSq, const VectorXf &snpEffects,
-                          const VectorXf &snp2pq, ArrayXf &snp2pqPowS, const ArrayXf &logSnp2pq,
-                          const float vg, float &scale, bool scaledGeno);
-        float gradientU(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float sigmaSq, const float vg, bool scaledGeno);
-        float computeU(const float S, const ArrayXf &snpEffects, const float snp2pqLogSum, const ArrayXf &snp2pq, const ArrayXf &logSnp2pq, const float sigmaSq, const float vg, float &scale, float &U_chisq, bool scaledGeno);
-   };
-    
     class MeanEffects : public Parameter, public Stat::Normal {
     public:
         VectorXf snp2pqPowSmu;
@@ -1463,15 +1479,12 @@ public:
 
 public:
     VectorXf rcorr;
-    ArrayXf snp2pqPowSplusOne;
         
     bool sparse;
-    bool robustMode;
     bool lowRankModel;
     bool estimateEffectMean;
 
     SnpEffects snpEffects;
-    Sp S;
     ApproxBayesC::ResidualVar vare;
     ApproxBayesC::GenotypicVar varg;
     ApproxBayesC::Rounding rounding;
@@ -1485,37 +1498,24 @@ public:
     MeanEffects mu;
     Smu Su;
 
-    bool scaledGeno;
-        
     ApproxBayesS(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi,
                  const float varS, const vector<float> &svalue,
-                 const string &algorithm, const bool robustMode, const bool noscale = false, const bool message = true)
-    : BayesS(data, varGenotypic, varResidual, 0.0, pival, piAlpha, piBeta, estimatePi, varS, svalue, algorithm, false)
+                 const string &algorithm, const bool noscale = false, const bool message = true)
+    : BayesS(data, varGenotypic, varResidual, 0.0, pival, piAlpha, piBeta, estimatePi, varS, svalue, algorithm, !(!noscale || lowRank), false)
     , rcorr(data.ZPy)
     , wcorrBlocks(data.wcorrBlocks)
     , snpEffects(data.snpEffectNames, data.snp2pq, pival)
-    , S(data.numIncdSnps, varS, svalue[0], algorithm)
     , vare(varResidual, data.numKeptInds)
     , varg(varGenotypic, data.numKeptInds)
     , mu(data.numIncdSnps)
-    , robustMode(robustMode)
     , vargBlk(data.ldblockNames, varGenotypic, data.numKeptInds)
     , vareBlk(data.ldblockNames, data.varPhenotypic)
     , nBadSnps(data.title, data.b, data.snpEffectNames)
     , sparse(data.sparseLDM)
     , lowRankModel(lowRank)
    {
-        scaledGeno = !noscale || lowRankModel;
-
-        snp2pqPowSplusOne = data.snp2pq.array().pow(S.value + 1.0f);        
-        sigmaSq.value = varGenotypic/(snp2pqPowSplusOne.sum()*pival);
-        scale.value = sigmaSq.scale = 0.5*sigmaSq.value;
 
         estimateEffectMean = false;
-
-        if (scaledGeno) {
-            snp2pqPowS = snp2pqPowSplusOne;
-        }
     
         // Override paramVec to use ApproxBayesS's own varg and vare members
         paramSetVec = {&snpEffects, &fixedEffects, &snpPip};
@@ -1542,7 +1542,6 @@ public:
             }
             cout << "Algorithm: " << alg << "." << endl;
             cout << "scale factor: " << sigmaSq.scale << endl;
-            if (robustMode) cout << "Using a more robust parameterisation " << endl;
         }
 
         //if (randomStart) sampleStartVal();
@@ -1613,7 +1612,7 @@ public:
     
     ApproxBayesST(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const float pival,
                   const float piAlpha, const float piBeta, const bool estimatePi, const float varS, const vector<float> &svalue, const bool estimateS, const bool noscale = false, const bool message = true):
-    ApproxBayesS(data, lowRank, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, varS, svalue, "HMC", false, noscale, false),
+    ApproxBayesS(data, lowRank, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, varS, svalue, "HMC", noscale, false),
     estimateS(estimateS),
     logLdsc(data.LDscore.array().log()),
     hSlT(snp2pqPowS),
@@ -1632,6 +1631,11 @@ public:
             cout << "\nSBayesST" << endl;
             if (lowRankModel) {
                 cout << "Using the low-rank model" << endl;
+            }
+            if (scaledGeno) {
+                cout << "Fitting model assuming scaled genotypes " << endl;
+            } else {
+                cout << "Fitting model assuming unscaled genotypes " << endl;
             }
         }
         
@@ -2020,7 +2024,7 @@ public:
     
     ApproxBayesSMix(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const float pival, const float varS, const vector<float> &svalue,
                   const bool noscale = false, const bool message = true):
-    ApproxBayesS(data, lowRank, varGenotypic, varResidual, pival, 1, 1, true, varS, svalue, "HMC", false, noscale, false),
+    ApproxBayesS(data, lowRank, varGenotypic, varResidual, pival, 1, 1, true, varS, svalue, "HMC", noscale, false),
     snpEffects(data.snpEffectNames, data.snp2pq, 0.5*pival),
     deltaS(data.snpEffectNames),
     piMixComp(pival),
@@ -2037,6 +2041,11 @@ public:
             cout << "\nSBayesSMix" << endl;
             if (lowRankModel) {
                 cout << "Using the low-rank model" << endl;
+            }
+            if (scaledGeno) {
+                cout << "Fitting model assuming scaled genotypes " << endl;
+            } else {
+                cout << "Fitting model assuming unscaled genotypes " << endl;
             }
         }
     }

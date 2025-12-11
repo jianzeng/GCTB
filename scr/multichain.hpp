@@ -899,7 +899,7 @@ public:
     public:
         ChainVecSBayesS(const Data &data, const Options &opt){
             for (unsigned i=0; i<opt.numChains; ++i) {
-                this->push_back(new ApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.varS, opt.S, opt.algorithm, opt.robustMode, opt.noscale, false));
+                this->push_back(new ApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.varS, opt.S, opt.algorithm, opt.noscale, false));
             }
         }
     };

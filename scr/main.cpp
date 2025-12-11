@@ -20,7 +20,7 @@ int main(int argc, const char * argv[]) {
     cout << "* GCTB 2.5.5beta                                        *\n";
     cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
     cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
-    cout << "* Last updated: 23 Apr, 2025                            *\n";
+    cout << "* Last updated: 11 Dec, 2025                            *\n";
     cout << "* MIT License                                           *\n";
     cout << "*********************************************************\n";
     

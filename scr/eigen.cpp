@@ -1712,6 +1712,8 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
             cout << "Output eigen matrix for block " << block->ID << " in file [" << outTxtfile << "]." << endl;
         }
     }
+    
+    lowRankModel = true;
 }
 
 void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const VectorXf &nGWASblock, const bool noscale, const bool makePseudoSummary){

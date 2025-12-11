@@ -272,7 +272,7 @@ public:
     StratApproxBayesS(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const float pival, const float piAlpha, const float piBeta, const bool estimatePi,
                       const float varS, const vector<float> &svalue,
                       const string &algorithm, const bool robustMode, const bool noscale = false, const bool message = true):
-    ApproxBayesS(data, lowRank, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, varS, svalue, "HMC", robustMode, noscale, false),
+    ApproxBayesS(data, lowRank, varGenotypic, varResidual, pival, piAlpha, piBeta, estimatePi, varS, svalue, "HMC", noscale, false),
     snpEffects(data.snpEffectNames, data.snp2pq, pival, data.annoInfoVec),
     snpAnnoMembership(data.snpAnnoPairNames, data.numAnnoPerSnpVec),
     sigmaSqStrat(data.annoNames, data.annoInfoVec, varGenotypic, pival),
@@ -308,6 +308,11 @@ public:
             cout << "\nAnnotation-stratified SBayesS" << endl;
             if (lowRankModel) {
                 cout << "Using the low-rank model" << endl;
+            }
+            if (scaledGeno) {
+                cout << "Fitting model assuming scaled genotypes " << endl;
+            } else {
+                cout << "Fitting model assuming unscaled genotypes " << endl;
             }
             if (model == linear) cout << "  Linear model" << endl;
             if (model == mixture) cout << "  Mixture model" << endl;

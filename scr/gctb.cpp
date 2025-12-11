@@ -190,7 +190,7 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
             else if (bayesType == "B")
             return new ApproxBayesB(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, noscale);
             else if (bayesType == "S")
-                return new ApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, robustMode, noscale);
+                return new ApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, noscale);
             else if (bayesType == "ST")
                 return new ApproxBayesST(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, true, noscale);
             else if (bayesType == "T")
@@ -227,7 +227,7 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
     }
     else if (bayesType == "S") {
         data.readBedFile(noscale, bedFile + ".bed");
-        return new BayesS(data, data.varGenotypic, data.varResidual, data.varRandom, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm);
+        return new BayesS(data, data.varGenotypic, data.varResidual, data.varRandom, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, noscale);
     }
     else if (bayesType == "SMix") {
         data.readBedFile(noscale, bedFile + ".bed");
@@ -254,7 +254,7 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
     }
     else if (bayesType == "Sap") {
         data.buildSparseMME(bedFile + ".bed", windowWidth);
-        return new ApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, robustMode, noscale);
+        return new ApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, noscale);
     }
     else {
         throw(" Error: Wrong bayes type: " + bayesType);
@@ -339,7 +339,7 @@ vector<McmcSamples*> GCTB::multi_chain_mcmc(Data &data, const string &bayesType,
             if (bayesType == "C")
                 modelVec[i] = new ApproxBayesC(data, data.lowRankModel, data.varGenotypic, data.varResidual, data.varRandom, pi, piAlpha, piBeta, estimatePi, false, robustMode, !i);
             else if (bayesType == "S")
-                modelVec[i] = new ApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, robustMode, false, !i);
+                modelVec[i] = new ApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, false, !i);
             else if (bayesType == "ST")
                 modelVec[i] = new ApproxBayesST(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, true, false, !i);
             else if (bayesType == "T")

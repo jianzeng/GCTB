@@ -794,7 +794,7 @@ void StratApproxBayesS::sampleUnknowns(const unsigned iter) {
     perSnpHsqEnrich.compute(hsqStrat.values, piEnrich.expectation, hsq.value);
     perNzHsqEnrich.compute(hsqStrat.values, nnzStrat.values, hsq.value, nnzSnp.value);
     
-    S.sampleFromFC(snpEffects.wtdSumSq, nnzSnp.value, sigmaSq.value, snpEffects.values, data.snp2pq, snp2pqPowSplusOne, logSnp2pq, varg.value, sigmaSq.scale, true);
+    S.sampleFromFC(snpEffects.wtdSumSq, nnzSnp.value, sigmaSq.value, snpEffects.values, data.snp2pq, snp2pqPowSplusOne, logSnp2pq, varg.value, sigmaSq.scale, snpEffects.sum2pqSplusOne, true);
     if (model == mixture)
         Sstrat.sampleFromFC(snpEffects.valuesPerAnno, nnzStrat.values, sigmaSqStrat.values, hsqStrat.values, varg.value, vare.value, data.annoInfoVec, sigmaSqStrat.scales, snpEffects.sum2pqSplusOnePerAnno);
     else if (model == linear)
@@ -902,7 +902,7 @@ void PostHocStratifyS::sampleUnknowns(const unsigned iter) {
     perSnpHsqEnrich.compute(hsqStrat.values, piEnrich.expectation, hsq.value);
     perNzHsqEnrich.compute(hsqStrat.values, nnzStrat.values, hsq.value, nnzSnp.value);
     
-    S.sampleFromFC(snpEffects.wtdSumSq, nnzSnp.value, sigmaSq.value, snpEffects.values, data.snp2pq, snp2pqPowSplusOne, logSnp2pq, varg.value, sigmaSq.scale, true);
+    S.sampleFromFC(snpEffects.wtdSumSq, nnzSnp.value, sigmaSq.value, snpEffects.values, data.snp2pq, snp2pqPowSplusOne, logSnp2pq, varg.value, sigmaSq.scale, snpEffects.sum2pqSplusOne, true);
     Sstrat.sampleFromFC(snpEffects.valuesPerAnno, nnzStrat.values, sigmaSqStrat.values, hsqStrat.values, varg.value, vare.value, data.annoInfoVec, sigmaSqStrat.scales, snpEffects.sum2pqSplusOnePerAnno);
     Senrich.compute(Sstrat.values, S.value);    
 }
