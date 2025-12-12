@@ -22,8 +22,11 @@ This tutorial demonstrates:
 2. Simulating individual-level phenotypes
 3. Running BayesS analysis using individual-level data
 4. Generating GWAS summary statistics
-5. Generating reference LD matrix
-6. Running SBayesS analysis using GWAS summary statistics
+5. Generating sparse LD matrix
+6. Running SBayesS analysis using sparse LD matrix
+7. Generating block LD matrix
+8. Running SBayesR analysis using eigen-decomposed LD matrix
+9. Running SBayesRC analysis with annotation for causal variants
 
 # Requirements
 
@@ -52,15 +55,15 @@ if (!dir.exists(result_dir)) dir.create(result_dir, recursive = TRUE)
 bed_file <- file.path(data_dir, "1000G_eur_chr22")
 fam <- read.table(paste0(bed_file, ".fam"), stringsAsFactors = FALSE,
                   col.names = c("FID", "IID", "FATHER", "MOTHER", "SEX", "PHENO"))
-bim <- read.table(paste0(bed_file, ".bim"), stringsAsFactors = FALSE,
-                  col.names = c("CHR", "SNP", "CM", "BP", "ALLELE_A", "ALLELE_B"))
+bim_all <- read.table(paste0(bed_file, ".bim"), stringsAsFactors = FALSE,
+                      col.names = c("CHR", "SNP", "CM", "BP", "ALLELE_A", "ALLELE_B"))
 
 bed <- BEDMatrix(bed_file)
 geno <- as.matrix(bed)
 
 n_ind <- nrow(fam)
-n_snp <- nrow(bim)
-cat("Loaded:", n_ind, "individuals,", n_snp, "SNPs\n")
+n_snp_all <- nrow(bim_all)
+cat("Loaded:", n_ind, "individuals,", n_snp_all, "SNPs\n")
 
 # Filter SNPs with MAF < 0.01
 maf_all <- colMeans(geno, na.rm = TRUE) / 2
@@ -68,7 +71,7 @@ maf_all <- pmin(maf_all, 1 - maf_all)  # Get minor allele frequency
 keep_snp <- maf_all >= 0.01
 
 geno <- geno[, keep_snp]
-bim <- bim[keep_snp, ]
+bim <- bim_all[keep_snp, ]
 n_snp <- sum(keep_snp)
 cat("After MAF filtering (MAF >= 0.01):", n_snp, "SNPs\n")
 ```
@@ -113,74 +116,39 @@ write.table(data.frame(FID = fam$FID, IID = fam$IID, PHENO = y),
 
 ```{r}
 # Individual-level analysis
+# Command line format (can be copied and run in terminal):
+# gctb --bfile data/1000G_eur_chr22 --pheno data/sim.phen --bayes S --out results/bayess
+
 system2(gctb, c(
   "--bfile", bed_file,
   "--pheno", phen_path,
   "--bayes", "S",
-  "--out", file.path(result_dir, "sim")
+  "--out", file.path(result_dir, "bayess")
 ))
-```
 
 # Inspect results
+snp_res <- read.table(file.path(result_dir, "bayess.snpRes"), header = TRUE)
+par_res <- read.table(file.path(result_dir, "bayess.parRes"), header = TRUE)
 
-```{r}
-snp_res_path <- file.path(result_dir, "sim.snpRes")
-par_res_path <- file.path(result_dir, "sim.parRes")
-
-if (file.exists(snp_res_path)) {
-  snp_res <- read.table(snp_res_path, header = TRUE)
-  cat("SNP results:\n")
-  head(snp_res)
-} else {
-  message("Run GCTB first to create ", snp_res_path)
-}
-
-if (file.exists(par_res_path)) {
-  par_res <- read.table(par_res_path, header = TRUE)
-  cat("\nPosterior estimates of model parameters:\n")
-  print(par_res)
-} else {
-  message("Run GCTB first to create ", par_res_path)
-}
+cat("SNP results:\n")
+head(snp_res)
+cat("\nPosterior estimates of model parameters:\n")
+print(par_res)
 
 # Plot PIP values
-if (file.exists(snp_res_path)) {
-  # Read results
-  snp_res <- read.table(snp_res_path, header = TRUE)
-  
-  # Find the PIP column
-  pip_col <- NULL
-  for (col in c("PIP", "pip")) {
-    if (col %in% colnames(snp_res)) {
-      pip_col <- col
-      break
-    }
-  }
-  
-  if (!is.null(pip_col)) {
-    pip <- snp_res[[pip_col]]
-    
-    # Identify causal variants in the results
-    name_col <- if ("Name" %in% colnames(snp_res)) "Name" else "SNP"
-    causal_snps <- bim$SNP[causal_idx]
-    is_causal <- snp_res[[name_col]] %in% causal_snps
-    
-    # Plot all PIPs in gray
-    plot(pip, type = "h", xlab = "SNP", ylab = "Posterior inclusion probability",
-         col = "gray", lwd = 1)
-    
-    # Overlay causal variants in red
-    points(which(is_causal), pip[is_causal], col = "red", pch = 19, cex = 1.2)
-    segments(which(is_causal), 0, which(is_causal), pip[is_causal], 
-             col = "red", lwd = 2)
-    
-    legend("topright", legend = c("Non-causal", "Causal"), 
-           col = c("gray", "red"), lwd = c(1, 2), pch = c(NA, 19))
-  } else {
-    message("PIP column not found in snpRes file. Available columns: ", 
-            paste(colnames(snp_res), collapse = ", "))
-  }
-}
+pip_col <- if ("PIP" %in% colnames(snp_res)) "PIP" else "pip"
+pip <- snp_res[[pip_col]]
+name_col <- if ("Name" %in% colnames(snp_res)) "Name" else "SNP"
+causal_snps <- bim$SNP[causal_idx]
+is_causal <- snp_res[[name_col]] %in% causal_snps
+
+plot(pip, type = "h", xlab = "SNP", ylab = "Posterior inclusion probability",
+     col = "gray", lwd = 1)
+points(which(is_causal), pip[is_causal], col = "red", pch = 19, cex = 1.2)
+segments(which(is_causal), 0, which(is_causal), pip[is_causal], 
+         col = "red", lwd = 2)
+legend("topright", legend = c("Non-causal", "Causal"), 
+       col = c("gray", "red"), lwd = c(1, 2), pch = c(NA, 19))
 ```
 
 # Generate GWAS summary statistics
@@ -215,12 +183,64 @@ write.table(gwas_sumstats, sumstats_path, quote = FALSE, sep = "\t",
 head(gwas_sumstats)
 ```
 
+# Generate sparse LD matrix
+
+```{r}
+# Create sparse LD matrix from genotype data
+# The sparse format stores only non-zero LD correlations within a window around each SNP
+# Note: GCTB appends .ldm.sparse to the output path, so we use the base name
+sparse_ldm_base <- file.path(data_dir, "1000G_eur_chr22")
+sparse_ldm_path <- paste0(sparse_ldm_base, ".ldm.sparse")
+
+# Command line format (can be copied and run in terminal):
+# gctb --bfile data/1000G_eur_chr22 --make-sparse-ldm --out data/1000G_eur_chr22
+
+system2(gctb, c(
+  "--bfile", bed_file,
+  "--make-sparse-ldm",
+  "--out", sparse_ldm_base
+))
+
+# Check the output files
+cat("\nSparse LD matrix files created:\n")
+cat("  Info file:", paste0(sparse_ldm_path, ".info"), "\n")
+cat("  Binary file:", paste0(sparse_ldm_path, ".bin"), "\n")
+```
+
+# Run SBayesS using sparse LD matrix
+
+```{r}
+# Summary-data-based analysis using sparse LD matrix
+# This is more memory-efficient than using full LD matrices
+# Command line format (can be copied and run in terminal):
+# gctb --sbayes S --ldm data/1000G_eur_chr22.ldm.sparse --gwas-summary data/sim.ma --out results/sbayess
+
+system2(gctb, c(
+  "--sbayes", "S",
+  "--ldm", sparse_ldm_path,
+  "--gwas-summary", sumstats_path,
+  "--out", file.path(result_dir, "sbayess")
+))
+
+# Inspect results
+snp_res_sparse <- read.table(file.path(result_dir, "sbayess.snpRes"), header = TRUE)
+par_res_sparse <- read.table(file.path(result_dir, "sbayess.parRes"), header = TRUE)
+
+cat("SBayesS (sparse LDM) SNP results:\n")
+head(snp_res_sparse)
+cat("\nSBayesS (sparse LDM) posterior estimates of model parameters:\n")
+print(par_res_sparse)
+```
+
 # Generate block LD matrix
 
 ```{r}
 # Compute block LD matrix based on LD block map
 # Note: You need to provide a block info file (e.g., ref_b37_1588blocks.pos)
-block_info_file <- "data/ref_b37_1588blocks.pos"  # Update with your block info file path
+block_info_file <- file.path(data_dir, "ref_b37_1588blocks.pos")
+
+# Command line format (can be copied and run in terminal):
+# gctb --bfile data/1000G_eur_chr22 --make-block-ldm --block-info data/ref_b37_1588blocks.pos --out data/ldm
 
 system2(gctb, c(
   "--bfile", bed_file,
@@ -232,6 +252,9 @@ system2(gctb, c(
 ldm_path <- file.path(data_dir, "ldm")
 
 # Perform eigen-decomposition on the LD matrices with matched SNPs in GWAS data
+# Command line format (can be copied and run in terminal):
+# gctb --ldm data/ldm --gwas-summary data/sim.ma --make-ldm-eigen --out data/ldm
+
 system2(gctb, c(
   "--ldm", ldm_path,
   "--gwas-summary", sumstats_path, 
@@ -240,76 +263,107 @@ system2(gctb, c(
 ))
 ```
 
-# Run SBayesS using GWAS summary statistics
+# Run SBayesR using eigen-decomposed matrices
 
 ```{r}
 # Summary-data-based analysis
+# Command line format (can be copied and run in terminal):
+# gctb --gwas-summary data/sim.ma --ldm-eigen data/ldm --sbayes R --out results/sbayesr
+
 system2(gctb, c(
   "--gwas-summary", sumstats_path,
   "--ldm-eigen", ldm_path,
-  "--sbayes", "S",
-  "--out", file.path(result_dir, "sim_sumstats")
+  "--sbayes", "R",
+  "--out", file.path(result_dir, "sbayesr")
 ))
+
+# Inspect results
+snp_res_sumstats <- read.table(file.path(result_dir, "sbayesr.snpRes"), header = TRUE)
+par_res_sumstats <- read.table(file.path(result_dir, "sbayesr.parRes"), header = TRUE)
+
+cat("SBayesR SNP results:\n")
+head(snp_res_sumstats)
+cat("\nSBayesR posterior estimates of model parameters:\n")
+print(par_res_sumstats)
+
+# Plot PIP values for SBayesR
+pip_col <- if ("PIP" %in% colnames(snp_res_sumstats)) "PIP" else "pip"
+pip <- snp_res_sumstats[[pip_col]]
+name_col <- if ("Name" %in% colnames(snp_res_sumstats)) "Name" else "SNP"
+causal_snps <- bim$SNP[causal_idx]
+is_causal <- snp_res_sumstats[[name_col]] %in% causal_snps
+
+plot(pip, type = "h", xlab = "SNP", ylab = "Posterior inclusion probability",
+     col = "gray", lwd = 1, main = "SBayesR PIP Values")
+points(which(is_causal), pip[is_causal], col = "red", pch = 19, cex = 1.2)
+segments(which(is_causal), 0, which(is_causal), pip[is_causal], 
+         col = "red", lwd = 2)
+legend("topright", legend = c("Non-causal", "Causal"), 
+       col = c("gray", "red"), lwd = c(1, 2), pch = c(NA, 19))
 ```
 
-# Inspect SBayesS results
+# Create annotation file for causal variants
 
 ```{r}
-snp_res_sumstats_path <- file.path(result_dir, "sim_sumstats.snpRes")
-par_res_sumstats_path <- file.path(result_dir, "sim_sumstats.parRes")
+# Create annotation file with SNP, Intercept, and Anno columns for ALL SNPs in genotype file
+# Anno = 1 if SNP is causal, 0 otherwise
+# Map causal SNPs from filtered set to original set
+causal_snps_filtered <- bim$SNP[causal_idx]  # Causal SNPs in filtered set
+causal_snps_all <- bim_all$SNP[bim_all$SNP %in% causal_snps_filtered]  # Causal SNPs in original set
 
-if (file.exists(snp_res_sumstats_path)) {
-  snp_res_sumstats <- read.table(snp_res_sumstats_path, header = TRUE)
-  cat("SBayesS SNP results:\n")
-  head(snp_res_sumstats)
-} else {
-  message("Run SBayesS first to create ", snp_res_sumstats_path)
-}
+anno_data <- data.frame(
+  SNP = bim_all$SNP,
+  Intercept = 1,
+  Anno = ifelse(bim_all$SNP %in% causal_snps_all, 1, 0)
+)
 
-if (file.exists(par_res_sumstats_path)) {
-  par_res_sumstats <- read.table(par_res_sumstats_path, header = TRUE)
-  cat("\nSBayesS posterior estimates of model parameters:\n")
-  print(par_res_sumstats)
-} else {
-  message("Run SBayesS first to create ", par_res_sumstats_path)
-}
+anno_path <- file.path(data_dir, "causal_anno.txt")
+write.table(anno_data, anno_path, quote = FALSE, sep = "\t", 
+            row.names = FALSE, col.names = TRUE)
 
-# Plot PIP values for SBayesS
-if (file.exists(snp_res_sumstats_path)) {
-  # Read results
-  snp_res_sumstats <- read.table(snp_res_sumstats_path, header = TRUE)
-  
-  # Find the PIP column
-  pip_col <- NULL
-  for (col in c("PIP", "pip")) {
-    if (col %in% colnames(snp_res_sumstats)) {
-      pip_col <- col
-      break
-    }
-  }
-  
-  if (!is.null(pip_col)) {
-    pip <- snp_res_sumstats[[pip_col]]
-    
-    # Identify causal variants in the results
-    name_col <- if ("Name" %in% colnames(snp_res_sumstats)) "Name" else "SNP"
-    causal_snps <- bim$SNP[causal_idx]
-    is_causal <- snp_res_sumstats[[name_col]] %in% causal_snps
-    
-    # Plot all PIPs in gray
-    plot(pip, type = "h", xlab = "SNP", ylab = "Posterior inclusion probability",
-         col = "gray", lwd = 1, main = "SBayesS PIP Values")
-    
-    # Overlay causal variants in red
-    points(which(is_causal), pip[is_causal], col = "red", pch = 19, cex = 1.2)
-    segments(which(is_causal), 0, which(is_causal), pip[is_causal], 
-             col = "red", lwd = 2)
-    
-    legend("topright", legend = c("Non-causal", "Causal"), 
-           col = c("gray", "red"), lwd = c(1, 2), pch = c(NA, 19))
-  } else {
-    message("PIP column not found in snpRes file. Available columns: ", 
-            paste(colnames(snp_res_sumstats), collapse = ", "))
-  }
-}
+cat("Annotation file created for all SNPs in genotype file:\n")
+cat("  Total SNPs:", nrow(anno_data), "\n")
+cat("  Causal SNPs:", sum(anno_data$Anno), "\n")
+cat("  Non-causal SNPs:", sum(anno_data$Anno == 0), "\n")
+head(anno_data)
+```
+
+# Run SBayesRC with annotation
+
+```{r}
+# Summary-data-based analysis with annotation stratification
+# Command line format (can be copied and run in terminal):
+# gctb --gwas-summary data/sim.ma --ldm-eigen data/ldm --sbayes RC --annot data/causal_anno.txt --out results/sbayesrc
+
+system2(gctb, c(
+  "--gwas-summary", sumstats_path,
+  "--ldm-eigen", ldm_path,
+  "--sbayes", "RC",
+  "--annot", anno_path,
+  "--out", file.path(result_dir, "sbayesrc")
+))
+
+# Inspect results
+snp_res_anno <- read.table(file.path(result_dir, "sbayesrc.snpRes"), header = TRUE)
+par_res_anno <- read.table(file.path(result_dir, "sbayesrc.parRes"), header = TRUE)
+
+cat("SBayesRC SNP results:\n")
+head(snp_res_anno)
+cat("\nSBayesRC posterior estimates of model parameters:\n")
+print(par_res_anno)
+
+# Plot PIP values for SBayesRC
+pip_col <- if ("PIP" %in% colnames(snp_res_anno)) "PIP" else "pip"
+pip <- snp_res_anno[[pip_col]]
+name_col <- if ("Name" %in% colnames(snp_res_anno)) "Name" else "SNP"
+causal_snps <- bim$SNP[causal_idx]
+is_causal <- snp_res_anno[[name_col]] %in% causal_snps
+
+plot(pip, type = "h", xlab = "SNP", ylab = "Posterior inclusion probability",
+     col = "gray", lwd = 1, main = "SBayesRC PIP Values")
+points(which(is_causal), pip[is_causal], col = "red", pch = 19, cex = 1.2)
+segments(which(is_causal), 0, which(is_causal), pip[is_causal], 
+         col = "red", lwd = 2)
+legend("topright", legend = c("Non-causal", "Causal"), 
+       col = c("gray", "red"), lwd = c(1, 2), pch = c(NA, 19))
 ```

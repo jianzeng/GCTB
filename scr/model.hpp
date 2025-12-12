@@ -703,6 +703,8 @@ public:
     hsqPercModel(hsqPercModel)
     {
         bayesType = "R";
+
+        if (data.numKeptInds < 1000) this->hsqPercModel = false;  // when sample size is small, sample the common variance variable as hsq estimate may be instable
         
         paramSetVec  = {&snpEffects, &fixedEffects, &snpPip};
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
