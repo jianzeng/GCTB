@@ -181,6 +181,11 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
                 return new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, algorithm);
             else if (bayesType == "RD")
                 return new ApproxBayesRD(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, algorithm);
+            else if (bayesType == "APP") {
+                VectorXf nLociAnno(data.numAnnos);
+                for(unsigned i=0; i<data.numAnnos; ++i) nLociAnno[i] = data.numSnpAnnoVec[i];
+                return new ApproxBayesAPP(data, data.lowRankModel, data.varGenotypic, data.varGenotypic, data.varResidual, data.varResidual, nLociAnno, estimatePi, true, true);
+            }
             else
                 throw(" Error: Wrong bayes type: " + bayesType + " in the annotation-stratified summary-data-based Bayesian analysis.");
         }
@@ -201,6 +206,8 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
                 return new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, algorithm);
             else if (bayesType == "RS")
                 return new ApproxBayesRS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, varS, S, noscale, hsqPercModel, robustMode, algorithm);
+            else if (bayesType == "APP")
+                return new ApproxBayesAPP(data, data.lowRankModel, data.varGenotypic, data.varGenotypic, data.varResidual, data.varResidual, VectorXf(), estimatePi, true, true);
             else
                 throw(" Error: Wrong bayes type: " + bayesType + " in the summary-data-based Bayesian analysis.");
         }

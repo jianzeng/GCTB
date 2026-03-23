@@ -8342,3 +8342,691 @@ void ApproxBayesRD::sampleUnknowns(const unsigned iter){
 }
 
 
+// ApproxBayesAPP: Bivariate Bayesian Analysis with Annotation and Pleiotropy
+// ============================================================================
+
+// Helper function to sample from Inverse-Wishart distribution (2x2)
+// X ~ InvWishart(df, scale) means: X^-1 ~ Wishart(df, scale^-1)
+static Matrix2f sampleInverseWishart2x2(float df, const Matrix2f &scale) {
+    // Sample from Wishart(df, scale^-1) then invert
+    Matrix2f scaleInv = scale.inverse();
+    
+    // Sample from Wishart(df, scaleInv) using Bartlett decomposition
+    // For 2x2 Wishart: W = L * L' where L is lower triangular
+    Matrix2f L;
+    L.setZero();
+    
+    // L[0,0] ~ sqrt(Chi^2(df)) where Chi^2(df) = Gamma(df/2, 2)
+    Stat::Gamma gammaSampler;
+    float chi2_0 = gammaSampler.sample(0.5f * df, 2.0f);
+    L(0,0) = sqrtf(chi2_0);
+    
+    // L[1,0] ~ N(0, 1) (standard normal)
+    L(1,0) = Stat::snorm();
+    
+    // L[1,1] ~ sqrt(Chi^2(df-1))
+    float chi2_1 = gammaSampler.sample(0.5f * (df - 1.0f), 2.0f);
+    L(1,1) = sqrtf(chi2_1);
+    
+    // Scale by Cholesky of scaleInv
+    LLT<Matrix2f> chol(scaleInv);
+    if (chol.info() != Success) {
+        // If Cholesky fails, use identity
+        Matrix2f W = L * L.transpose();
+        return W.inverse();
+    }
+    Matrix2f L_scale = chol.matrixL();
+    L = L_scale * L;
+    
+    Matrix2f W = L * L.transpose();
+    return W.inverse();
+}
+
+
+void ApproxBayesAPP::AnnoGenotypicVarBivariate::accumulate(const VarBlocks &varBlocks) {
+    const unsigned nBlocks = varBlocks.totalVargBlk.size();
+    for (unsigned cat = 0; cat < numCategories; ++cat) {
+        G_vec[cat].setZero();
+        for (unsigned b = 0; b < nBlocks; ++b) {
+            G_vec[cat](0,0) += varBlocks.vargBlkCat[b](0, cat);
+            G_vec[cat](1,1) += varBlocks.vargBlkCat[b](1, cat);
+            G_vec[cat](0,1) += varBlocks.vargCovBlkCat[b][cat];
+        }
+        G_vec[cat](1,0) = G_vec[cat](0,1);
+    }
+}
+
+unsigned ApproxBayesAPP::DeltaBivariate::countNonZero(const unsigned numCategories) const {
+    unsigned nnz = 0;
+    for (unsigned cat = 0; cat < numCategories; ++cat) {
+        for (unsigned i = 0; i < size; ++i) {
+            unsigned markerIndex = cat * size + i;
+            if (deltaMatrix(markerIndex, 0) > 0.5f || deltaMatrix(markerIndex, 1) > 0.5f)
+                ++nnz;
+        }
+    }
+    return nnz;
+}
+
+// Map [delta1, delta2] to Pi index matching Julia order: 0=[1,1], 1=[1,0], 2=[0,1], 3=[0,0]
+static inline unsigned deltaToPiIdx(float d0, float d1) {
+    return (d0 < 0.5f ? 2u : 0u) + (d1 < 0.5f ? 1u : 0u);
+}
+
+void ApproxBayesAPP::DeltaBivariate::countLociByState(const unsigned numCategories) {
+    for (unsigned cat = 0; cat < numCategories; ++cat) {
+        nLociCounts[cat].setZero();
+        for (unsigned i = 0; i < size; ++i) {
+            unsigned markerIndex = cat * size + i;
+            unsigned idx = deltaToPiIdx(deltaMatrix(markerIndex, 0), deltaMatrix(markerIndex, 1));
+            nLociCounts[cat][idx] += 1.0f;
+        }
+    }
+}
+
+void ApproxBayesAPP::VarBlocks::resize(const unsigned nBlocks, const unsigned nCategories) {
+    vargBlkCat.resize(nBlocks);
+    ssqBlkCat.resize(nBlocks);
+    vargCovBlkCat.resize(nBlocks);
+    totalVargBlk.resize(nBlocks);
+    for (unsigned b = 0; b < nBlocks; ++b) {
+        vargBlkCat[b]    = MatrixXf::Zero(2, nCategories);
+        ssqBlkCat[b]     = VectorXf::Zero(3 * nCategories);
+        vargCovBlkCat[b] = VectorXf::Zero(nCategories);
+        totalVargBlk[b]  = Matrix2f::Zero();
+    }
+}
+
+void ApproxBayesAPP::VarBlocks::setZero(const unsigned nBlocks) {
+    for (unsigned b = 0; b < nBlocks; ++b) {
+        vargBlkCat[b].setZero();
+        ssqBlkCat[b].setZero();
+        vargCovBlkCat[b].setZero();
+        totalVargBlk[b].setZero();
+    }
+}
+
+Matrix2f ApproxBayesAPP::VarBlocks::computeTotal() const {
+    Matrix2f total = Matrix2f::Zero();
+    for (const auto &m : totalVargBlk) total += m;
+    return total;
+}
+
+void ApproxBayesAPP::VarBlocks::compute(const MatrixXf &alphaMatrix, const unsigned nSNPs,
+                                        const vector<LDBlockInfo*> &keptLdBlockInfoVec,
+                                        const vector<MatrixXf> &Qblocks, const unsigned numCategories) {
+    unsigned nBlocks = keptLdBlockInfoVec.size();
+    setZero(nBlocks);
+    for (unsigned b = 0; b < nBlocks; ++b) {
+        LDBlockInfo *blockInfo = keptLdBlockInfoVec[b];
+        unsigned blockStart = blockInfo->startSnpIdx;
+        unsigned blockEnd = blockInfo->endSnpIdx;
+        Ref<const MatrixXf> Q = Qblocks[b];
+
+        VectorXf what_array_total1 = VectorXf::Zero(Q.rows());
+        VectorXf what_array_total2 = VectorXf::Zero(Q.rows());
+
+        for (unsigned cat = 0; cat < numCategories; ++cat) {
+            VectorXf alphaArray_c1 = VectorXf::Zero(blockEnd - blockStart + 1);
+            VectorXf alphaArray_c2 = VectorXf::Zero(blockEnd - blockStart + 1);
+            for (unsigned i = blockStart; i <= blockEnd; ++i) {
+                unsigned markerIndex = cat * nSNPs + i;
+                alphaArray_c1[i - blockStart] = alphaMatrix(markerIndex, 0);
+                alphaArray_c2[i - blockStart] = alphaMatrix(markerIndex, 1);
+            }
+
+            VectorXf what_array_c1 = Q * alphaArray_c1;
+            VectorXf what_array_c2 = Q * alphaArray_c2;
+
+            vargBlkCat[b](0, cat) = what_array_c1.dot(what_array_c1);
+            vargBlkCat[b](1, cat) = what_array_c2.dot(what_array_c2);
+            ssqBlkCat[b][0 * numCategories + cat] = alphaArray_c1.dot(alphaArray_c1);
+            ssqBlkCat[b][1 * numCategories + cat] = alphaArray_c2.dot(alphaArray_c2);
+            vargCovBlkCat[b][cat] = what_array_c1.dot(what_array_c2);
+            ssqBlkCat[b][2 * numCategories + cat] = alphaArray_c1.dot(alphaArray_c2);
+
+            what_array_total1 += what_array_c1;
+            what_array_total2 += what_array_c2;
+        }
+
+        totalVargBlk[b](0,0) = what_array_total1.dot(what_array_total1);
+        totalVargBlk[b](1,1) = what_array_total2.dot(what_array_total2);
+        totalVargBlk[b](0,1) = totalVargBlk[b](1,0) = what_array_total1.dot(what_array_total2);
+    }
+}
+
+void ApproxBayesAPP::SnpPIPBivariate::compute(const MatrixXf &deltaMatrix, const unsigned numCategories) {
+    unsigned nSNPs = pip1().size;
+    VectorXf p1 = VectorXf::Zero(nSNPs);
+    VectorXf p2 = VectorXf::Zero(nSNPs);
+    for (unsigned cat = 0; cat < numCategories; ++cat) {
+        for (unsigned i = 0; i < nSNPs; ++i) {
+            unsigned markerIndex = cat * nSNPs + i;
+            if (deltaMatrix(markerIndex, 0) > 0.5f) p1[i] = 1.0f;
+            if (deltaMatrix(markerIndex, 1) > 0.5f) p2[i] = 1.0f;
+        }
+    }
+    pip1().getValues(p1);
+    pip2().getValues(p2);
+}
+
+void ApproxBayesAPP::AnnoPiBivariate::sampleFromFC(const vector<VectorXf> &nLociCounts) {
+    // Sample from Dirichlet distribution for each category
+    for (unsigned c = 0; c < numCategories; ++c) {
+        VectorXf counts = nLociCounts[c];
+        VectorXf alpha = counts.array() + alphaVec.array();
+        piVec[c] = Stat::Dirichlet().sample(4, alpha);
+    }
+}
+
+void ApproxBayesAPP::PiBivariate::compute(const AnnoPiBivariate &piAnno, const VectorXf &nLociAnno) {
+    VectorXf margPi = VectorXf::Zero(4);
+    float totalLoci = nLociAnno.sum();
+    if (totalLoci > 0.0f) {
+        for (unsigned c = 0; c < piAnno.numCategories; ++c)
+            margPi += piAnno.piVec[c] * nLociAnno[c];
+        margPi /= totalLoci;
+    }
+    // margPi order: 0=[1,1], 1=[1,0], 2=[0,1], 3=[0,0]. Output: Pi_00, Pi_10, Pi_01, Pi_11
+    (*this)[0]->value = margPi[3];  // Pi_00 = P([0,0])
+    (*this)[1]->value = margPi[1];  // Pi_10 = P([1,0])
+    (*this)[2]->value = margPi[2];  // Pi_01 = P([0,1])
+    (*this)[3]->value = margPi[0];  // Pi_11 = P([1,1])
+}
+
+void ApproxBayesAPP::HsqBivariate::compute(const Matrix2f &vargTotal, const vector<Matrix2f> &R_blk) {
+    float vare1 = 0.0f, vare2 = 0.0f, cove = 0.0f;
+    for (const auto &R : R_blk) { vare1 += R(0,0); vare2 += R(1,1); cove += R(0,1); }
+    vare1 /= R_blk.size();
+    vare2 /= R_blk.size();
+    cove /= R_blk.size();
+    (*this)[0]->value = vargTotal(0, 0);  // varg is 1 for both traits
+    (*this)[1]->value = vargTotal(1, 1);
+    // Co-heritability = Covg_12 / Covp_12
+    (*this)[2]->value = vargTotal(0, 1) / cove;
+}
+
+void ApproxBayesAPP::AnnoVarEffectsBivariate::sampleFromFC(const MatrixXf &betaMatrix, const VectorXf &nLociAnno) {
+    // Compute SSE per category from betaMatrix
+    unsigned nSNPs = betaMatrix.rows() / numCategories;
+    vector<Matrix2f> SSE_vec(numCategories);
+    for (unsigned c = 0; c < numCategories; ++c) {
+        SSE_vec[c].setZero();
+        for (unsigned i = 0; i < nSNPs; ++i) {
+            unsigned idx = c * nSNPs + i;
+            float b1 = betaMatrix(idx, 0), b2 = betaMatrix(idx, 1);
+            SSE_vec[c](0,0) += b1 * b1;
+            SSE_vec[c](1,1) += b2 * b2;
+            SSE_vec[c](0,1) += b1 * b2;
+        }
+        SSE_vec[c](1,0) = SSE_vec[c](0,1);
+    }
+
+    // Sample from Inverse-Wishart for each category
+    const float df_G = 6.0f;  // df = 4 + nTraits
+
+    for (unsigned c = 0; c < numCategories; ++c) {
+        Matrix2f scale_G = A_vec[c] * (df_G - 3.0f);  // df_G - nTraits - 1
+        Matrix2f SSE = SSE_vec[c];
+        Matrix2f scale_tilde = scale_G + SSE;
+        
+        // Ensure scale_tilde is positive definite
+        LLT<Matrix2f> chol(scale_tilde);
+        if (chol.info() != Success) {
+            // If not positive definite, add small value to diagonal
+            scale_tilde(0,0) += 0.01f;
+            scale_tilde(1,1) += 0.01f;
+        }
+        
+        A_vec[c] = sampleInverseWishart2x2(df_G + nLociAnno[c], scale_tilde);
+        Ainv_vec[c] = A_vec[c].inverse();
+    }
+}
+
+void ApproxBayesAPP::ResidualVarBivariate::sampleFromFC(vector<VectorXf> &wcorrBlocks, const vector<Vector2f> &nGWASblocks,
+                                                    const VectorXf &numEigenvalBlock, const VarBlocks &varBlocks) {
+    const vector<MatrixXf> &vargBlkCat    = varBlocks.vargBlkCat;
+    const vector<VectorXf> &ssqBlkCat     = varBlocks.ssqBlkCat;
+    const vector<Matrix2f> &totalVargBlk  = varBlocks.totalVargBlk;
+    // Sample residual variance per block, matching Julia implementation
+    unsigned nBlocks = wcorrBlocks.size();
+    
+    for (unsigned b = 0; b < nBlocks; ++b) {
+        unsigned nEigen = wcorrBlocks[b].size() / 2;  // wcorr is [w1; w2]
+        VectorXf w1 = wcorrBlocks[b].segment(0, nEigen);
+        VectorXf w2 = wcorrBlocks[b].segment(nEigen, nEigen);
+        
+        // Get sample sizes per trait (Julia: nInd = [nInd1, nInd2])
+        float n1 = nGWASblocks[b][0];
+        float n2 = nGWASblocks[b][1];
+        
+        // Compute SSE as in Julia: dot(ycorri, ycorrj) * sqrt(nInd[i] * nInd[j])
+        Matrix2f SSE;
+        SSE(0,0) = w1.dot(w1) * sqrtf(n1 * n1);
+        SSE(1,1) = w2.dot(w2) * sqrtf(n2 * n2);
+        SSE(0,1) = SSE(1,0) = w1.dot(w2) * sqrtf(n1 * n2);
+        
+        // Sample R (Julia: sample_variance_sumstats)
+        Matrix2f scale_tilde = scale_R + SSE;
+        
+        // Ensure positive definite
+        LLT<Matrix2f> chol(scale_tilde);
+        if (chol.info() != Success) {
+            scale_tilde(0,0) += 0.01f;
+            scale_tilde(1,1) += 0.01f;
+        }
+        
+        Matrix2f sampled_R = sampleInverseWishart2x2(df_R + numEigenvalBlock[b], scale_tilde);
+        
+        // R tuning logic from Julia (lines 639-650)
+        float Rcor = sampled_R(0,1) / sqrtf(sampled_R(0,0) * sampled_R(1,1));  // correlation
+        
+        // Check threshold for each trait (Julia lines 639-648)
+        for (unsigned traiti = 0; traiti < 2; ++traiti) {
+            float totalVarg = totalVargBlk[b](traiti, traiti);
+            if (totalVarg <= 0.0f) {
+                R_blk[b](traiti, traiti) = 1.0f;
+                continue;
+            }
+            // Compute thres = sum(ssq_blk_cat[b][traiti, :]) / totalvarg_blk[b][traiti, traiti]
+            float ssq_sum = 0.0f;
+            for (unsigned c = 0; c < vargBlkCat[b].cols(); ++c) {
+                ssq_sum += ssqBlkCat[b][traiti * vargBlkCat[b].cols() + c];
+            }
+            float thres = ssq_sum / totalVarg;
+            
+            if (thres > 1.1f) {
+                R_blk[b](traiti, traiti) = sampled_R(traiti, traiti);
+            } else {
+                R_blk[b](traiti, traiti) = 1.0f;
+            }
+        }
+        
+        // Tune covariance in R_blk
+        float Rcov = Rcor * sqrtf(R_blk[b](0,0) * R_blk[b](1,1));
+        R_blk[b](0,1) = R_blk[b](1,0) = Rcov;
+    }
+    
+    // Average across blocks for next iteration (as in Julia code line 820-822)
+    Matrix2f R_blk_sum = Matrix2f::Zero();
+    for (unsigned b = 0; b < nBlocks; ++b) {
+        R_blk_sum += R_blk[b];
+    }
+    Matrix2f R_blkmean = R_blk_sum / nBlocks;
+    
+    // Update all blocks with mean
+    for (unsigned b = 0; b < nBlocks; ++b) {
+        R_blk[b] = R_blkmean;
+    }
+    normalise(nGWASblocks);
+}
+
+void ApproxBayesAPP::AnnoGenotypicVarBivariate::compute(const vector<VectorXf> &whatBlocks, const vector<MatrixXf> &Qblocks,
+                                                const vector<LDBlockInfo*> &keptLdBlockInfoVec,
+                                                const MatrixXf &alphaMatrix, const MatrixXf &annoMatrix) {
+    // Compute genetic variance per category (alphaMatrix is (nSNPs*nCategory) x 2)
+    unsigned nBlocks = keptLdBlockInfoVec.size();
+    unsigned nSNPs = alphaMatrix.rows() / numCategories;
+    
+    // Reset
+    for (unsigned c = 0; c < numCategories; ++c) {
+        G_vec[c].setZero();
+    }
+    
+    for (unsigned b = 0; b < nBlocks; ++b) {
+        LDBlockInfo *blockInfo = keptLdBlockInfoVec[b];
+        unsigned blockStart = blockInfo->startSnpIdx;
+        unsigned blockEnd = blockInfo->endSnpIdx;
+        
+        Ref<const MatrixXf> Q = Qblocks[b];
+        
+        for (unsigned c = 0; c < numCategories; ++c) {
+            VectorXf what1_c = VectorXf::Zero(Q.rows());
+            VectorXf what2_c = VectorXf::Zero(Q.rows());
+            
+            for (unsigned i = blockStart; i <= blockEnd; ++i) {
+                if (annoMatrix(i, c) != 0.0) {  // SNP in this category
+                    unsigned markerIndex = c * nSNPs + i;
+                    Ref<const VectorXf> Qi = Q.col(i - blockStart);
+                    what1_c += Qi * alphaMatrix(markerIndex, 0);
+                    what2_c += Qi * alphaMatrix(markerIndex, 1);
+                }
+            }
+            
+            G_vec[c](0,0) += what1_c.dot(what1_c);
+            G_vec[c](1,1) += what2_c.dot(what2_c);
+            G_vec[c](0,1) = G_vec[c](1,0) += what1_c.dot(what2_c);
+        }
+    }
+}
+
+void ApproxBayesAPP::SnpEffectsBivariate::sampleFromFC(MatrixXf &deltaMatrix, vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks,
+                                         vector<VectorXf> &whatBlocks, VectorXf &vareBlocks,
+                                         const vector<Matrix2f> &A_vec, const AnnoPiBivariate &Pi,
+                                         const VectorXf &snp2pq, const vector<Matrix2f> &Rinv_blk,
+                                         const vector<LDBlockInfo*> &keptLdBlockInfoVec,
+                                         const vector<Vector2f> &nGWASblocks, const MatrixXf &annoMat) {
+
+    unsigned nBlocks = keptLdBlockInfoVec.size();
+    unsigned nCon = 0;  // TODO: Support continuous annotations
+
+    // Initialise whatBlocks (persist across iterations; only resize when needed)
+    if (whatBlocks.size() != nBlocks) {
+        whatBlocks.resize(nBlocks);
+        for (unsigned b = 0; b < nBlocks; ++b)
+            whatBlocks[b].setZero(wcorrBlocks[b].size());
+    }
+    for (unsigned b = 0; b < nBlocks; ++b)
+        whatBlocks[b].setZero();
+    
+    // Pre-compute xpx and xArray for each block and category (matching Julia lines 248-265)
+    vector<vector<VectorXf> > xpx_dict(nBlocks);  // blk -> vector of xpx per category
+    vector<vector<MatrixXf> > xArray_dict(nBlocks);  // blk -> vector of xArray per category
+    
+    for (unsigned blk = 0; blk < nBlocks; ++blk) {
+        Ref<const MatrixXf> Q = Qblocks[blk];
+        Ref<VectorXf> wcorr = wcorrBlocks[blk];
+        LDBlockInfo *blockInfo = keptLdBlockInfoVec[blk];
+        unsigned blockStart = blockInfo->startSnpIdx;
+        unsigned blockEnd = blockInfo->endSnpIdx;
+        unsigned nMarkerb = blockEnd - blockStart + 1;
+        
+        // Verify wcorr size matches expected bivariate size
+        if (wcorr.size() != 2 * Q.rows()) {
+            throw("Error in ApproxBayesAPP::SnpEffects::sampleFromFC: Block " + to_string(blk) + 
+                  " - wcorr.size()=" + to_string(wcorr.size()) + " but expected " + to_string(2*Q.rows()) + 
+                  " (2 * Q.rows()). Q.rows()=" + to_string(Q.rows()));
+        }
+        
+        xpx_dict[blk].resize(nCon + 1);
+        xArray_dict[blk].resize(nCon + 1);
+        
+        // For continuous annotations (if any)
+        for (unsigned c = 0; c < nCon; ++c) {
+            xpx_dict[blk][c] = VectorXf(nMarkerb);
+            for (unsigned i = 0; i < nMarkerb; ++i) {
+                unsigned snpIdx = blockStart + i;
+                float annoVal = annoMat(snpIdx, c);
+                Ref<const VectorXf> Qcol = Q.col(i);
+                xpx_dict[blk][c][i] = annoVal * annoVal * Qcol.dot(Qcol);
+            }
+            // xArray = Q * diag(annoMat[:, c])
+            xArray_dict[blk][c] = Q;
+            for (unsigned i = 0; i < nMarkerb; ++i) {
+                unsigned snpIdx = blockStart + i;
+                xArray_dict[blk][c].col(i) *= annoMat(snpIdx, c);
+            }
+        }
+        
+        // For categorical annotations (last element)
+        xpx_dict[blk][nCon] = VectorXf(nMarkerb);
+        
+        if (Q.cols() != nMarkerb) {
+            throw("Error: Q.cols()=" + to_string(Q.cols()) + " != nMarkerb=" + to_string(nMarkerb) + " in block " + to_string(blk));
+        }
+        
+        for (unsigned i = 0; i < nMarkerb; ++i) {
+            Ref<const VectorXf> Qcol = Q.col(i);
+            xpx_dict[blk][nCon][i] = Qcol.dot(Qcol);
+        }
+        xArray_dict[blk][nCon] = Q;
+    }
+    
+    // Process each block (matching Julia lines 491-652)
+    for (unsigned blk = 0; blk < nBlocks; ++blk) {
+        if (blk >= Qblocks.size() || blk >= wcorrBlocks.size() || blk >= whatBlocks.size()) {
+            throw("Error: blk=" + to_string(blk) + " out of bounds. Qblocks.size()=" + to_string(Qblocks.size()) + ", wcorrBlocks.size()=" + to_string(wcorrBlocks.size()) + ", whatBlocks.size()=" + to_string(whatBlocks.size()));
+        }
+        
+        // Check keptLdBlockInfoVec first
+        if (blk >= keptLdBlockInfoVec.size()) {
+            throw("Error: blk=" + to_string(blk) + " >= keptLdBlockInfoVec.size()=" + to_string(keptLdBlockInfoVec.size()));
+        }
+        LDBlockInfo *blockInfo = keptLdBlockInfoVec[blk];
+        unsigned blockStart = blockInfo->startSnpIdx;
+        unsigned blockEnd = blockInfo->endSnpIdx;
+        unsigned nMarkerb = blockEnd - blockStart + 1;
+        
+        // Create Ref objects after we have nMarkerb
+        Ref<const MatrixXf> Q = Qblocks[blk];
+        Ref<VectorXf> wcorr = wcorrBlocks[blk];
+        Ref<VectorXf> what = whatBlocks[blk];
+        
+        // Get sample sizes per trait (Julia: nInd = [nInd1, nInd2])
+        if (blk >= nGWASblocks.size()) {
+            throw("Error: blk=" + to_string(blk) + " >= nGWASblocks.size()=" + to_string(nGWASblocks.size()));
+        }
+        Vector2f nInd;
+        // Access Vector2f elements directly to avoid potential Ref issues
+        Vector2f nGWASblk = nGWASblocks[blk];  // Make a copy
+        nInd[0] = nGWASblk[0];
+        nInd[1] = nGWASblk[1];
+        
+        // Get pre-normalised Rinv for this block (computed by ResidualVarBivariate::sampleFromFC)
+        Matrix2f Rinv = Rinv_blk[blk];
+        
+        // Shuffle marker order (Julia line 514)
+        vector<unsigned> markerOrder;
+        for (unsigned i = 0; i < nMarkerb; ++i) {
+            markerOrder.push_back(i);
+        }
+        random_shuffle(markerOrder.begin(), markerOrder.end());
+        
+        // Initialize xArrayc/xpxc (Julia lines 502-503)
+        MatrixXf xArrayc = xArray_dict[blk][0];
+        VectorXf xpxc = xpx_dict[blk][0];
+        
+        // Loop through markers (Julia lines 515-599)
+        for (unsigned marker_idx = 0; marker_idx < markerOrder.size(); ++marker_idx) {
+            unsigned marker = markerOrder[marker_idx];
+            unsigned true_marker_num = blockStart + marker;  // marker position across all SNPs
+            
+            // Get annotation categories for this marker (Julia line 517)
+            VectorXf annoindexm = annoMat.row(true_marker_num).transpose();
+            
+            // Loop through categories (Julia lines 519-598)
+            for (unsigned cat = 0; cat < numCategories; ++cat) {
+                // Update xArrayc/xpxc for continuous groups (Julia lines 520-524)
+                if (nCon > 0) {
+                    if (cat <= nCon) {
+                        xArrayc = xArray_dict[blk][cat];
+                        xpxc = xpx_dict[blk][cat];
+                    } else {
+                        // For categorical groups after nCon, use the last element
+                        xArrayc = xArray_dict[blk][nCon];
+                        xpxc = xpx_dict[blk][nCon];
+                    }
+                } else {
+                    // No continuous annotations, use categorical (index nCon = 0)
+                    if (xArray_dict[blk].size() == 0 || xArray_dict[blk][0].size() == 0) {
+                        throw("Error: xArray_dict not properly initialized for block " + to_string(blk));
+                    }
+                    xArrayc = xArray_dict[blk][0];
+                    xpxc = xpx_dict[blk][0];
+                }
+                
+                Matrix2f Ginv = A_vec[cat].inverse();
+                VectorXf piVec = Pi.piVec[cat];
+                
+                // Check if marker belongs to this category (Julia line 529)
+                if (annoindexm[cat] != 0.0) {
+                    // markerIndex = (cat - 1) * my_nsnp + true_marker_num (Julia line 530)
+                    unsigned markerIndex = cat * this->betaTotal[0].size + true_marker_num;
+                    
+                    VectorXf x = xArrayc.col(marker);
+                    float xpx_marker = xpxc[marker];
+                    
+                    // Get current values (Julia lines 532-536)
+                    Vector2f beta, oldAlpha, delta;
+                    beta[0] = betaMatrix(markerIndex, 0);
+                    beta[1] = betaMatrix(markerIndex, 1);
+                    delta[0] = deltaMatrix(markerIndex, 0);
+                    delta[1] = deltaMatrix(markerIndex, 1);
+                    oldAlpha[0] = alphaMatrix(markerIndex, 0);
+                    oldAlpha[1] = alphaMatrix(markerIndex, 1);
+                    
+                    // Compute w (Julia line 536)
+                    // For bivariate, wcorr should be size 2 * numEigenvalBlock[blk]
+                    unsigned nEigen = Q.rows();  // Number of eigenvalues for this block
+                    
+                    // Check sizes before dot product
+                    if (wcorr.size() != 2 * nEigen) {
+                        throw("Error: wcorr size mismatch in ApproxBayesAPP block " + to_string(blk) + ". Expected " + to_string(2*nEigen) + ", got " + to_string(wcorr.size()) + ". Q.rows()=" + to_string(Q.rows()));
+                    }
+                    if (x.size() != nEigen) {
+                        throw("Error: x size mismatch in ApproxBayesAPP block " + to_string(blk) + " marker " + to_string(marker) + ". Expected " + to_string(nEigen) + ", got " + to_string(x.size()) + ". xArrayc.rows()=" + to_string(xArrayc.rows()) + ", xArrayc.cols()=" + to_string(xArrayc.cols()));
+                    }
+                    
+                    Vector2f w;
+                    VectorXf wcorr1 = wcorr.segment(0, nEigen);
+                    VectorXf wcorr2 = wcorr.segment(nEigen, nEigen);
+                    
+                    // Final size check before dot product
+                    if (x.size() != wcorr1.size()) {
+                        throw("Error: Final size check failed - x.size()=" + to_string(x.size()) + ", wcorr1.size()=" + to_string(wcorr1.size()) + ", nEigen=" + to_string(nEigen));
+                    }
+                    
+                    w[0] = x.dot(wcorr1) + xpx_marker * oldAlpha[0];
+                    w[1] = x.dot(wcorr2) + xpx_marker * oldAlpha[1];
+                    
+                    // Sample delta and beta for each trait (Julia lines 539-578)
+                    vector<unsigned> traitOrder = {0, 1};
+                    random_shuffle(traitOrder.begin(), traitOrder.end());
+                    
+                    Vector2f newAlpha = oldAlpha;
+                    
+                    for (unsigned k_idx = 0; k_idx < 2; ++k_idx) {
+                        unsigned k = traitOrder[k_idx];
+                        unsigned nok = 1 - k;
+                        
+                        float Ginv11 = Ginv(k, k);
+                        float Ginv12 = Ginv(k, nok);
+                        
+                        // When delta[k] = 0 (Julia lines 546-549)
+                        float invLhs0 = 1.0f / Ginv11;
+                        float rhs0 = -Ginv12 * beta[nok];
+                        float gHat0 = rhs0 * invLhs0;
+                        
+                        // When delta[k] = 1 (Julia lines 550-553)
+                        float C11 = Ginv11 + Rinv(k, k) * xpx_marker;
+                        float C12 = Ginv12 + xpx_marker * delta[nok] * Rinv(k, nok);
+                        float invLhs1 = 1.0f / C11;
+                        Vector2f w_vec;
+                        w_vec << w[0], w[1];
+                        float rhs1 = w_vec.dot(Rinv.col(k)) - C12 * beta[nok];
+                        float gHat1 = rhs1 * invLhs1;
+                        
+                        // Compute log probabilities (Julia lines 555-563)
+                        Vector2f d0 = delta;
+                        Vector2f d1 = delta;
+                        d0[k] = 0.0;
+                        d1[k] = 1.0;
+                        
+                        // Get Pi values; states: 0=[1,1], 1=[1,0], 2=[0,1], 3=[0,0] (matching Julia)
+                        unsigned idx0 = deltaToPiIdx(d0[0], d0[1]);
+                        unsigned idx1 = deltaToPiIdx(d1[0], d1[1]);
+                        
+                        float logDelta0 = -0.5f * (logf(Ginv11) - gHat0*gHat0*Ginv11) + logf(piVec[idx0]);
+                        float logDelta1 = -0.5f * (logf(C11) - gHat1*gHat1*C11) + logf(piVec[idx1]);
+                        float probDelta1 = 1.0f / (1.0f + expf(logDelta0 - logDelta1));
+                        
+                        // Sample delta[k] (Julia lines 565-577)
+                        if (Stat::ranf() < probDelta1) {
+                            delta[k] = 1.0f;
+                            beta[k] = gHat1 + Stat::snorm() * sqrtf(invLhs1);
+                            newAlpha[k] = beta[k];
+                            wcorr.segment(k * nEigen, nEigen) += x * (oldAlpha[k] - newAlpha[k]);
+                        } else {
+                            beta[k] = gHat0 + Stat::snorm() * sqrtf(invLhs0);
+                            delta[k] = 0.0f;
+                            newAlpha[k] = 0.0f;
+                            if (oldAlpha[k] != 0.0f) {
+                                wcorr.segment(k * nEigen, nEigen) += x * oldAlpha[k];
+                            }
+                        }
+                    }
+                    
+                    // Store final values (Julia lines 589-592)
+                    deltaMatrix(markerIndex, 0) = delta[0];
+                    deltaMatrix(markerIndex, 1) = delta[1];
+                    betaMatrix(markerIndex, 0) = beta[0];
+                    betaMatrix(markerIndex, 1) = beta[1];
+                    alphaMatrix(markerIndex, 0) = newAlpha[0];
+                    alphaMatrix(markerIndex, 1) = newAlpha[1];
+                }
+            }
+        }
+        
+        // Update what for genetic variance computation (will be done separately)
+        // This is computed in sampleUnknowns after all blocks are processed
+    }
+    updateValues();
+}
+
+void ApproxBayesAPP::sampleUnknowns(const unsigned iter) {
+    // Main MCMC sampling loop matching Julia implementation
+    
+    // 1. Sample SNP effects (delta and beta) - matching Julia lines 461-599
+    snpEffects.sampleFromFC(delta.deltaMatrix, wcorrBlocks, data.Qblocks, whatBlocks,
+                            vareBlk.values, sigmaSq.A_vec, piAnno,
+                            data.snp2pq, vare.Rinv_blk,
+                            data.keptLdBlockInfoVec, nGWASblocks, annoMatIncd);
+    
+    // Compute per-SNP PIP from delta (marginalize over categories)
+    snpPip.compute(delta.deltaMatrix, numCategories);
+    
+    // 2. Compute genetic variance per block per category (Julia lines 603-633)
+    varBlocks.compute(snpEffects.alphaMatrix, snpEffects.betaTotal[0].size,
+                      data.keptLdBlockInfoVec, data.Qblocks, numCategories);
+    
+    // 3. Sample residual variance (Julia lines 635-651, 820-822)
+    if (estimateVare) {
+        vare.sampleFromFC(wcorrBlocks, nGWASblocks, data.numEigenvalBlock, varBlocks);
+    }
+    
+    // 4. Count loci in each state per category (Julia lines 580-587)
+    delta.countLociByState(numCategories);
+
+    // 5. Sample annotation-stratified Pi, then compute marginal Pi
+    if (estimatePi) {
+        piAnno.sampleFromFC(delta.nLociCounts);
+    }
+    // Compute nLociAnno (number of loci per annotation) for the marginal pi
+    pi.compute(piAnno, nLociPerAnno);
+
+    // 6 & 7. Sample marker effect variance (Julia lines 751-760, 789-808)
+    if (estimateVara)
+        sigmaSq.sampleFromFC(snpEffects.betaMatrix, nLociPerAnno);
+
+    // 8. Accumulate genetic variance per category across blocks (Julia lines 726-747)
+    varg.accumulate(varBlocks);
+
+    // 9. Compute total genetic variance and heritability
+    vargTotal = varBlocks.computeTotal();
+    hsq.compute(vargTotal, vare.R_blk);
+
+    // 10. Update nnz (count non-zero SNPs across all categories)
+    nnzSnp.getValue(delta.countNonZero(numCategories));
+}
+
+void ApproxBayesAPP::SnpEffectsBivariate::updateValues(void) {
+    // Compute total SNP effect (betaTotal = sum over categories) for each trait
+    // Structure: alphaMatrix is (nSNPs * nCategory) × 2, stores category-specific alpha = delta * beta
+    // We sum across categories to get total effect per SNP, stored in betaTotal[0].values and betaTotal[1].values
+    unsigned nSNPs = betaTotal[0].size;
+    
+    // Initialize values to zero
+    betaTotal[0].values.setZero();
+    betaTotal[1].values.setZero();
+    
+    // Sum across categories for each SNP
+    for (unsigned cat = 0; cat < numCategories; ++cat) {
+        for (unsigned i = 0; i < nSNPs; ++i) {
+            unsigned markerIndex = cat * nSNPs + i;
+            // Use alpha (delta * beta) for values, matching the actual effects
+            betaTotal[0].values[i] += alphaMatrix(markerIndex, 0);
+            betaTotal[1].values[i] += alphaMatrix(markerIndex, 1);
+        }
+    }
+}
+
