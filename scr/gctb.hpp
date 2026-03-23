@@ -45,7 +45,7 @@ public:
                             const float eigenCutoff, const bool excludeMHC,
                             const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const float rsqThreshold,
                       const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile, const bool imputeSummary, const unsigned includeBlock, const string &skipSnpFile,
-                      const bool buildMME = true);
+                      const bool setZeroGwasForSkip, const bool buildMME = true);
     
     void truncBlockEigen(float cutShresh=1e-6);
     
@@ -61,6 +61,7 @@ public:
     void saveMcmcSamples(const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
     void outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &bayesType, const bool noscale, const string &filename);
     void findBestFitModel(Data &data, Options &opt);
+    void findBestFitModelByPredictionAccuracy(Data &data, Options &opt, const float eigenCutoffUsed);
 
     McmcSamples* inputMcmcSamples(const string &mcmcSampleFile, const string &label, const string &fileformat);
     void estimateHsq(const Data &data, const McmcSamples &snpEffects, const McmcSamples &resVar, const string &filename, const unsigned outputFreq);

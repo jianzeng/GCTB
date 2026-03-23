@@ -7,6 +7,7 @@
 //
 
 #include "data.hpp"
+#include <unordered_set>
 
 // most read file methods are adopted from GCTA with modification
 
@@ -639,6 +640,39 @@ void Data::includeSnp(const string &includeSnpFile){
     cout << "Included " << line << " SNPs from [" + includeSnpFile + "]." << endl;
 }
 
+void Data::readFixedEffectSnpFile(const string &path){
+    ifstream in(path.c_str());
+    if (!in) throw ("Error: can not open the file [" + path + "] to read.");
+    unordered_set<string> ids;
+    string line;
+    while (getline(in, line)) {
+        size_t start = line.find_first_not_of(" \t\r\n");
+        if (start == string::npos) continue;
+        size_t end = line.find_last_not_of(" \t\r\n");
+        line = line.substr(start, end - start + 1);
+        if (line.empty() || line[0] == '#') continue;
+        Gadget::Tokenizer tok;
+        tok.getTokens(line, " \t");
+        if (!tok.size()) continue;
+        ids.insert(tok[0]);
+    }
+    in.close();
+    cout << "Read " << ids.size() << " unique SNP ID(s) to fit as fixed effects (flat prior) from [" << path << "]." << endl;
+    for (unsigned i = 0; i < numIncdSnps; ++i) {
+        incdSnpInfoVec[i]->fitAsFixedEffect = false;
+    }
+    if (!numIncdSnps || ids.empty()) return;
+    unsigned nMatch = 0;
+    for (unsigned i = 0; i < numIncdSnps; ++i) {
+        if (ids.count(incdSnpInfoVec[i]->ID)) {
+            incdSnpInfoVec[i]->fitAsFixedEffect = true;
+            ++nMatch;
+        }
+    }
+    if (nMatch < ids.size())
+        cout << "Note: " << (ids.size() - nMatch) << " SNP ID(s) from the file were not found among included SNPs." << endl;
+}
+
 void Data::excludeSnp(const string &excludeSnpFile){
     ifstream in(excludeSnpFile.c_str());
     if (!in) throw ("Error: can not open the file [" + excludeSnpFile + "] to read.");
@@ -1197,7 +1231,7 @@ void Data::buildSparseMME(const string &bedFile, const unsigned windowWidth){
 //    out.close();
 }
 
-void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const bool noscale, const string &filename) const {
+void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const bool noscale, const string &filename, const bool useScalar2) const {
     ofstream out(filename.c_str());
     out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s %8s")
     % "Index"
@@ -1218,7 +1252,8 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         if(!fullSnpFlag[i]) continue;
         //        if(snp->isQTL) continue;)
         float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
-        if (snp->gwas_scalar) sqrt2pq = snp->gwas_scalar;
+        double sc = useScalar2 ? snp->gwas_scalar2 : snp->gwas_scalar;
+        if (sc) sqrt2pq = sc;
         float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
         float varExp = posteriorSqrMean[idx];
         float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
@@ -1239,6 +1274,77 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         % (noscale ? se : se/sqrt2pq)
         % (noscale ? sqrt2pq*sqrt2pq*varExp : varExp)
         % (snp->unconverged ? 0.0 : pip[idx]);
+        if (makeWindows) out << boost::format("%8s") % snp->window;
+        out << endl;
+        ++idx;
+    }
+    out.close();
+}
+
+void Data::outputBivariateSnpResults(const VectorXf &posteriorMean1, const VectorXf &posteriorSqrMean1, const VectorXf &pip1,
+                                     const VectorXf &posteriorMean2, const VectorXf &posteriorSqrMean2, const VectorXf &pip2,
+                                     const bool noscale, const string &filename) const {
+    ofstream out(filename.c_str());
+    out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s %8s %12s %12s %12s %12s %8s")
+    % "Index"
+    % "Name"
+    % "Chrom"
+    % "Position"
+    % "A1"
+    % "A2"
+    % "A1Frq_T1"
+    % "A1Effect_T1"
+    % "SE_T1"
+    % "VarExplained_T1"
+    % "PIP_T1"
+    % "A1Frq_T2"
+    % "A1Effect_T2"
+    % "SE_T2"
+    % "VarExplained_T2"
+    % "PIP_T2";
+    if (makeWindows) out << boost::format("%8s") % "Window";
+    out << endl;
+
+    for (unsigned i = 0, idx = 0; i < numSnps; ++i) {
+        SnpInfo *snp = snpInfoVec[i];
+        if (!fullSnpFlag[i]) continue;
+
+        // Trait 1
+        float sqrt2pq1 = sqrt(2.0 * snp->af * (1.0 - snp->af));
+        if (snp->gwas_scalar)  sqrt2pq1 = snp->gwas_scalar;
+        float eff1 = snp->flipped ? -posteriorMean1[idx] : posteriorMean1[idx];
+        float se1  = sqrt(posteriorSqrMean1[idx] - posteriorMean1[idx] * posteriorMean1[idx]);
+        float var1 = posteriorSqrMean1[idx];
+        if (snp->unconverged) { eff1 = 0; se1 = 0; var1 = 0; }
+
+        // Trait 2
+        float sqrt2pq2 = sqrt(2.0 * snp->af * (1.0 - snp->af));
+        if (snp->gwas_scalar2) sqrt2pq2 = snp->gwas_scalar2;
+        float eff2 = snp->flipped ? -posteriorMean2[idx] : posteriorMean2[idx];
+        float se2  = sqrt(posteriorSqrMean2[idx] - posteriorMean2[idx] * posteriorMean2[idx]);
+        float var2 = posteriorSqrMean2[idx];
+        if (snp->unconverged) { eff2 = 0; se2 = 0; var2 = 0; }
+
+        float a1frq_t1 = snp->flipped ? (snp->gwas_af >= 0 ? 1.0f - snp->gwas_af : 1.0f - snp->af) : (snp->gwas_af >= 0 ? snp->gwas_af : snp->af);
+        float a1frq_t2 = snp->flipped ? (snp->gwas_af2 >= 0 ? 1.0f - snp->gwas_af2 : 1.0f - snp->af) : (snp->gwas_af2 >= 0 ? snp->gwas_af2 : snp->af);
+
+        out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6e %8.8f %12.6f %12.6f %12.6f %12.6e %8.8f")
+        % (idx + 1)
+        % snp->ID
+        % snp->chrom
+        % snp->physPos
+        % (snp->flipped ? snp->a2 : snp->a1)
+        % (snp->flipped ? snp->a1 : snp->a2)
+        % a1frq_t1
+        % (noscale ? eff1 : eff1 / sqrt2pq1)
+        % (noscale ? se1  : se1  / sqrt2pq1)
+        % (noscale ? sqrt2pq1 * sqrt2pq1 * var1 : var1)
+        % (snp->unconverged ? 0.0f : pip1[idx])
+        % a1frq_t2
+        % (noscale ? eff2 : eff2 / sqrt2pq2)
+        % (noscale ? se2  : se2  / sqrt2pq2)
+        % (noscale ? sqrt2pq2 * sqrt2pq2 * var2 : var2)
+        % (snp->unconverged ? 0.0f : pip2[idx]);
         if (makeWindows) out << boost::format("%8s") % snp->window;
         out << endl;
         ++idx;
@@ -1676,17 +1782,356 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
         }
     }
 
-    if (numFlip) cout << "flipped " << numFlip << " SNPs according to the minor allele in the reference and GWAS samples." << endl;
-    if (numInconAllele) cout << "removed " << numInconAllele << " SNPs with inconsistent allele coding in between the reference and GWAS samples." << endl;
-    if (numInconAf) cout << "removed " << numInconAf << " SNPs with differences in allele frequency between the reference and GWAS samples > " << afDiff << "." << endl;
-    if (numFixed) cout << "removed " << numFixed << " fixed SNPs in the GWAS samples." << endl;
-    if (mafmin) cout << "removed " << numMafMin << " SNPs with MAF below " << mafmin << " in either reference and GWAS samples." << endl;
-    if (mafmax) cout << "removed " << numMafMax << " SNPs with MAF above " << mafmax << " in either reference and GWAS samples." << endl;
-    if (pValueThreshold < 1.0) cout << "removed " << numPvalPruned << " SNPs with GWAS P value greater than " << pValueThreshold << "." << endl;
-    if (numOutlierN) cout << "removed " << numOutlierN << " SNPs with per-SNP sample size beyond 3 SD around the median value." << endl;
+    if (numFlip) cout << "Flipped " << numFlip << " SNPs according to the minor allele in the reference and GWAS samples." << endl;
+    if (numInconAllele) cout << "Removed " << numInconAllele << " SNPs with inconsistent allele coding in between the reference and GWAS samples." << endl;
+    if (numInconAf) cout << "Removed " << numInconAf << " SNPs with differences in allele frequency between the reference and GWAS samples > " << afDiff << "." << endl;
+    if (numFixed) cout << "Removed " << numFixed << " fixed SNPs in the GWAS samples." << endl;
+    if (mafmin) cout << "Removed " << numMafMin << " SNPs with MAF below " << mafmin << " in either reference and GWAS samples." << endl;
+    if (mafmax) cout << "Removed " << numMafMax << " SNPs with MAF above " << mafmax << " in either reference and GWAS samples." << endl;
+    if (pValueThreshold < 1.0) cout << "Removed " << numPvalPruned << " SNPs with GWAS P value greater than " << pValueThreshold << "." << endl;
+    if (numOutlierN) cout << "Removed " << numOutlierN << " SNPs with per-SNP sample size beyond 3 SD around the median value." << endl;
     cout << match << " matched SNPs in the GWAS summary data (in total " << line << " SNPs)." << endl;
     
     if (imputeN) imputePerSnpSampleSize(snpInfoVec, numIncdSnps, 0);
+}
+
+void Data::readBivariateGwasSummaryFile(const string &gwasFile1, const string &gwasFile2, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool imputeN, const bool removeOutlierN){
+    // Read trait 1
+    ifstream in1(gwasFile1.c_str());
+    if (!in1) throw ("Error: can not open the GWAS summary data file for trait 1 [" + gwasFile1 + "] to read.");
+    cout << "Reading GWAS summary data for trait 1 from [" + gwasFile1 + "]." << endl;
+    
+    // Read trait 2
+    ifstream in2(gwasFile2.c_str());
+    if (!in2) throw ("Error: can not open the GWAS summary data file for trait 2 [" + gwasFile2 + "] to read.");
+    cout << "Reading GWAS summary data for trait 2 from [" + gwasFile2 + "]." << endl;
+    
+    string header1, header2;
+    getline(in1, header1);
+    getline(in2, header2);
+    
+    SnpInfo *snp;
+    map<string, SnpInfo*>::iterator it;
+    string id, allele1, allele2, freq, b, se, pval, n;
+    unsigned line1=0, line2=0, match=0;
+    unsigned numInconAllele1=0, numInconAf1=0, numFixed1=0, numMafMin1=0, numMafMax1=0, numOutlierN1=0;
+    unsigned numInconAllele2=0, numInconAf2=0, numFixed2=0, numMafMin2=0, numMafMax2=0, numOutlierN2=0;
+    unsigned numPvalPruned1=0, numPvalPruned2=0;
+    unsigned numFlip1=0, numFlip2=0;
+    bool inconAllele, inconAf, fixed, ismafmin, ismafmax, isPvalPruned;
+    float gwas_af;
+    
+    Gadget::Tokenizer colData;
+    string inputStr;
+    string sep(" \t");
+    
+    // Read trait 1 data
+    map<string, SnpInfo*> snpMap1;
+    while (getline(in1, inputStr)) {
+        colData.getTokens(inputStr, sep);
+        id = colData[0];
+        allele1 = colData[1];
+        allele2 = colData[2];
+        freq = colData[3];
+        b = colData[4];
+        se = colData[5];
+        pval = colData[6];
+        n = colData[7];
+        ++line1;
+        it = snpInfoMap.find(id);
+        if (it == snpInfoMap.end()) continue;
+        snp = it->second;
+        if (!snp->included) continue;
+        
+        inconAllele = inconAf = fixed = ismafmin = ismafmax = isPvalPruned = false;
+        if (allele1 == snp->a1 && allele2 == snp->a2) {
+            gwas_af = atof(freq.c_str());
+            snp->gwas_b  = atof(b.c_str());
+            snp->gwas_af = gwas_af != -1 ? gwas_af : snp->af;
+            snp->gwas_se = atof(se.c_str());
+            snp->gwas_n  = atof(n.c_str());
+            snp->gwas_pvalue = atof(pval.c_str());
+        } else if (allele1 == snp->a2 && allele2 == snp->a1) {
+            gwas_af = atof(freq.c_str());
+            snp->gwas_b  = -atof(b.c_str());
+            snp->gwas_af = gwas_af != -1 ? 1.0 - gwas_af : 1.0 - snp->af;
+            snp->gwas_se = atof(se.c_str());
+            snp->gwas_n  = atof(n.c_str());
+            snp->gwas_pvalue = atof(pval.c_str());
+            snp->flipped = true;
+            ++numFlip1;
+        } else {
+            inconAllele = true;
+            ++numInconAllele1;
+        }
+        if (!inconAllele) {
+            if (abs(snp->af - snp->gwas_af) > afDiff) {
+                inconAf = true;
+                ++numInconAf1;
+            } else if (snp->gwas_af==0 || snp->gwas_af==1) {
+                fixed = true;
+                ++numFixed1;
+            } else if (mafmin || mafmax) {
+                float maf_ref = snp->af < 0.5 ? snp->af : 1.0 - snp->af;
+                float maf_gwas = snp->gwas_af < 0.5 ? snp->gwas_af : 1.0 - snp->gwas_af;
+                if (mafmin && (maf_ref < mafmin || maf_gwas < mafmin)) {
+                    ismafmin = true;
+                    ++numMafMin1;
+                }
+                if (mafmax && (maf_ref > mafmax || maf_gwas > mafmax)) {
+                    ismafmax = true;
+                    ++numMafMax1;
+                }
+            }
+            if (snp->gwas_pvalue > pValueThreshold) {
+                isPvalPruned = true;
+                ++numPvalPruned1;
+            }
+        }
+        if (!(inconAllele || inconAf || fixed || ismafmin || ismafmax || isPvalPruned)) {
+            snpMap1[id] = snp;
+        } else {
+            snp->included = false;
+        }
+    }
+    in1.close();
+    
+    // Read trait 2 data
+    map<string, SnpInfo*> snpMap2;
+    while (getline(in2, inputStr)) {
+        colData.getTokens(inputStr, sep);
+        id = colData[0];
+        allele1 = colData[1];
+        allele2 = colData[2];
+        freq = colData[3];
+        b = colData[4];
+        se = colData[5];
+        pval = colData[6];
+        n = colData[7];
+        ++line2;
+        it = snpInfoMap.find(id);
+        if (it == snpInfoMap.end()) continue;
+        snp = it->second;
+        if (!snp->included) continue;
+        
+        inconAllele = inconAf = fixed = ismafmin = ismafmax = isPvalPruned = false;
+        if (allele1 == snp->a1 && allele2 == snp->a2) {
+            gwas_af = atof(freq.c_str());
+            snp->gwas_b2  = atof(b.c_str());
+            snp->gwas_af2 = gwas_af != -1 ? gwas_af : snp->af;
+            snp->gwas_se2 = atof(se.c_str());
+            snp->gwas_n2  = atof(n.c_str());
+            snp->gwas_pvalue2 = atof(pval.c_str());
+        } else if (allele1 == snp->a2 && allele2 == snp->a1) {
+            gwas_af = atof(freq.c_str());
+            snp->gwas_b2  = -atof(b.c_str());
+            snp->gwas_af2 = gwas_af != -1 ? 1.0 - gwas_af : 1.0 - snp->af;
+            snp->gwas_se2 = atof(se.c_str());
+            snp->gwas_n2  = atof(n.c_str());
+            snp->gwas_pvalue2 = atof(pval.c_str());
+            // Note: flipped flag is shared, so if trait1 was flipped, trait2 should match
+            if (!snp->flipped) {
+                snp->flipped = true;
+                ++numFlip2;
+            }
+        } else {
+            inconAllele = true;
+            ++numInconAllele2;
+        }
+        if (!inconAllele) {
+            if (abs(snp->af - snp->gwas_af2) > afDiff) {
+                inconAf = true;
+                ++numInconAf2;
+            } else if (snp->gwas_af2==0 || snp->gwas_af2==1) {
+                fixed = true;
+                ++numFixed2;
+            } else if (mafmin || mafmax) {
+                float maf_ref = snp->af < 0.5 ? snp->af : 1.0 - snp->af;
+                float maf_gwas = snp->gwas_af2 < 0.5 ? snp->gwas_af2 : 1.0 - snp->gwas_af2;
+                if (mafmin && (maf_ref < mafmin || maf_gwas < mafmin)) {
+                    ismafmin = true;
+                    ++numMafMin2;
+                }
+                if (mafmax && (maf_ref > mafmax || maf_gwas > mafmax)) {
+                    ismafmax = true;
+                    ++numMafMax2;
+                }
+            }
+            if (snp->gwas_pvalue2 > pValueThreshold) {
+                isPvalPruned = true;
+                ++numPvalPruned2;
+            }
+        }
+        if (!(inconAllele || inconAf || fixed || ismafmin || ismafmax || isPvalPruned)) {
+            snpMap2[id] = snp;
+        } else {
+            snp->included = false;
+        }
+    }
+    in2.close();
+    
+    // Only keep SNPs that are present in both traits
+    for (map<string, SnpInfo*>::iterator it = snpMap1.begin(); it != snpMap1.end();) {
+        if (snpMap2.find(it->first) == snpMap2.end()) {
+            it->second->included = false;
+            it = snpMap1.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    for (map<string, SnpInfo*>::iterator it = snpMap2.begin(); it != snpMap2.end();) {
+        if (snpMap1.find(it->first) == snpMap1.end()) {
+            it->second->included = false;
+            it = snpMap2.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    match = snpMap1.size();
+    
+    // Remove outliers based on sample size for trait 1
+    if (removeOutlierN) {
+        unsigned size = 0;
+        for (unsigned i=0; i<numSnps; ++i) {
+            snp = snpInfoVec[i];
+            if (snp->included && snp->gwas_n != -999) ++size;
+        }
+        if (size > 0) {
+            ArrayXf perSnpN(size);
+            vector<SnpInfo*> snpvec(size);
+            for (unsigned i=0, j=0; i<numSnps; ++i) {
+                snp = snpInfoVec[i];
+                if (snp->included && snp->gwas_n != -999) {
+                    perSnpN[j] = snp->gwas_n;
+                    snpvec[j] = snp;
+                    ++j;
+                }
+            }
+            float n_med = Gadget::findMedian(perSnpN);
+            float sd = sqrt(Gadget::calcVariance(perSnpN));
+            for (unsigned i=0; i<size; ++i) {
+                snp = snpvec[i];
+                if (perSnpN[i] < n_med - 3*sd || perSnpN[i] > n_med + 3*sd) {
+                    snp->included = false;
+                    ++numOutlierN1;
+                }
+            }
+            match -= numOutlierN1;
+        }
+        
+        // Remove outliers based on sample size for trait 2
+        size = 0;
+        for (unsigned i=0; i<numSnps; ++i) {
+            snp = snpInfoVec[i];
+            if (snp->included && snp->gwas_n2 != -999) ++size;
+        }
+        if (size > 0) {
+            ArrayXf perSnpN(size);
+            vector<SnpInfo*> snpvec(size);
+            for (unsigned i=0, j=0; i<numSnps; ++i) {
+                snp = snpInfoVec[i];
+                if (snp->included && snp->gwas_n2 != -999) {
+                    perSnpN[j] = snp->gwas_n2;
+                    snpvec[j] = snp;
+                    ++j;
+                }
+            }
+            float n_med = Gadget::findMedian(perSnpN);
+            float sd = sqrt(Gadget::calcVariance(perSnpN));
+            for (unsigned i=0; i<size; ++i) {
+                snp = snpvec[i];
+                if (perSnpN[i] < n_med - 3*sd || perSnpN[i] > n_med + 3*sd) {
+                    snp->included = false;
+                    ++numOutlierN2;
+                }
+            }
+            match -= numOutlierN2;
+        }
+    }
+    
+    // Final check: only keep SNPs with valid data for both traits
+    numIncdSnps = 0;
+    for (unsigned i=0; i<numSnps; ++i) {
+        snp = snpInfoVec[i];
+        if (!snp->included) continue;
+        if (snp->gwas_b == -999 || snp->gwas_b2 == -999) {
+            snp->included = false;
+        } else {
+            ++numIncdSnps;
+        }
+    }
+    
+    // Print summary
+    if (numFlip1 || numFlip2) cout << "Flipped " << numFlip1 << " SNPs for trait 1 and " << numFlip2 << " SNPs for trait 2." << endl;
+    if (numInconAllele1 || numInconAllele2) cout << "Removed " << numInconAllele1 << " SNPs with inconsistent allele coding for trait 1 and " << numInconAllele2 << " SNPs for trait 2." << endl;
+    if (numFixed1 || numFixed2) cout << "Removed " << numFixed1 << " fixed SNPs for trait 1 and " << numFixed2 << " SNPs for trait 2." << endl;
+    if (mafmin || mafmax) {
+        if (numMafMin1 || numMafMin2) cout << "Removed " << numMafMin1 << " SNPs with MAF below " << mafmin << " for trait 1 and " << numMafMin2 << " SNPs for trait 2." << endl;
+        if (numMafMax1 || numMafMax2) cout << "Removed " << numMafMax1 << " SNPs with MAF above " << mafmax << " for trait 1 and " << numMafMax2 << " SNPs for trait 2." << endl;
+    }
+    if (pValueThreshold < 1.0) {
+        if (numPvalPruned1 || numPvalPruned2) cout << "Removed " << numPvalPruned1 << " SNPs with GWAS P value > " << pValueThreshold << " for trait 1 and " << numPvalPruned2 << " SNPs for trait 2." << endl;
+    }
+    if (numOutlierN1 || numOutlierN2) cout << "Removed " << numOutlierN1 << " SNPs with per-SNP sample size beyond 3 SD for trait 1 and " << numOutlierN2 << " SNPs for trait 2." << endl;
+    cout << match << " matched SNPs in both GWAS summary data files (Trait 1: " << line1 << " SNPs, Trait 2: " << line2 << " SNPs)." << endl;
+    
+    if (imputeN) {
+        imputePerSnpSampleSize(snpInfoVec, numIncdSnps, 0);
+        // Also impute for trait 2 using trait 2 specific data
+        imputePerSnpSampleSizeTrait2(snpInfoVec, numIncdSnps, 0);
+    }
+}
+
+void Data::imputePerSnpSampleSizeTrait2(vector<SnpInfo*> &snpInfoVec, unsigned &numIncdSnps, float sd) {
+    // use input allele frequencies, b_hat and se to impute per-snp N for trait 2
+    // then filter SNPs with N > 3 sd apart from the median value
+    ArrayXf n(numIncdSnps);
+    ArrayXf p(numIncdSnps);
+    ArrayXf bsq(numIncdSnps);
+    ArrayXf var(numIncdSnps);
+    ArrayXf tpq(numIncdSnps);
+    ArrayXf ypy(numIncdSnps);
+    SnpInfo *snp;
+    unsigned j = 0;
+    for (unsigned i=0; i<numSnps; ++i) {
+        snp = snpInfoVec[i];
+        if (!snp->included) continue;
+        n[j] = snp->gwas_n2;
+        p[j] = snp->gwas_af2;
+        bsq[j] = snp->gwas_b2*snp->gwas_b2;
+        var[j] = snp->gwas_se2*snp->gwas_se2;
+        ++j;
+    }
+    tpq = 2.0*p*(1.0-p);
+    ypy = tpq*n.square()*var + tpq*n*bsq;
+    float ypy_med = Gadget::findMedian(ypy);
+    // Given ypy_med and 2pq compute n
+    float n_med = Gadget::findMedian(n);
+    float vary = ypy_med / n_med;
+    n = (vary - tpq*bsq) / (tpq*var);
+    // compute sd of n
+    float sdOld = sd;
+    sd = sqrt(Gadget::calcVariance(n));
+    j = 0;
+    numIncdSnps = 0;
+    for (unsigned i=0; i<numSnps; ++i) {
+        snp = snpInfoVec[i];
+        if (!snp->included) continue;
+        if (n[j] < n_med - 3*sd || n[j] > n_med + 3*sd) {
+            snp->included = false;
+        }
+        else {
+            snp->gwas_n2 = n[j];
+            ++numIncdSnps;
+        }
+        ++j;
+    }
+    // Recursively call if SD changed significantly
+    if (abs(sd-sdOld) > 0.01) {
+        imputePerSnpSampleSizeTrait2(snpInfoVec, numIncdSnps, sd);
+    } else {
+        cout << "Trait 2: " << numIncdSnps << " SNPs with per-SNP sample size within 3 sd around the median value of " << n_med << endl;
+    }
 }
 
 void Data::imputePerSnpSampleSize(vector<SnpInfo*> &snpInfoVec, unsigned &numIncdSnps, float sd) {
@@ -6102,7 +6547,7 @@ void Data::convert(const string &eigenMatrixFile, const string &snplistFile, con
                     SnpInfo *snp = block->snpInfoVec[start+j];
                     fullSnpIdx[j] = start+j;
                     betaFullSnp[j] = snp->effect;
-                    fullSnpDsqrt[j] = sqrt(2.0*snp->gwas_af*(1.0-snp->gwas_af));
+                    fullSnpDsqrt[j] = sqrt(2.0*snp->af*(1.0-snp->af));
                     if(snp->included){
                         // target snp
                         targetSnpIdx[idxTar] = start+j;
@@ -6477,6 +6922,23 @@ void Data::inputLDfriends(const string &ldfriendFile){
     in.close();
     cout << "Found on average " << sum/cnt << " LD friends for each SNP." << endl;
 
+}
+
+void Data::applySetZeroGwasForSkip(void){
+    unsigned nz = 0;
+    for (unsigned i = 0; i < numSnps; ++i) {
+        SnpInfo *snp = snpInfoVec[i];
+        if (!snp->skip) continue;
+        if (snp->gwas_b != -999) {
+            snp->gwas_b = 0.0;
+            ++nz;
+        }
+        if (snp->gwas_b2 != -999) {
+            snp->gwas_b2 = 0.0;
+        }
+    }
+    if (nz)
+        cout << "Set GWAS marginal effect to zero for " << nz << " skipped SNP(s) (--set-zero-gwas-for-skip)." << endl;
 }
 
 void Data::skipSnp(const string &skipSnpFile){

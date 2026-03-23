@@ -17,7 +17,7 @@ using namespace std;
 int main(int argc, const char * argv[]) {
     
     cout << "*********************************************************\n";
-    cout << "* GCTB 2.5.5                                            *\n";
+    cout << "* GCTB 2.5.5.1                                          *\n";
     cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
     cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
     cout << "* Last updated: 12 Dec, 2025                            *\n";
@@ -157,7 +157,7 @@ int main(int argc, const char * argv[]) {
                                       opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
                                       opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
                                       opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
-                                      opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock, opt.skipSnpFile, false);
+                                      opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock, opt.skipSnpFile, opt.setZeroGwasForSkip, false);
                     data.resizeBlockLDmatrixAndDoEigenDecomposition(opt.ldmatrixFile, opt.eigenCutoff.maxCoeff(), 0.5, opt.title, opt.writeLdmTxt);
                 } else {
                     //gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.mafmin, opt.mafmax, opt.noscale, readGenotypes);
@@ -185,7 +185,7 @@ int main(int argc, const char * argv[]) {
                               opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
                               opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
                               opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
-                              opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock, opt.skipSnpFile);
+                              opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock, opt.skipSnpFile, opt.setZeroGwasForSkip);
         }
         else if (opt.analysisType == "MergeGwasSummary") {
             if (opt.outLDmatType == "block") {
@@ -212,6 +212,8 @@ int main(int argc, const char * argv[]) {
             data.getLDfriends(opt.pairwiseLDfile, opt.rsqThreshold, opt.title);
         }
         else if (opt.analysisType == "SBayes" || opt.analysisType == "GWFM") {
+            bool isBivariate = opt.gwasSummaryFile.find(',') != string::npos;
+            float bestEigenCutoff = opt.eigenCutoff.size() ? opt.eigenCutoff[0] : 0.995f;
             if (!opt.ldmatrixFile.empty()) {
                 gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.genMapN, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile, opt.windowFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold, opt.sampleOverlap, opt.imputeN, opt.noscale, opt.binSnp, opt.readLdmTxt);
             } else if (!opt.eigenMatrixFile.empty()) {  // low-rank model
@@ -223,18 +225,28 @@ int main(int argc, const char * argv[]) {
                                   opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
                                   opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
                                   opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
-                                  opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock, opt.skipSnpFile);
+                                  opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock, opt.skipSnpFile, opt.setZeroGwasForSkip);
                 if (opt.analysisType == "GWFM") {
                     data.inputPairwiseLD(opt.eigenMatrixFile+"/"+opt.pairwiseLDfile, 0.95);  // for TGS sampling
                 }
-                float bestEigenCutoff = opt.eigenCutoff.size() > 1 ? gctb.tuneEigenCutoff(data, opt) : opt.eigenCutoff[0];
-                data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, bestEigenCutoff, data.gwasEffectInBlock, data.nGWASblock, opt.noscale, false);
+                // Check if bivariate (comma-separated GWAS files) - skip tuning for bivariate
+                if (isBivariate) {
+                    // Skip tuning for bivariate - use first cutoff value
+                    bestEigenCutoff = opt.eigenCutoff[0];
+                    cout << "Using eigen cutoff " << bestEigenCutoff << " for bivariate analysis (tuning not yet supported for bivariate)." << endl;
+                } else {
+                    bestEigenCutoff = opt.eigenCutoff.size() > 1 ? gctb.tuneEigenCutoff(data, opt) : opt.eigenCutoff[0];
+                    data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, bestEigenCutoff, data.gwasEffectInBlock, data.nGWASblock, opt.noscale, false);
+                }
                 if (opt.writeWandQ) data.outputWandQ("w_and_Q");
                 //data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, bestEigenCutoff);
                 //data.constructWandQ(data.gwasEffectInBlock, data.numKeptInds);
             } else {
                 gctb.inputSnpInfo(data, opt.bedFile, opt.gwasSummaryFile, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.sampleOverlap, opt.imputeN, opt.noscale);
             }
+            
+            if (!opt.fitSnpsAsFixedEffectsFile.empty())
+                data.readFixedEffectSnpFile(opt.fitSnpsAsFixedEffectsFile);
             
             data.label = opt.title;
 //            if (opt.numChains > 1) {
@@ -243,7 +255,19 @@ int main(int argc, const char * argv[]) {
 //            } else {
                 
             
-            if (opt.nDistAuto) gctb.findBestFitModel(data, opt);
+            if (opt.nDistAuto) {
+                if (opt.nDistAutoByPred && !opt.eigenMatrixFile.empty() && !isBivariate)
+                    gctb.findBestFitModelByPredictionAccuracy(data, opt, bestEigenCutoff);
+                else {
+                    if (opt.nDistAutoByPred) {
+                        if (opt.eigenMatrixFile.empty())
+                            cout << "Note: --n-dist-auto-pred requires --ldm-eigen; using heritability-based --n-dist-auto instead." << endl;
+                        else if (isBivariate)
+                            cout << "Note: --n-dist-auto-pred is not supported for bivariate analysis; using heritability-based --n-dist-auto instead." << endl;
+                    }
+                    gctb.findBestFitModel(data, opt);
+                }
+            }
             
             Model *model = gctb.buildModel(data, opt, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
                                            opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,

@@ -62,6 +62,7 @@ public:
     bool unconverged;  // fail to converge
     bool inCS;  // in a credible set
     bool skip;  // skip sampling its effect
+    bool fitAsFixedEffect;  // flat prior in SBayesR / SBayesRC eigen (from --fixed-effect file)
     long sampleSize;
     
     string block;
@@ -80,13 +81,21 @@ public:
     float varExplained;
     float GelmanRubinR;  // Gelman–Rubin's R statistic for convergence diagnostic
     
-    // GWAS summary statistics
+    // GWAS summary statistics (trait 1)
     double gwas_b;
     double gwas_se;
     float gwas_n;
     float gwas_af;
     double gwas_pvalue;
     double gwas_scalar;
+    
+    // GWAS summary statistics (trait 2) - for bivariate analysis
+    double gwas_b2;
+    double gwas_se2;
+    float gwas_n2;
+    float gwas_af2;
+    double gwas_pvalue2;
+    double gwas_scalar2;
 
     float ldSamplVar;    // sum of sampling variance of LD with other SNPs for summary-bayes method
     float ldSum;         // sum of LD with other SNPs
@@ -118,6 +127,7 @@ public:
         unconverged = false;
         inCS = false;
         skip = false;
+        fitAsFixedEffect = false;
         sampleSize = 0;
         effect = 0;
         varExplained = 0;
@@ -126,7 +136,8 @@ public:
         gwas_n  = -999;
         gwas_af = -1;
         gwas_pvalue = 1.0;
-        gwas_scalar = 0.0;
+        gwas_scalar  = 0.0;
+        gwas_scalar2 = 0.0;
         ldSamplVar = 0.0;
         ldSum = 0.0;
         ldsc = 0.0;
@@ -436,15 +447,20 @@ public:
     VectorXf ZPy;            // Z'y the MME rhs for snp effects
     
     VectorXf snp2pq;         // 2pq of SNPs
-    VectorXf se;             // se from GWAS summary data
+    VectorXf se;             // se from GWAS summary data (Trait 1)
+    VectorXf se2;            // se from GWAS summary data (Trait 2, bivariate)
     VectorXf tss;            // total ss (ypy) for every SNP
-    VectorXf b;              // beta from GWAS summary data
-    VectorXf n;              // sample size for each SNP in GWAS
+    VectorXf b;              // beta from GWAS summary data (Trait 1)
+    VectorXf b2;             // beta from GWAS summary data (Trait 2, bivariate)
+    VectorXf n;              // sample size for each SNP in GWAS (Trait 1)
+    VectorXf n2;             // sample size for each SNP in GWAS (Trait 2, bivariate)
     VectorXf Dratio;         // GWAS ZPZdiag over reference ZPZdiag for each SNP
     VectorXf DratioSqrt;     // square root of GWAS ZPZdiag over reference ZPZdiag for each SNP
     VectorXf chisq;          // GWAS chi square statistics = D*b^2
-    VectorXf varySnp;        // per-SNP phenotypic variance
-    VectorXf scalar;         // scaling factor for GWAS b
+    VectorXf varySnp;        // per-SNP phenotypic variance (Trait 1)
+    VectorXf varySnp2;       // per-SNP phenotypic variance (Trait 2, bivariate only)
+    VectorXf scalar;         // scaling factor for GWAS b (Trait 1)
+    VectorXf scalar2;        // scaling factor for GWAS b (Trait 2, bivariate)
     
     VectorXi windStart;      // leading snp position for each window
     VectorXi windSize;       // number of snps in each window
@@ -452,7 +468,8 @@ public:
     // for Eigen dec
     VectorXi blockStarts;    // each LD block startings index in SNP included scale
     VectorXi blockSizes;     // each LD block size;
-    VectorXf nGWASblock;     // mean GWAS sample size for each block in GWAS
+    VectorXf nGWASblock;     // mean GWAS sample size for each block in GWAS (univariate)
+    vector<Vector2f> nGWASblockBivariate;  // per-trait GWAS sample size for each block (bivariate)
     VectorXf numSnpsBlock;   // number of SNPs for each block
     VectorXf numEigenvalBlock;  // number of eigenvalues kept for each block
     
@@ -463,6 +480,7 @@ public:
     VectorXf Rsqrt;
     
     float ypy;               // y'y the total sum of squares adjusted for the mean
+    float ypy2;              // y'y for trait 2 (bivariate)
     float varGenotypic;
     float varResidual;
     float varPhenotypic;
@@ -540,6 +558,7 @@ public:
     unsigned numInds;
     unsigned numIncdSnps;
     unsigned numKeptInds;
+    unsigned numKeptInds2;  // median sample size for trait 2 (bivariate)
     unsigned numChroms;
     unsigned numSkeletonSnps;
     unsigned numAnnos;
@@ -557,6 +576,7 @@ public:
         numInds = 0;
         numIncdSnps = 0;
         numKeptInds = 0;
+        numKeptInds2 = 0;
         numChroms = 0;
         numSkeletonSnps = 0;
         numAnnos = 0;
@@ -579,6 +599,8 @@ public:
     void readCovariateFile(const string &covarFile);
     void readRandomCovariateFile(const string &covarFile);
     void readGwasSummaryFile(const string &gwasFile, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool imputeN, const bool removeOutlierN);
+    void readBivariateGwasSummaryFile(const string &gwasFile1, const string &gwasFile2, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool imputeN, const bool removeOutlierN);
+    void imputePerSnpSampleSizeTrait2(vector<SnpInfo*> &snpInfoVec, unsigned &numIncdSnps, float sd);
     void readLDmatrixInfoFileOld(const string &ldmatrixFile);
     void readLDmatrixInfoFile(const string &ldmatrixFile);
     void readLDmatrixBinFile(const string &ldmatrixFile);
@@ -596,6 +618,7 @@ public:
     void excludeSNPwithMaf(const float mafmin, const float mafmax);
     void excludeRegion(const string &excludeRegionFile);
     void includeSkeletonSnp(const string &skeletonSnpFile);
+    void readFixedEffectSnpFile(const string &path);
 
     void includeMatchedSnp(void);
     vector<SnpInfo*> makeIncdSnpInfoVec(const vector<SnpInfo*> &snpInfoVec);
@@ -614,7 +637,10 @@ public:
     void reindexSnp(vector<SnpInfo*> snpInfoVec);
     void initVariances(const float heritability, const float propVarRandom);
     
-    void outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const bool noscale, const string &filename) const;
+    void outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const bool noscale, const string &filename, const bool useScalar2 = false) const;
+    void outputBivariateSnpResults(const VectorXf &posteriorMean1, const VectorXf &posteriorSqrMean1, const VectorXf &pip1,
+                                   const VectorXf &posteriorMean2, const VectorXf &posteriorSqrMean2, const VectorXf &pip2,
+                                   const bool noscale, const string &filename) const;
 //    void outputFixedEffects(const MatrixXf &fixedEffects, const string &filename) const;
     void outputFixedEffects(const VectorXf &mean, const VectorXf &sd, const string &filename) const;
 //    void outputRandomEffects(const MatrixXf &randomEffects, const string &filename) const;
@@ -689,6 +715,7 @@ public:
     void readEigenMatrixBinaryFile(const string &eigenMatrixFile, const float eigenCutoff, const bool writeLdmTxt = false, const string &outputDir = ".");
     
     void readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const VectorXf &nGWASblock, const bool noscale, const bool makePseudoSummary);
+    void readEigenMatrixBinaryFileAndMakeWandQBivariate(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects1, const vector<VectorXf> &GWASeffects2, const vector<Vector2f> &nGWASblock, const bool noscale);
 
     
     ///////////// merge eigen matrices
@@ -696,6 +723,7 @@ public:
 
     //////////// Step 2.2 Build multiple maps
     void buildMMEeigen(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale); // for eigen decomposition
+    void buildMMEeigenBivariate(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale); // for bivariate eigen decomposition
     void includeMatchedBlocks(void);
 
     //////////// Step 2.3 build model matrix
@@ -709,6 +737,7 @@ public:
     void constructWandQ(const vector<VectorXf> &GWASeffects, const float nGWAS, const bool noscale);
     
     void scaleGwasEffects(void);
+    void scaleBivariateGwasEffects(void);
     void mapSnpsToBlocks(void);
     
     void mergeBlockGwasSummary(const string &gwasSummaryFile, const string &title);
@@ -726,6 +755,8 @@ public:
     
     void outputEigenMatTxt(const string &title);
     void skipSnp(const string &skipSnpFile);
+    /// After GWAS read (and impute-summary if used): set gwas_b / gwas_b2 to 0 for SNPs with skip==true
+    void applySetZeroGwasForSkip(void);
     
     void readBlockLDmatrixAndMakeItSparse(const string &LDmatrixFile, const unsigned block, const float chisqThreshold, const bool writeLdmTxt);
     void readBlockLdmBinaryAndMakeItSparse(const string &dirname, const unsigned block, const float chisqThreshold, const bool writeLdmTxt);

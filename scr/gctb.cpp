@@ -7,6 +7,9 @@
 //
 
 #include "gctb.hpp"
+#include "stat.hpp"
+#include <Eigen/Core>
+#include <cmath>
 
 void GCTB::inputIndInfo(Data &data, const string &bedFile, const string &phenotypeFile, const string &keepIndFile, const unsigned keepIndMax, const unsigned mphen, const string &covariateFile, const string &randomCovariateFile, const string &residualDiagFile){
     data.readFamFile(bedFile + ".fam");
@@ -40,7 +43,7 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &include
 }
 
 void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const float genMapN, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile, const string &windowFile, const bool multiLDmat, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const float rsqThreshold, const bool sampleOverlap, const bool imputeN, const bool noscale, const bool binSnp, const bool readLDMfromTxtFile){
-     if (multiLDmat)
+    if (multiLDmat)
         data.readMultiLDmatInfoFile(ldmatrixFile);
     else
         data.readLDmatrixInfoFile(ldmatrixFile + ".info");
@@ -103,7 +106,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
                         const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile,
                         const float eigenCutoff, const bool excludeMHC,
                         const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const float rsqThreshold,
-                        const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile, const bool imputeSummary, const unsigned includeBlock, const string &skipSnpFile, const bool buildMME){
+                        const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile, const bool imputeSummary, const unsigned includeBlock, const string &skipSnpFile, const bool setZeroGwasForSkip, const bool buildMME){
     data.readEigenMatrix(eigenMatrixFile, eigenCutoff);
     if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
@@ -113,6 +116,8 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (!excludeRegionFile.empty()) data.excludeRegion(excludeRegionFile);
     if (excludeMHC) data.excludeMHC();
     if (!skipSnpFile.empty()) data.skipSnp(skipSnpFile);
+    if (setZeroGwasForSkip && skipSnpFile.empty())
+        cout << "Warning: --set-zero-gwas-for-skip has no effect without --skip <file>." << endl;
     if (!annotationFile.empty())
         data.readAnnotationFile(annotationFile, transpose, true);
     else if (!continuousAnnoFile.empty())
@@ -120,22 +125,43 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if (!ldscoreFile.empty()) data.readLDscoreFile(ldscoreFile);
     if (!gwasSummaryFile.empty()) {
         bool removeOutlierN = imputeSummary;
-        data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, pValueThreshold, imputeN, removeOutlierN);
+        vector<string> gwasFiles;
+        Gadget::Tokenizer token;
+        token.getTokens(gwasSummaryFile, ",");
+        for (unsigned i=0; i<token.size(); ++i) gwasFiles.push_back(token[i]);
+        
+        if (gwasFiles.size() == 1) {
+            data.readGwasSummaryFile(gwasFiles[0], afDiff, mafmin, mafmax, pValueThreshold, imputeN, removeOutlierN);
+        } else if (gwasFiles.size() == 2) {
+            data.readBivariateGwasSummaryFile(gwasFiles[0], gwasFiles[1], afDiff, mafmin, mafmax, pValueThreshold, imputeN, removeOutlierN);
+        } else {
+            throw("Error: only support bivariate analysis for now.");
+        }
+
         if (imputeSummary) {
             //data.includeMatchedBlocks();
             //data.scaleGwasEffects();
             data.readEigenMatrixBinaryFile(eigenMatrixFile, eigenCutoff);
             data.impG(includeBlock);
+            if (setZeroGwasForSkip && !skipSnpFile.empty()) data.applySetZeroGwasForSkip();
             return;
         }
         data.includeMatchedSnp();
+        if (setZeroGwasForSkip && !skipSnpFile.empty()) data.applySetZeroGwasForSkip();
     }
     
 
     /// partition ld into blocks
 //    if(!ldBlockInfoFile.empty()) data.readLDBlockInfoFile(ldBlockInfoFile);
         
-    if(!gwasSummaryFile.empty() && buildMME) data.buildMMEeigen(eigenMatrixFile, sampleOverlap, eigenCutoff, noscale);
+    if(!gwasSummaryFile.empty() && buildMME) {
+        Gadget::Tokenizer token;
+        token.getTokens(gwasSummaryFile, ",");
+        if (token.size() == 1)
+            data.buildMMEeigen(eigenMatrixFile, sampleOverlap, eigenCutoff, noscale);
+        else if (token.size() == 2)
+            data.buildMMEeigenBivariate(eigenMatrixFile, sampleOverlap, eigenCutoff, noscale);
+    }
 }
 
 
@@ -329,6 +355,195 @@ void GCTB::findBestFitModel(Data &data, Options &opt){
     
 }
 
+void GCTB::findBestFitModelByPredictionAccuracy(Data &data, Options &opt, const float eigenCutoffUsed){
+    const float predRelMin = 1.05f;
+    
+    cout << "\nComparing models with different numbers of mixture components ..." << endl;
+    cout << "Criterion (combined): keep K over K-1 only if (1) hsq is significantly higher than for the simpler model (mean[K] - SD[K] > mean[K-1], as in --n-dist-auto), and (2) pseudo CV r[K] > " << predRelMin << " * r[K-1]." << endl;
+    if (opt.bayesType != "R" && opt.bayesType != "RC") {
+        throw(" Error: --n-dist-auto-pred is available only in R or RC model. Current model is " + opt.bayesType + ".");
+    }
+    if (!data.lowRankModel || opt.eigenMatrixFile.empty()) {
+        throw(" Error: --n-dist-auto-pred requires a low-rank eigen LD matrix (--ldm-eigen).");
+    }
+    if (!data.pseudoGwasNtrnBlock.size()) {
+        throw(" Error: --n-dist-auto-pred requires pseudo summary statistics from the eigen data build (buildMMEeigen).");
+    }
+    
+    unsigned numModels = opt.numDist - 1;
+    if (!numModels) {
+        throw(" Error: numDist must be at least 2 for automatic model selection.");
+    }
+    
+    // Stat::engine is thread_local; seedEngine() only seeds the current thread. Parallel
+    // MultiModelSBayesR would use unseeded per-thread RNG → different hsq/r for R vs RC runs.
+    // Nested OpenMP + Eigen threads can also interleave cout from workers vs main (misplaced lines).
+    // Force single-thread OpenMP/Eigen, disable nested parallel regions, re-seed RNG.
+    struct OmpEigenRestore {
+        int ompThreads;
+        int dyn;
+        int maxLevels;
+        int eigenThreads;
+        OmpEigenRestore() {
+            ompThreads = omp_get_max_threads();
+            dyn = omp_get_dynamic();
+            maxLevels = omp_get_max_active_levels();
+            eigenThreads = Eigen::nbThreads();
+            omp_set_dynamic(0);
+            omp_set_max_active_levels(1);
+            omp_set_num_threads(1);
+            Eigen::setNbThreads(1);
+        }
+        ~OmpEigenRestore() {
+            Eigen::setNbThreads(eigenThreads);
+            omp_set_num_threads(ompThreads);
+            omp_set_max_active_levels(maxLevels);
+            omp_set_dynamic(dyn);
+        }
+    };
+    OmpEigenRestore ompEigenGuard;
+    unsigned rngBase = (unsigned)(opt.seed ? opt.seed : 011415);
+    rngBase ^= 0x6E446973u;
+    if (!rngBase) rngBase = 4877u;
+    Stat::seedEngine((int)(rngBase & 0x7FFFFFFFu));
+    
+    Gadget::Timer timer;
+    timer.setTime();
+    
+    // --- (1) Joint multi-model MCMC on real GWAS for hsq (same as findBestFitModel) ---
+    data.initVariances(opt.heritability, opt.propVarRandom);
+    MultiModelSBayesR jointModel(data, opt);
+    // Constructor sets omp_set_max_active_levels(2) for nested model parallelism — re-lock for pseudo CV.
+    omp_set_dynamic(0);
+    omp_set_max_active_levels(1);
+    omp_set_num_threads(1);
+    Eigen::setNbThreads(1);
+    unsigned chainLengthJoint = 500;
+    unsigned burninJoint = 100;
+    bool printJoint = true;
+    MCMC mcmcJoint;
+    vector<McmcSamples*> mcmcSampleVec = mcmcJoint.run(jointModel, 1, chainLengthJoint, burninJoint, opt.thin, printJoint, opt.outputFreq, opt.title, false, false);
+    
+    vector<float> hsqMeanVec(numModels, NAN);
+    vector<float> hsqSDVec(numModels, NAN);
+    for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
+        McmcSamples *mcmcSamples = mcmcSampleVec[i];
+        Gadget::Tokenizer token;
+        token.getTokens(mcmcSamples->label, "_");
+        if (token.size() >= 2 && token.front() == "hsq" && token[1].size() > 1 && token[1][0] == 'M') {
+            unsigned mid = (unsigned) stoi(token[1].substr(1)) - 1;
+            if (mid < numModels) {
+                hsqMeanVec[mid] = mcmcSamples->mean()[0];
+                hsqSDVec[mid] = mcmcSamples->sd()[0];
+            }
+        }
+    }
+    for (unsigned i=0; i<numModels; ++i) {
+        if (std::isnan(hsqMeanVec[i]) || std::isnan(hsqSDVec[i])) {
+            throw(" Error: could not read hsq posterior for model M" + to_string(static_cast<long long>(i + 1)) + " in --n-dist-auto-pred.");
+        }
+    }
+    
+    // --- (2) Pseudo CV prediction r per model (short MCMC on pseudo training summaries) ---
+    VectorXf nGWASblockSaved = data.nGWASblock;
+    data.nGWASblock = data.pseudoGwasNtrnBlock;
+    
+    VectorXf cor(numModels);
+    
+#pragma omp critical(gctb_ndist_cout)
+    {
+        cout << "\nPseudo cross-validation uses SBayesR (R) for each candidate K, including when the final analysis is RC." << endl;
+        cout << boost::format("%12s %6s %12s %12s %25s\n") % "Model" % "K" % "hsq mean" % "hsq SD" % "Pseudo CV r";
+        cout.flush();
+    }
+    
+    for (unsigned i=0; i<numModels; ++i) {
+        VectorXf gamma = opt.gamma;
+        VectorXf pis = opt.pis;
+        VectorXf piPar = opt.piPar;
+        for (unsigned j=0; j<i; ++j) {
+            Gadget::removeSecondElement(gamma);
+            Gadget::removeSecondElement(pis);
+            Gadget::removeSecondElement(piPar);
+        }
+        
+#pragma omp critical(gctb_ndist_cout)
+        {
+            //cout << "  Pseudo CV short MCMC for model M" << (i+1) << " (K=" << gamma.size() << ") ... " << endl;
+        }
+        
+        data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, eigenCutoffUsed, data.pseudoGwasEffectTrn, data.pseudoGwasNtrnBlock, opt.noscale, false);
+        data.initVariances(opt.heritability, opt.propVarRandom);
+        
+        bool print = false;
+        // Always ApproxBayesR here: matches joint MultiModelSBayesR and avoids RC cost / threading issues in this inner loop.
+        Model *modeli = new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.algorithm, print);
+        
+        MCMC mcmc;
+        unsigned chainLength = 150;
+        unsigned burnin = 100;
+        unsigned thin = 1;
+        vector<McmcSamples*> mcmcSampleVeci = mcmc.run(*modeli, 1, chainLength, burnin, thin, print, opt.outputFreq, opt.title, print, print);
+        delete modeli;
+        
+        VectorXf betaMean;
+        for (unsigned k=0; k<mcmcSampleVeci.size(); ++k) {
+            if (mcmcSampleVeci[k]->label == "SnpEffects") {
+                betaMean = mcmcSampleVeci[k]->posteriorMean;
+                break;
+            }
+        }
+        if (!betaMean.size()) {
+            throw(" Error: SnpEffects posterior not found in MCMC output for --n-dist-auto-pred.");
+        }
+        
+        cor[i] = betaMean.dot(data.b_val) / sqrt(betaMean.squaredNorm() * data.varPhenotypic);
+        
+        string modelTag = "M" + to_string(i+1);
+#pragma omp critical(gctb_ndist_cout)
+        {
+            cout << boost::format("%12s %6s %12s %12s %25s\n") % modelTag % gamma.size() % hsqMeanVec[i] % hsqSDVec[i] % cor[i];
+            cout.flush();
+        }
+    }
+    
+    // --- (3) Sequential simplification: start at largest K (model index 0), drop to K-1 unless both hsq and r justify keeping K ---
+    unsigned selectedIdx = 0;
+    while (selectedIdx < numModels - 1) {
+        unsigned simpler = selectedIdx + 1;
+        bool hsqClearlyHigher = (hsqMeanVec[selectedIdx] - hsqSDVec[selectedIdx] > hsqMeanVec[simpler]);
+        bool predClearlyHigher = (cor[selectedIdx] > cor[simpler] * predRelMin);
+        if (hsqClearlyHigher && predClearlyHigher)
+            break;
+#pragma omp critical(gctb_ndist_cout)
+        {
+            cout << "  -> K=" << (opt.numDist - selectedIdx) << " does not beat K=" << (opt.numDist - simpler)
+                 << " on both hsq (significant) and r (>" << predRelMin << " x simpler); trying simpler model." << endl;
+        }
+        ++selectedIdx;
+    }
+    
+    VectorXf gammaSel = opt.gamma;
+    VectorXf pisSel = opt.pis;
+    VectorXf piParSel = opt.piPar;
+    for (unsigned j=0; j<selectedIdx; ++j) {
+        Gadget::removeSecondElement(gammaSel);
+        Gadget::removeSecondElement(pisSel);
+        Gadget::removeSecondElement(piParSel);
+    }
+    
+    opt.numDist = gammaSel.size();
+    opt.gamma = gammaSel;
+    opt.pis = pisSel;
+    opt.piPar = piParSel;
+    
+    data.nGWASblock = nGWASblockSaved;
+    data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, eigenCutoffUsed, data.gwasEffectInBlock, data.nGWASblock, opt.noscale, false);
+    
+    timer.getTime();
+    cout << "\nModel " << selectedIdx+1 << " (" << opt.numDist << "-component model) is selected (hsq + pseudo CV r vs simpler model; time used: " << timer.format(timer.getElapse()) << ")." << endl;
+}
+
 vector<McmcSamples*> GCTB::multi_chain_mcmc(Data &data, const string &bayesType, const unsigned windowWidth, const float heritability, const float propVarRandom, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
     
     data.initVariances(heritability, propVarRandom);
@@ -391,6 +606,27 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
     ifstream in(unconvergedSnpFile.c_str());
     if (in) data.readUnconvergedSnplist(unconvergedSnpFile);
         
+    // For APP (bivariate), handle output separately
+    if (bayesType == "APP") {
+        McmcSamples *snpEff1 = NULL, *snpEff2 = NULL, *pip1 = NULL, *pip2 = NULL;
+        vector<McmcSamples*> appPar;
+        for (unsigned i = 0; i < mcmcSampleVec.size(); ++i) {
+            if (mcmcSampleVec[i]->label == "SnpEffects")  snpEff1 = mcmcSampleVec[i];
+            else if (mcmcSampleVec[i]->label == "SnpEffects2") snpEff2 = mcmcSampleVec[i];
+            else if (mcmcSampleVec[i]->label == "PIP")    pip1 = mcmcSampleVec[i];
+            else if (mcmcSampleVec[i]->label == "PIP2")   pip2 = mcmcSampleVec[i];
+            else appPar.push_back(mcmcSampleVec[i]);
+        }
+        if (snpEff1 && pip1 && snpEff2 && pip2)
+            data.outputBivariateSnpResults(snpEff1->posteriorMean, snpEff1->posteriorSqrMean, pip1->posteriorMean,
+                                           snpEff2->posteriorMean, snpEff2->posteriorSqrMean, pip2->posteriorMean,
+                                           noscale, filename + ".snpRes");
+        else if (snpEff1 && pip1)
+            data.outputSnpResults(snpEff1->posteriorMean, snpEff1->posteriorSqrMean, pip1->posteriorMean, noscale, filename + ".snpRes");
+        for (McmcSamples *s : appPar) s->writeDataTxt(filename);
+        return;
+    }
+
     vector<McmcSamples*> mcmcSamplesPar;
     for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
         McmcSamples *mcmcSamples = mcmcSampleVec[i];

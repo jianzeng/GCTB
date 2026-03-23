@@ -19,14 +19,15 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 This tutorial demonstrates:
 
 1. Loading 1000G genotype data
-2. Simulating individual-level phenotypes
+2. Simulating individual-level phenotypes (trait 1 and trait 2)
 3. Running BayesS analysis using individual-level data
-4. Generating GWAS summary statistics
+4. Generating GWAS summary statistics for both traits
 5. Generating sparse LD matrix
 6. Running SBayesS analysis using sparse LD matrix
 7. Generating block LD matrix
 8. Running SBayesR analysis using eigen-decomposed LD matrix
 9. Running SBayesRC analysis with annotation for causal variants
+10. Running ApproxBayesAPP bivariate analysis
 
 # Requirements
 
@@ -151,13 +152,54 @@ legend("topright", legend = c("Non-causal", "Causal"),
        col = c("gray", "red"), lwd = c(1, 2), pch = c(NA, 19))
 ```
 
+# Simulate second trait (for bivariate analysis)
+
+```{r}
+set.seed(556)  # Different seed for trait 2
+
+# Simulation settings for trait 2
+h2_2 <- 0.4  # heritability for trait 2
+n_causal_2 <- 8  # number of causal variants for trait 2
+S_2 <- -1  # the S parameter for trait 2
+
+# Sample causal variants for trait 2 (can overlap with trait 1)
+causal_idx_2 <- sample(n_snp, n_causal_2)
+
+# Calculate allele frequencies for causal variants
+freq_cv_2 <- colMeans(geno[, causal_idx_2], na.rm = TRUE) / 2
+
+# Sample causal variant effects for trait 2
+beta_cv_2 <- rnorm(n_causal_2, mean = 0, sd = sqrt((2 * freq_cv_2 * (1 - freq_cv_2))^S_2))
+
+# Store true effects for all SNPs (zeros for non-causal)
+beta_true_2 <- rep(0, n_snp)
+beta_true_2[causal_idx_2] <- beta_cv_2
+
+# Calculate true genetic values for trait 2
+g_2 <- geno[, causal_idx_2] %*% beta_cv_2
+
+# Simulate phenotypes for trait 2
+e_2 <- rnorm(n_ind, 0, sqrt(var(g_2, na.rm = TRUE) * (1 - h2_2) / h2_2))
+y_2 <- g_2 + e_2
+
+# Save phenotype file for trait 2
+phen_path_2 <- file.path(data_dir, "sim_trait2.phen")
+write.table(data.frame(FID = fam$FID, IID = fam$IID, PHENO = y_2),
+            phen_path_2, quote = FALSE, sep = "\t", row.names = FALSE, col.names = FALSE)
+
+cat("Trait 2 simulation:\n")
+cat("  Causal variants:", n_causal_2, "\n")
+cat("  Heritability:", h2_2, "\n")
+cat("  Overlap with trait 1:", sum(causal_idx_2 %in% causal_idx), "SNPs\n")
+```
+
 # Generate GWAS summary statistics
 
 ```{r}
 # Calculate allele frequencies
 af <- colMeans(geno, na.rm = TRUE) / 2
 
-# Simple linear regression for each SNP
+# Simple linear regression for each SNP - Trait 1
 gwas_sumstats <- data.frame(
   SNP = bim$SNP,
   A1 = bim$ALLELE_B,
@@ -176,11 +218,40 @@ for (i in 1:n_snp) {
   gwas_sumstats$P[i] <- summary(fit)$coefficients[2, 4]
 }
 
-# Save summary statistics
+# Save summary statistics for trait 1
 sumstats_path <- file.path(data_dir, "sim.ma")
 write.table(gwas_sumstats, sumstats_path, quote = FALSE, sep = "\t",
             row.names = FALSE, col.names = TRUE)
 head(gwas_sumstats)
+```
+
+# Generate GWAS summary statistics for trait 2
+
+```{r}
+# Simple linear regression for each SNP - Trait 2
+gwas_sumstats_2 <- data.frame(
+  SNP = bim$SNP,
+  A1 = bim$ALLELE_B,
+  A2 = bim$ALLELE_A,
+  FREQ = af,
+  BETA = NA,
+  SE = NA,
+  P = NA,
+  N = n_ind
+)
+
+for (i in 1:n_snp) {
+  fit <- lm(y_2 ~ geno[, i])
+  gwas_sumstats_2$BETA[i] <- coef(fit)[2]
+  gwas_sumstats_2$SE[i] <- summary(fit)$coefficients[2, 2]
+  gwas_sumstats_2$P[i] <- summary(fit)$coefficients[2, 4]
+}
+
+# Save summary statistics for trait 2
+sumstats_path_2 <- file.path(data_dir, "sim_trait2.ma")
+write.table(gwas_sumstats_2, sumstats_path_2, quote = FALSE, sep = "\t",
+            row.names = FALSE, col.names = TRUE)
+head(gwas_sumstats_2)
 ```
 
 # Generate sparse LD matrix
@@ -365,5 +436,50 @@ points(which(is_causal), pip[is_causal], col = "red", pch = 19, cex = 1.2)
 segments(which(is_causal), 0, which(is_causal), pip[is_causal], 
          col = "red", lwd = 2)
 legend("topright", legend = c("Non-causal", "Causal"), 
+       col = c("gray", "red"), lwd = c(1, 2), pch = c(NA, 19))
+```
+
+# Run ApproxBayesAPP (bivariate analysis)
+
+```{r}
+# Bivariate summary-data-based analysis using ApproxBayesAPP
+# This model analyzes two traits simultaneously, allowing for pleiotropy and genetic correlation
+# Command line format (can be copied and run in terminal):
+# gctb --gwas-summary data/sim.ma,data/sim_trait2.ma --ldm-eigen data/ldm --sbayes APP --out results/approxbayesapp
+
+# Combine trait 1 and trait 2 summary statistics files (comma-separated)
+bivariate_sumstats <- paste0(sumstats_path, ",", sumstats_path_2)
+
+system2(gctb, c(
+  "--gwas-summary", bivariate_sumstats,
+  "--ldm-eigen", ldm_path,
+  "--sbayes", "APP",
+  "--out", file.path(result_dir, "approxbayesapp")
+))
+
+# Inspect results
+snp_res_app <- read.table(file.path(result_dir, "approxbayesapp.snpRes"), header = TRUE)
+par_res_app <- read.table(file.path(result_dir, "approxbayesapp.parRes"), header = TRUE)
+
+cat("ApproxBayesAPP SNP results:\n")
+head(snp_res_app)
+cat("\nApproxBayesAPP posterior estimates of model parameters:\n")
+print(par_res_app)
+
+# Plot PIP values for ApproxBayesAPP
+pip_col <- if ("PIP" %in% colnames(snp_res_app)) "PIP" else "pip"
+pip <- snp_res_app[[pip_col]]
+name_col <- if ("Name" %in% colnames(snp_res_app)) "Name" else "SNP"
+causal_snps <- bim$SNP[causal_idx]
+causal_snps_2 <- bim$SNP[causal_idx_2]
+all_causal <- unique(c(causal_snps, causal_snps_2))
+is_causal <- snp_res_app[[name_col]] %in% all_causal
+
+plot(pip, type = "h", xlab = "SNP", ylab = "Posterior inclusion probability",
+     col = "gray", lwd = 1, main = "ApproxBayesAPP PIP Values")
+points(which(is_causal), pip[is_causal], col = "red", pch = 19, cex = 1.2)
+segments(which(is_causal), 0, which(is_causal), pip[is_causal], 
+         col = "red", lwd = 2)
+legend("topright", legend = c("Non-causal", "Causal (either trait)"), 
        col = c("gray", "red"), lwd = c(1, 2), pch = c(NA, 19))
 ```

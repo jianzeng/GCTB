@@ -2018,6 +2018,79 @@ void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const 
 
 }
 
+void Data::buildMMEeigenBivariate(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale){
+    includeMatchedBlocks();
+    
+    // Check for missing data for both traits
+    unsigned nmiss1 = 0, nmiss2 = 0;
+    for (unsigned i=0; i<numKeptLDBlocks; ++i) {
+        LDBlockInfo *block = keptLdBlockInfoVec[i];
+        for (unsigned j=0; j<block->numSnpInBlock; ++j) {
+            SnpInfo *snp = block->snpInfoVec[j];
+            if (snp->gwas_b == -999) ++nmiss1;
+            if (snp->gwas_b2 == -999) ++nmiss2;
+        }
+    }
+    if (nmiss1) {
+        throw("Error: " + to_string(nmiss1) + " SNPs in the LD reference has no summary data for trait 1. To resolve this, run --impute-summary first.");
+    }
+    if (nmiss2) {
+        throw("Error: " + to_string(nmiss2) + " SNPs in the LD reference has no summary data for trait 2. To resolve this, run --impute-summary first.");
+    }
+    
+    scaleBivariateGwasEffects();
+    
+    ldBlockInfoMap.clear();
+    
+    // Create gwasEffectInBlock for both traits
+    vector<VectorXf> gwasEffectInBlock1, gwasEffectInBlock2;
+    vector<Vector2f> nGWASblockBivariate;
+    
+    if (numKeptLDBlocks) {
+        gwasEffectInBlock1.resize(numKeptLDBlocks);
+        gwasEffectInBlock2.resize(numKeptLDBlocks);
+        nGWASblockBivariate.resize(numKeptLDBlocks);
+        
+        for (unsigned i = 0; i < numKeptLDBlocks; i++){
+            LDBlockInfo *ldblock = keptLdBlockInfoVec[i];
+            gwasEffectInBlock1[i] = b(ldblock->block2GwasSnpVec);
+            gwasEffectInBlock2[i] = b2(ldblock->block2GwasSnpVec);
+            
+            VectorXf nBlock1 = n(ldblock->block2GwasSnpVec);
+            VectorXf nBlock2 = n2(ldblock->block2GwasSnpVec);
+            VectorXf nBlock1Srt = nBlock1;
+            VectorXf nBlock2Srt = nBlock2;
+            std::sort(nBlock1Srt.data(), nBlock1Srt.data() + nBlock1Srt.size());
+            std::sort(nBlock2Srt.data(), nBlock2Srt.data() + nBlock2Srt.size());
+            nGWASblockBivariate[i] << nBlock1Srt[nBlock1Srt.size()/2], nBlock2Srt[nBlock2Srt.size()/2]; // median for each trait
+        }
+    }
+    
+    readEigenMatrixBinaryFileAndMakeWandQBivariate(dirname, eigenCutoff, gwasEffectInBlock1, gwasEffectInBlock2, nGWASblockBivariate, noscale);
+    
+    // Store nGWASblockBivariate for later use (member variable)
+    this->nGWASblockBivariate = nGWASblockBivariate;
+    // Also set nGWASblock to trait 1 values for compatibility
+    nGWASblock.resize(nGWASblockBivariate.size());
+    for (unsigned i = 0; i < nGWASblockBivariate.size(); ++i) {
+        nGWASblock[i] = nGWASblockBivariate[i][0];
+    }
+
+    cout << "\nBivariate data summary:" << endl;
+    cout << boost::format("%40s %8s %8s\n") %"" %"mean" %"sd";
+    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP Phenotypic variance (Trait 1)" %Gadget::calcMean(varySnp)  %sqrt(Gadget::calcVariance(varySnp));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP Phenotypic variance (Trait 2)" %Gadget::calcMean(varySnp2) %sqrt(Gadget::calcVariance(varySnp2));
+    cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP heterozygosity"               %Gadget::calcMean(snp2pq)   %sqrt(Gadget::calcVariance(snp2pq));
+    cout << boost::format("%40s %8.0f %8.0f\n") %"GWAS SNP sample size (Trait 1)"        %Gadget::calcMean(n)        %sqrt(Gadget::calcVariance(n));
+    cout << boost::format("%40s %8.0f %8.0f\n") %"GWAS SNP sample size (Trait 2)"        %Gadget::calcMean(n2)       %sqrt(Gadget::calcVariance(n2));
+    cout << boost::format("%40s %8.0f %8.0f\n") %"LD block size"                         %Gadget::calcMean(numSnpsBlock)    %sqrt(Gadget::calcVariance(numSnpsBlock));
+    cout << boost::format("%40s %8.0f %8.0f\n") %"LD block rank"                         %Gadget::calcMean(numEigenvalBlock) %sqrt(Gadget::calcVariance(numEigenvalBlock));
+    cout << endl;
+
+    if (numAnnos) setAnnoInfoVec();
+    lowRankModel = true;
+}
+
 void Data::includeMatchedBlocks(){
     // this step is to construct gwasSnp2geneVec
 //    cout << "Matching blocks..." << endl;
@@ -2478,6 +2551,109 @@ void Data::constructPseudoSummaryData(){
     }
 }
 
+void Data::readEigenMatrixBinaryFileAndMakeWandQBivariate(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects1, const vector<VectorXf> &GWASeffects2, const vector<Vector2f> &nGWASblock, const bool noscale){
+    if (!wcorrBlocks.size()) {  // only print for the first time reading the data
+        cout << "Reading eigenvectors from binary file and making W and Q matrices for bivariate analysis..." << endl;
+    }
+    if (!Gadget::directoryExist(dirname)) {
+        throw("Error: cannot find the folder [" + dirname + "]");
+    }
+    
+    vector<int>numSnpInRegion(numKeptLDBlocks);
+    
+    for(int i = 0; i < numKeptLDBlocks;i++){
+        LDBlockInfo *block = keptLdBlockInfoVec[i];
+        numSnpInRegion[i] = block->numSnpInBlock;
+    }
+    eigenValLdBlock.resize(numLDBlocks);
+    eigenVecLdBlock.resize(numLDBlocks);
+    wcorrBlocks.resize(numKeptLDBlocks);
+    numSnpsBlock.resize(numKeptLDBlocks);
+    numEigenvalBlock.resize(numKeptLDBlocks);
+    Qblocks.resize(numKeptLDBlocks);
+
+#pragma omp parallel for schedule(dynamic)
+    for(int i = 0; i < numKeptLDBlocks; i++){
+        LDBlockInfo *block = keptLdBlockInfoVec[i];
+        int32_t cur_m = 0;
+        int32_t cur_k = 0;
+        float sumPosEigVal = 0;
+        float oldEigenCutoff =0;
+        
+        string infile = dirname + "/block" + block->ID + ".eigen.bin";
+        FILE *fp = fopen(infile.c_str(), "rb");
+        if(!fp){cout << "Error: can not open the file [" + infile + "] to read." << endl;}
+        if(!fp){throw ("Error: can not open the file [" + infile + "] to read.");}
+
+        // 1. marker number
+        if(fread(&cur_m, sizeof(int32_t), 1, fp) != 1){
+            throw("Read " + infile + " error (m)");
+        }
+
+        if(cur_m != numSnpInRegion[i]){
+            throw("In LD block " + block->ID + ", inconsistent marker number to marker information in " + infile);
+        }
+
+        // 2. ncol of eigenVec (number of eigenvalues)
+        if(fread(&cur_k, sizeof(int32_t), 1, fp) != 1){
+            throw("In LD block " + block->ID + ", error about number of eigenvalues in  " + infile);
+        }
+
+        // 3. sum of all positive eigenvalues
+        if(fread(&sumPosEigVal, sizeof(float), 1, fp) != 1){
+            throw("In LD block " + block->ID + ", error about the sum of positive eigenvalues in " + infile);
+        }
+
+        // 4. eigenCutoff
+        if(fread(&oldEigenCutoff, sizeof(float), 1, fp) != 1){
+            throw("In LD block " + block->ID + ", error about eigen cutoff used in " + infile);
+        }
+
+        // 5. eigenvalues
+        VectorXf lambda(cur_k);
+        if(fread(lambda.data(), sizeof(float), cur_k, fp) != cur_k){
+            throw("In LD block " + block->ID + ",size error about eigenvalues in " + infile);
+        }
+
+        // 6. eigenvector
+        MatrixXf U(cur_m, cur_k);
+        uint64_t nElements = (uint64_t)cur_m * (uint64_t)cur_k;
+        if(fread(U.data(), sizeof(float), nElements, fp) != nElements){
+            throw("In LD block " + block->ID + ",size error about eigenvectors in " + infile);
+        }
+        
+        fclose(fp);
+        
+        if(oldEigenCutoff < eigenCutoff & i == 0){
+            cout << "Warning: current proportion of variance in LD block is set as " + to_string(eigenCutoff)+ ". But the proportion of variance is set as "<< to_string(oldEigenCutoff) + " in "  + infile + ".\n";
+        }
+        
+        if (eigenCutoff < oldEigenCutoff) {
+            truncateEigenMatrix(sumPosEigVal, eigenCutoff, lambda, U, eigenValLdBlock[i], eigenVecLdBlock[i]);
+        } else {
+            eigenValLdBlock[i] = lambda;
+            eigenVecLdBlock[i] = U;
+        }
+        block->sumPosEigVal = sumPosEigVal;
+        block->eigenvalues = lambda;
+                        
+        // make w and Q for bivariate: concatenate w1 and w2
+        VectorXf sqrtLambda = eigenValLdBlock[i].array().sqrt();
+        VectorXf w1 = (1.0/sqrtLambda.array()).matrix().asDiagonal() * (eigenVecLdBlock[i].transpose() * GWASeffects1[i]);
+        VectorXf w2 = (1.0/sqrtLambda.array()).matrix().asDiagonal() * (eigenVecLdBlock[i].transpose() * GWASeffects2[i]);
+        
+        // Concatenate w1 and w2: [w1; w2]
+        wcorrBlocks[i].resize(w1.size() + w2.size());
+        wcorrBlocks[i].head(w1.size()) = w1;
+        wcorrBlocks[i].tail(w2.size()) = w2;
+        
+        Qblocks[i] = sqrtLambda.asDiagonal() * eigenVecLdBlock[i].transpose();
+        
+        numSnpsBlock[i] = Qblocks[i].cols();
+        numEigenvalBlock[i] = Qblocks[i].rows();
+    }
+}
+
 void Data::constructWandQ(const vector<VectorXf> &GWASeffects, const float nGWAS, const bool noscale) {
     wcorrBlocks.resize(numKeptLDBlocks);
     numSnpsBlock.resize(numKeptLDBlocks);
@@ -2619,6 +2795,70 @@ void Data::scaleGwasEffects(){
 
 
     // output GWAS data
+}
+
+void Data::scaleBivariateGwasEffects(){
+    // Scale GWAS effects for both traits
+    snp2pq.resize(numIncdSnps);
+    b.resize(numIncdSnps);
+    n.resize(numIncdSnps);
+    se.resize(numIncdSnps);
+    scalar.resize(numIncdSnps);
+    b2.resize(numIncdSnps);
+    se2.resize(numIncdSnps);
+    scalar2.resize(numIncdSnps);
+    n2.resize(numIncdSnps);
+    
+    SnpInfo *snp;
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+        snp = incdSnpInfoVec[i];
+        snp->af = snp->gwas_af;  // Use trait 1 AF (should be same for both traits)
+        snp2pq[i] = snp->twopq = 2.0f*snp->gwas_af*(1.0f-snp->gwas_af);
+        if(snp2pq[i]==0) cout << "Error: SNP " << snp->ID << " af " << snp->af << " has 2pq = 0." << endl;
+        
+        // Trait 1
+        b[i] = snp->gwas_b;
+        n[i] = snp->gwas_n;
+        se[i] = snp->gwas_se;
+        snp->gwas_scalar = 1.0/sqrt(n[i]*se[i]*se[i] + b[i]*b[i]);
+        scalar[i] = snp->gwas_scalar;
+        
+        // Trait 2
+        b2[i] = snp->gwas_b2;
+        n2[i] = snp->gwas_n2;
+        se2[i] = snp->gwas_se2;
+        snp->gwas_scalar2 = scalar2[i] = 1.0/sqrt(n2[i]*se2[i]*se2[i] + b2[i]*b2[i]);
+    }
+
+    // estimate phenotypic variance for both traits (before scaling)
+    varySnp  = snp2pq.array()*(n.array() *se.array().square() +b.array().square());
+    varySnp2 = snp2pq.array()*(n2.array()*se2.array().square()+b2.array().square());
+    VectorXf varpSrt = varySnp;
+    std::sort(varpSrt.data(), varpSrt.data() + varpSrt.size());
+    float obsVarPhenotypic = varpSrt[varpSrt.size()/2];
+    varPhenotypic = 1.0;
+    VectorXf nSrt = n;
+    std::sort(nSrt.data(), nSrt.data() + nSrt.size());
+    numKeptInds = nSrt[nSrt.size()/2]; // median sample size trait 1
+    VectorXf n2Srt = n2;
+    std::sort(n2Srt.data(), n2Srt.data() + n2Srt.size());
+    numKeptInds2 = n2Srt[n2Srt.size()/2]; // median sample size trait 2
+    
+    // estimate per-SNP 2pq using the estimated phenotypic variance
+    for (unsigned i=0; i<numIncdSnps; ++i) {
+        snp = incdSnpInfoVec[i];
+        snp2pq[i] = snp->twopq = obsVarPhenotypic/(snp->gwas_n*se[i]*se[i]+b[i]*b[i]);
+    }
+    
+    // scale GWAS effects for both traits
+    b.array() *= scalar.array();
+    se.array() *= scalar.array();
+    b2.array() *= scalar2.array();
+    se2.array() *= scalar2.array();
+    
+    // calculate ypy (total sum of squares) for summary statistics
+    ypy = numKeptInds;
+    ypy2 = numKeptInds2;
 //    string outfile = "ma.txt";
 //    ofstream out(outfile.c_str());
 //    for (unsigned i=0; i<numIncdSnps; ++i) {

@@ -238,7 +238,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
             strvec.getTokens(argv[++i], " ,");
             eigenCutoff.resize(strvec.size());
             for (unsigned j=0; j<strvec.size(); ++j) eigenCutoff[j] = stof(strvec[j]);
-            std::sort(eigenCutoff.data(), eigenCutoff.data()+eigenCutoff.size());
+            std::sort(eigenCutoff.data(), eigenCutoff.data()+eigenCutoff.size(), std::greater<float>());
             ss << "--ldm-eigen-cutoff " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--block-info")) {
@@ -683,6 +683,11 @@ void Options::inputOptions(const int argc, const char* argv[]){
 //            nDistAutoThreshold = atof(argv[++i]);
             ss << "--n-dist-auto " << "\n";
         }
+        else if (!strcmp(argv[i], "--n-dist-auto-pred")) {
+            nDistAuto = true;
+            nDistAutoByPred = true;
+            ss << "--n-dist-auto-pred " << "\n";
+        }
         else if (!strcmp(argv[i], "--gene-map")) {
             geneMapFile = argv[++i];
             ss << "--gene-map " << argv[i] << "\n";
@@ -698,9 +703,17 @@ void Options::inputOptions(const int argc, const char* argv[]){
             estimateRsqEnrich = true;
             ss << "--estimate-rsq-enrich " << "\n";
         }
+        else if (!strcmp(argv[i], "--fixed-effect")) {
+            fitSnpsAsFixedEffectsFile = argv[++i];
+            ss << "--fixed-effect " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--skip")) {
             skipSnpFile = argv[++i];
             ss << "--skip " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--set-zero-gwas-for-skip")) {
+            setZeroGwasForSkip = true;
+            ss << "--set-zero-gwas-for-skip\n";
         }
         else {
             stringstream errmsg;

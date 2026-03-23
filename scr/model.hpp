@@ -1274,7 +1274,7 @@ public:
         
         void compute_sparse(VectorXi &badSnps, VectorXf &effects, VectorXf &effectMean, const VectorXf &b, VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const vector<ChromInfo*> &chromInfoVec, const int iter);
         void compute_full(VectorXi &badSnps, VectorXf &effects, VectorXf &effectMean, const VectorXf &b, VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec, const int iter);
-        void compute_eigen(VectorXi &badSnps, VectorXf &effects, VectorXf &effectMean, const VectorXf &b, vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, const vector<LDBlockInfo*> keptLdBlockInfoVec, const int iter);
+        void compute_eigen(VectorXi &badSnps, VectorXf &effects, VectorXf &effectMean, const VectorXf &b, vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, const vector<LDBlockInfo*> keptLdBlockInfoVec, const int iter, const Data &data);
     };
     
 
@@ -2723,6 +2723,7 @@ public:
 
 };
 
+
 // -----------------------------------------------------------------------------------------------
 // ApproxBayesAPP: Bivariate Bayesian Analysis with Annotation and Pleiotropy
 // -----------------------------------------------------------------------------------------------
@@ -3088,3 +3089,7 @@ private:
 };
 
 #endif /* model_hpp */
+
+
+
+

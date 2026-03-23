@@ -110,6 +110,7 @@ public:
     bool mergeLdm;
     bool imputeSummary;
     bool nDistAuto;  // automatically determine the number of mixture distributions
+    bool nDistAutoByPred;  // if true with nDistAuto, select K by pseudo CV prediction accuracy (else heritability)
     bool writeWandQ; // output w and Q in text format
     bool estimateRsqEnrich;  // estimate prediction R2 enrichment
     
@@ -166,6 +167,10 @@ public:
     string geneMapFile;
     string genomeBuild;
     string skipSnpFile;
+    /// If true with --skip, set GWAS marginal effects (b, b2) to zero for those SNPs after read/impute
+    bool setZeroGwasForSkip;
+    /// Set via --fixed-effect; one SNP ID per line (first column if tab/space separated); lines starting with # ignored
+    string fitSnpsAsFixedEffectsFile;
     string label;
     
     Options(){
@@ -262,6 +267,7 @@ public:
         mergeLdm                = false;
         imputeSummary           = false;
         nDistAuto               = false;
+        nDistAutoByPred         = false;
         writeWandQ              = false;
         estimateRsqEnrich       = false;
         
@@ -304,6 +310,8 @@ public:
         outLDmatType            = "sparse";
         genomeBuild             = "hg19";
         skipSnpFile             = "";
+        setZeroGwasForSkip      = false;
+        fitSnpsAsFixedEffectsFile = "";
         label                   = "";
     }
     
