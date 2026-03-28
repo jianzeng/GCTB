@@ -76,21 +76,25 @@ int main(int argc, const char * argv[]) {
                 if (!opt.plinkLDbinfile.empty()) data.readPlinkLDbinfile(opt.plinkLDbinfile);
                 data.outputLDmatrix("full", opt.title, opt.writeLdmTxt);
             }
-            else if (opt.ldmatrixFile.empty()) { // make LD matrix from genotypes
-                gctb.inputIndInfo(data, opt.bedFile, opt.bedFile + ".fam", opt.keepIndFile, opt.keepIndMax,
-                                  opt.mphen, opt.covariateFile, opt.randomCovariateFile, opt.residualDiagFile);
-                gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.ldBlockInfoFile, opt.includeBlock, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.mafmin, opt.mafmax, opt.noscale, readGenotypes);
-                if (opt.outLDmatType == "shrunk") {
-                    data.makeshrunkLDmatrix(opt.bedFile + ".bed", opt.outLDmatType, opt.snpRange, opt.title, opt.writeLdmTxt, opt.effpopNE, opt.cutOff, opt.genMapN);
-                } else if (opt.outLDmatType == "block") {
-                    data.makeBlockLDmatrix(opt.bedFile + ".bed", opt.outLDmatType, opt.includeBlock, opt.title, opt.writeLdmTxt);
-                }
-                else {
-                    string snpRange = opt.snpRange;
-                    if(!opt.partParam.empty()){
-                        snpRange = data.partLDMatrix(opt.partParam, opt.title, opt.outLDmatType);
+            else if (opt.ldmatrixFile.empty()) { // make LD matrix from genotypes (or from eigen data for block LDM)
+                if (opt.outLDmatType == "block" && !opt.eigenMatrixFile.empty()) {
+                    data.makeBlockLDmatrixFromEigen(opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff(), opt.outLDmatType, opt.includeBlock, opt.title, opt.writeLdmTxt);
+                } else {
+                    gctb.inputIndInfo(data, opt.bedFile, opt.bedFile + ".fam", opt.keepIndFile, opt.keepIndMax,
+                                      opt.mphen, opt.covariateFile, opt.randomCovariateFile, opt.residualDiagFile);
+                    gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.ldBlockInfoFile, opt.includeBlock, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.mafmin, opt.mafmax, opt.noscale, readGenotypes);
+                    if (opt.outLDmatType == "shrunk") {
+                        data.makeshrunkLDmatrix(opt.bedFile + ".bed", opt.outLDmatType, opt.snpRange, opt.title, opt.writeLdmTxt, opt.effpopNE, opt.cutOff, opt.genMapN);
+                    } else if (opt.outLDmatType == "block") {
+                        data.makeBlockLDmatrix(opt.bedFile + ".bed", opt.outLDmatType, opt.includeBlock, opt.title, opt.writeLdmTxt);
                     }
-                    data.makeLDmatrix(opt.bedFile + ".bed", opt.outLDmatType, opt.chisqThreshold, opt.LDthreshold, opt.windowWidth, snpRange, opt.title, opt.writeLdmTxt);
+                    else {
+                        string snpRange = opt.snpRange;
+                        if(!opt.partParam.empty()){
+                            snpRange = data.partLDMatrix(opt.partParam, opt.title, opt.outLDmatType);
+                        }
+                        data.makeLDmatrix(opt.bedFile + ".bed", opt.outLDmatType, opt.chisqThreshold, opt.LDthreshold, opt.windowWidth, snpRange, opt.title, opt.writeLdmTxt);
+                    }
                 }
             }
 //            else if (opt.ldmatrixFile.empty() != 1 && opt.outLDmatType == "shrunk" || opt.outLDmatType == "sparseshrunk") { // make shrunk LD matrix from other LDM
@@ -216,6 +220,23 @@ int main(int argc, const char * argv[]) {
             float bestEigenCutoff = opt.eigenCutoff.size() ? opt.eigenCutoff[0] : 0.995f;
             if (!opt.ldmatrixFile.empty()) {
                 gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.gwasSummaryFile, opt.ldmatrixFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.genMapN, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile, opt.windowFile, opt.multiLDmat, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold, opt.sampleOverlap, opt.imputeN, opt.noscale, opt.binSnp, opt.readLdmTxt);
+            } else if (!opt.ldmBlockDir.empty()) {
+                if (!opt.eigenMatrixFile.empty()) {
+                    throw("Error: use only one of --ldm-eigen and --ldm-block (both specify block LD reference folders).");
+                }
+                data.mergeLdmInfo("block", opt.ldmBlockDir, false);
+                gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile,
+                                  opt.gwasSummaryFile, opt.ldmBlockDir, opt.ldBlockInfoFile,
+                                  opt.includeChr, opt.excludeAmbiguousSNP,
+                                  opt.annotationFile, opt.transpose,
+                                  opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
+                                  opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
+                                  opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
+                                  opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock, opt.skipSnpFile, opt.setZeroGwasForSkip, true);
+                if (opt.analysisType == "GWFM") {
+                    data.inputPairwiseLD(opt.ldmBlockDir + "/" + opt.pairwiseLDfile, 0.95);
+                }
+                cout << "Using full block LD matrices (block*.ldm.bin) from [" << opt.ldmBlockDir << "]; eigen low-rank W/Q not built." << endl;
             } else if (!opt.eigenMatrixFile.empty()) {  // low-rank model
                 data.mergeLdmInfo("block", opt.eigenMatrixFile, false); // if each block has its own .info file, then merge them
                 gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile,
@@ -225,7 +246,7 @@ int main(int argc, const char * argv[]) {
                                   opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
                                   opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
                                   opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
-                                  opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock, opt.skipSnpFile, opt.setZeroGwasForSkip);
+                                  opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock, opt.skipSnpFile, opt.setZeroGwasForSkip, false);
                 if (opt.analysisType == "GWFM") {
                     data.inputPairwiseLD(opt.eigenMatrixFile+"/"+opt.pairwiseLDfile, 0.95);  // for TGS sampling
                 }
@@ -256,7 +277,7 @@ int main(int argc, const char * argv[]) {
                 
             
             if (opt.nDistAuto) {
-                if (opt.nDistAutoByPred && !opt.eigenMatrixFile.empty() && !isBivariate)
+                if (opt.nDistAutoByPred && !opt.eigenMatrixFile.empty() && !isBivariate && opt.ldmBlockDir.empty())
                     gctb.findBestFitModelByPredictionAccuracy(data, opt, bestEigenCutoff);
                 else {
                     if (opt.nDistAutoByPred) {

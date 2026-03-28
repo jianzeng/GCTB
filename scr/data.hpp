@@ -557,6 +557,8 @@ public:
     unsigned numSnps;
     unsigned numInds;
     unsigned numIncdSnps;
+    /** Count of included SNPs with fitAsFixedEffect (from --fixed-effect file); 0 if none. */
+    unsigned numFixedEffectSnps;
     unsigned numKeptInds;
     unsigned numKeptInds2;  // median sample size for trait 2 (bivariate)
     unsigned numChroms;
@@ -575,6 +577,7 @@ public:
         numSnps = 0;
         numInds = 0;
         numIncdSnps = 0;
+        numFixedEffectSnps = 0;
         numKeptInds = 0;
         numKeptInds2 = 0;
         numChroms = 0;
@@ -648,6 +651,7 @@ public:
     void outputWindowResults(const VectorXf &posteriorMean, const string &filename) const;
     void summarizeSnpResults(const SpMat &snpEffects, const string &filename) const;
     void buildSparseMME(const bool sampleOverlap, const bool noscale);
+    void buildMMEFromBlockFullLdmBin(const string &ldmDirname, const bool sampleOverlap, const bool noscale);
     void readMultiLDmatInfoFile(const string &mldmatFile);
     void readMultiLDmatBinFile(const string &mldmatFile);
     void outputSnpEffectSamples(const SpMat &snpEffects, const unsigned burnin, const unsigned outputFreq, const string &snpResFile, const string &filename) const;
@@ -696,6 +700,7 @@ public:
     MatrixXf generateLDmatrixPerBlock(const string &bedFile, const vector<string> &snplists); // generate full LDM for block
     
     void makeBlockLDmatrix(const string &bedFile, const string &LDmatType, const unsigned block, const string &filename, const bool writeLdmTxt, int ldBlockRegionWind = 0);
+    void makeBlockLDmatrixFromEigen(const string &eigenDirname, const float eigenCutoff, const string &LDmatType, const unsigned block, const string &dirname, const bool writeLdmTxt, int ldBlockRegionWind = 0);
 
     void readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, const unsigned block, const float eigenCutoff, const bool writeLdmTxt);
     

@@ -313,6 +313,13 @@ public:
             value = genVar/(genVar+resVar);
         }
     };
+
+    /** Marginal h^2 from --fixed-effect SNPs: sum_i alpha_i^2 / varPhenotypic (LD ignored). Effects are on SNP genotype SD scale (Var(X)=1), so no 2pq weighting. */
+    class HeritabilityFixedEffects : public Parameter {
+    public:
+        HeritabilityFixedEffects(const string &lab = "hsqFixed"): Parameter(lab){}
+        void compute(const VectorXf &snpEffects, const Data &data);
+    };
     
     class Rounding : public Parameter {
         // re-compute ycorr to eliminate rounding errors
@@ -1070,7 +1077,8 @@ public:
 
 class ApproxBayesC : public BayesC {
 public:
-    
+    class SnpEffects; // forward decl for FixedEffects Gibbs helpers
+
     class FixedEffects : public BayesC::FixedEffects {
     public:
         FixedEffects(const vector<string> &header): BayesC::FixedEffects(header){}
@@ -1079,6 +1087,14 @@ public:
                           const MatrixXf &ZPX, const VectorXf &XPy,
                           const VectorXf &snpEffects, const float vare,
                           VectorXf &rcorr);
+
+        /** Gibbs sweep over all --fixed-effect SNPs (call before mixture SnpEffects::sampleFromFC_*). */
+        void sampleFromFC_eigen(SnpEffects &snpEffects, vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
+            const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks, const unsigned numFixedEffectSnps);
+        void sampleFromFC_sparse(SnpEffects &snpEffects, VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag,
+            const VectorXf &snp2pq, const vector<SnpInfo*> &incdSnpInfoVec, float varg, float vare, const unsigned numFixedEffectSnps);
+        void sampleFromFC_full(SnpEffects &snpEffects, VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag,
+            const VectorXi &windStart, const VectorXi &windSize, const VectorXf &snp2pq, const vector<SnpInfo*> &incdSnpInfoVec, float varg, float vare, const unsigned numFixedEffectSnps);
     };
     
     class SnpEffects : public BayesC::SnpEffects {
@@ -1099,11 +1115,13 @@ public:
         
         void sampleFromFC_sparse(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                                  const vector<ChromInfo*> &chromInfoVec, const VectorXf &snp2pq,
-                                 const float sigmaSq, const float pi, const float vare, const float varg);
+                                 const float sigmaSq, const float pi, const float vare, const float varg,
+                                 const vector<SnpInfo*> &incdSnpInfoVec);
         void sampleFromFC_full(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const VectorXf &snp2pq,
-                          const float sigmaSq, const float pi, const float vare, const float varg);
+                          const float sigmaSq, const float pi, const float vare, const float varg,
+                          const vector<SnpInfo*> &incdSnpInfoVec);
         void sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                           const vector<LDBlockInfo*> keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                           const float sigmaSq, const float pi, const float varg, const VectorXf &snp2pq);
@@ -1272,8 +1290,8 @@ public:
             writeTxt = true;
         }
         
-        void compute_sparse(VectorXi &badSnps, VectorXf &effects, VectorXf &effectMean, const VectorXf &b, VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const vector<ChromInfo*> &chromInfoVec, const int iter);
-        void compute_full(VectorXi &badSnps, VectorXf &effects, VectorXf &effectMean, const VectorXf &b, VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec, const int iter);
+        void compute_sparse(VectorXi &badSnps, VectorXf &effects, VectorXf &effectMean, const VectorXf &b, VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const vector<ChromInfo*> &chromInfoVec, const int iter, const Data &data);
+        void compute_full(VectorXi &badSnps, VectorXf &effects, VectorXf &effectMean, const VectorXf &b, VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec, const int iter, const Data &data);
         void compute_eigen(VectorXi &badSnps, VectorXf &effects, VectorXf &effectMean, const VectorXf &b, vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, const vector<LDBlockInfo*> keptLdBlockInfoVec, const int iter, const Data &data);
     };
     
@@ -1296,11 +1314,18 @@ public:
     
     vector<VectorXf> wcorrBlocks;
     vector<VectorXf> whatBlocks;
-   
+
+    /** Used only for --fixed-effect SNP Gibbs (distinct from BayesC::fixedEffects intercept/covariates). */
+    FixedEffects fixedSnpEffects;
+
+    HeritabilityFixedEffects hsqFixed;
+
     ApproxBayesC(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const float varRandom, const float pival, const float piAlpha, const float piBeta, const bool estimatePi, const bool noscale, const bool robustMode, const bool message = true)
     : BayesC(data, varGenotypic, varResidual, 0.0, pival, piAlpha, piBeta, estimatePi, noscale, "Gibbs", false)
     , rcorr(data.ZPy)
     , wcorrBlocks(data.wcorrBlocks)
+    , fixedSnpEffects(data.fixedEffectNames)
+    , hsqFixed("hsqFixed")
     , snpEffects(data.snpEffectNames)
     , sigmaSq(varGenotypic, data.snp2pq, pival, noscale)
     , vare(varResidual, data.numKeptInds)
@@ -1317,6 +1342,10 @@ public:
         paramSetVec = {&snpEffects, &snpPip};
         paramVec = {&pi, &nnzSnp, &sigmaSq, &hsq, &vare};
         paramToPrint = {&pi, &nnzSnp, &sigmaSq, &hsq, &vare};
+        if (data.numFixedEffectSnps) {
+            paramVec.insert(paramVec.begin() + 4, &hsqFixed);
+            paramToPrint.insert(paramToPrint.begin() + 4, &hsqFixed);
+        }
 
         if (lowRankModel) {
             paramSetVec.push_back(&vargBlk);
@@ -1336,6 +1365,8 @@ public:
                cout << "Fitting model assuming scaled genotypes "  << endl;
             }
             if (robustMode) cout << "Using a more robust parameterisation " << endl;
+            if (data.numFixedEffectSnps)
+                cout << "Fitting " << data.numFixedEffectSnps << " SNP(s) as fixed effects (flat prior)." << endl;
         }
     }
     
@@ -1681,13 +1712,15 @@ public:
                           const VectorXf &snp2pq,
                           const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, VectorXf &snpStore, 
                           const float varg,
-                          const bool hsqPercModel, DeltaPi &deltaPi);
+                          const bool hsqPercModel, DeltaPi &deltaPi,
+                          const vector<SnpInfo*> &incdSnpInfoVec);
         void sampleFromFC_full(VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec,
                           const VectorXf &snp2pq,
                           const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare, VectorXf &snpStore,
                           const float varg,
-                          const bool hsqPercModel, DeltaPi &deltaPi);
+                          const bool hsqPercModel, DeltaPi &deltaPi,
+                          const vector<SnpInfo*> *incdSnpInfoVec = nullptr);
         
         void sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                           const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
@@ -1753,6 +1786,9 @@ public:
 
     vector<VectorXf> wcorrBlocks;
     vector<VectorXf> whatBlocks;
+
+    ApproxBayesC::FixedEffects fixedSnpEffects;
+    BayesC::HeritabilityFixedEffects hsqFixed;
     
     enum {gibbs, cg, mh, tgs, tgs_thin} algorithm;
     
@@ -1761,7 +1797,6 @@ public:
     ApproxBayesR(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool robustMode, const string &alg, const bool message = true):
     BayesR(data, varGenotypic, varResidual, 0.0, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, alg, false)
     , rcorr(data.ZPy)
-    , wcorrBlocks(data.wcorrBlocks)
     , snpEffects(data.snpEffectNames)
     , sigmaSq(varGenotypic, data.snp2pq, gamma, pis, noscale)
     , Vgs(gamma)
@@ -1771,6 +1806,9 @@ public:
     , vareBlk(data.ldblockNames, data.varPhenotypic)
     , nBadSnps(data.title, data.b, data.snpEffectNames)
     , snpHsqPep(data.snpEffectNames)
+    , wcorrBlocks(data.wcorrBlocks)
+    , fixedSnpEffects(data.fixedEffectNames)
+    , hsqFixed("hsqFixed")
     , noscale(noscale)
     , sparse(data.sparseLDM)
     , robustMode(robustMode)
@@ -1786,10 +1824,14 @@ public:
         paramSetVec = {&snpEffects, &snpPip, &snpHsqPep};
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
         paramVec     = {&nnzSnp, &sigmaSq, &hsq, &vare};
+        if (data.numFixedEffectSnps)
+            paramVec.insert(paramVec.begin() + 3, &hsqFixed);
         paramVec.insert(paramVec.end(), numSnps.begin(), numSnps.end());
         paramVec.insert(paramVec.end(), Vgs.begin(), Vgs.end());
         
         paramToPrint = {&sigmaSq, &hsq, &vare};
+        if (data.numFixedEffectSnps)
+            paramToPrint.insert(paramToPrint.begin() + 2, &hsqFixed);
         paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
         paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
         
@@ -1815,6 +1857,8 @@ public:
             if (algorithm == cg) cout << "Conjugate gradient-adjusted Gibbs sampling" << endl;
             if (algorithm == tgs_thin) cout << "Using tempered Gibbs sampling (TGS)" << endl;
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
+            if (data.numFixedEffectSnps)
+                cout << "Fitting " << data.numFixedEffectSnps << " SNP(s) as fixed effects (flat prior)." << endl;
         }
     }
     
@@ -2136,11 +2180,11 @@ public:
                                  const vector<ChromInfo*> &chromInfoVec,
                                  const float sigmaSq, const MatrixXf &snpPi, const VectorXf &gamma,
                                  const float vare, const float varg,
-                                 const bool hsqPercModel, DeltaPi &deltaPi);
+                                 const bool hsqPercModel, DeltaPi &deltaPi, const vector<SnpInfo*> &incdSnpInfoVec);
         void sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                                 const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                 const MatrixXf &snpPi, const VectorXf &gamma, const float varg,
-                                DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq);
+                                DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq, const vector<SnpInfo*> &incdSnpInfoVec);
         // tempered Gibbs sampler
         void sampleFromTGS_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                                  const map<SnpInfo*, vector<SnpInfo*> > &LDmap, const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
@@ -2408,6 +2452,8 @@ public:
         paramVec    = {&nnzSnp, &sigmaSq, &hsq, &vare};
         paramVec.insert(paramVec.end(), numSnps.begin(), numSnps.end());
         paramVec.insert(paramVec.end(), Vgs.begin(), Vgs.end());
+        if (data.numFixedEffectSnps)
+            paramVec.insert(paramVec.begin() + 3, &hsqFixed);
         
         paramSetToPrint.resize(0);
         paramSetToPrint.insert(paramSetToPrint.end(), annoEffects.begin(), annoEffects.end());
@@ -2423,6 +2469,8 @@ public:
         }
 
         paramToPrint = {&sigmaSq, &hsq, &vare};
+        if (data.numFixedEffectSnps)
+            paramToPrint.insert(paramToPrint.begin() + 2, &hsqFixed);
         paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
         paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
 
@@ -2447,6 +2495,8 @@ public:
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
             if (robustMode) cout << "Using a more robust parameterisation " << endl;
             if (algorithm == tgs_thin) cout << "Using tempered Gibbs sampling (TGS)" << endl;
+            if (data.numFixedEffectSnps)
+                cout << "Fitting " << data.numFixedEffectSnps << " SNP(s) as fixed effects (flat prior)." << endl;
         }
         
         getSnpAnnoCntInv(data.annoMat, snpAnnoCntInv);
@@ -2679,6 +2729,8 @@ public:
         paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
 
         paramVec = {&nnzSnp, &sigmaSq, &hsq, &vare, &piAnno};
+        if (data.numFixedEffectSnps)
+            paramVec.insert(paramVec.begin() + 3, &hsqFixed);
         paramVec.insert(paramVec.end(), numSnps.begin(), numSnps.end());
         paramVec.insert(paramVec.end(), Vgs.begin(), Vgs.end());
         
@@ -2693,6 +2745,8 @@ public:
         paramSetToPrint.push_back(&annoPip);
 
         paramToPrint = {&sigmaSq, &hsq, &vare, &piAnno};
+        if (data.numFixedEffectSnps)
+            paramToPrint.insert(paramToPrint.begin() + 2, &hsqFixed);
         paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
         paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
 

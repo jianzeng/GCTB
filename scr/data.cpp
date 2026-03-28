@@ -661,7 +661,10 @@ void Data::readFixedEffectSnpFile(const string &path){
     for (unsigned i = 0; i < numIncdSnps; ++i) {
         incdSnpInfoVec[i]->fitAsFixedEffect = false;
     }
-    if (!numIncdSnps || ids.empty()) return;
+    if (!numIncdSnps || ids.empty()) {
+        numFixedEffectSnps = 0;
+        return;
+    }
     unsigned nMatch = 0;
     for (unsigned i = 0; i < numIncdSnps; ++i) {
         if (ids.count(incdSnpInfoVec[i]->ID)) {
@@ -669,6 +672,7 @@ void Data::readFixedEffectSnpFile(const string &path){
             ++nMatch;
         }
     }
+    numFixedEffectSnps = nMatch;
     if (nMatch < ids.size())
         cout << "Note: " << (ids.size() - nMatch) << " SNP ID(s) from the file were not found among included SNPs." << endl;
 }
@@ -4694,6 +4698,68 @@ void Data::buildSparseMME(const bool sampleOverlap, const bool noscale){
 //    out.close();
 
     if (numAnnos) setAnnoInfoVec();    
+}
+
+void Data::buildMMEFromBlockFullLdmBin(const string &ldmDirname, const bool sampleOverlap, const bool noscale) {
+    includeMatchedBlocks();
+
+    const unsigned N = numIncdSnps;
+    ZPZ.resize(N);
+    ZPZdiag.resize(N);
+    windStart.resize(N);
+    windSize.resize(N);
+
+    for (unsigned i = 0; i < N; ++i) {
+        windStart[i] = (int)i;
+        windSize[i] = 1;
+        ZPZ[i].resize(1);
+        ZPZ[i][0] = 1.0f;
+        ZPZdiag[i] = 1.0f;
+        SnpInfo *s = incdSnpInfoVec[i];
+        s->windStart = (int)i;
+        s->windSize = 1;
+        s->ldSamplVar = 0.0f;
+        s->ldSum = 1.0f;
+        s->numNonZeroLD = 1;
+        s->ldsc = 1.0f;
+    }
+
+    for (unsigned bi = 0; bi < numKeptLDBlocks; ++bi) {
+        LDBlockInfo *blk = keptLdBlockInfoVec[bi];
+        const vector<int> &gv = blk->block2GwasSnpVec;
+        const unsigned m = (unsigned)gv.size();
+        if (m == 0) continue;
+
+        MatrixXf L;
+        readBlockLDmatrix(ldmDirname, blk->ID, blk->numSnpInBlock, L);
+
+        if (m != (unsigned)blk->numSnpInBlock || (unsigned)L.rows() != m) {
+            throw("Error: GWAS SNPs per block must match block*.ldm.bin dimensions (same SNP set as reference in ldm.info for block " + blk->ID + ").");
+        }
+
+        const unsigned g0 = (unsigned)gv[0];
+
+        for (unsigned j = 0; j < m; ++j) {
+            const unsigned g = (unsigned)gv[j];
+            windStart[g] = (int)g0;
+            windSize[g] = (int)m;
+            ZPZ[g] = L.row(j).transpose();
+            ZPZdiag[g] = L(j, j);
+
+            SnpInfo *s = incdSnpInfoVec[g];
+            s->windStart = (int)g0;
+            s->windSize = (int)m;
+            s->ldSamplVar = (1.0f - ZPZ[g].array().square()).square().sum() / float(numKeptInds);
+            s->ldSum = ZPZ[g].sum();
+            s->numNonZeroLD = (int)m;
+            s->ldsc = ZPZ[g].array().square().sum();
+        }
+    }
+
+    sparseLDM = false;
+    lowRankModel = false;
+
+    buildSparseMME(sampleOverlap, noscale);
 }
 
 

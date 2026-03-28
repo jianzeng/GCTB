@@ -241,6 +241,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             std::sort(eigenCutoff.data(), eigenCutoff.data()+eigenCutoff.size(), std::greater<float>());
             ss << "--ldm-eigen-cutoff " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--ldm-block")) {
+            ldmBlockDir = argv[++i];
+            ss << "--ldm-block " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--block-info")) {
             ldBlockInfoFile = argv[++i];
             ss << "--block-info " << argv[i] << "\n";
@@ -911,10 +915,12 @@ void Options::setThread(void){
     if (numThread == 1) {
         if (analysisType == "SBayes") {
             cout << "Multi-threading is available for --sbayes. Use --thread [number] to enable multi-threading." << endl;
+            cout << "For dense block LD from block*.ldm.bin, use --ldm-block <dir> instead of --ldm-eigen." << endl;
         } else if (analysisType == "GWFM") {
             cout << "Multi-threading is available for --gwfm. Use --thread [number] to enable multi-threading." << endl;
         } else if (analysisType == "LDmatrix") {
             cout << "Multi-threading is available for --make-full-ldm or --make-block-ldm. Use --thread [number] to enable multi-threading." << endl;
+            cout << "For --make-block-ldm, --ldm-eigen <dir> (with block*.eigen.bin and ldm/snp info) can reconstruct block LDM without --bfile; use --ldm-eigen-cutoff as for other eigen input." << endl;
         } else if (analysisType == "LDmatrixEigen") {
             cout << "Multi-threading is available for --make-ldm-eigen. Use --thread [number] to enable multi-threading." << endl;
         } else if (analysisType == "ImputeSumStats") {

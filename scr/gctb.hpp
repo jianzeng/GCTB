@@ -45,7 +45,7 @@ public:
                             const float eigenCutoff, const bool excludeMHC,
                             const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const float rsqThreshold,
                       const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile, const bool imputeSummary, const unsigned includeBlock, const string &skipSnpFile,
-                      const bool setZeroGwasForSkip, const bool buildMME = true);
+                      const bool setZeroGwasForSkip, const bool useBlockFullLdm = false, const bool buildMME = true);
     
     void truncBlockEigen(float cutShresh=1e-6);
     

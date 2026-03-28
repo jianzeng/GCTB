@@ -106,7 +106,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
                         const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile,
                         const float eigenCutoff, const bool excludeMHC,
                         const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const float rsqThreshold,
-                        const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile, const bool imputeSummary, const unsigned includeBlock, const string &skipSnpFile, const bool setZeroGwasForSkip, const bool buildMME){
+                        const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile, const bool imputeSummary, const unsigned includeBlock, const string &skipSnpFile, const bool setZeroGwasForSkip, const bool useBlockFullLdm, const bool buildMME){
     data.readEigenMatrix(eigenMatrixFile, eigenCutoff);
     if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
@@ -157,7 +157,11 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
     if(!gwasSummaryFile.empty() && buildMME) {
         Gadget::Tokenizer token;
         token.getTokens(gwasSummaryFile, ",");
-        if (token.size() == 1)
+        if (useBlockFullLdm) {
+            if (token.size() != 1)
+                throw("Error: --ldm-block is only supported for univariate GWAS (--gwas).");
+            data.buildMMEFromBlockFullLdmBin(eigenMatrixFile, sampleOverlap, noscale);
+        } else if (token.size() == 1)
             data.buildMMEeigen(eigenMatrixFile, sampleOverlap, eigenCutoff, noscale);
         else if (token.size() == 2)
             data.buildMMEeigenBivariate(eigenMatrixFile, sampleOverlap, eigenCutoff, noscale);

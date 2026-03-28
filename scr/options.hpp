@@ -169,6 +169,8 @@ public:
     string skipSnpFile;
     /// If true with --skip, set GWAS marginal effects (b, b2) to zero for those SNPs after read/impute
     bool setZeroGwasForSkip;
+    /// Block LD folder with block*.ldm.bin + ldm/snp info: full dense LD for SBayes (mutually exclusive with --ldm-eigen for the same role)
+    string ldmBlockDir;
     /// Set via --fixed-effect; one SNP ID per line (first column if tab/space separated); lines starting with # ignored
     string fitSnpsAsFixedEffectsFile;
     string label;
@@ -300,6 +302,7 @@ public:
         windowFile              = "";
         residualDiagFile        = "";
         eigenMatrixFile         = "";
+        ldmBlockDir             = "";
         ldBlockInfoFile         = "";
         plinkLDtxtfile          = "";
         plinkLDbinfile          = "";

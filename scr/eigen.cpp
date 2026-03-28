@@ -540,6 +540,84 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
     }
 }
 
+void Data::makeBlockLDmatrixFromEigen(const string &eigenDirname, const float eigenCutoff, const string &LDmatType, const unsigned block, const string &dirname, const bool writeLdmTxt, int ldBlockRegionWind){
+    (void)ldBlockRegionWind;
+    cout << "Making block LD matrices from eigen decomposition in [" << eigenDirname << "] ..." << endl;
+    
+    struct stat sb;
+    if (stat(dirname.c_str(), &sb) != 0 || !S_ISDIR(sb.st_mode)) {
+        string create_cmd = "mkdir " + dirname;
+        system(create_cmd.c_str());
+        cout << "Created folder [" << dirname << "] to store LD matrices." << endl;
+    }
+    
+    readBlockLdmInfoFile(eigenDirname, block);
+    readBlockLdmSnpInfoFile(eigenDirname, block);
+    readEigenMatrixBinaryFile(eigenDirname, eigenCutoff, false, ".");
+    
+#pragma omp parallel for schedule(dynamic)
+    for (unsigned i = 0; i < numLDBlocks; i++) {
+        LDBlockInfo *ldblock = ldBlockInfoVec[i];
+        if (!ldblock->kept) continue;
+        
+        string outBinfile = dirname + "/block" + ldblock->ID + ".ldm.bin";
+        FILE *outbin = fopen(outBinfile.c_str(), "wb");
+        ofstream outtxt;
+        string outTxtfile;
+        if (writeLdmTxt) {
+            outTxtfile = dirname + "/block" + ldblock->ID + ".ldm.txt";
+            outtxt.open(outTxtfile.c_str());
+        }
+        string outSnpfile = dirname + "/block" + ldblock->ID + ".snp.info";
+        string outldmfile = dirname + "/block" + ldblock->ID + ".ldm.info";
+        string pwldfilename = dirname + "/block" + ldblock->ID + ".rsq0.5.pwld";  // pairwise LD file
+        
+        MatrixXf rval = eigenVecLdBlock[i] * eigenValLdBlock[i].asDiagonal() * eigenVecLdBlock[i].transpose();
+        
+        unsigned numSnpInBlock = ldblock->numSnpInBlock;
+        for (unsigned row = 0; row < numSnpInBlock; ++row) {
+            for (unsigned col = 0; col <= row; ++col) {
+                float value = rval(row, col);
+                fwrite(&value, sizeof(float), 1, outbin);
+            }
+        }
+        
+        if (writeLdmTxt) {
+            for (unsigned row = 0; row < numSnpInBlock; ++row) {
+                for (unsigned col = 0; col <= row; ++col) {
+                    outtxt << rval(row, col) << "\t";
+                }
+                outtxt << endl;
+            }
+        }
+        
+        fclose(outbin);
+        if (writeLdmTxt) outtxt.close();
+        
+        outputBlockLDmatrixInfo(*ldblock, outSnpfile, outldmfile);
+        
+        outputLDfriends(rval, ldblock, dirname);
+        
+        
+        if(!(i%1)) cout << " computed block " << ldblock->ID << "\r" << flush;
+
+        if (block) {
+            cout << "Written the LD matrix into file [" << outBinfile << "]." << endl;
+            if (writeLdmTxt) cout << "Written the LD matrix into file [" << outTxtfile << "]." << endl;
+            cout << "Written the LD matrix SNP info into file [" << outSnpfile << "]." << endl;
+            cout << "Written the LD matrix ldm info into file [" << outldmfile << "]." << endl;
+            cout << "Written the high pairwise LD correlations (rsq>0.5) into [" << pwldfilename << "]." << endl;
+        }
+    }
+    
+    if (!block) {
+        cout << "Written the LD matrix into folder [" << dirname << "/block*.ldm.bin]." << endl;
+        if (writeLdmTxt) cout << "Written the LD matrix into text file [" << dirname << "/block*.ldm.txt]." << endl;
+        
+        mergeLdmInfo(LDmatType, dirname, true);
+    }
+}
+
 
 void Data::outputBlockLDmatrixInfo(const LDBlockInfo &block, const string &outSnpfile, const string &outldmfile) const {
     // write snp info
@@ -1276,9 +1354,21 @@ void Data::readBlockLdmSnpInfoFile(const string &dirname, const unsigned block){
     numSnps = (unsigned) snpInfoVec.size();
     
     for (unsigned i=0; i<numLDBlocks; ++i) {
-        LDBlockInfo *block = ldBlockInfoVec[i];
-        block->startPos = snpInfoVec[block->startSnpIdx]->physPos;
-        block->endPos = snpInfoVec[block->endSnpIdx]->physPos;
+        LDBlockInfo *b = ldBlockInfoVec[i];
+        if (block) {
+            // Filtered snp.info: snpInfoVec is only this block's SNPs; startSnpIdx/endSnpIdx in ldm.info are global indices.
+            if (b->snpInfoVec.empty()) {
+                throw ("Error: no SNPs read for LD block " + b->ID + "; check snp.info block IDs match ldm.info.");
+            }
+            b->startPos = b->snpInfoVec.front()->physPos;
+            b->endPos = b->snpInfoVec.back()->physPos;
+        } else {
+            if ((unsigned) b->startSnpIdx >= snpInfoVec.size() || (unsigned) b->endSnpIdx >= snpInfoVec.size()) {
+                throw ("Error: LD block " + b->ID + " startSnpIdx/endSnpIdx out of range for snp.info (size " + to_string(snpInfoVec.size()) + ").");
+            }
+            b->startPos = snpInfoVec[b->startSnpIdx]->physPos;
+            b->endPos = snpInfoVec[b->endSnpIdx]->physPos;
+        }
     }
     
     numKeptInds = ld_n;
@@ -2306,7 +2396,20 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
     string outSnpInfoFile = dirname + "/snp.info";
     string outldmInfoFile = dirname + "/ldm.info";
     string outpwldFile    = dirname + "/rsq0.5.pwld";
-    
+
+    // If a combined rsq0.5.pwld already exists (e.g. built across blocks elsewhere), merge only
+    // snp.info / ldm.info from per-block files and keep the existing pwld (do not require block*.rsq0.5.pwld).
+    bool useExistingCombinedPwld = false;
+    {
+        ifstream ex(outpwldFile.c_str(), ios::ate | ios::binary);
+        if (ex.is_open() && static_cast<long long>(ex.tellg()) > 0) {
+            useExistingCombinedPwld = true;
+        }
+    }
+    if (useExistingCombinedPwld) {
+        cout << "Found existing combined pairwise LD file [" + outpwldFile + "]; merging snp/ldm info only and keeping this pwld file." << endl;
+    }
+
     ofstream out1(outSnpInfoFile.c_str());
     out1 << boost::format("%6s %15s %10s %10s %15s %6s %6s %12s %10s %10s\n")
     % "Chrom"
@@ -2329,14 +2432,16 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
     % "EndSnpIdx"
     % "EndSnpID"
     % "NumSnps";
-    
-    ofstream out3(outpwldFile.c_str());
-    out3 << boost::format("%12s %12s %12s\n")
-    % "SNP1"
-    % "SNP2"
-    % "LDcorrelation";
 
-    
+    ofstream out3;
+    if (!useExistingCombinedPwld) {
+        out3.open(outpwldFile.c_str());
+        out3 << boost::format("%12s %12s %12s\n")
+        % "SNP1"
+        % "SNP2"
+        % "LDcorrelation";
+    }
+
     unsigned snpIdx = 0;
     unsigned ldmIdx = 0;
     
@@ -2401,35 +2506,45 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
         in2.close();
         
         
-        // read pwld file
-        ifstream in3(pwldFile.c_str());
-        if (!in3) throw ("Error: can not open the file [" + pwldFile + "] to read.");
-        float ldcor;
-        string snp1ID, snp2ID;
-        getline(in3, header);
-        while (in3 >> snp1ID >> snp2ID >> ldcor) {
-            out3 << boost::format("%12s %12s %12.6f\n")
-            % snp1ID
-            % snp2ID
-            % ldcor;
+        // read per-block pwld only when building merged rsq0.5.pwld (not when keeping existing combined file)
+        if (!useExistingCombinedPwld) {
+            ifstream in3(pwldFile.c_str());
+            if (!in3) {
+                cout << "Warning: can not open the file [" + pwldFile + "] to read; skipping pairwise LD for this block." << endl;
+            } else {
+                float ldcor;
+                string snp1ID, snp2ID;
+                getline(in3, header);
+                while (in3 >> snp1ID >> snp2ID >> ldcor) {
+                    out3 << boost::format("%12s %12s %12.6f\n")
+                    % snp1ID
+                    % snp2ID
+                    % ldcor;
+                }
+                in3.close();
+                remove(pwldFile.c_str());
+            }
         }
-        in3.close();
-        
 
         ++it;
         
         remove(snpInfoFile.c_str());
         remove(ldmInfoFile.c_str());
-        remove(pwldFile.c_str());
     }
     
     out1.close();
     out2.close();
-    out3.close();
-    
+    if (!useExistingCombinedPwld) {
+        out3.close();
+    }
+
     cout << "Written " << snpIdx << " SNPs info into file [" + outSnpInfoFile + "]." << endl;
     cout << "Written " << ldmIdx << " LDMs info into file [" + outldmInfoFile + "]." << endl;
-    cout << "Written pairwise LD correlations (rsq>0.5) into file [" + outpwldFile + "]." << endl;
+    if (useExistingCombinedPwld) {
+        cout << "Left pairwise LD file unchanged: [" + outpwldFile + "]." << endl;
+    } else {
+        cout << "Written pairwise LD correlations (rsq>0.5) into file [" + outpwldFile + "]." << endl;
+    }
 }
 
 void Data::mergeBlockGwasSummary(const string &gwasSummaryFile, const string &title) {
@@ -2740,7 +2855,8 @@ void Data::scaleGwasEffects(){
         b[i] = snp->gwas_b;
         n[i] = snp->gwas_n;
         se[i]= snp->gwas_se;
-        snp->gwas_scalar = 1.0/sqrt(n[i]*se[i]*se[i] + b[i]*b[i]);
+        //snp->gwas_scalar = 1.0/sqrt(n[i]*se[i]*se[i] + b[i]*b[i]);
+        snp->gwas_scalar = sqrt(snp2pq[i]);
         scalar[i] = snp->gwas_scalar;
 //        b[i] = snp->gwas_b * sqrt(snp2pq[i]); // scale the marginal effect so that it's in per genotype SD unit
 //        n[i] = snp->gwas_n;
@@ -2761,10 +2877,10 @@ void Data::scaleGwasEffects(){
     numKeptInds = nSrt[nSrt.size()/2]; // median
     
     // estimate per-SNP 2pq using the estimated phenotypic variance
-    for (unsigned i=0; i<numIncdSnps; ++i) {
-        snp = incdSnpInfoVec[i];
-        snp2pq[i] = snp->twopq = obsVarPhenotypic/(snp->gwas_n*se[i]*se[i]+b[i]*b[i]);       // NEW!
-    }
+    // for (unsigned i=0; i<numIncdSnps; ++i) {
+    //     snp = incdSnpInfoVec[i];
+    //     snp2pq[i] = snp->twopq = obsVarPhenotypic/(snp->gwas_n*se[i]*se[i]+b[i]*b[i]);       // NEW!
+    // }
     
     // scale GWAS effects
     b.array() *= scalar.array();
