@@ -9,6 +9,20 @@
 #include "data.hpp"
 #include <sys/stat.h>
 #include <dirent.h>
+#include <cmath>
+#include <stdexcept>
+
+namespace {
+/** Anchor SNPs for --impute-summary: must have finite beta and positive finite SE (z = b/SE). */
+inline bool gwasUsableAnchorSnp(const SnpInfo *snp) {
+    return snp->included && std::isfinite(snp->gwas_b) && std::isfinite(snp->gwas_se) && snp->gwas_se > 0.0;
+}
+
+[[noreturn]] inline void throwEigenReadErr(const string &msg) {
+    cerr << msg << endl;
+    throw std::runtime_error(msg);
+}
+}
 
 ///////////////////////////////////////////////////////////////////////////////////////
 ////////    Step 1. perform eigen-decomposition for ld blocks                   ///////
@@ -49,7 +63,23 @@ void Data::eigenDecomposition( const MatrixXf &X, const float &prop, VectorXf &e
     SelfAdjointEigenSolver<MatrixXf> eigensolver(X);
     VectorXf eigenVal = eigensolver.eigenvalues();
     MatrixXf eigenVec = eigensolver.eigenvectors();
-    int revIdx = eigenVal.size();
+    int n = (int)eigenVal.size();
+    if (n == 0) {
+        eigenValAdjusted.resize(0);
+        eigenVecAdjusted.resize(0, 0);
+        return;
+    }
+    // 1x1 matrix (e.g. sub-LD with one retained SNP): one eigenvalue explains all variance; the general loop uses revIdx-1 and breaks for n==1.
+    if (n == 1) {
+        if (eigenVal[0] < 0) cout << "Error, all eigenvector are negative" << endl;
+        sumPosEigVal = (eigenVal[0] > 1e-10f) ? eigenVal[0] : 0.f;
+        eigenValAdjusted.resize(1);
+        eigenValAdjusted[0] = eigenVal[0];
+        eigenVecAdjusted = eigenVec;
+        return;
+    }
+
+    int revIdx = n;
     VectorXf cumsumNonNeg(revIdx);
     cumsumNonNeg.setZero();
     revIdx = revIdx -1;
@@ -59,7 +89,7 @@ void Data::eigenDecomposition( const MatrixXf &X, const float &prop, VectorXf &e
     revIdx = revIdx -1;
     
     int numPosEigVal = 0;
-    while( eigenVal[revIdx] > 1e-10 ){
+    while (revIdx >= 0 && eigenVal[revIdx] > 1e-10 ){
         sumPosEigVal = sumPosEigVal + eigenVal[revIdx];
         cumsumNonNeg[revIdx] = eigenVal[revIdx] + cumsumNonNeg[revIdx + 1];
         ++numPosEigVal;
@@ -942,34 +972,35 @@ void Data::outputBlockLDmatrixInfo(const LDBlockInfo &block, const string &outSn
 
 void Data::impG(const unsigned block, double diag_mod){
     VectorXi numImpSnp;
-    VectorXi numTypSnp;
+    VectorXi numValidTyp;  // included in GWAS with non-zero SE (anchors for LD imputation)
     numImpSnp.setZero(numLDBlocks);
-    numTypSnp.setZero(numLDBlocks);
+    numValidTyp.setZero(numLDBlocks);
     for (unsigned i = 0; i < numLDBlocks; i++ ){
         LDBlockInfo *ldblock = ldBlockInfoVec[i];
         if (!ldblock->kept) continue;
         for (unsigned j=0; j<ldblock->numSnpInBlock; ++j) {
             SnpInfo *snp = ldblock->snpInfoVec[j];
-            if (snp->included) {
-                ++numTypSnp[i];
+            if (gwasUsableAnchorSnp(snp)) {
+                ++numValidTyp[i];
             } else {
+                // Not in GWAS, or present but SE missing/zero/non-finite — impute from LD with anchors
                 ++numImpSnp[i];
             }
         }
     }
     unsigned totalNumImpSnp = numImpSnp.sum();
     
-    cout << boost::format("%12s %12s %12s %12s\n") % "Block" % "TotalSNPs" % "ToImpute" % "Percentage";
+    cout << boost::format("%12s %12s %12s %12s %12s\n") % "Block" % "TotalSNPs" % "Anchors" % "ToImpute" % "PctImpute";
     for (unsigned i = 0; i < numLDBlocks; i++ ){
         LDBlockInfo *ldblock = ldBlockInfoVec[i];
-        cout << boost::format("%12s %12s %12s %12.3f\n") % (i+1) % ldblock->numSnpInBlock % numImpSnp[i] % (float(numImpSnp[i])/float(ldblock->numSnpInBlock));
-        if (ldblock->numSnpInBlock == numImpSnp[i]) {
-            cout << "  Warning: All SNPs in block " << i+1 << " are missing!" << endl;
+        cout << boost::format("%12s %12s %12s %12s %12.3f\n") % (i+1) % ldblock->numSnpInBlock % numValidTyp[i] % numImpSnp[i] % (float(numImpSnp[i])/float(ldblock->numSnpInBlock));
+        if (numValidTyp[i] == 0) {
+            cout << "  Warning: Block " << (i+1) << " has no anchor SNP (finite beta and SE>0); block skipped." << endl;
             ldblock->kept = false;
         }
     }
         
-    cout << "Imputing summary statistics for " << to_string(totalNumImpSnp) << " SNPs in the LD reference but not in the GWAS data file..." << endl;
+    cout << "Imputing summary statistics for " << to_string(totalNumImpSnp) << " SNPs (not in GWAS and/or SE=0), using LD with SNPs that have valid SE..." << endl;
 
     Gadget::Timer timer;
     timer.setTime();
@@ -979,7 +1010,7 @@ void Data::impG(const unsigned block, double diag_mod){
         LDBlockInfo *ldblock = ldBlockInfoVec[i];
         if (!ldblock->kept) continue;
         
-        if (numImpSnp[i]) {
+        if (numImpSnp[i] && numValidTyp[i]) {
             
             Stat::Normal normal;
             
@@ -987,24 +1018,18 @@ void Data::impG(const unsigned block, double diag_mod){
             MatrixXf LDPerBlock = eigenVecLdBlock[i] * eigenValLdBlock[i].asDiagonal() * eigenVecLdBlock[i].transpose();
             
             LDPerBlock.diagonal().array() += (float)diag_mod;
-            /// Step 2. Construct the LD correlation matrix among the typed SNPs(LDtt) and the LD correlation matrix among the missing SNPs and typed SNPs (LDit).
-            // Step 2.1 divide SNPs into typed and untyped SNPs
-            VectorXi typedSnpIdx(numTypSnp[i]);
+            /// Step 2. Construct the LD correlation matrix among anchor SNPs (LDtt) and between imputation targets and anchors (LDit).
+            // Anchors: gwasUsableAnchorSnp (finite b, finite SE>0).  Else imputed.
+            VectorXi typedSnpIdx(numValidTyp[i]);
             VectorXi untypedSnpIdx(numImpSnp[i]);
-            VectorXf zTypSnp(numTypSnp[i]);
-            VectorXf nTypSnp(numTypSnp[i]);
-            VectorXf varyTypSnp(numTypSnp[i]);
+            VectorXf zTypSnp(numValidTyp[i]);
+            VectorXf nTypSnp(numValidTyp[i]);
+            VectorXf varyTypSnp(numValidTyp[i]);
             for(unsigned j=0, idxTyp=0, idxImp=0; j < ldblock->numSnpInBlock; j++){
                 SnpInfo *snp = ldblock->snpInfoVec[j];
-                if(snp->included){
-                    // typed snp
+                if (gwasUsableAnchorSnp(snp)) {
                     typedSnpIdx[idxTyp] = j;
-                    zTypSnp[idxTyp] = snp->gwas_b / snp->gwas_se;
-                    if (!snp->gwas_se) {
-                        cout << "Error: " + snp->ID + " has a zero value for its SE which is incorrect!" << endl;
-                        throw std::string("Error: " + snp->ID + " has a zero value for its SE which is incorrect!");
-                    }
-                    //cout << snp->ID << " " << snp->gwas_b << " " << snp->gwas_se << " " << zTypSnp[idxTyp] << endl;
+                    zTypSnp[idxTyp] = float(snp->gwas_b / snp->gwas_se);
                     nTypSnp[idxTyp] = snp->gwas_n;
                     float hetj = 2.0 * snp->gwas_af * (1.0 - snp->gwas_af);
                     varyTypSnp[idxTyp] = hetj * (snp->gwas_n * snp->gwas_se * snp->gwas_se + snp->gwas_b * snp->gwas_b);
@@ -1030,12 +1055,24 @@ void Data::impG(const unsigned block, double diag_mod){
             // begin impute
             for(unsigned j = 0; j < numImpSnp[i]; j++){
                 SnpInfo *snp = ldblock->snpInfoVec[untypedSnpIdx[j]];
-                float base = sqrt(2.0 * snp->af *(1.0 - snp->af) * (nMedian + zImpSnp[j] * zImpSnp[j]));
+                float base = float(sqrt(2.0 * snp->af *(1.0 - snp->af) * (nMedian + zImpSnp[j] * zImpSnp[j])));
+                if (!(base > 1e-12f) || !std::isfinite(base) || !std::isfinite(zImpSnp[j])) {
+                    cout << "Warning: cannot impute SNP " << snp->ID << " (MAF at 0/1 in reference or non-finite Z); excluding from analysis." << endl;
+                    snp->included = false;
+                    snp->gwas_b = -999;
+                    snp->gwas_se = -999;
+                    continue;
+                }
                 snp->gwas_b = zImpSnp[j] * sqrt(varyMedian)/base;
                 snp->gwas_se = sqrt(varyMedian) / base;
                 snp->gwas_n = nMedian;
                 snp->gwas_af = snp->af;
-                snp->gwas_pvalue = 2*(1.0-normal.cdf_01(abs(snp->gwas_b/snp->gwas_se)));
+                {
+                    double denom = std::max(snp->gwas_se, 1e-20);
+                    double zpv = std::abs(snp->gwas_b / denom);
+                    if (!std::isfinite(zpv)) zpv = 0.0;
+                    snp->gwas_pvalue = float(2*(1.0-normal.cdf_01(zpv)));
+                }
                 snp->included = true;
                 //cout << "b " << snp->gwas_b << " se " << snp->gwas_se << " z " << snp->gwas_b/snp->gwas_se << " p " << snp->gwas_pvalue << endl;
             }
@@ -1690,7 +1727,7 @@ void Data::readSparseBlockLdmBinaryAndDoEigenDecomposition(const string &dirname
 
 void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCutoff, const bool writeLdmTxt, const string &outputDir){
     if (!Gadget::directoryExist(dirname)) {
-        throw("Error: cannot find the folder [" + dirname + "]");
+        throwEigenReadErr("Error: cannot find the folder [" + dirname + "]");
     }
     
     vector<int>numSnpInRegion;
@@ -1702,9 +1739,10 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
     }
     eigenValLdBlock.resize(numLDBlocks);
     eigenVecLdBlock.resize(numLDBlocks);
-        
-#pragma omp parallel for schedule(dynamic)
-    for(int i = 0; i < numLDBlocks; i++){
+    cout << "Reading per-block eigen binaries under [" << dirname << "] (" << numLDBlocks << " blocks, serial) ..." << endl;
+    // Serial loop: exceptions must not be thrown from OpenMP parallel regions (undefined behavior with libgomp;
+    // often terminates with std::string and no message on stderr).
+    for(int i = 0; i < (int)numLDBlocks; i++){
         LDBlockInfo * block;
         block = ldBlockInfoVec[i];
         
@@ -1717,50 +1755,50 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
         
         string infile = dirname + "/block" + block->ID + ".eigen.bin";
         FILE *fp = fopen(infile.c_str(), "rb");
-        if(!fp){throw ("Error: can not open the file [" + infile + "] to read.");}
+        if(!fp){
+            throwEigenReadErr("Error: can not open the file [" + infile + "] to read.");
+        }
 
         // 1. marker number
         if(fread(&cur_m, sizeof(int32_t), 1, fp) != 1){
-            throw("Read " + infile + " error (m)");
+            fclose(fp);
+            throwEigenReadErr("Read " + infile + " error (m)");
         }
                 
         if(cur_m != numSnpInRegion[i]){
-            throw("In LD block " + block->ID + ", inconsistent marker number to marker information in " + infile);
+            fclose(fp);
+            throwEigenReadErr("In LD block " + block->ID + ", inconsistent marker number to marker information in " + infile);
         }
         // 2. ncol of eigenVec (number of eigenvalues)
         if(fread(&cur_k, sizeof(int32_t), 1, fp) != 1){
-            throw("In LD block " + block->ID + ", error about number of eigenvalues in  " + infile);
-            // cout << "Read " << eigenBinFile << " error (k)" << endl;
-            // throw("read file error");
+            fclose(fp);
+            throwEigenReadErr("In LD block " + block->ID + ", error about number of eigenvalues in  " + infile);
         }
         // 3. sum of all positive eigenvalues
         if(fread(&sumPosEigVal, sizeof(float), 1, fp) != 1){
-            throw("In LD block " + block->ID + ", error about the sum of positive eigenvalues in " + infile);
-            // cout << "Read " << eigenBinFile << " error sumLambda" << endl;
-            // throw("read file error");
+            fclose(fp);
+            throwEigenReadErr("In LD block " + block->ID + ", error about the sum of positive eigenvalues in " + infile);
         }
         // 4. eigenCutoff
         if(fread(&oldEigenCutoff, sizeof(float), 1, fp) != 1){
-            throw("In LD block " + block->ID + ", error about eigen cutoff used in " + infile);
-            // cout << "Read " << eigenBinFile << " error svdVarProp" << endl;
-            // throw("read file error");
+            fclose(fp);
+            throwEigenReadErr("In LD block " + block->ID + ", error about eigen cutoff used in " + infile);
         }
         // 5. eigenvalues
         VectorXf lambda(cur_k);
-        if(fread(lambda.data(), sizeof(float), cur_k, fp) != cur_k){
-            throw("In LD block " + block->ID + ",size error about eigenvalues in " + infile);
-            // cout << "Read " << eigenBinFile << " error (lambda)" << endl;
-            // throw("read file error");
+        if(fread(lambda.data(), sizeof(float), cur_k, fp) != (size_t)cur_k){
+            fclose(fp);
+            throwEigenReadErr("In LD block " + block->ID + ",size error about eigenvalues in " + infile);
         }
         // 6. eigenvector
         MatrixXf U(cur_m, cur_k);
         uint64_t nElements = (uint64_t)cur_m * (uint64_t)cur_k;
-        if(fread(U.data(), sizeof(float), nElements, fp) != nElements){
-            cout << "fread(U.data(), sizeof(float), nElements, fp): " << fread(U.data(), sizeof(float), nElements, fp) << endl;
-            cout << "nEle: " << nElements << " U.size: " << U.size() <<  " U.col: " << U.cols() << " row: " << U.rows() << endl;
-            throw("In LD block " + block->ID + ",size error about eigenvectors in " + infile);
-            // cout << "Read " << eigenBinFile << " error (U)" << endl;
-            // throw("read file error");
+        size_t nReadU = fread(U.data(), sizeof(float), nElements, fp);
+        if(nReadU != nElements){
+            fclose(fp);
+            cerr << "Expected " << nElements << " eigen matrix floats; got " << nReadU
+                 << " (rows " << cur_m << ", cols " << cur_k << ")." << endl;
+            throwEigenReadErr("In LD block " + block->ID + ",size error about eigenvectors in " + infile);
         }
         
         fclose(fp);
@@ -1806,6 +1844,263 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
     lowRankModel = true;
 }
 
+bool Data::blockLdmBinFileExists(const string &dirname, const string &blockID) const {
+    string path = dirname + "/block" + blockID + ".ldm.bin";
+    struct stat sb;
+    return stat(path.c_str(), &sb) == 0 && S_ISREG(sb.st_mode);
+}
+
+bool Data::blockEigenBinFileExists(const string &dirname, const string &blockID) const {
+    string path = dirname + "/block" + blockID + ".eigen.bin";
+    struct stat sb;
+    return stat(path.c_str(), &sb) == 0 && S_ISREG(sb.st_mode);
+}
+
+bool Data::readBlockEigenBinContents(
+    const string &dirname,
+    const string &blockID,
+    int32_t expect_m,
+    int32_t &cur_m,
+    int32_t &cur_k,
+    float &sumPosEigVal,
+    float &oldEigenCutoff,
+    VectorXf &lambda,
+    MatrixXf &U
+) {
+    string infile = dirname + "/block" + blockID + ".eigen.bin";
+    FILE *fp = fopen(infile.c_str(), "rb");
+    if (!fp) return false;
+    if (fread(&cur_m, sizeof(int32_t), 1, fp) != 1) {
+        fclose(fp);
+        return false;
+    }
+    if (cur_m != expect_m) {
+        fclose(fp);
+        return false;
+    }
+    if (fread(&cur_k, sizeof(int32_t), 1, fp) != 1) {
+        fclose(fp);
+        return false;
+    }
+    if (fread(&sumPosEigVal, sizeof(float), 1, fp) != 1) {
+        fclose(fp);
+        return false;
+    }
+    if (fread(&oldEigenCutoff, sizeof(float), 1, fp) != 1) {
+        fclose(fp);
+        return false;
+    }
+    lambda.resize(cur_k);
+    if (fread(lambda.data(), sizeof(float), cur_k, fp) != (size_t)cur_k) {
+        fclose(fp);
+        return false;
+    }
+    U.resize(cur_m, cur_k);
+    uint64_t nElements = (uint64_t)cur_m * (uint64_t)cur_k;
+    if (fread(U.data(), sizeof(float), nElements, fp) != nElements) {
+        fclose(fp);
+        return false;
+    }
+    fclose(fp);
+    return true;
+}
+
+bool Data::buildSubmatrixLdFromEigenFactors(
+    const float eigenCutoff,
+    float sumPosEigVal,
+    float oldEigenCutoff,
+    const VectorXf &lambda,
+    const MatrixXf &U,
+    const vector<unsigned> &kept,
+    MatrixXf &RssOut
+) {
+    unsigned m2 = (unsigned)kept.size();
+    if (m2 == 0) return false;
+
+    VectorXf lambdaUse;
+    MatrixXf Uuse;
+    if (eigenCutoff < oldEigenCutoff) {
+        truncateEigenMatrix(sumPosEigVal, eigenCutoff, lambda, U, lambdaUse, Uuse);
+    } else {
+        lambdaUse = lambda;
+        Uuse = U;
+    }
+    int k2 = (int)lambdaUse.size();
+    if (k2 <= 0) return false;
+
+    MatrixXf U_K((int)m2, k2);
+    for (unsigned a = 0; a < m2; ++a)
+        U_K.row((int)a) = Uuse.row((int)kept[a]);
+
+    RssOut = U_K * lambdaUse.asDiagonal() * U_K.transpose();
+    return true;
+}
+
+bool Data::trySubLdEigenFromFullLdm(
+    LDBlockInfo *block,
+    const string &dirname,
+    const float eigenCutoff,
+    const VectorXf &gwasBlock,
+    VectorXf &eigenValOut,
+    MatrixXf &eigenVecOut,
+    VectorXf &wcorrOut,
+    MatrixXf &Qout,
+    float &sumPosEigValOut,
+    VectorXi &remapOut,
+    vector<unsigned> &keptLocalOut,
+    bool *outUsedEigenRecon
+) {
+    if (outUsedEigenRecon) *outUsedEigenRecon = false;
+
+    int m = block->numSnpInBlock;
+    if (m <= 1) return false;
+    if (!recomputeEigen) return false;
+    unsigned n_skip = 0;
+    for (int j = 0; j < m; ++j)
+        if (block->snpInfoVec[j]->skip) ++n_skip;
+    if (n_skip == 0 || n_skip >= (unsigned)m) return false;
+
+    vector<unsigned> kept;
+    kept.reserve(m - n_skip);
+    for (int j = 0; j < m; ++j)
+        if (!block->snpInfoVec[j]->skip) kept.push_back((unsigned)j);
+
+    unsigned m2 = (unsigned)kept.size();
+    if (m2 == 0) return false;
+
+    MatrixXf Rss(m2, m2);
+    bool haveRss = false;
+
+    if (blockLdmBinFileExists(dirname, block->ID)) {
+        try {
+            MatrixXf L;
+            readBlockLDmatrix(dirname, block->ID, m, L);
+            for (unsigned a = 0; a < m2; ++a)
+                for (unsigned b = 0; b < m2; ++b)
+                    Rss(a, b) = L((int)kept[a], (int)kept[b]);
+            haveRss = true;
+        } catch (...) {
+            haveRss = false;
+        }
+    }
+
+    if (!haveRss) {
+        int32_t cur_m = 0, cur_k = 0;
+        float sumPosEigVal = 0, oldEigenCutoff = 0;
+        VectorXf lambda;
+        MatrixXf U;
+        if (!readBlockEigenBinContents(dirname, block->ID, m, cur_m, cur_k, sumPosEigVal, oldEigenCutoff, lambda, U))
+            return false;
+        if (!buildSubmatrixLdFromEigenFactors(eigenCutoff, sumPosEigVal, oldEigenCutoff, lambda, U, kept, Rss))
+            return false;
+        if (outUsedEigenRecon) *outUsedEigenRecon = true;
+    }
+
+    eigenDecomposition(Rss, eigenCutoff, eigenValOut, eigenVecOut, sumPosEigValOut);
+
+    remapOut.resize(m);
+    int lc = 0;
+    for (int j = 0; j < m; ++j) {
+        if (block->snpInfoVec[j]->skip) remapOut[j] = -1;
+        else remapOut[j] = lc++;
+    }
+    keptLocalOut.swap(kept);
+
+    VectorXf sqrtLambda = eigenValOut.array().sqrt();
+    VectorXf b_kept(m2);
+    for (unsigned a = 0; a < m2; ++a)
+        b_kept[a] = gwasBlock[(int)keptLocalOut[a]];
+    wcorrOut = (1.0f / sqrtLambda.array()).matrix().asDiagonal() * (eigenVecOut.transpose() * b_kept);
+    Qout = sqrtLambda.asDiagonal() * eigenVecOut.transpose();
+    return true;
+}
+
+bool Data::trySubLdEigenFromFullLdmBivariate(
+    LDBlockInfo *block,
+    const string &dirname,
+    const float eigenCutoff,
+    const VectorXf &gwas1,
+    const VectorXf &gwas2,
+    VectorXf &wcorrOut,
+    MatrixXf &Qout,
+    VectorXf &eigenValOut,
+    MatrixXf &eigenVecOut,
+    float &sumPosEigValOut,
+    VectorXi &remapOut,
+    vector<unsigned> &keptLocalOut,
+    bool *outUsedEigenRecon
+) {
+    if (outUsedEigenRecon) *outUsedEigenRecon = false;
+
+    int m = block->numSnpInBlock;
+    if (m <= 1) return false;
+    if (!recomputeEigen) return false;
+    unsigned n_skip = 0;
+    for (int j = 0; j < m; ++j)
+        if (block->snpInfoVec[j]->skip) ++n_skip;
+    if (n_skip == 0 || n_skip >= (unsigned)m) return false;
+
+    vector<unsigned> kept;
+    kept.reserve(m - n_skip);
+    for (int j = 0; j < m; ++j)
+        if (!block->snpInfoVec[j]->skip) kept.push_back((unsigned)j);
+
+    unsigned m2 = (unsigned)kept.size();
+    if (m2 == 0) return false;
+
+    MatrixXf Rss(m2, m2);
+    bool haveRss = false;
+
+    if (blockLdmBinFileExists(dirname, block->ID)) {
+        try {
+            MatrixXf L;
+            readBlockLDmatrix(dirname, block->ID, m, L);
+            for (unsigned a = 0; a < m2; ++a)
+                for (unsigned b = 0; b < m2; ++b)
+                    Rss(a, b) = L((int)kept[a], (int)kept[b]);
+            haveRss = true;
+        } catch (...) {
+            haveRss = false;
+        }
+    }
+
+    if (!haveRss) {
+        int32_t cur_m = 0, cur_k = 0;
+        float sumPosEigVal = 0, oldEigenCutoff = 0;
+        VectorXf lambda;
+        MatrixXf U;
+        if (!readBlockEigenBinContents(dirname, block->ID, m, cur_m, cur_k, sumPosEigVal, oldEigenCutoff, lambda, U))
+            return false;
+        if (!buildSubmatrixLdFromEigenFactors(eigenCutoff, sumPosEigVal, oldEigenCutoff, lambda, U, kept, Rss))
+            return false;
+        if (outUsedEigenRecon) *outUsedEigenRecon = true;
+    }
+
+    eigenDecomposition(Rss, eigenCutoff, eigenValOut, eigenVecOut, sumPosEigValOut);
+
+    remapOut.resize(m);
+    int lc = 0;
+    for (int j = 0; j < m; ++j) {
+        if (block->snpInfoVec[j]->skip) remapOut[j] = -1;
+        else remapOut[j] = lc++;
+    }
+    keptLocalOut.swap(kept);
+
+    VectorXf sqrtLambda = eigenValOut.array().sqrt();
+    VectorXf b1_kept(m2), b2_kept(m2);
+    for (unsigned a = 0; a < m2; ++a) {
+        b1_kept[a] = gwas1[(int)keptLocalOut[a]];
+        b2_kept[a] = gwas2[(int)keptLocalOut[a]];
+    }
+    VectorXf w1 = (1.0f / sqrtLambda.array()).matrix().asDiagonal() * (eigenVecOut.transpose() * b1_kept);
+    VectorXf w2 = (1.0f / sqrtLambda.array()).matrix().asDiagonal() * (eigenVecOut.transpose() * b2_kept);
+    wcorrOut.resize(w1.size() + w2.size());
+    wcorrOut.head(w1.size()) = w1;
+    wcorrOut.tail(w2.size()) = w2;
+    Qout = sqrtLambda.asDiagonal() * eigenVecOut.transpose();
+    return true;
+}
+
 void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const VectorXf &nGWASblock, const bool noscale, const bool makePseudoSummary){
     if (!wcorrBlocks.size()) {  // only print for the first time reading the data
         cout << "Reading eigenvectors from binary file and making W and Q matrices..." << endl;
@@ -1820,6 +2115,34 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
         LDBlockInfo *block = keptLdBlockInfoVec[i];
         numSnpInRegion[i] = block->numSnpInBlock;
     }
+
+    unsigned subLdPlanned = 0;
+    vector<string> subLdMissingLdBlockIds;
+    for (int i = 0; i < numKeptLDBlocks; ++i) {
+        LDBlockInfo *block = keptLdBlockInfoVec[i];
+        int m = block->numSnpInBlock;
+        if (m <= 1) continue;
+        if (!recomputeEigen) continue;
+        unsigned n_skip = 0;
+        for (int j = 0; j < m; ++j)
+            if (block->snpInfoVec[j]->skip) ++n_skip;
+        if (n_skip == 0 || n_skip >= (unsigned)m) continue;
+        if (blockLdmBinFileExists(dirname, block->ID) || blockEigenBinFileExists(dirname, block->ID))
+            ++subLdPlanned;
+        else
+            subLdMissingLdBlockIds.push_back(block->ID);
+    }
+    if (!subLdMissingLdBlockIds.empty() && !wcorrBlocks.size()) {
+        cout << "Warning: --recompute-eigen with --skip: partial skip in " << subLdMissingLdBlockIds.size()
+             << " LD block(s); need block<ID>.ldm.bin or block<ID>.eigen.bin in [" << dirname << "]. Missing for block ID(s):";
+        for (size_t t = 0; t < subLdMissingLdBlockIds.size(); ++t)
+            cout << " " << subLdMissingLdBlockIds[t];
+        cout << ". Falling back to full-block block*.eigen.bin for those blocks." << endl;
+    }
+    if (subLdPlanned && !wcorrBlocks.size()) {
+        cout << "For " << subLdPlanned << " LD block(s), the LD submatrix of retained SNPs will be reconstructed (--recompute-eigen) and the GWAS effects of skipped SNPs will not be used." << endl;
+    }
+
     eigenValLdBlock.resize(numLDBlocks);
     eigenVecLdBlock.resize(numLDBlocks);
     wcorrBlocks.resize(numKeptLDBlocks);
@@ -1848,6 +2171,52 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
 #pragma omp parallel for schedule(dynamic)
     for(int i = 0; i < numKeptLDBlocks; i++){
         LDBlockInfo *block = keptLdBlockInfoVec[i];
+        block->eigenColRemap.resize(0);
+        block->subLdKeptLocalIdx.clear();
+
+        VectorXf eigenValSub;
+        MatrixXf eigenVecSub;
+        VectorXf wcorrSub;
+        MatrixXf Qsub;
+        float sumPosSub = 0;
+        VectorXi remapSub;
+        vector<unsigned> keptSub;
+
+        bool didSubLd = trySubLdEigenFromFullLdm(block, dirname, eigenCutoff, GWASeffects[i], eigenValSub, eigenVecSub, wcorrSub, Qsub, sumPosSub, remapSub, keptSub, nullptr);
+
+        if (didSubLd) {
+#pragma omp critical
+            {
+                cout << "LD block " << block->ID << ": " << block->numSnpInBlock - (int)keptSub.size()
+                     << " SNPs skipped, " << keptSub.size() << " retained." << endl;
+            }
+            eigenValLdBlock[i] = eigenValSub;
+            eigenVecLdBlock[i] = eigenVecSub;
+            wcorrBlocks[i] = wcorrSub;
+            Qblocks[i] = Qsub;
+            block->sumPosEigVal = sumPosSub;
+            block->eigenvalues = eigenValSub;
+            block->eigenColRemap = remapSub;
+            block->subLdKeptLocalIdx = keptSub;
+            numSnpsBlock[i] = Qblocks[i].cols();
+            numEigenvalBlock[i] = Qblocks[i].rows();
+
+            if (makePseudoSummary) {
+                long size = eigenValLdBlock[i].size();
+                VectorXf rnd(size);
+                for (long j = 0; j < size; ++j) rnd[j] = Stat::snorm();
+                VectorXf noise_kept = eigenVecLdBlock[i] * (eigenValLdBlock[i].array().sqrt().matrix().asDiagonal() * rnd);
+                VectorXf noise_full = VectorXf::Zero(block->numSnpInBlock);
+                for (unsigned a = 0; a < keptSub.size(); ++a)
+                    noise_full[(int)keptSub[a]] = noise_kept[a];
+                pseudoGwasEffectTrn[i] = gwasEffectInBlock[i] + sqrt(1.0f/n_trn[i] - 1.0f/nGWASblock[i]) * noise_full;
+                pseudoGwasEffectVal[i] = nGWASblock[i]/n_val[i] * gwasEffectInBlock[i] - n_trn[i]/n_val[i] * pseudoGwasEffectTrn[i];
+                b_val.segment(block->startSnpIdx, block->numSnpInBlock) = pseudoGwasEffectVal[i];
+            }
+            eigenVecLdBlock[i].resize(0,0);
+            continue;
+        }
+
         int32_t cur_m = 0;
         int32_t cur_k = 0;
         float sumPosEigVal = 0;
@@ -1969,7 +2338,7 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
 }
 
 void Data::truncateEigenMatrix(const float sumPosEigVal, const float eigenCutoff, const VectorXf &oriEigenVal, const MatrixXf &oriEigenVec, VectorXf &newEigenVal, MatrixXf &newEigenVec){
-    int revIdx = oriEigenVal.size();
+    int revIdx = (int)oriEigenVal.size();
     VectorXf cumsumNonNeg(revIdx);
     cumsumNonNeg.setZero();
     revIdx = revIdx -1;
@@ -1977,10 +2346,10 @@ void Data::truncateEigenMatrix(const float sumPosEigVal, const float eigenCutoff
     cumsumNonNeg(revIdx) = oriEigenVal(revIdx);
     revIdx = revIdx -1;
     
-    while(oriEigenVal(revIdx) > 1e-10 ){
+    while (revIdx >= 0 && oriEigenVal(revIdx) > 1e-10 ){
         cumsumNonNeg(revIdx) = oriEigenVal(revIdx) + cumsumNonNeg(revIdx + 1);
         revIdx =revIdx - 1;
-        if(revIdx <= 0) break;
+        if(revIdx < 0) break;
     }
     // cout << "revIdx: " << revIdx << endl;
     // cout << "size: " << eigenVal.size()  << " eigenVal: " << eigenVal << endl;
@@ -2079,7 +2448,9 @@ void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const 
         }
     }
     if (nmiss) {
-        throw("Error: " + to_string(nmiss) + " SNPs in the LD reference has no summary data. To resolve this, run --impute-summary first.");
+        string msg = "Error: " + to_string(nmiss) + " SNPs in the LD reference have no summary data after imputation. Run --impute-summary first, or check GWAS SE (finite, >0) and blocks with no anchor SNPs.";
+        cerr << msg << endl;
+        throw std::runtime_error(msg);
     }
     
     scaleGwasEffects();
@@ -2122,10 +2493,14 @@ void Data::buildMMEeigenBivariate(const string &dirname, const bool sampleOverla
         }
     }
     if (nmiss1) {
-        throw("Error: " + to_string(nmiss1) + " SNPs in the LD reference has no summary data for trait 1. To resolve this, run --impute-summary first.");
+        string msg = "Error: " + to_string(nmiss1) + " SNPs in the LD reference have no summary data for trait 1. Run --impute-summary first, or check GWAS SE (finite, >0) and blocks with no anchor SNPs.";
+        cerr << msg << endl;
+        throw std::runtime_error(msg);
     }
     if (nmiss2) {
-        throw("Error: " + to_string(nmiss2) + " SNPs in the LD reference has no summary data for trait 2. To resolve this, run --impute-summary first.");
+        string msg = "Error: " + to_string(nmiss2) + " SNPs in the LD reference have no summary data for trait 2. Run --impute-summary first, or check GWAS SE (finite, >0) and blocks with no anchor SNPs.";
+        cerr << msg << endl;
+        throw std::runtime_error(msg);
     }
     
     scaleBivariateGwasEffects();
@@ -2680,6 +3055,34 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQBivariate(const string &dirname,
         LDBlockInfo *block = keptLdBlockInfoVec[i];
         numSnpInRegion[i] = block->numSnpInBlock;
     }
+
+    unsigned subLdPlannedBiv = 0;
+    vector<string> subLdMissingLdBlockIdsBiv;
+    for (int i = 0; i < numKeptLDBlocks; ++i) {
+        LDBlockInfo *block = keptLdBlockInfoVec[i];
+        int m = block->numSnpInBlock;
+        if (m <= 1) continue;
+        if (!recomputeEigen) continue;
+        unsigned n_skip = 0;
+        for (int j = 0; j < m; ++j)
+            if (block->snpInfoVec[j]->skip) ++n_skip;
+        if (n_skip == 0 || n_skip >= (unsigned)m) continue;
+        if (blockLdmBinFileExists(dirname, block->ID) || blockEigenBinFileExists(dirname, block->ID))
+            ++subLdPlannedBiv;
+        else
+            subLdMissingLdBlockIdsBiv.push_back(block->ID);
+    }
+    if (!subLdMissingLdBlockIdsBiv.empty() && !wcorrBlocks.size()) {
+        cout << "Warning (bivariate): --recompute-eigen with --skip: partial skip in " << subLdMissingLdBlockIdsBiv.size()
+             << " LD block(s); need block<ID>.ldm.bin or block<ID>.eigen.bin in [" << dirname << "]. Missing for block ID(s):";
+        for (size_t t = 0; t < subLdMissingLdBlockIdsBiv.size(); ++t)
+            cout << " " << subLdMissingLdBlockIdsBiv[t];
+        cout << ". Falling back to full-block block*.eigen.bin for those blocks." << endl;
+    }
+    if (subLdPlannedBiv && !wcorrBlocks.size()) {
+        cout << "For " << subLdPlannedBiv << " LD block(s) (bivariate), the LD submatrix of retained SNPs will be reconstructed (--recompute-eigen) and the GWAS effects of skipped SNPs will not be used." << endl;
+    }
+
     eigenValLdBlock.resize(numLDBlocks);
     eigenVecLdBlock.resize(numLDBlocks);
     wcorrBlocks.resize(numKeptLDBlocks);
@@ -2690,6 +3093,37 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQBivariate(const string &dirname,
 #pragma omp parallel for schedule(dynamic)
     for(int i = 0; i < numKeptLDBlocks; i++){
         LDBlockInfo *block = keptLdBlockInfoVec[i];
+        block->eigenColRemap.resize(0);
+        block->subLdKeptLocalIdx.clear();
+
+        VectorXf eigenValSub;
+        MatrixXf eigenVecSub;
+        VectorXf wcorrSub;
+        MatrixXf Qsub;
+        float sumPosSub = 0;
+        VectorXi remapSub;
+        vector<unsigned> keptSub;
+
+        if (trySubLdEigenFromFullLdmBivariate(block, dirname, eigenCutoff, GWASeffects1[i], GWASeffects2[i], wcorrSub, Qsub, eigenValSub, eigenVecSub, sumPosSub, remapSub, keptSub, nullptr)) {
+#pragma omp critical
+            {
+                cout << "LD block " << block->ID << " (bivariate): " << block->numSnpInBlock - (int)keptSub.size()
+                     << " SNPs skipped, " << keptSub.size() << " retained." << endl;
+            }
+            eigenValLdBlock[i] = eigenValSub;
+            eigenVecLdBlock[i] = eigenVecSub;
+            wcorrBlocks[i] = wcorrSub;
+            Qblocks[i] = Qsub;
+            block->sumPosEigVal = sumPosSub;
+            block->eigenvalues = eigenValSub;
+            block->eigenColRemap = remapSub;
+            block->subLdKeptLocalIdx = keptSub;
+            numSnpsBlock[i] = Qblocks[i].cols();
+            numEigenvalBlock[i] = Qblocks[i].rows();
+            eigenVecLdBlock[i].resize(0,0);
+            continue;
+        }
+
         int32_t cur_m = 0;
         int32_t cur_k = 0;
         float sumPosEigVal = 0;

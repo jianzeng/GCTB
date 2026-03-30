@@ -91,6 +91,10 @@ void MultiChainSBayesR::sampleUnknowns(const unsigned iter){
     pip.getValues();
     deltaPi.getValues();
     hsq.getValues();
+    if (mcHsqFixed) {
+        mcHsqFixed->getValues();
+        mcHsqRandom->getValues();
+    }
     numSnpMix.getValues();
     vgMix.getValues();
     snpHsqPep.getValues();
@@ -195,6 +199,10 @@ void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
     pip.getValues();
     deltaPi.getValues();
     hsq.getValues();
+    if (rcMcHsqFixed) {
+        rcMcHsqFixed->getValues();
+        rcMcHsqRandom->getValues();
+    }
     numSnpMix.getValues();
     vgMix.getValues();
     annoEffects.getValues();

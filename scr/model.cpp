@@ -266,8 +266,13 @@ void BayesC::VarEffects::sampleFromPrior(){
 void BayesC::VarEffects::computeScale(const float varg, const VectorXf &snp2pq, const float pi){
     if (noscale)
         scale = (df-2)/df * varg/(snp2pq.sum()*pi);
-    else
-        scale = (df-2)/df * varg/(snp2pq.size()*pi);
+    else {
+        unsigned n = 0;
+        for (unsigned i = 0; i < (unsigned)snp2pq.size(); ++i)
+            if (snp2pq[i] > 0.f) ++n;
+        if (!n) n = 1;
+        scale = (df-2)/df * varg/(n*pi);
+    }
 }
 
 void BayesC::VarEffects::computeScale(const float varg, const float sum2pq){
@@ -778,8 +783,13 @@ void BayesR::SnpEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &Z, const 
 void BayesR::VarEffects::computeScale(const float varg, const VectorXf &snp2pq, const VectorXf &gamma, const VectorXf &pi){
     if (noscale)
         scale = (df-2)/df * varg/(snp2pq.sum()*gamma.dot(pi));
-    else
-        scale = (df-2)/df * varg/(snp2pq.size()*gamma.dot(pi));
+    else {
+        unsigned n = 0;
+        for (unsigned i = 0; i < (unsigned)snp2pq.size(); ++i)
+            if (snp2pq[i] > 0.f) ++n;
+        if (!n) n = 1;
+        scale = (df-2)/df * varg/(n*gamma.dot(pi));
+    }
 }
 
 void BayesR::sampleUnknowns(const unsigned iter){
@@ -1650,7 +1660,9 @@ void ApproxBayesC::FixedEffects::sampleFromFC_eigen(SnpEffects &snpEffects, vect
             float *valuesPtr = snpEffects.values.data();
             float *pipPtr = snpEffects.pip.data();
             float oldSample = valuesPtr[si];
-            Ref<const VectorXf> Qi = Q.col(si - blockStart);
+            int qcol = eigenQColIndex(blockInfo, si);
+            if (qcol < 0) continue;
+            Ref<const VectorXf> Qi = Q.col(qcol);
             float rhs = (Qi.dot(wcorr) + oldSample) * invVareDn;
             float invLhsFe = 1.0f / invVareDn;
             float uhat = invLhsFe * rhs;
@@ -1981,7 +1993,9 @@ void ApproxBayesC::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
                 continue;
             }
             float oldSample = valuesPtr[i];
-            Ref<const VectorXf> Qi = Q.col(i - blockStart);
+            int qcol = eigenQColIndex(blockInfo, i);
+            if (qcol < 0) continue;
+            Ref<const VectorXf> Qi = Q.col(qcol);
             float rhs = (Qi.dot(wcorr) + oldSample)*invVareDn;
             float uhat = invLhs * rhs;
             float logDelta1 = 0.5*(logInvLhsMsigma + uhat*rhs) + logPi;
@@ -2164,8 +2178,10 @@ void ApproxBayesC::SnpEffects::computeFromBLUP(vector<VectorXf> &wcorrBlocks, co
                 valuesPtr[i] = 0.0;
                 continue;
             }
+            int qcol = eigenQColIndex(blockInfo, i);
+            if (qcol < 0) continue;
             float oldSample = valuesPtr[i];
-            Ref<const VectorXf> Qi = Q.col(i - blockStart);
+            Ref<const VectorXf> Qi = Q.col(qcol);
             float rhs = (Qi.dot(wcorr) + oldSample)*invVareDn;
             float uhat = invLhs * rhs;
             
@@ -2208,7 +2224,11 @@ void ApproxBayesC::VarEffects::computeRobustMode(const float varg, const VectorX
     if (noscale) {
         value = varg/(snp2pq.array().sum()*pi);
     } else {
-        value = varg/(snp2pq.size()*pi);  // LDpred2's parameterisation
+        unsigned n = 0;
+        for (unsigned i = 0; i < (unsigned)snp2pq.size(); ++i)
+            if (snp2pq[i] > 0.f) ++n;
+        if (!n) n = 1;
+        value = varg/(n*pi);  // LDpred2's parameterisation (masked 2pq: count random SNPs)
     }
 }
 
@@ -2332,7 +2352,9 @@ void ApproxBayesC::Rounding::computeWcorr_eigen(const vector<VectorXf> &wBlocks,
         unsigned blockEnd   = blockInfo->endSnpIdx;
 
         for(unsigned i = blockStart; i <= blockEnd; i++){
-            Ref<const VectorXf> Qi = Q.col(i - blockStart);
+            int qcol = eigenQColIndex(blockInfo, i);
+            if (qcol < 0) continue;
+            Ref<const VectorXf> Qi = Q.col(qcol);
             if (snpEffects[i]) wcorr -= Qi*snpEffects[i];
         }
         res[blk] = sqrt(Gadget::calcVariance(wcorrOld-wcorr));
@@ -2703,7 +2725,9 @@ void ApproxBayesC::NumBadSnps::compute_eigen(VectorXi &badSnps, VectorXf &effect
 
             if(abs(effectMean[i]) > betaThresh && rate_b > compare_rate){
                 //cout << "DEL:" << "\t" << betaVal << "\t" << b[idx] << "\t" << rate_b << "\t" << compare_rate << std::endl;
-                Ref<const VectorXf> Qi = Q.col(i - blockStart);
+                int qcol = eigenQColIndex(blockInfo, i);
+                if (qcol < 0) continue;
+                Ref<const VectorXf> Qi = Q.col(qcol);
                 wcorr = wcorr + Qi * effects[i];
                 effects[i] = 0.0;
                 effectMean[i] = 0.0;
@@ -2720,20 +2744,20 @@ void ApproxBayesC::NumBadSnps::compute_eigen(VectorXi &badSnps, VectorXf &effect
 void ApproxBayesC::sampleUnknowns(const unsigned iter){
     if (lowRankModel) {
         fixedSnpEffects.sampleFromFC_eigen(snpEffects, wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, data.numFixedEffectSnps);
-        snpEffects.sampleFromFC_eigen(wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, sigmaSq.value, pi.value, varg.value, data.snp2pq);
+        snpEffects.sampleFromFC_eigen(wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, sigmaSq.value, pi.value, vargRandom.value, data.snp2pq);
     } else if (sparse) {
         fixedSnpEffects.sampleFromFC_sparse(snpEffects, rcorr, data.ZPZsp, data.ZPZdiag, data.snp2pq, data.incdSnpInfoVec, varg.value, vare.value, data.numFixedEffectSnps);
-        snpEffects.sampleFromFC_sparse(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.chromInfoVec, data.snp2pq, sigmaSq.value, pi.value, vare.value, varg.value, data.incdSnpInfoVec);
+        snpEffects.sampleFromFC_sparse(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.chromInfoVec, data.snp2pq, sigmaSq.value, pi.value, vare.value, vargRandom.value, data.incdSnpInfoVec);
     } else {
         fixedSnpEffects.sampleFromFC_full(snpEffects, rcorr, data.ZPZ, data.ZPZdiag, data.windStart, data.windSize, data.snp2pq, data.incdSnpInfoVec, varg.value, vare.value, data.numFixedEffectSnps);
-        snpEffects.sampleFromFC_full(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.snp2pq, sigmaSq.value, pi.value, vare.value, varg.value, data.incdSnpInfoVec);
+        snpEffects.sampleFromFC_full(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.snp2pq, sigmaSq.value, pi.value, vare.value, vargRandom.value, data.incdSnpInfoVec);
     }
     snpEffects.computePosteriorMean(iter);
     snpPip.getValues(snpEffects.pip);
     nnzSnp.getValue(snpEffects.numNonZeros);
     
     if (robustMode) {
-        sigmaSq.computeRobustMode(varg.value, data.snp2pq, pi.value, noscale);
+        sigmaSq.computeRobustMode(vargRandom.value, data.numFixedEffectSnps ? data.snp2pqForRandomSnpEffects : data.snp2pq, pi.value, noscale);
     } else {
         sigmaSq.sampleFromFC(snpEffects.sumSq, snpEffects.numNonZeros);
     }
@@ -2744,16 +2768,27 @@ void ApproxBayesC::sampleUnknowns(const unsigned iter){
         vargBlk.compute(whatBlocks);
         vareBlk.sampleFromFC(wcorrBlocks, vargBlk.values, snpEffects.ssqBlocks, data.nGWASblock, data.numEigenvalBlock);
         //vareBlk.sampleFromFC(wcorrBlocks, snpEffects.values, data.b, data.nGWASblock, data.keptLdBlockInfoVec);
-        varg.value = vargBlk.total;
+        vargRandom.value = vargBlk.total;
         vare.value = vareBlk.mean;
     } else {
         varg.compute(snpEffects.values, data.ZPy, rcorr);
         vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, status);
+        if (data.numFixedEffectSnps && data.varGenotypic > 0.f)
+            vargRandom.value = varg.value * (data.vargRandomSnpEffects / data.varGenotypic);
+        else
+            vargRandom.value = varg.value;
     }
-    //hsq.compute(varg.value, vare.value);
-    hsq.value = varg.value / data.varPhenotypic;
-    if (data.numFixedEffectSnps)
+    hsqRandom.compute(vargRandom.value, data.varPhenotypic);
+    if (data.numFixedEffectSnps) {
         hsqFixed.compute(snpEffects.values, data);
+        hsq.value = hsqRandom.value + hsqFixed.value;
+        if (lowRankModel)
+            varg.value = vargRandom.value + hsqFixed.value * data.varPhenotypic;
+    } else {
+        hsq.value = hsqRandom.value;
+        if (lowRankModel)
+            varg.value = vargRandom.value;
+    }
     
     if (!(iter % 10)) {
         if (lowRankModel) {
@@ -3020,8 +3055,10 @@ void ApproxBayesB::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
                 valuesPtr[i] = 0.0;
                 continue;
             }
+            int qcolB = eigenQColIndex(blockInfo, i);
+            if (qcolB < 0) continue;
             float oldSample = valuesPtr[i];
-            Ref<const VectorXf> Qi = Q.col(i - blockStart);
+            Ref<const VectorXf> Qi = Q.col(qcolB);
             float rhs = (Qi.dot(wcorr) + oldSample)*invVareDn;
             float invLhs = 1.0/(invVareDn + 1.0f/sigmaSq[i]);
             float uhat = invLhs * rhs;
@@ -3524,7 +3561,9 @@ void ApproxBayesS::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
             }
             if (snp->fitAsFixedEffect) { // flat prior: no spike-and-slab / N(0, snp2pq^S sigma^2) (match ApproxBayesC/R eigen)
                 float oldSample = valuesPtr[i];
-                Ref<const VectorXf> Qi = Q.col(i - blockStart);
+                int qcolS = eigenQColIndex(blockInfo, i);
+                if (qcolS < 0) continue;
+                Ref<const VectorXf> Qi = Q.col(qcolS);
                 float rhs = (Qi.dot(wcorr) + oldSample) * invVareDn;
                 float invLhsFe = 1.0f / invVareDn;
                 float uhat = invLhsFe * rhs;
@@ -3537,7 +3576,9 @@ void ApproxBayesS::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
                 continue;
             }
             float oldSample = valuesPtr[i];
-            Ref<const VectorXf> Qi = Q.col(i - blockStart);
+            int qcolS2 = eigenQColIndex(blockInfo, i);
+            if (qcolS2 < 0) continue;
+            Ref<const VectorXf> Qi = Q.col(qcolS2);
             float rhs = (Qi.dot(wcorr) + oldSample)*invVareDn; // times 2pq because the diagonal of ZPZ is not 1 but the variance of genptypes in the case of unstandardised genotypes
             float invLhs = 1.0/(invVareDn + invSigmaSq/snp2pqPowS[i]); // times 2pq because the diagonal of ZPZ is not 1 but the variance of genptypes in the case of unstandardised genotypes
             float uhat = invLhs * rhs;
@@ -4105,7 +4146,9 @@ void ApproxBayesR::VgMixComps::compute(const VectorXf &snpEffects, const vector<
         unsigned blockEnd   = blockInfo->endSnpIdx;
         
         for (unsigned j = blockStart; j <= blockEnd; j++){
-            Ref<const VectorXf> Qj = Q.col(j - blockStart);
+            int qcol = eigenQColIndex(blockInfo, j);
+            if (qcol < 0) continue;
+            Ref<const VectorXf> Qj = Q.col(qcol);
             unsigned delta = membership[j];
             if (delta) whatBlock[delta-1] += Qj*snpEffects[j];
         }
@@ -4127,7 +4170,11 @@ void ApproxBayesR::VarEffects::computeRobustMode(const float varg, const VectorX
     if (noscale) {
         value = varg/(snp2pq.array().sum()*gamma.dot(pi));
     } else {
-        value = varg/(snp2pq.size()*gamma.dot(pi));  // LDpred2's parameterisation
+        unsigned n = 0;
+        for (unsigned i = 0; i < (unsigned)snp2pq.size(); ++i)
+            if (snp2pq[i] > 0.f) ++n;
+        if (!n) n = 1;
+        value = varg/(n*gamma.dot(pi));  // LDpred2's parameterisation (masked 2pq: count random SNPs)
     }
 }
 
@@ -4630,6 +4677,10 @@ void ApproxBayesR::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
             SnpInfo *snp = blockInfo->snpInfoVec[i - blockStart];
             if (snp->skip) {
                 valuesPtr[i] = 0.0;
+                // Skipped SNPs are not sampled; leave mixture probs at null-only so output PIP (1 - DeltaPi0) is not spuriously 1 (see gctb.cpp output for R).
+                pipPtr[i] = 0.0f;
+                for (unsigned k = 0; k < (unsigned)ndist; ++k)
+                    deltaPi[k]->values[i] = (k == 0) ? 1.0f : 0.0f;
                 continue;
             }
             if (badSnps[i]) {
@@ -4640,7 +4691,9 @@ void ApproxBayesR::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
                 continue;
             }
             float oldSample = valuesPtr[i];
-            Ref<const VectorXf> Qi = Q.col(i - blockStart);
+            int qcolR = eigenQColIndex(blockInfo, i);
+            if (qcolR < 0) continue;
+            Ref<const VectorXf> Qi = Q.col(qcolR);
             float rhs = (Qi.dot(wcorr) + oldSample) * invVareDn;
             ArrayXf uhat = invLhs * rhs;
             ArrayXf logDelta = 0.5 * (logInvLhsMsigma + uhat * rhs) + logPis;
@@ -5065,7 +5118,9 @@ void ApproxBayesR::updateRHSlowRankModel(vector<VectorXf> &wcorrBlocks, const ve
         unsigned blockEnd   = blockInfo->endSnpIdx;
                 
         for(unsigned i = blockStart; i <= blockEnd; i++){
-            Ref<const VectorXf> Qi = Q.col(i - blockStart);
+            int qcol = eigenQColIndex(blockInfo, i);
+            if (qcol < 0) continue;
+            Ref<const VectorXf> Qi = Q.col(qcol);
             if (snpEffects[i]) {
                 wcorr -= Qi*snpEffects[i];
             }
@@ -5077,19 +5132,19 @@ void ApproxBayesR::updateRHSlowRankModel(vector<VectorXf> &wcorrBlocks, const ve
 void ApproxBayesR::sampleUnknowns(const unsigned iter){
     if (lowRankModel) {
         fixedSnpEffects.sampleFromFC_eigen(snpEffects, wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, data.numFixedEffectSnps);
-        snpEffects.sampleFromFC_eigen(wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, sigmaSq.value, Pis.values, gamma.values, snpStore, varg.value, hsqPercModel, deltaPi);
+        snpEffects.sampleFromFC_eigen(wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, sigmaSq.value, Pis.values, gamma.values, snpStore, vargRandom.value, hsqPercModel, deltaPi);
     } else if (sparse) {
         fixedSnpEffects.sampleFromFC_sparse(snpEffects, rcorr, data.ZPZsp, data.ZPZdiag, data.snp2pq, data.incdSnpInfoVec, varg.value, vare.value, data.numFixedEffectSnps);
-        snpEffects.sampleFromFC_sparse(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.chromInfoVec, data.snp2pq, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore, varg.value, hsqPercModel, deltaPi, data.incdSnpInfoVec);
+        snpEffects.sampleFromFC_sparse(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.chromInfoVec, data.snp2pq, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore, vargRandom.value, hsqPercModel, deltaPi, data.incdSnpInfoVec);
     } else {
         fixedSnpEffects.sampleFromFC_full(snpEffects, rcorr, data.ZPZ, data.ZPZdiag, data.windStart, data.windSize, data.snp2pq, data.incdSnpInfoVec, varg.value, vare.value, data.numFixedEffectSnps);
-        snpEffects.sampleFromFC_full(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.snp2pq, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore, varg.value, hsqPercModel, deltaPi, &data.incdSnpInfoVec);
+        snpEffects.sampleFromFC_full(rcorr, data.ZPZ, data.ZPZdiag, data.ZPy, data.windStart, data.windSize, data.chromInfoVec, data.snp2pq, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore, vargRandom.value, hsqPercModel, deltaPi, &data.incdSnpInfoVec);
     }
     
 //    if (!(iter % 10)) {   // To improve mixing, apply tempered Gibbs sampling on high-LD SNPs in every 10 iterations
 //        snpEffects.sampleFromTGS_eigen(highLDsnpSet, wcorrBlocks, data.Qblocks, whatBlocks,
 //                                      data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
-//                                      Pis.values, gamma.values, varg.value, hsqPercModel, sigmaSq.value);
+//                                      Pis.values, gamma.values, vargRandom.value, hsqPercModel, sigmaSq.value);
 //    }
     
     snpEffects.computePosteriorMean(iter);
@@ -5098,7 +5153,7 @@ void ApproxBayesR::sampleUnknowns(const unsigned iter){
     numSnps.getValues(snpStore);
     
     if (robustMode) {
-        sigmaSq.computeRobustMode(varg.value, data.snp2pq, Pis.values, gamma.values, noscale);
+        sigmaSq.computeRobustMode(varg.value, data.numFixedEffectSnps ? data.snp2pqForRandomSnpEffects : data.snp2pq, Pis.values, gamma.values, noscale);
     } else {
         sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
     }
@@ -5109,19 +5164,31 @@ void ApproxBayesR::sampleUnknowns(const unsigned iter){
         vargBlk.compute(whatBlocks);
         vareBlk.sampleFromFC(wcorrBlocks, vargBlk.values, snpEffects.ssqBlocks, data.nGWASblock, data.numEigenvalBlock);
         //vareBlk.sampleFromFC(wcorrBlocks, snpEffects.values, data.b, data.nGWASblock, data.keptLdBlockInfoVec);
-        varg.value = vargBlk.total;
+        vargRandom.value = vargBlk.total;
         vare.value = vareBlk.mean;
     } else {
         varg.compute(snpEffects.values, data.ZPy, rcorr);
         vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, status);
+        if (data.numFixedEffectSnps && data.varGenotypic > 0.f)
+            vargRandom.value = varg.value * (data.vargRandomSnpEffects / data.varGenotypic);
+        else
+            vargRandom.value = varg.value;
     }
-    hsq.value = varg.value / data.varPhenotypic;
-    if (data.numFixedEffectSnps)
+    hsqRandom.compute(vargRandom.value, data.varPhenotypic);
+    if (data.numFixedEffectSnps) {
         hsqFixed.compute(snpEffects.values, data);
+        hsq.value = hsqRandom.value + hsqFixed.value;
+        if (lowRankModel)
+            varg.value = vargRandom.value + hsqFixed.value * data.varPhenotypic;
+    } else {
+        hsq.value = hsqRandom.value;
+        if (lowRankModel)
+            varg.value = vargRandom.value;
+    }
     
     Vgs.compute(snpEffects.values, snpEffects.snpset);
     
-    snpHsqPep.compute(snpEffects.values, varg.value);
+    snpHsqPep.compute(snpEffects.values, vargRandom.value);
 
     if (!(iter % 10)) {
         if (lowRankModel) {
@@ -6199,6 +6266,9 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks
             SnpInfo *snp = blockInfo->snpInfoVec[i-blockStart];
             if (snp->skip) {
                 valuesPtr[i] = 0.0;
+                pip[i] = 0.0f;
+                for (unsigned k = 0; k < (unsigned)ndist; ++k)
+                    deltaPi[k]->values[i] = (k == 0) ? 1.0f : 0.0f;
                 continue;
             }
             if (badSnps[i]) {
@@ -6207,7 +6277,9 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks
             }
             if (snp->fitAsFixedEffect) continue;
             float oldSample = valuesPtr[i];
-            Ref<const VectorXf> Qi = Q.col(i - blockStart);
+            int qcolRC = eigenQColIndex(blockInfo, i);
+            if (qcolRC < 0) continue;
+            Ref<const VectorXf> Qi = Q.col(qcolRC);
             float rhs = (Qi.dot(wcorr) + oldSample)*invVareDn;
             ArrayXf uhat = invLhs * rhs;
             ArrayXf logDelta = 0.5*(logInvLhsMsigma + uhat*rhs) + logPi.row(i).transpose().array();
@@ -6573,6 +6645,7 @@ void ApproxBayesRC::SnpEffects::sampleFromTGS_eigen(vector<VectorXf> &wcorrBlock
         Ref<const MatrixXf> Q = Qblocks[blockIdx];
         Ref<VectorXf> wcorr = wcorrBlocks[blockIdx];
         unsigned blockStart = keptLdBlockInfoVec[blockIdx]->startSnpIdx;
+        const LDBlockInfo *blockInfo = keptLdBlockInfoVec[blockIdx];
         float invVareDn = nGWASblocks[blockIdx] / vareBlocks[blockIdx];
         ArrayXf invLhs = 1.0/(invVareDn + invWtdSigmaSq);
         ArrayXf logInvLhsMsigma = invLhs.log() - logWtdSigmaSq;
@@ -6636,7 +6709,9 @@ void ApproxBayesRC::SnpEffects::sampleFromTGS_eigen(vector<VectorXf> &wcorrBlock
             delta[focal_snp] = otherDeltaStates[bernoulli.sample(probVec)];
             
             // update probDelta
-            Ref<const VectorXf> Q_focal = Q.col(focal_snp_idx - blockStart);
+            int qcolF = eigenQColIndex(blockInfo, focal_snp_idx);
+            if (qcolF < 0) continue;
+            Ref<const VectorXf> Q_focal = Q.col(qcolF);
             float old_beta_focal = values[focal_snp_idx];
             float rhs_focal = (Q_focal.dot(wcorr) + old_beta_focal)*invVareDn;
             ArrayXf uhat_focal = invLhs * rhs_focal;
@@ -6651,7 +6726,9 @@ void ApproxBayesRC::SnpEffects::sampleFromTGS_eigen(vector<VectorXf> &wcorrBlock
                     if (i == focal_snp) continue;
                     unsigned snpIdx = selectedSnps[i];
                     float oldSample = values[snpIdx];
-                    Ref<const VectorXf> Qi = Q.col(snpIdx - blockStart);
+                    int qcolT = eigenQColIndex(blockInfo, snpIdx);
+                    if (qcolT < 0) continue;
+                    Ref<const VectorXf> Qi = Q.col(qcolT);
                     float rhs = Qi.dot(wcorr) + oldSample;
                     if (0 == delta_focal_old) {
                         rhs -= Qi.dot(Q_focal)*old_beta_focal;
@@ -7143,7 +7220,9 @@ void ApproxBayesRC::AnnoGenVar::compute(const VectorXf &snpEffects, const vector
         unsigned blockEnd   = blockInfo->endSnpIdx;
         
         for (unsigned j = blockStart; j <= blockEnd; j++){
-            Ref<const VectorXf> Qj = Q.col(j - blockStart);
+            int qcol = eigenQColIndex(blockInfo, j);
+            if (qcol < 0) continue;
+            Ref<const VectorXf> Qj = Q.col(qcol);
             unsigned delta = membership[j];
             if (delta) {
                 for (unsigned c=0; c<numAnno; ++c) {
@@ -7677,21 +7756,21 @@ void ApproxBayesRC::sampleUnknowns(const unsigned iter){
         fixedSnpEffects.sampleFromFC_eigen(snpEffects, wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, data.numFixedEffectSnps);
         snpEffects.sampleFromFC_eigen(wcorrBlocks, data.Qblocks, whatBlocks,
                                       data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
-                                      snpPi, gamma.values, varg.value, deltaPi, hsqPercModel, sigmaSq.value, data.incdSnpInfoVec);
+                                      snpPi, gamma.values, vargRandom.value, deltaPi, hsqPercModel, sigmaSq.value, data.incdSnpInfoVec);
     } else {
         fixedSnpEffects.sampleFromFC_sparse(snpEffects, rcorr, data.ZPZsp, data.ZPZdiag, data.snp2pq, data.incdSnpInfoVec, varg.value, vare.value, data.numFixedEffectSnps);
         snpEffects.sampleFromFC_sparse(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.chromInfoVec, sigmaSq.value, snpPi, gamma.values, vare.value,
-                                       varg.value, hsqPercModel, deltaPi, data.incdSnpInfoVec);
+                                       vargRandom.value, hsqPercModel, deltaPi, data.incdSnpInfoVec);
     }
     
     if (algorithm == tgs) {  // To improve mixing, apply tempered Gibbs sampling on high-LD SNP
         snpEffects.sampleFromTGS_eigen(wcorrBlocks, data.Qblocks, whatBlocks,
                                        data.LDmap, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
-                                       snpPi, gamma.values, varg.value, deltaPi, hsqPercModel, sigmaSq.value);
+                                       snpPi, gamma.values, vargRandom.value, deltaPi, hsqPercModel, sigmaSq.value);
     } else if (algorithm == tgs_thin) {
         if (!(iter % 10)) snpEffects.sampleFromTGS_eigen(wcorrBlocks, data.Qblocks, whatBlocks,
                                                          data.LDmap, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
-                                                         snpPi, gamma.values, varg.value, deltaPi, hsqPercModel, sigmaSq.value);
+                                                         snpPi, gamma.values, vargRandom.value, deltaPi, hsqPercModel, sigmaSq.value);
     }
     
     snpEffects.computePosteriorMean(iter);
@@ -7700,7 +7779,7 @@ void ApproxBayesRC::sampleUnknowns(const unsigned iter){
     numSnps.getValues(snpEffects.numSnpMix);
 
     if (robustMode) {
-        sigmaSq.value = varg.value/(data.numIncdSnps*gamma.values.dot(Pis.values));  // LDpred2's parameterisation
+        sigmaSq.value = vargRandom.value/(data.numIncdSnps*gamma.values.dot(Pis.values));  // LDpred2's parameterisation
     } else {
         sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
     }
@@ -7722,15 +7801,27 @@ void ApproxBayesRC::sampleUnknowns(const unsigned iter){
         vargBlk.compute(whatBlocks);
         vareBlk.sampleFromFC(wcorrBlocks, vargBlk.values, snpEffects.ssqBlocks, data.nGWASblock, data.numEigenvalBlock);
         //vareBlk.sampleFromFC(wcorrBlocks, snpEffects.values, data.b, data.nGWASblock, data.keptLdBlockInfoVec);
-        varg.value = vargBlk.total;
+        vargRandom.value = vargBlk.total;
         vare.value = vareBlk.mean;
     } else {
         varg.compute(snpEffects.values, data.ZPy, rcorr);
         vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, status);
+        if (data.numFixedEffectSnps && data.varGenotypic > 0.f)
+            vargRandom.value = varg.value * (data.vargRandomSnpEffects / data.varGenotypic);
+        else
+            vargRandom.value = varg.value;
     }
-    hsq.value = varg.value / data.varPhenotypic;
-    if (data.numFixedEffectSnps)
+    hsqRandom.compute(vargRandom.value, data.varPhenotypic);
+    if (data.numFixedEffectSnps) {
         hsqFixed.compute(snpEffects.values, data);
+        hsq.value = hsqRandom.value + hsqFixed.value;
+        if (lowRankModel)
+            varg.value = vargRandom.value + hsqFixed.value * data.varPhenotypic;
+    } else {
+        hsq.value = hsqRandom.value;
+        if (lowRankModel)
+            varg.value = vargRandom.value;
+    }
     
     annoGenVar.compute(snpEffects.values, snpEffects.snpset, data.annoMat);
     annoTotalGenVar.compute(annoGenVar);
@@ -7743,7 +7834,7 @@ void ApproxBayesRC::sampleUnknowns(const unsigned iter){
 
     Vgs.compute(snpEffects.values, snpEffects.snpset);
     
-    snpHsqPep.compute(snpEffects.values, varg.value);
+    snpHsqPep.compute(snpEffects.values, vargRandom.value);
 
     if (!(iter % 10)) {
         if (lowRankModel) {
@@ -8441,11 +8532,11 @@ void ApproxBayesRD::sampleUnknowns(const unsigned iter){
         fixedSnpEffects.sampleFromFC_eigen(snpEffects, wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, data.numFixedEffectSnps);
         snpEffects.sampleFromFC_eigen(wcorrBlocks, data.Qblocks, whatBlocks,
                                 data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
-                                snpPi, gamma.values, varg.value, deltaPi, hsqPercModel, sigmaSq.value, data.incdSnpInfoVec);
+                                snpPi, gamma.values, vargRandom.value, deltaPi, hsqPercModel, sigmaSq.value, data.incdSnpInfoVec);
     } else {
         fixedSnpEffects.sampleFromFC_sparse(snpEffects, rcorr, data.ZPZsp, data.ZPZdiag, data.snp2pq, data.incdSnpInfoVec, varg.value, vare.value, data.numFixedEffectSnps);
         snpEffects.sampleFromFC_sparse(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.chromInfoVec, sigmaSq.value, snpPi, gamma.values, vare.value,
-                                varg.value, hsqPercModel, deltaPi, data.incdSnpInfoVec);
+                                vargRandom.value, hsqPercModel, deltaPi, data.incdSnpInfoVec);
     }
     snpEffects.computePosteriorMean(iter);
     snpPip.getValues(snpEffects.pip);
@@ -8453,7 +8544,7 @@ void ApproxBayesRD::sampleUnknowns(const unsigned iter){
     numSnps.getValues(snpEffects.numSnpMix);
 
     if (robustMode) {
-        sigmaSq.value = varg.value/(data.numIncdSnps*gamma.values.dot(Pis.values));
+        sigmaSq.value = vargRandom.value/(data.numIncdSnps*gamma.values.dot(Pis.values));
     } else {
         sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
     }
@@ -8473,26 +8564,38 @@ void ApproxBayesRD::sampleUnknowns(const unsigned iter){
         vargBlk.compute(whatBlocks);
         vareBlk.sampleFromFC(wcorrBlocks, vargBlk.values, snpEffects.ssqBlocks, data.nGWASblock, data.numEigenvalBlock);
         //vareBlk.sampleFromFC(wcorrBlocks, snpEffects.values, data.b, data.nGWASblock, data.keptLdBlockInfoVec);
-        varg.value = vargBlk.total;
+        vargRandom.value = vargBlk.total;
         vare.value = vareBlk.mean;
     } else {
         varg.compute(snpEffects.values, data.ZPy, rcorr);
         vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, status);
+        if (data.numFixedEffectSnps && data.varGenotypic > 0.f)
+            vargRandom.value = varg.value * (data.vargRandomSnpEffects / data.varGenotypic);
+        else
+            vargRandom.value = varg.value;
     }
-    hsq.value = varg.value / data.varPhenotypic;
-    if (data.numFixedEffectSnps)
+    hsqRandom.compute(vargRandom.value, data.varPhenotypic);
+    if (data.numFixedEffectSnps) {
         hsqFixed.compute(snpEffects.values, data);
+        hsq.value = hsqRandom.value + hsqFixed.value;
+        if (lowRankModel)
+            varg.value = vargRandom.value + hsqFixed.value * data.varPhenotypic;
+    } else {
+        hsq.value = hsqRandom.value;
+        if (lowRankModel)
+            varg.value = vargRandom.value;
+    }
     
     annoGenVar.compute(snpEffects.values, snpEffects.snpset, data.annoMat);
     annoTotalGenVar.compute(annoGenVar);
     annoPerSnpHsqEnrich.compute(annoTotalGenVar.values, data.annoInfoVec);
     if (estimateRsqEnrich) {
-        annoJointPerSnpHsqEnrich.compute(annoJointProb, data.annoInfoVec, gamma.values, varg.value, hsqPercModel, sigmaSq.value);
+        annoJointPerSnpHsqEnrich.compute(annoJointProb, data.annoInfoVec, gamma.values, vargRandom.value, hsqPercModel, sigmaSq.value);
     }
     
     Vgs.compute(snpEffects.values, snpEffects.snpset);
     
-    snpHsqPep.compute(snpEffects.values, varg.value);
+    snpHsqPep.compute(snpEffects.values, vargRandom.value);
 
     if (!(iter % 10)) {
         if (lowRankModel) {
@@ -8856,8 +8959,10 @@ void ApproxBayesAPP::AnnoGenotypicVarBivariate::compute(const vector<VectorXf> &
             
             for (unsigned i = blockStart; i <= blockEnd; ++i) {
                 if (annoMatrix(i, c) != 0.0) {  // SNP in this category
+                    int qcol = eigenQColIndex(blockInfo, i);
+                    if (qcol < 0) continue;
                     unsigned markerIndex = c * nSNPs + i;
-                    Ref<const VectorXf> Qi = Q.col(i - blockStart);
+                    Ref<const VectorXf> Qi = Q.col(qcol);
                     what1_c += Qi * alphaMatrix(markerIndex, 0);
                     what2_c += Qi * alphaMatrix(markerIndex, 1);
                 }
@@ -8900,6 +9005,10 @@ void ApproxBayesAPP::SnpEffectsBivariate::sampleFromFC(MatrixXf &deltaMatrix, ve
         unsigned blockStart = blockInfo->startSnpIdx;
         unsigned blockEnd = blockInfo->endSnpIdx;
         unsigned nMarkerb = blockEnd - blockStart + 1;
+        
+        if (blockInfo->eigenColRemap.size() > 0 && (unsigned)Q.cols() != nMarkerb) {
+            throw("Error: ApproxBayesAPP does not support sub-LD eigen (many SNPs --skip); use SBayesC/R/RC or omit --skip for this analysis.");
+        }
         
         // Verify wcorr size matches expected bivariate size
         if (wcorr.size() != 2 * Q.rows()) {

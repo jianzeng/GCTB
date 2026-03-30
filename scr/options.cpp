@@ -719,11 +719,21 @@ void Options::inputOptions(const int argc, const char* argv[]){
             setZeroGwasForSkip = true;
             ss << "--set-zero-gwas-for-skip\n";
         }
+        else if (!strcmp(argv[i], "--recompute-eigen")) {
+            recomputeEigen = true;
+            ss << "--recompute-eigen\n";
+        }
         else {
             stringstream errmsg;
             errmsg << "\nError: invalid option \"" << argv[i] << "\".\n";
             throw (errmsg.str());
         }
+    }
+    if (!ldmBlockDir.empty() && !skipSnpFile.empty()) {
+        const bool implicitZeroGwas = !setZeroGwasForSkip;
+        setZeroGwasForSkip = true;
+        if (implicitZeroGwas)
+            ss << "--set-zero-gwas-for-skip  (implicit with --ldm-block and --skip)\n";
     }
     // Error throwing for Bayes R specific options
     // cout << "diff " << std::abs(pis.sum() - 1.0) << endl;

@@ -221,7 +221,11 @@ public:
             if (noscale) {
                 value = vg / (snp2pq.sum() * pi);  // derived from prior knowledge on Vg and pi
             } else {
-                value = vg / (snp2pq.size() * pi);  // derived from prior knowledge on Vg and pi
+                unsigned n = 0;
+                for (unsigned i = 0; i < (unsigned)snp2pq.size(); ++i)
+                    if (snp2pq[i] > 0.f) ++n;
+                if (!n) n = 1;
+                value = vg / (n * pi);  // LDpred-style: count SNPs with genetic variance in prior (masked 2pq ok)
             }
             
             scale = 0.5f*value;  // due to df = 4
@@ -305,8 +309,8 @@ public:
     };
     
     class Heritability : public Parameter {
-        // compute heritability based on sampled values of genotypic and residual variances
-        // strictly speaking, this is not a model parameter
+        // For standard models: h2 = genVar/(genVar+resVar). For SBayes with --fixed-effect SNPs:
+        // value is total h2 on the GWAS scale: hsqRandom + hsqFixed (set in sampleUnknowns; not a ratio).
     public:
         Heritability(const string &lab = "hsq"): Parameter(lab){};
         void compute(const float genVar, const float resVar){
@@ -319,6 +323,15 @@ public:
     public:
         HeritabilityFixedEffects(const string &lab = "hsqFixed"): Parameter(lab){}
         void compute(const VectorXf &snpEffects, const Data &data);
+    };
+
+    /** Random-effects h^2 only: varg / varPhenotypic. With fixed SNPs, total h^2 is hsqFixed + hsqRandom (stored in hsq). */
+    class HeritabilityRandom : public Parameter {
+    public:
+        HeritabilityRandom(const string &lab = "hsqRandom"): Parameter(lab){}
+        void compute(float varg, float varPhenotypic) {
+            value = varPhenotypic > 0 ? varg / varPhenotypic : 0;
+        }
     };
     
     class Rounding : public Parameter {
@@ -638,7 +651,11 @@ public:
             if (noscale) {
                 value = vg / (snp2pq.sum() * gamma.dot(pi));  // derived from prior knowledge on Vg and pi
             } else {
-                value = vg / (snp2pq.size() * gamma.dot(pi));  // derived from prior knowledge on Vg and pi
+                unsigned n = 0;
+                for (unsigned i = 0; i < (unsigned)snp2pq.size(); ++i)
+                    if (snp2pq[i] > 0.f) ++n;
+                if (!n) n = 1;
+                value = vg / (n * gamma.dot(pi));  // derived from prior knowledge on Vg and pi
             }
             
             scale = (df-2)/df*value;
@@ -699,16 +716,17 @@ public:
 
     BayesR(const Data &data, const float varGenotypic, const float varResidual, const float varRandom, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel,
            const string &algorithm, const bool message = true):
-    BayesC(data, varGenotypic, varResidual, varRandom, 1-pis[0], piPar[0], piPar[1], estimatePi, noscale, "Gibbs", false),
+    BayesC(data, data.vargRandomSnpEffects, varResidual, varRandom, 1-pis[0], piPar[0], piPar[1], estimatePi, noscale, "Gibbs", false),
     Pis(pis, piPar),
     numSnps(pis),
     Vgs(gamma),
     gamma(gamma, vector<string>(gamma.size())),
     snpEffects(data.snpEffectNames, algorithm),
-    sigmaSq(varGenotypic, data.snp2pq, gamma, pis, noscale),
+    sigmaSq(data.vargRandomSnpEffects, data.numFixedEffectSnps ? data.snp2pqForRandomSnpEffects : data.snp2pq, gamma, pis, noscale),
     deltaPi(data.snpEffectNames, pis.size()),
     hsqPercModel(hsqPercModel)
     {
+        (void)varGenotypic;
         bayesType = "R";
 
         if (data.numKeptInds < 1000) this->hsqPercModel = false;  // when sample size is small, sample the common variance variable as hsq estimate may be instable
@@ -1307,6 +1325,8 @@ public:
     VarEffects sigmaSq;
     ResidualVar vare;
     GenotypicVar varg;
+    /** Random-effects genetic variance (spike-and-slab); varg is total when --fixed-effect SNPs exist. */
+    GenotypicVar vargRandom;
     Rounding rounding;
     NumBadSnps nBadSnps;
     BlockGenotypicVar vargBlk;
@@ -1319,18 +1339,21 @@ public:
     FixedEffects fixedSnpEffects;
 
     HeritabilityFixedEffects hsqFixed;
+    HeritabilityRandom hsqRandom;
 
     ApproxBayesC(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const float varRandom, const float pival, const float piAlpha, const float piBeta, const bool estimatePi, const bool noscale, const bool robustMode, const bool message = true)
-    : BayesC(data, varGenotypic, varResidual, 0.0, pival, piAlpha, piBeta, estimatePi, noscale, "Gibbs", false)
+    : BayesC(data, data.vargRandomSnpEffects, varResidual, 0.0, pival, piAlpha, piBeta, estimatePi, noscale, "Gibbs", false)
     , rcorr(data.ZPy)
     , wcorrBlocks(data.wcorrBlocks)
     , fixedSnpEffects(data.fixedEffectNames)
     , hsqFixed("hsqFixed")
+    , hsqRandom("hsqRandom")
     , snpEffects(data.snpEffectNames)
-    , sigmaSq(varGenotypic, data.snp2pq, pival, noscale)
+    , sigmaSq(data.vargRandomSnpEffects, data.numFixedEffectSnps ? data.snp2pqForRandomSnpEffects : data.snp2pq, pival, noscale)
     , vare(varResidual, data.numKeptInds)
-    , varg(varGenotypic, data.numKeptInds)
-    , vargBlk(data.ldblockNames, varGenotypic, data.numKeptInds)
+    , varg(data.varGenotypic, data.numKeptInds)
+    , vargRandom(data.vargRandomSnpEffects, data.numKeptInds)
+    , vargBlk(data.ldblockNames, data.vargRandomSnpEffects, data.numKeptInds)
     , vareBlk(data.ldblockNames, data.varPhenotypic)
     , nBadSnps(data.title, data.b, data.snpEffectNames)
     , noscale(noscale)
@@ -1338,13 +1361,16 @@ public:
     , robustMode(robustMode)
     , lowRankModel(lowRank)
     {
+        (void)varGenotypic;
+        (void)varRandom;
         
         paramSetVec = {&snpEffects, &snpPip};
-        paramVec = {&pi, &nnzSnp, &sigmaSq, &hsq, &vare};
-        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &hsq, &vare};
         if (data.numFixedEffectSnps) {
-            paramVec.insert(paramVec.begin() + 4, &hsqFixed);
-            paramToPrint.insert(paramToPrint.begin() + 4, &hsqFixed);
+            paramVec = {&pi, &nnzSnp, &sigmaSq, &hsqFixed, &hsqRandom, &hsq, &vare};
+            paramToPrint = {&pi, &nnzSnp, &sigmaSq, &hsqFixed, &hsqRandom, &hsq, &vare};
+        } else {
+            paramVec = {&pi, &nnzSnp, &sigmaSq, &hsq, &vare};
+            paramToPrint = {&pi, &nnzSnp, &sigmaSq, &hsq, &vare};
         }
 
         if (lowRankModel) {
@@ -1778,6 +1804,7 @@ public:
     VgMixComps Vgs;
     ApproxBayesC::ResidualVar vare;
     ApproxBayesC::GenotypicVar varg;
+    ApproxBayesC::GenotypicVar vargRandom;
     ApproxBayesC::Rounding rounding;
     ApproxBayesC::NumBadSnps nBadSnps;
     ApproxBayesC::BlockGenotypicVar vargBlk;
@@ -1789,6 +1816,7 @@ public:
 
     ApproxBayesC::FixedEffects fixedSnpEffects;
     BayesC::HeritabilityFixedEffects hsqFixed;
+    BayesC::HeritabilityRandom hsqRandom;
     
     enum {gibbs, cg, mh, tgs, tgs_thin} algorithm;
     
@@ -1798,17 +1826,19 @@ public:
     BayesR(data, varGenotypic, varResidual, 0.0, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, alg, false)
     , rcorr(data.ZPy)
     , snpEffects(data.snpEffectNames)
-    , sigmaSq(varGenotypic, data.snp2pq, gamma, pis, noscale)
+    , sigmaSq(data.vargRandomSnpEffects, data.numFixedEffectSnps ? data.snp2pqForRandomSnpEffects : data.snp2pq, gamma, pis, noscale)
     , Vgs(gamma)
     , vare(varResidual, data.numKeptInds)
-    , varg(varGenotypic, data.numKeptInds)
-    , vargBlk(data.ldblockNames, varGenotypic, data.numKeptInds)
+    , varg(data.varGenotypic, data.numKeptInds)
+    , vargRandom(data.vargRandomSnpEffects, data.numKeptInds)
+    , vargBlk(data.ldblockNames, data.vargRandomSnpEffects, data.numKeptInds)
     , vareBlk(data.ldblockNames, data.varPhenotypic)
     , nBadSnps(data.title, data.b, data.snpEffectNames)
     , snpHsqPep(data.snpEffectNames)
     , wcorrBlocks(data.wcorrBlocks)
     , fixedSnpEffects(data.fixedEffectNames)
     , hsqFixed("hsqFixed")
+    , hsqRandom("hsqRandom")
     , noscale(noscale)
     , sparse(data.sparseLDM)
     , robustMode(robustMode)
@@ -1823,15 +1853,19 @@ public:
 
         paramSetVec = {&snpEffects, &snpPip, &snpHsqPep};
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
-        paramVec     = {&nnzSnp, &sigmaSq, &hsq, &vare};
-        if (data.numFixedEffectSnps)
-            paramVec.insert(paramVec.begin() + 3, &hsqFixed);
+        if (data.numFixedEffectSnps) {
+            paramVec = {&nnzSnp, &sigmaSq, &hsqFixed, &hsqRandom, &hsq, &vare};
+        } else {
+            paramVec = {&nnzSnp, &sigmaSq, &hsq, &vare};
+        }
         paramVec.insert(paramVec.end(), numSnps.begin(), numSnps.end());
         paramVec.insert(paramVec.end(), Vgs.begin(), Vgs.end());
         
-        paramToPrint = {&sigmaSq, &hsq, &vare};
-        if (data.numFixedEffectSnps)
-            paramToPrint.insert(paramToPrint.begin() + 2, &hsqFixed);
+        if (data.numFixedEffectSnps) {
+            paramToPrint = {&sigmaSq, &hsqFixed, &hsqRandom, &hsq, &vare};
+        } else {
+            paramToPrint = {&sigmaSq, &hsq, &vare};
+        }
         paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
         paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
         
@@ -2449,11 +2483,13 @@ public:
             paramSetVec.push_back(&annoJointPerSnpRsqEnrich);
         }
 
-        paramVec    = {&nnzSnp, &sigmaSq, &hsq, &vare};
+        if (data.numFixedEffectSnps) {
+            paramVec = {&nnzSnp, &sigmaSq, &hsqFixed, &hsqRandom, &hsq, &vare};
+        } else {
+            paramVec = {&nnzSnp, &sigmaSq, &hsq, &vare};
+        }
         paramVec.insert(paramVec.end(), numSnps.begin(), numSnps.end());
         paramVec.insert(paramVec.end(), Vgs.begin(), Vgs.end());
-        if (data.numFixedEffectSnps)
-            paramVec.insert(paramVec.begin() + 3, &hsqFixed);
         
         paramSetToPrint.resize(0);
         paramSetToPrint.insert(paramSetToPrint.end(), annoEffects.begin(), annoEffects.end());
@@ -2468,9 +2504,11 @@ public:
             paramSetToPrint.push_back(&annoJointPerSnpRsqEnrich);
         }
 
-        paramToPrint = {&sigmaSq, &hsq, &vare};
-        if (data.numFixedEffectSnps)
-            paramToPrint.insert(paramToPrint.begin() + 2, &hsqFixed);
+        if (data.numFixedEffectSnps) {
+            paramToPrint = {&sigmaSq, &hsqFixed, &hsqRandom, &hsq, &vare};
+        } else {
+            paramToPrint = {&sigmaSq, &hsq, &vare};
+        }
         paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
         paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
 
@@ -2728,9 +2766,11 @@ public:
         paramSetVec.push_back(&annoPerSnpHsqEnrich);
         paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
 
-        paramVec = {&nnzSnp, &sigmaSq, &hsq, &vare, &piAnno};
-        if (data.numFixedEffectSnps)
-            paramVec.insert(paramVec.begin() + 3, &hsqFixed);
+        if (data.numFixedEffectSnps) {
+            paramVec = {&nnzSnp, &sigmaSq, &hsqFixed, &hsqRandom, &hsq, &vare, &piAnno};
+        } else {
+            paramVec = {&nnzSnp, &sigmaSq, &hsq, &vare, &piAnno};
+        }
         paramVec.insert(paramVec.end(), numSnps.begin(), numSnps.end());
         paramVec.insert(paramVec.end(), Vgs.begin(), Vgs.end());
         
@@ -2744,9 +2784,11 @@ public:
         paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
         paramSetToPrint.push_back(&annoPip);
 
-        paramToPrint = {&sigmaSq, &hsq, &vare, &piAnno};
-        if (data.numFixedEffectSnps)
-            paramToPrint.insert(paramToPrint.begin() + 2, &hsqFixed);
+        if (data.numFixedEffectSnps) {
+            paramToPrint = {&sigmaSq, &hsqFixed, &hsqRandom, &hsq, &vare, &piAnno};
+        } else {
+            paramToPrint = {&sigmaSq, &hsq, &vare, &piAnno};
+        }
         paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
         paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
 

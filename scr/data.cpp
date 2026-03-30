@@ -618,6 +618,25 @@ void Data::initVariances(const float heritability, const float propVarRandom){
     varResidual  = varPhenotypic - varGenotypic;
     varRandom    = varPhenotypic * propVarRandom;
     //cout <<ypy<<" "<<numKeptInds<<" "<<varPhenotypic<<" " <<varGenotypic << " " <<varResidual << " " << varRandom << endl;
+
+    if (!numFixedEffectSnps || !numIncdSnps || (unsigned)snp2pq.size() != numIncdSnps) {
+        vargRandomSnpEffects = varGenotypic;
+        snp2pqForRandomSnpEffects = snp2pq;
+    } else {
+        float sum2pqAll = 0.f, sum2pqRand = 0.f;
+        for (unsigned i = 0; i < numIncdSnps; ++i) {
+            sum2pqAll += snp2pq[i];
+            if (!incdSnpInfoVec[i]->fitAsFixedEffect)
+                sum2pqRand += snp2pq[i];
+        }
+        if (sum2pqAll <= 0.f)
+            vargRandomSnpEffects = varGenotypic;
+        else
+            vargRandomSnpEffects = varGenotypic * (sum2pqRand / sum2pqAll);
+        snp2pqForRandomSnpEffects.resize(numIncdSnps);
+        for (unsigned i = 0; i < numIncdSnps; ++i)
+            snp2pqForRandomSnpEffects[i] = incdSnpInfoVec[i]->fitAsFixedEffect ? 0.f : snp2pq[i];
+    }
 }
 
 void Data::includeSnp(const string &includeSnpFile){

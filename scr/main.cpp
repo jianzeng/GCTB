@@ -17,7 +17,7 @@ using namespace std;
 int main(int argc, const char * argv[]) {
     
     cout << "*********************************************************\n";
-    cout << "* GCTB 2.5.5.1                                          *\n";
+    cout << "* GCTB 2.5.5.3                                          *\n";
     cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
     cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
     cout << "* Last updated: 12 Dec, 2025                            *\n";
@@ -238,6 +238,7 @@ int main(int argc, const char * argv[]) {
                 }
                 cout << "Using full block LD matrices (block*.ldm.bin) from [" << opt.ldmBlockDir << "]; eigen low-rank W/Q not built." << endl;
             } else if (!opt.eigenMatrixFile.empty()) {  // low-rank model
+                data.recomputeEigen = opt.recomputeEigen;
                 data.mergeLdmInfo("block", opt.eigenMatrixFile, false); // if each block has its own .info file, then merge them
                 gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile,
                                   opt.gwasSummaryFile, opt.eigenMatrixFile, opt.ldBlockInfoFile,
@@ -257,7 +258,10 @@ int main(int argc, const char * argv[]) {
                     cout << "Using eigen cutoff " << bestEigenCutoff << " for bivariate analysis (tuning not yet supported for bivariate)." << endl;
                 } else {
                     bestEigenCutoff = opt.eigenCutoff.size() > 1 ? gctb.tuneEigenCutoff(data, opt) : opt.eigenCutoff[0];
-                    data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, bestEigenCutoff, data.gwasEffectInBlock, data.nGWASblock, opt.noscale, false);
+                    // Single cutoff: buildMMEeigen (via inputSnpInfo) already called readEigenMatrixBinaryFileAndMakeWandQ; repeating it would redo all work with no console progress (header messages are suppressed when wcorrBlocks is non-empty).
+                    if (opt.eigenCutoff.size() > 1) {
+                        data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, bestEigenCutoff, data.gwasEffectInBlock, data.nGWASblock, opt.noscale, false);
+                    }
                 }
                 if (opt.writeWandQ) data.outputWandQ("w_and_Q");
                 //data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, bestEigenCutoff);

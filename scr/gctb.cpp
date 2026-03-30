@@ -141,6 +141,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
         if (imputeSummary) {
             //data.includeMatchedBlocks();
             //data.scaleGwasEffects();
+cout << " ================ start reading eigen matrix binary =========" << endl;
             data.readEigenMatrixBinaryFile(eigenMatrixFile, eigenCutoff);
             data.impG(includeBlock);
             if (setZeroGwasForSkip && !skipSnpFile.empty()) data.applySetZeroGwasForSkip();
@@ -360,6 +361,7 @@ void GCTB::findBestFitModel(Data &data, Options &opt){
 }
 
 void GCTB::findBestFitModelByPredictionAccuracy(Data &data, Options &opt, const float eigenCutoffUsed){
+    data.recomputeEigen = opt.recomputeEigen;
     const float predRelMin = 1.05f;
     
     cout << "\nComparing models with different numbers of mixture components ..." << endl;
@@ -1708,6 +1710,7 @@ void GCTB::pip2p(const Data &data, const VectorXf &pip, const float propNull, Ve
 }
 
 float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
+    data.recomputeEigen = opt.recomputeEigen;
     cout << "\nFinding the best eigen cutoff from [" << opt.eigenCutoff.transpose() << "] based on pseudo summary data validation." << endl;
     
     Gadget::Timer timer;

@@ -7,6 +7,7 @@
 
 #include "model.hpp"
 #include "options.hpp"
+#include <memory>
 
 using namespace std;
 
@@ -79,6 +80,24 @@ public:
            for (unsigned i=0; i<numChains; ++i) {
                 chainVec.push_back(&chains[i]->hsq);
             }
+        }
+    };
+
+    class HeritabilityFixed : public MultiChainParameter {
+    public:
+        template<typename ChainVec>
+        HeritabilityFixed(const ChainVec &chains): MultiChainParameter("hsqFixed", (unsigned)chains.size()){
+            for (unsigned i = 0; i < numChains; ++i)
+                chainVec.push_back(&chains[i]->hsqFixed);
+        }
+    };
+
+    class HeritabilityRandom : public MultiChainParameter {
+    public:
+        template<typename ChainVec>
+        HeritabilityRandom(const ChainVec &chains): MultiChainParameter("hsqRandom", (unsigned)chains.size()){
+            for (unsigned i = 0; i < numChains; ++i)
+                chainVec.push_back(&chains[i]->hsqRandom);
         }
     };
     
@@ -177,6 +196,9 @@ public:
         }
     };
 
+    std::unique_ptr<HeritabilityFixed> mcHsqFixed;
+    std::unique_ptr<HeritabilityRandom> mcHsqRandom;
+
     unsigned numChains;
     
     // for nested OMP
@@ -195,7 +217,7 @@ public:
     NumHighPIPs nHighPips;
     SnpHsqPEP snpHsqPep;
     
-    MultiChainSBayesR(const Data &data, const Options &opt, const bool message = true):
+    MultiChainSBayesR(const Data &data, const Options &opt, const bool message = true, const bool skipFixedHsqWrappersForDerivedRC = false):
     ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.algorithm, false),
     numChains(opt.numChains),
     chainVec(data, opt),
@@ -219,16 +241,33 @@ public:
         
         //cout << "numThreadTotal " << numThreadTotal << " numThreadLevel1 " << numThreadLevel1 << " numThreadLevel2 " << numThreadLevel2 << endl;
 
-        paramVec    = {&hsq};
+        if (data.numFixedEffectSnps && !skipFixedHsqWrappersForDerivedRC) {
+            mcHsqFixed.reset(new HeritabilityFixed(chainVec));
+            mcHsqRandom.reset(new HeritabilityRandom(chainVec));
+        }
+
+        paramVec.clear();
+        if (mcHsqFixed) {
+            paramVec.push_back(mcHsqFixed.get());
+            paramVec.push_back(mcHsqRandom.get());
+        }
+        paramVec.push_back(&hsq);
         paramVec.insert(paramVec.end(), numSnpMix.begin(), numSnpMix.end());
         paramVec.insert(paramVec.end(), vgMix.begin(), vgMix.end());
         
         paramSetVec = {&snpEffects, &pip, &snpHsqPep};
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
         
-        paramToPrint = {&hsq, &nHighPips, &nBadSnps};
-        paramToPrint.insert(paramToPrint.begin(), vgMix.begin(), vgMix.end());
-        paramToPrint.insert(paramToPrint.begin(), numSnpMix.begin(), numSnpMix.end());
+        paramToPrint.clear();
+        paramToPrint.insert(paramToPrint.end(), numSnpMix.begin(), numSnpMix.end());
+        paramToPrint.insert(paramToPrint.end(), vgMix.begin(), vgMix.end());
+        if (mcHsqFixed) {
+            paramToPrint.push_back(mcHsqFixed.get());
+            paramToPrint.push_back(mcHsqRandom.get());
+        }
+        paramToPrint.push_back(&hsq);
+        paramToPrint.push_back(&nHighPips);
+        paramToPrint.push_back(&nBadSnps);
 
         if (message) {
             cout << "\nMulti-chain SBayesR (" << numChains << " chains)" << endl;
@@ -311,6 +350,11 @@ public:
         numThreadTotal = omp_get_max_threads();
         numThreadLevel1 = std::min(numModels, numThreadTotal);
         numThreadLevel2 = std::floor(numThreadTotal/numThreadLevel1);
+
+        // Parent MultiChainSBayesR paramSetVec points at chainVec; we only sample modelVec.
+        // MCMC::collectSamples would read stale/wrong-sized ParamSets → crash. Keep only model scalars.
+        paramSetVec.clear();
+        paramSetToPrint.clear();
 
         paramVec.resize(0);
         paramToPrint.resize(0);
@@ -555,13 +599,16 @@ public:
     AnnoJointPerSnpRsqEnrichment annoJointPerSnpRsqEnrich;
     MultiChainSBayesR::NumHighPIPs nHighPips;
     SnpHsqPEP snpHsqPep;
+
+    std::unique_ptr<MultiChainSBayesR::HeritabilityFixed> rcMcHsqFixed;
+    std::unique_ptr<MultiChainSBayesR::HeritabilityRandom> rcMcHsqRandom;
     
     const vector<LDBlockInfo*> &keptLdBlockInfoVec;
     
     bool estimateRsqEnrich;
     
     MultiChainSBayesRC(const Data &data, const Options &opt, const bool message = true):
-    MultiChainSBayesR(data, opt, false),
+    MultiChainSBayesR(data, opt, false, true),
     numChains(opt.numChains),
     chainVec(data, opt),
     hsq(chainVec),
@@ -584,7 +631,17 @@ public:
     estimateRsqEnrich(opt.estimateRsqEnrich)
     {
 
-        paramVec    = {&hsq};
+        if (data.numFixedEffectSnps) {
+            rcMcHsqFixed.reset(new MultiChainSBayesR::HeritabilityFixed(chainVec));
+            rcMcHsqRandom.reset(new MultiChainSBayesR::HeritabilityRandom(chainVec));
+        }
+
+        paramVec.clear();
+        if (rcMcHsqFixed) {
+            paramVec.push_back(rcMcHsqFixed.get());
+            paramVec.push_back(rcMcHsqRandom.get());
+        }
+        paramVec.push_back(&hsq);
         paramVec.insert(paramVec.end(), numSnpMix.begin(), numSnpMix.end());
         paramVec.insert(paramVec.end(), vgMix.begin(), vgMix.end());
 
@@ -598,9 +655,16 @@ public:
         paramSetVec.insert(paramSetVec.end(), annoEffects.begin(), annoEffects.end());
         paramSetVec.insert(paramSetVec.end(), annoJointProb.begin(), annoJointProb.end());
 
-        paramToPrint = {&hsq, &nHighPips, &nBadSnps};
-        paramToPrint.insert(paramToPrint.begin(), vgMix.begin(), vgMix.end());
-        paramToPrint.insert(paramToPrint.begin(), numSnpMix.begin(), numSnpMix.end());
+        paramToPrint.clear();
+        paramToPrint.insert(paramToPrint.end(), numSnpMix.begin(), numSnpMix.end());
+        paramToPrint.insert(paramToPrint.end(), vgMix.begin(), vgMix.end());
+        if (rcMcHsqFixed) {
+            paramToPrint.push_back(rcMcHsqFixed.get());
+            paramToPrint.push_back(rcMcHsqRandom.get());
+        }
+        paramToPrint.push_back(&hsq);
+        paramToPrint.push_back(&nHighPips);
+        paramToPrint.push_back(&nBadSnps);
         
         paramSetToPrint.resize(0);
         paramSetToPrint.insert(paramSetToPrint.end(), annoEffects.begin(), annoEffects.end());

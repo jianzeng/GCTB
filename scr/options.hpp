@@ -169,6 +169,8 @@ public:
     string skipSnpFile;
     /// If true with --skip, set GWAS marginal effects (b, b2) to zero for those SNPs after read/impute
     bool setZeroGwasForSkip;
+    /// If true with --skip, re-eigen-decompose the LD submatrix of non-skipped SNPs (needs block*.ldm.bin or block*.eigen.bin per block)
+    bool recomputeEigen;
     /// Block LD folder with block*.ldm.bin + ldm/snp info: full dense LD for SBayes (mutually exclusive with --ldm-eigen for the same role)
     string ldmBlockDir;
     /// Set via --fixed-effect; one SNP ID per line (first column if tab/space separated); lines starting with # ignored
@@ -314,6 +316,7 @@ public:
         genomeBuild             = "hg19";
         skipSnpFile             = "";
         setZeroGwasForSkip      = false;
+        recomputeEigen          = false;
         fitSnpsAsFixedEffectsFile = "";
         label                   = "";
     }

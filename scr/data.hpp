@@ -185,6 +185,11 @@ public:
     VectorXf eigenvalues;
     float sumPosEigVal; // sum of all positive eigenvalues
 
+    /** If empty: Q column j corresponds to local SNP j. If set (sub-LD eigen path), eigenColRemap[j] is Q column for local SNP j, or -1 if skipped. */
+    VectorXi eigenColRemap;
+    /** Local indices j (0..numSnpInBlock-1) of SNPs retained in sub-LD eigen; empty if full-block eigen. Used for pseudo-summary noise embedding. */
+    vector<unsigned> subLdKeptLocalIdx;
+
     LDBlockInfo(const int idx, const string id, const int chr) : index(idx), ID(id), chrom(chr)
     {
         // block info
@@ -206,6 +211,14 @@ public:
         sumPosEigVal = 0;
     }
 };
+
+/** Column index in Q for low-rank eigen (global SNP index). Returns -1 if skipped in sub-LD remap. */
+inline int eigenQColIndex(const LDBlockInfo *block, unsigned globalSnpIdx) {
+    int j = (int)globalSnpIdx - block->startSnpIdx;
+    if (j < 0 || j >= block->numSnpInBlock) return -1;
+    if (block->eigenColRemap.size() == 0) return j;
+    return block->eigenColRemap[j];
+}
 
 class locus_bp {
 public:
@@ -447,6 +460,10 @@ public:
     VectorXf ZPy;            // Z'y the MME rhs for snp effects
     
     VectorXf snp2pq;         // 2pq of SNPs
+    /// Cached prior for random SNP effects (partition of varGenotypic by 2pq when --fixed-effect SNPs exist); filled in initVariances.
+    float vargRandomSnpEffects;
+    /// Cached 2pq with zeros on --fixed-effect SNPs; equals snp2pq when none; filled in initVariances.
+    VectorXf snp2pqForRandomSnpEffects;
     VectorXf se;             // se from GWAS summary data (Trait 1)
     VectorXf se2;            // se from GWAS summary data (Trait 2, bivariate)
     VectorXf tss;            // total ss (ypy) for every SNP
@@ -494,6 +511,8 @@ public:
     bool weightedRes;
     
     bool lowRankModel;
+    /// With --skip + --recompute-eigen: rebuild W/Q from LD submatrix of non-skipped SNPs per block
+    bool recomputeEigen;
     
     vector<SnpInfo*> snpInfoVec;
     vector<IndInfo*> indInfoVec;
@@ -587,12 +606,15 @@ public:
         numLDBlocks = 0;
         numKeptLDBlocks = 0;
         
+        vargRandomSnpEffects = 0.f;
+        
         reindexed = false;
         sparseLDM = false;
         readLDscore = false;
         makeWindows = false;
         weightedRes = false;
         lowRankModel = false;
+        recomputeEigen = false;
     }
     
     void readFamFile(const string &famFile);
@@ -776,6 +798,24 @@ public:
     void resizeBlockLDmatrixAndDoEigenDecomposition(const string &LDmatrixFile, const float eigenCutoff, const float rsqThreshold, const string &title, const bool writeLdmTxt);
     
     void readBlockLDmatrix(const string &dirname, const string &blockID, const int32_t blockSize, MatrixXf &ldm);
+
+    bool blockLdmBinFileExists(const string &dirname, const string &blockID) const;
+    bool blockEigenBinFileExists(const string &dirname, const string &blockID) const;
+    bool readBlockEigenBinContents(const string &dirname, const string &blockID, int32_t expect_m,
+                                   int32_t &cur_m, int32_t &cur_k, float &sumPosEigVal, float &oldEigenCutoff,
+                                   VectorXf &lambda, MatrixXf &U);
+    bool buildSubmatrixLdFromEigenFactors(const float eigenCutoff, float sumPosEigVal, float oldEigenCutoff,
+                                          const VectorXf &lambda, const MatrixXf &U, const vector<unsigned> &kept,
+                                          MatrixXf &RssOut);
+    bool trySubLdEigenFromFullLdm(LDBlockInfo *block, const string &dirname, const float eigenCutoff,
+                                  const VectorXf &gwasBlock, VectorXf &eigenValOut, MatrixXf &eigenVecOut,
+                                  VectorXf &wcorrOut, MatrixXf &Qout, float &sumPosEigValOut,
+                                  VectorXi &remapOut, vector<unsigned> &keptLocalOut, bool *outUsedEigenRecon);
+    bool trySubLdEigenFromFullLdmBivariate(LDBlockInfo *block, const string &dirname, const float eigenCutoff,
+                                           const VectorXf &gwas1, const VectorXf &gwas2, VectorXf &wcorrOut, MatrixXf &Qout,
+                                           VectorXf &eigenValOut, MatrixXf &eigenVecOut, float &sumPosEigValOut,
+                                           VectorXi &remapOut, vector<unsigned> &keptLocalOut, bool *outUsedEigenRecon);
+
     void convertToBlockTriangularMatrix(const string &dirname, const bool writeLdmTxt, const string &title);
     void outputLDfriends(const MatrixXf &ldm, const LDBlockInfo *blockInfo, const string &outDirname);
     
