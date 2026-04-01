@@ -8819,6 +8819,14 @@ void ApproxBayesAPP::HsqBivariate::compute(const Matrix2f &vargTotal, const vect
     (*this)[2]->value = vargTotal(0, 1) / cove;
 }
 
+void ApproxBayesAPP::GeneticCorrelation::compute(const Matrix2f &vargTotal) {
+    float vg1 = vargTotal(0, 0);
+    float vg2 = vargTotal(1, 1);
+    float cvg = vargTotal(0, 1);
+    float denom = sqrtf(vg1 * vg2);
+    (*this)[0]->value = (denom > 0.0f) ? (cvg / denom) : 0.0f;
+}
+
 void ApproxBayesAPP::AnnoVarEffectsBivariate::sampleFromFC(const MatrixXf &betaMatrix, const VectorXf &nLociAnno) {
     // Compute SSE per category from betaMatrix
     unsigned nSNPs = betaMatrix.rows() / numCategories;
@@ -8853,6 +8861,19 @@ void ApproxBayesAPP::AnnoVarEffectsBivariate::sampleFromFC(const MatrixXf &betaM
         
         A_vec[c] = sampleInverseWishart2x2(df_G + nLociAnno[c], scale_tilde);
         Ainv_vec[c] = A_vec[c].inverse();
+    }
+}
+
+void ApproxBayesAPP::ResidualVarBivariate::normalise(const vector<Vector2f> &nGWASblocks) {
+    for (unsigned b = 0; b < R_blk.size(); ++b) {
+        Matrix2f Rnorm = R_blk[b];
+        const Vector2f &n = nGWASblocks[b];
+        for (unsigned i = 0; i < 2; ++i)
+            for (unsigned j = i; j < 2; ++j) {
+                Rnorm(i,j) /= sqrtf(n[i] * n[j]);
+                Rnorm(j,i)  = Rnorm(i,j);
+            }
+        Rinv_blk[b] = Rnorm.inverse();
     }
 }
 
@@ -9280,9 +9301,10 @@ void ApproxBayesAPP::sampleUnknowns(const unsigned iter) {
     // 8. Accumulate genetic variance per category across blocks (Julia lines 726-747)
     varg.accumulate(varBlocks);
 
-    // 9. Compute total genetic variance and heritability
+    // 9. Compute total genetic variance, heritability, and global genetic correlation
     vargTotal = varBlocks.computeTotal();
     hsq.compute(vargTotal, vare.R_blk);
+    geneticCorrelation.compute(vargTotal);
 
     // 10. Update nnz (count non-zero SNPs across all categories)
     nnzSnp.getValue(delta.countNonZero(numCategories));

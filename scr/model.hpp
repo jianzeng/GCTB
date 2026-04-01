@@ -2941,6 +2941,17 @@ public:
         void compute(const Matrix2f &vargTotal, const vector<Matrix2f> &R_blk);
     };
 
+    // Global genetic correlation from total genetic variance–covariance: rg = Cov_g / sqrt(Vg1 * Vg2)
+    class GeneticCorrelation : public vector<Parameter*> {
+    public:
+        GeneticCorrelation() {
+            this->push_back(new Parameter("rg"));
+            (*this)[0]->value = 0.0f;
+        }
+
+        void compute(const Matrix2f &vargTotal);
+    };
+
     // Per-trait SNP PIPs.
     class SnpPIPBivariate : public vector<ParamSet*> {
     public:
@@ -3025,18 +3036,7 @@ public:
         }
         
         // Normalise R_blk by sample sizes and update Rinv_blk
-        void normalise(const vector<Vector2f> &nGWASblocks) {
-            for (unsigned b = 0; b < R_blk.size(); ++b) {
-                Matrix2f Rnorm = R_blk[b];
-                const Vector2f &n = nGWASblocks[b];
-                for (unsigned i = 0; i < 2; ++i)
-                    for (unsigned j = i; j < 2; ++j) {
-                        Rnorm(i,j) /= sqrtf(n[i] * n[j]);
-                        Rnorm(j,i)  = Rnorm(i,j);
-                    }
-                Rinv_blk[b] = Rnorm.inverse();
-            }
-        }
+        void normalise(const vector<Vector2f> &nGWASblocks);
 
         void sampleFromFC(vector<VectorXf> &wcorrBlocks, const vector<Vector2f> &nGWASblocks,
                           const VectorXf &numEigenvalBlock, const VarBlocks &varBlocks);
@@ -3074,7 +3074,8 @@ public:
     AnnoGenotypicVarBivariate varg;
     SnpPIPBivariate snpPip;  // per-trait SNP PIPs [PIP, PIP2]
     HsqBivariate hsq;  // per-trait heritability [hsq1, hsq2]
-    
+    GeneticCorrelation geneticCorrelation;  // global rg from vargTotal
+
     // Precomputed constants (do not change across iterations)
     vector<Vector2f> nGWASblocks;  // per-block bivariate sample sizes
     MatrixXf annoMatIncd;          // annotation matrix for included SNPs only
@@ -3103,6 +3104,7 @@ public:
            data.numAnnos > 0 ? data.numAnnos : 1)
     , snpPip(data.snpEffectNames)
     , hsq()
+    , geneticCorrelation()
     , estimatePi(estPi)
     , estimateVare(estVare)
     , estimateVara(estVara)
@@ -3155,12 +3157,14 @@ public:
         paramSetVec.insert(paramSetVec.end(), varg.begin(), varg.end());
         paramVec = {&nnzSnp};
         paramVec.insert(paramVec.end(), hsq.begin(), hsq.end());
+        paramVec.insert(paramVec.end(), geneticCorrelation.begin(), geneticCorrelation.end());
         paramVec.insert(paramVec.end(), pi.begin(), pi.end());    // marginal Pi_00, Pi_01, Pi_10, Pi_11
         paramVec.insert(paramVec.end(), sigmaSq.begin(), sigmaSq.end());
         paramToPrint = {&nnzSnp};
         paramToPrint.insert(paramToPrint.end(), pi.begin(), pi.end());
         paramToPrint.insert(paramToPrint.end(), hsq.begin(), hsq.end());
-        
+        paramToPrint.insert(paramToPrint.end(), geneticCorrelation.begin(), geneticCorrelation.end());
+
         if (lowRankModel) {
             paramSetVec.push_back(&vargBlk);
             paramSetVec.push_back(&vareBlk);
