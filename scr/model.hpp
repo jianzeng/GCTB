@@ -2264,11 +2264,8 @@ public:
         }
         
 //        void sampleFromFC(MatrixXf &snpP, const MatrixXf &annoMat);
-        /** If incdSnpInfoVec is set, SNPs with fitAsFixedEffect are excluded from the annotation likelihood and snpP is reset to baselineSnpP for those rows. */
-        void sampleFromFC_Gibbs(MatrixXf &z, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP,
-                              const vector<SnpInfo*> *incdSnpInfoVec = nullptr, const VectorXf *baselineSnpP = nullptr);
-        void sampleFromFC_MH(MatrixXf &z, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP,
-                             const vector<SnpInfo*> *incdSnpInfoVec = nullptr, const VectorXf *baselineSnpP = nullptr);
+        void sampleFromFC_Gibbs(MatrixXf &z, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
+        void sampleFromFC_MH(MatrixXf &z, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
         void initIntercept_probit(const VectorXf &pis);
         void initIntercept_logistic(const VectorXf &pis);
     };
@@ -2343,7 +2340,7 @@ public:
         
         void compute(const VectorXf &snpEffects, const vector<vector<unsigned> > &snpset, const VectorXf &ZPy, const VectorXf &rcorr, const MatrixXf &annoMat);
         void compute(const VectorXf &snpEffects, const vector<unsigned> &membership, const vector<MatrixXf> &Qblocks, const vector<LDBlockInfo*> &keptLdBlockInfoVec, const MatrixXf &annoMat, const vector<AnnoInfo*> &annoInfoVec);
-        void compute(const VectorXf &snpEffects, const vector<vector<unsigned> > &snpset, const MatrixXf &annoMat, const vector<SnpInfo*> *incdSnpInfoVec = nullptr);
+        void compute(const VectorXf &snpEffects, const vector<vector<unsigned> > &snpset, const MatrixXf &annoMat);
     };
     
     class AnnoTotalGenVar : public ParamSet {
@@ -2394,8 +2391,8 @@ public:
         AnnoJointPerSnpHsqEnrichment(const vector<string> &header, const vector<AnnoInfo*> &annoVec): AnnoPerSnpHsqEnrichment(header, annoVec, "Joint_Heritability_Enrichment") {}
         
         void compute(const AnnoJointProb &annoJointProb, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &gamma, const float varg, const bool hsqPercModel, const float sigmaSq);
-        void compute(const VectorXf &snpEffects, const MatrixXf &annoMat, const AnnoCondProb &annoCondProb, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &snpAnnoCntInv, const vector<SnpInfo*> *incdSnpInfoVec = nullptr);
-        void compute(const VectorXf &snpEffects, const MatrixXf &annoMat, const AnnoJointProb &AnnoJointProb, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &gamma, const VectorXf &snpAnnoCntInv, const vector<SnpInfo*> *incdSnpInfoVec = nullptr);
+        void compute(const VectorXf &snpEffects, const MatrixXf &annoMat, const AnnoCondProb &annoCondProb, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &snpAnnoCntInv);
+        void compute(const VectorXf &snpEffects, const MatrixXf &annoMat, const AnnoJointProb &AnnoJointProb, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &gamma, const VectorXf &snpAnnoCntInv);
 //        void compute(const VectorXf &snpEffectMeans, const MatrixXf &annoMat, const AnnoEffects &alpha, const vector<AnnoInfo*> &annoInfoVec, const MatrixXf &snpPi);
     };
     
@@ -2443,9 +2440,7 @@ public:
         
     MatrixXf snpP;    // p = Pr(k>i | k>i-1); p2 = pi2+pi3+pi4; p3 = (pi3+pi4)/(pi2+pi3+pi4); p4 = pi4/(pi3+pi4)
     MatrixXf snpPi;   // pi1 = 1-p2; pi2 = (1-p3)*p2; pi3 = (1-p4)*p2*p3; pi4 = p2*p3*p4
-    /** Marginal component p from initSnpPandPi (row 0); used to reset snpP for --fixed-effect SNPs so they do not inform annotation effects. */
-    VectorXf baselineSnpP;
-
+    
     VectorXf snpAnnoCntInv;
     
     bool estimateRsqEnrich;
@@ -2468,8 +2463,7 @@ public:
     {
                 
         initSnpPandPi(pis, data.numIncdSnps, snpP, snpPi);
-        baselineSnpP = snpP.row(0).transpose();
-
+        
         annoEffects.initIntercept_probit(pis);
 //        if (algorithm == gibbs) annoEffects.initIntercept_probit(pis);
 //        else if (algorithm == mh) annoEffects.initIntercept_logistic(pis);
@@ -2591,7 +2585,6 @@ public:
 
     MatrixXf snpP;    // p = Pr(k>i | k>i-1); p2 = pi2+pi3+pi4; p3 = (pi3+pi4)/(pi2+pi3+pi4); p4 = pi4/(pi3+pi4)
     MatrixXf snpPi;   // pi1 = 1-p2; pi2 = (1-p3)*p2; pi3 = (1-p4)*p2*p3; pi4 = p2*p3*p4
-    VectorXf baselineSnpP;
 
     enum {gibbs, mh} algorithm;
     
@@ -2616,8 +2609,7 @@ public:
     estimateRsqEnrich(estimateRsqEnrich)
     {
         initSnpPandPi(pis, data.numIncdSnps, snpP, snpPi);
-        baselineSnpP = snpP.row(0).transpose();
-
+        
         //if (alg == "Gibbs") {
         //    algorithm = gibbs;
             annoEffects.initIntercept_probit(pis);
