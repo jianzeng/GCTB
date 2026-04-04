@@ -161,7 +161,7 @@ int main(int argc, const char * argv[]) {
                                       opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
                                       opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
                                       opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
-                                      opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock, opt.skipSnpFile, opt.setZeroGwasForSkip, false);
+                                      opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.keepSumstatIntactFile, opt.includeBlock, opt.skipSnpFile, opt.setZeroGwasForSkip, false);
                     data.resizeBlockLDmatrixAndDoEigenDecomposition(opt.ldmatrixFile, opt.eigenCutoff.maxCoeff(), 0.5, opt.title, opt.writeLdmTxt);
                 } else {
                     //gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.mafmin, opt.mafmax, opt.noscale, readGenotypes);
@@ -189,7 +189,7 @@ int main(int argc, const char * argv[]) {
                               opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
                               opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
                               opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
-                              opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock, opt.skipSnpFile, opt.setZeroGwasForSkip);
+                              opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.keepSumstatIntactFile, opt.includeBlock, opt.skipSnpFile, opt.setZeroGwasForSkip);
         }
         else if (opt.analysisType == "MergeGwasSummary") {
             if (opt.outLDmatType == "block") {
@@ -232,7 +232,7 @@ int main(int argc, const char * argv[]) {
                                   opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
                                   opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
                                   opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
-                                  opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock, opt.skipSnpFile, opt.setZeroGwasForSkip, true);
+                                  opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.keepSumstatIntactFile, opt.includeBlock, opt.skipSnpFile, opt.setZeroGwasForSkip, true);
                 if (opt.analysisType == "GWFM") {
                     data.inputPairwiseLD(opt.ldmBlockDir + "/" + opt.pairwiseLDfile, 0.95);
                 }
@@ -247,7 +247,7 @@ int main(int argc, const char * argv[]) {
                                   opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
                                   opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
                                   opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
-                                  opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.includeBlock, opt.skipSnpFile, opt.setZeroGwasForSkip, false);
+                                  opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.keepSumstatIntactFile, opt.includeBlock, opt.skipSnpFile, opt.setZeroGwasForSkip, false);
                 if (opt.analysisType == "GWFM") {
                     data.inputPairwiseLD(opt.eigenMatrixFile+"/"+opt.pairwiseLDfile, 0.95);  // for TGS sampling
                 }

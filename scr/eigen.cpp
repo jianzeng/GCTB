@@ -1055,6 +1055,7 @@ void Data::impG(const unsigned block, double diag_mod){
             // begin impute
             for(unsigned j = 0; j < numImpSnp[i]; j++){
                 SnpInfo *snp = ldblock->snpInfoVec[untypedSnpIdx[j]];
+                if (snp->keepSumstatIntact) continue;
                 float base = float(sqrt(2.0 * snp->af *(1.0 - snp->af) * (nMedian + zImpSnp[j] * zImpSnp[j])));
                 if (!(base > 1e-12f) || !std::isfinite(base) || !std::isfinite(zImpSnp[j])) {
                     cout << "Warning: cannot impute SNP " << snp->ID << " (MAF at 0/1 in reference or non-finite Z); excluding from analysis." << endl;

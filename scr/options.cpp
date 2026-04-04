@@ -264,6 +264,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             imputeSummary = true;
             ss << "--impute-summary " << "\n";
         }
+        else if (!strcmp(argv[i], "--keep-sumstat-intact")) {
+            keepSumstatIntactFile = argv[++i];
+            ss << "--keep-sumstat-intact " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--merge-block-gwas-summary")) {
             analysisType = "MergeGwasSummary";
             outLDmatType = "block";

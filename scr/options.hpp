@@ -109,6 +109,8 @@ public:
     bool perSnpGV;
     bool mergeLdm;
     bool imputeSummary;
+    /// Optional SNP ID list (one ID per line; # comments): do not alter b/se/N for these SNPs after GWAS read (outlier-N filter, N imputation, LD imputation).
+    string keepSumstatIntactFile;
     bool nDistAuto;  // automatically determine the number of mixture distributions
     bool nDistAutoByPred;  // if true with nDistAuto, select K by pseudo CV prediction accuracy (else heritability)
     bool writeWandQ; // output w and Q in text format
@@ -270,6 +272,7 @@ public:
         perSnpGV                = false;
         mergeLdm                = false;
         imputeSummary           = false;
+        keepSumstatIntactFile   = "";
         nDistAuto               = false;
         nDistAutoByPred         = false;
         writeWandQ              = false;

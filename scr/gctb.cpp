@@ -106,7 +106,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
                         const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile,
                         const float eigenCutoff, const bool excludeMHC,
                         const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const float rsqThreshold,
-                        const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile, const bool imputeSummary, const unsigned includeBlock, const string &skipSnpFile, const bool setZeroGwasForSkip, const bool useBlockFullLdm, const bool buildMME){
+                        const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile, const bool imputeSummary, const string &keepSumstatIntactFile, const unsigned includeBlock, const string &skipSnpFile, const bool setZeroGwasForSkip, const bool useBlockFullLdm, const bool buildMME){
     data.readEigenMatrix(eigenMatrixFile, eigenCutoff);
     if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
@@ -124,6 +124,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
         data.readAnnotationFileFormat2(continuousAnnoFile, flank*1000, eQTLFile);
     if (!ldscoreFile.empty()) data.readLDscoreFile(ldscoreFile);
     if (!gwasSummaryFile.empty()) {
+        if (!keepSumstatIntactFile.empty()) data.loadKeepSumstatIntactList(keepSumstatIntactFile);
         bool removeOutlierN = imputeSummary;
         vector<string> gwasFiles;
         Gadget::Tokenizer token;
@@ -141,7 +142,6 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
         if (imputeSummary) {
             //data.includeMatchedBlocks();
             //data.scaleGwasEffects();
-cout << " ================ start reading eigen matrix binary =========" << endl;
             data.readEigenMatrixBinaryFile(eigenMatrixFile, eigenCutoff);
             data.impG(includeBlock);
             if (setZeroGwasForSkip && !skipSnpFile.empty()) data.applySetZeroGwasForSkip();

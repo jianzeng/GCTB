@@ -62,6 +62,8 @@ public:
     bool unconverged;  // fail to converge
     bool inCS;  // in a credible set
     bool skip;  // skip sampling its effect
+    /// When set from --keep-sumstat-intact list: do not overwrite b/se/n or LD-impute these SNPs after read.
+    bool keepSumstatIntact;
     bool fitAsFixedEffect;  // flat prior in SBayesR / SBayesRC eigen (from --fixed-effect file)
     long sampleSize;
     
@@ -127,6 +129,7 @@ public:
         unconverged = false;
         inCS = false;
         skip = false;
+        keepSumstatIntact = false;
         fitAsFixedEffect = false;
         sampleSize = 0;
         effect = 0;
@@ -782,6 +785,8 @@ public:
     
     void outputEigenMatTxt(const string &title);
     void skipSnp(const string &skipSnpFile);
+    /// Mark SNPs (by ID, first column per line; # starts comment) to leave GWAS b/se/n unchanged after read (outlier-N filter, N imputation, LD imputation).
+    void loadKeepSumstatIntactList(const string &snplistFile);
     /// After GWAS read (and impute-summary if used): set gwas_b / gwas_b2 to 0 for SNPs with skip==true
     void applySetZeroGwasForSkip(void);
     

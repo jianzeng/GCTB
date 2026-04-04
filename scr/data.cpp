@@ -1785,8 +1785,10 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
             for (unsigned i=0; i<size; ++i) {
                 snp = snpvec[i];
                 if (perSnpN[i] < n_med - 3*sd || perSnpN[i] > n_med + 3*sd) {
-                    snp->included = false;
-                    ++numOutlierN;
+                    if (!snp->keepSumstatIntact) {
+                        snp->included = false;
+                        ++numOutlierN;
+                    }
                 }
             }
             
@@ -2035,8 +2037,10 @@ void Data::readBivariateGwasSummaryFile(const string &gwasFile1, const string &g
             for (unsigned i=0; i<size; ++i) {
                 snp = snpvec[i];
                 if (perSnpN[i] < n_med - 3*sd || perSnpN[i] > n_med + 3*sd) {
-                    snp->included = false;
-                    ++numOutlierN1;
+                    if (!snp->keepSumstatIntact) {
+                        snp->included = false;
+                        ++numOutlierN1;
+                    }
                 }
             }
             match -= numOutlierN1;
@@ -2064,8 +2068,10 @@ void Data::readBivariateGwasSummaryFile(const string &gwasFile1, const string &g
             for (unsigned i=0; i<size; ++i) {
                 snp = snpvec[i];
                 if (perSnpN[i] < n_med - 3*sd || perSnpN[i] > n_med + 3*sd) {
-                    snp->included = false;
-                    ++numOutlierN2;
+                    if (!snp->keepSumstatIntact) {
+                        snp->included = false;
+                        ++numOutlierN2;
+                    }
                 }
             }
             match -= numOutlierN2;
@@ -2140,6 +2146,11 @@ void Data::imputePerSnpSampleSizeTrait2(vector<SnpInfo*> &snpInfoVec, unsigned &
     for (unsigned i=0; i<numSnps; ++i) {
         snp = snpInfoVec[i];
         if (!snp->included) continue;
+        if (snp->keepSumstatIntact) {
+            ++numIncdSnps;
+            ++j;
+            continue;
+        }
         if (n[j] < n_med - 3*sd || n[j] > n_med + 3*sd) {
             snp->included = false;
         }
@@ -2195,6 +2206,11 @@ void Data::imputePerSnpSampleSize(vector<SnpInfo*> &snpInfoVec, unsigned &numInc
     for (unsigned i=0; i<numSnps; ++i) {
         snp = snpInfoVec[i];
         if (!snp->included) continue;
+        if (snp->keepSumstatIntact) {
+            ++numIncdSnps;
+            ++j;
+            continue;
+        }
         if (n[j] < n_med - 3*sd || n[j] > n_med + 3*sd) {
             snp->included = false;
         }
@@ -7024,6 +7040,27 @@ void Data::applySetZeroGwasForSkip(void){
     }
     if (nz)
         cout << "Set GWAS marginal effect to zero for " << nz << " skipped SNP(s) (--set-zero-gwas-for-skip)." << endl;
+}
+
+void Data::loadKeepSumstatIntactList(const string &snplistFile){
+    ifstream in(snplistFile.c_str());
+    if (!in) throw ("Error: can not open --keep-sumstat-intact file [" + snplistFile + "] to read.");
+    string line;
+    Gadget::Tokenizer tok;
+    unsigned nset = 0;
+    while (getline(in, line)) {
+        if (line.empty()) continue;
+        if (line[0] == '#') continue;
+        tok.getTokens(line, " \t");
+        if (tok.size() == 0) continue;
+        map<string, SnpInfo*>::iterator it = snpInfoMap.find(tok[0]);
+        if (it != snpInfoMap.end()) {
+            it->second->keepSumstatIntact = true;
+            ++nset;
+        }
+    }
+    in.close();
+    cout << "Preserving GWAS summary statistics for " << nset << " SNP(s) listed in [" << snplistFile << "]." << endl;
 }
 
 void Data::skipSnp(const string &skipSnpFile){
