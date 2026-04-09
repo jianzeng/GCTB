@@ -7,6 +7,8 @@
 //
 
 #include "stat.hpp"
+#include <cmath>
+#include <limits>
 
 void Stat::seedEngine(const int seed){
     if (seed) {
@@ -23,26 +25,29 @@ double Stat::Normal::sample(const double mean, const double variance){
 }
 
 double Stat::Normal::cdf_01(const double value){
-//    if (std::isinf(value)) {
-//        return value < 0 ? 0.0f : 1.0f; // Return 0 for -inf, 1 for +inf
-//    }
+    // boost::math::cdf throws if x is NaN or non-finite in some builds; SBayesRC can
+    // produce NaN linear predictors (e.g. degenerate annotation design / sigmaSq).
+    if (std::isnan(value))
+        return 0.5;
+    if (std::isinf(value))
+        return value < 0.0 ? 0.0 : 1.0;
     return cdf(d, value);
-    //return 0.5 * boost::math::erfc(-value * Inv_SQRT_2);
 }
 
 double Stat::Normal::quantile_01(const double value){
+    if (std::isnan(value))
+        return 0.0;
     double clamped_value = std::max(0.0, std::min(1.0, value)); // Clamp to [0, 1]
+    if (std::isnan(clamped_value))
+        return 0.0;
     if (clamped_value == 0.0) return -std::numeric_limits<float>::infinity();
     if (clamped_value == 1.0) return std::numeric_limits<float>::infinity();
-    //return boost::math::quantile(d, clamped_value);
     return quantile(d, clamped_value);
-    //return - SQRT_2 * boost::math::erfc_inv(2.0 * value);
 }
 
 double Stat::Normal::pdf_01(const double value) {
-//    if (std::isinf(value)) {
-//        return 0.0f; // PDF is 0 at +/-inf
-//    }
+    if (std::isnan(value) || std::isinf(value))
+        return 0.0;
     return pdf(d, value);
 //    double SQRT_2PI = std::sqrt(2 * M_PI); // Precompute sqrt(2π)
 //    return std::exp(-0.5 * value * value) / SQRT_2PI;

@@ -6813,7 +6813,6 @@ void ApproxBayesRC::SnpEffects::sampleFromTGS_eigen(vector<VectorXf> &wcorrBlock
     }
 }
 
-
 void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(MatrixXf &z, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP) {
 //    cout << "sampling anno effects..." << endl;
     
@@ -6907,6 +6906,10 @@ void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(MatrixXf &z, const MatrixXf 
            //for (unsigned k=1; k<numAnno; ++k) {
             for (unsigned t=0; t<shuffled_index.size(); ++t) {
                 unsigned k = shuffled_index[t];
+                if (0 == annoDiagi[k]) {
+                    alphai[k] = 0.0;
+                    continue;
+                }
                 oldSample = alphai[k];
                 rhs = annoMati.col(k).dot(y) + annoDiagi[k]*oldSample;
                 invLhs = 1.0/(annoDiagi[k] + 1.0/sigmaSq[i]);
