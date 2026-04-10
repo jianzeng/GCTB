@@ -45,6 +45,7 @@ int main(int argc, const char * argv[]) {
         
         Data data;
         data.title = opt.title;
+        data.gwasScalarMode = opt.gwasScalarMode;
         bool readGenotypes;
         
         GCTB gctb(opt);

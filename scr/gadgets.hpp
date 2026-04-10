@@ -99,4 +99,11 @@ SparseMatrix<float> readSparseMatrixBinary(const std::string& filename);
 void writeSparseMatrixToText(const SparseMatrix<float>& mat, const std::string& filename);
 }
 
+/// How GWAS per-SNP scaling sqrt is chosen in Data::scaleGwasEffects (summary-data models).
+enum class GwasScalarMode : unsigned char {
+    LeastSquares, ///< 1/sqrt(n*SE^2 + beta^2) from summary statistics
+    Gwas2pq,      ///< sqrt(2*p*q) using GWAS allele frequency
+    Ref2pq        ///< sqrt(2*p*q) using LD reference allele frequency (before af is set to gwas_af)
+};
+
 #endif /* toolbox_hpp */

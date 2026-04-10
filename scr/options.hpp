@@ -115,6 +115,7 @@ public:
     bool nDistAutoByPred;  // if true with nDistAuto, select K by pseudo CV prediction accuracy (else heritability)
     bool writeWandQ; // output w and Q in text format
     bool estimateRsqEnrich;  // estimate prediction R2 enrichment
+    GwasScalarMode gwasScalarMode;  // --gwas-scalar: effect scaling for summary-data GWAS (see Data::gwasScalarMode)
     
     string eigCutMethod = "value";
     float eigThreshold = 0.001;
@@ -277,6 +278,7 @@ public:
         nDistAutoByPred         = false;
         writeWandQ              = false;
         estimateRsqEnrich       = false;
+        gwasScalarMode          = GwasScalarMode::LeastSquares;
         
         title                   = "gctb";
         analysisType            = "Bayes";

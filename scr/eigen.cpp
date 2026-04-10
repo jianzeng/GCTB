@@ -3281,17 +3281,41 @@ void Data::scaleGwasEffects(){
     scalar.resize(numIncdSnps);
     tss.resize(numIncdSnps); // only used in SBayesC
     ZPy.resize(numIncdSnps);
+    const char *gwasScalarLabel = "estimated by (1/sqrt(n*SE^2+b^2) from summary stats";
+    if (gwasScalarMode == GwasScalarMode::Gwas2pq)
+        gwasScalarLabel = "sqrt(2pq) based on allele frequency in GWAS)";
+    else if (gwasScalarMode == GwasScalarMode::Ref2pq)
+        gwasScalarLabel = "(sqrt(2pq) based on allele frequency in LD reference";
+    cout << "GWAS effect scaling: " << gwasScalarLabel << "." << endl;
+
     SnpInfo *snp;
+    unsigned ref2pqFallback = 0;
     for (unsigned i=0; i<numIncdSnps; ++i) {
         snp = incdSnpInfoVec[i];
+        const float refAf = snp->af;
         snp->af = snp->gwas_af;
         snp2pq[i] = snp->twopq = 2.0f*snp->gwas_af*(1.0f-snp->gwas_af);
         if(snp2pq[i]==0) cout << "Error: SNP " << snp->ID << " af " << snp->af << " has 2pq = 0." << endl;
         b[i] = snp->gwas_b;
         n[i] = snp->gwas_n;
         se[i]= snp->gwas_se;
-        //snp->gwas_scalar = 1.0/sqrt(n[i]*se[i]*se[i] + b[i]*b[i]);
-        snp->gwas_scalar = sqrt(snp2pq[i]);
+        double sc = 0.0;
+        if (gwasScalarMode == GwasScalarMode::LeastSquares) {
+            const double denom = double(n[i])*double(se[i])*double(se[i]) + double(b[i])*double(b[i]);
+            if (!(denom > 0.0))
+                throw("Error: SNP " + snp->ID + " has non-positive n*SE^2+b^2 for --gwas-scalar ls.");
+            sc = 1.0/std::sqrt(denom);
+        } else if (gwasScalarMode == GwasScalarMode::Ref2pq) {
+            if (refAf > 0.0f && refAf < 1.0f)
+                sc = std::sqrt(double(2.0f*refAf*(1.0f-refAf)));
+            else {
+                sc = std::sqrt(double(snp2pq[i]));
+                ++ref2pqFallback;
+            }
+        } else {
+            sc = std::sqrt(double(snp2pq[i]));
+        }
+        snp->gwas_scalar = sc;
         scalar[i] = snp->gwas_scalar;
 //        b[i] = snp->gwas_b * sqrt(snp2pq[i]); // scale the marginal effect so that it's in per genotype SD unit
 //        n[i] = snp->gwas_n;
@@ -3299,6 +3323,8 @@ void Data::scaleGwasEffects(){
 //        tss[i] = n[i]*(n[i]*se[i]*se[i] + b[i]*b[i]);
 //        ZPy[i] = n[i]*b[i];
     }
+    if (ref2pqFallback)
+        cout << "Warning: --gwas-scalar ref2pq used GWAS sqrt(2pq) for " << ref2pqFallback << " SNPs (LD reference AF missing or not in (0,1))." << endl;
 
     // estimate phenotypic variance
     varySnp = snp2pq.array()*(n.array()*se.array().square()+b.array().square());
@@ -3349,7 +3375,7 @@ void Data::scaleGwasEffects(){
 }
 
 void Data::scaleBivariateGwasEffects(){
-    // Scale GWAS effects for both traits
+    // Scale GWAS effects for both traits (--gwas-scalar matches univariate Data::scaleGwasEffects)
     snp2pq.resize(numIncdSnps);
     b.resize(numIncdSnps);
     n.resize(numIncdSnps);
@@ -3359,27 +3385,65 @@ void Data::scaleBivariateGwasEffects(){
     se2.resize(numIncdSnps);
     scalar2.resize(numIncdSnps);
     n2.resize(numIncdSnps);
+
+    const char *gwasScalarLabel = "ls (1/sqrt(n*SE^2+b^2) from summary stats)";
+    if (gwasScalarMode == GwasScalarMode::Gwas2pq)
+        gwasScalarLabel = "gwas2pq (sqrt(2pq) from GWAS AF)";
+    else if (gwasScalarMode == GwasScalarMode::Ref2pq)
+        gwasScalarLabel = "ref2pq (sqrt(2pq) from LD reference AF before GWAS AF overwrite)";
+    cout << "GWAS effect scaling (bivariate): " << gwasScalarLabel << "." << endl;
     
     SnpInfo *snp;
+    unsigned ref2pqFallback = 0;
     for (unsigned i=0; i<numIncdSnps; ++i) {
         snp = incdSnpInfoVec[i];
-        snp->af = snp->gwas_af;  // Use trait 1 AF (should be same for both traits)
+        const float refAf = snp->af;
+        snp->af = snp->gwas_af;  // trait 1 GWAS AF on SnpInfo::af (same convention as univariate)
         snp2pq[i] = snp->twopq = 2.0f*snp->gwas_af*(1.0f-snp->gwas_af);
         if(snp2pq[i]==0) cout << "Error: SNP " << snp->ID << " af " << snp->af << " has 2pq = 0." << endl;
         
-        // Trait 1
         b[i] = snp->gwas_b;
         n[i] = snp->gwas_n;
         se[i] = snp->gwas_se;
-        snp->gwas_scalar = 1.0/sqrt(n[i]*se[i]*se[i] + b[i]*b[i]);
-        scalar[i] = snp->gwas_scalar;
-        
-        // Trait 2
         b2[i] = snp->gwas_b2;
         n2[i] = snp->gwas_n2;
         se2[i] = snp->gwas_se2;
-        snp->gwas_scalar2 = scalar2[i] = 1.0/sqrt(n2[i]*se2[i]*se2[i] + b2[i]*b2[i]);
+
+        double sc1 = 0.0, sc2 = 0.0;
+        if (gwasScalarMode == GwasScalarMode::LeastSquares) {
+            const double denom1 = double(n[i])*double(se[i])*double(se[i]) + double(b[i])*double(b[i]);
+            if (!(denom1 > 0.0))
+                throw("Error: SNP " + snp->ID + " trait 1: non-positive n*SE^2+b^2 for --gwas-scalar ls.");
+            sc1 = 1.0/std::sqrt(denom1);
+            const double denom2 = double(n2[i])*double(se2[i])*double(se2[i]) + double(b2[i])*double(b2[i]);
+            if (!(denom2 > 0.0))
+                throw("Error: SNP " + snp->ID + " trait 2: non-positive n*SE^2+b^2 for --gwas-scalar ls.");
+            sc2 = 1.0/std::sqrt(denom2);
+        } else if (gwasScalarMode == GwasScalarMode::Ref2pq) {
+            if (refAf > 0.0f && refAf < 1.0f) {
+                const double t = double(2.0f*refAf*(1.0f-refAf));
+                sc1 = sc2 = std::sqrt(t);
+            } else {
+                sc1 = std::sqrt(double(snp2pq[i]));
+                const float tpq2 = 2.0f*snp->gwas_af2*(1.0f-snp->gwas_af2);
+                if (tpq2 <= 0.f)
+                    throw("Error: SNP " + snp->ID + " trait 2 GWAS AF gives 2pq = 0; cannot complete ref2pq fallback.");
+                sc2 = std::sqrt(double(tpq2));
+                ++ref2pqFallback;
+            }
+        } else { // Gwas2pq
+            sc1 = std::sqrt(double(snp2pq[i]));
+            const float tpq2 = 2.0f*snp->gwas_af2*(1.0f-snp->gwas_af2);
+            if (tpq2 <= 0.f)
+                throw("Error: SNP " + snp->ID + " trait 2 GWAS AF gives 2pq = 0 for --gwas-scalar gwas2pq.");
+            sc2 = std::sqrt(double(tpq2));
+        }
+        snp->gwas_scalar = sc1;
+        scalar[i] = snp->gwas_scalar;
+        snp->gwas_scalar2 = scalar2[i] = sc2;
     }
+    if (ref2pqFallback)
+        cout << "Warning: bivariate --gwas-scalar ref2pq used per-trait GWAS sqrt(2pq) for " << ref2pqFallback << " SNPs (LD reference AF missing or not in (0,1))." << endl;
 
     // estimate phenotypic variance for both traits (before scaling)
     varySnp  = snp2pq.array()*(n.array() *se.array().square() +b.array().square());
@@ -3395,10 +3459,12 @@ void Data::scaleBivariateGwasEffects(){
     std::sort(n2Srt.data(), n2Srt.data() + n2Srt.size());
     numKeptInds2 = n2Srt[n2Srt.size()/2]; // median sample size trait 2
     
-    // estimate per-SNP 2pq using the estimated phenotypic variance
-    for (unsigned i=0; i<numIncdSnps; ++i) {
-        snp = incdSnpInfoVec[i];
-        snp2pq[i] = snp->twopq = obsVarPhenotypic/(snp->gwas_n*se[i]*se[i]+b[i]*b[i]);
+    // Implied 2pq from trait 1 summary stats (legacy bivariate LS path only)
+    if (gwasScalarMode == GwasScalarMode::LeastSquares) {
+        for (unsigned i=0; i<numIncdSnps; ++i) {
+            snp = incdSnpInfoVec[i];
+            snp2pq[i] = snp->twopq = obsVarPhenotypic/(snp->gwas_n*se[i]*se[i]+b[i]*b[i]);
+        }
     }
     
     // scale GWAS effects for both traits

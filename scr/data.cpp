@@ -7676,10 +7676,31 @@ void Data::calcJointEnrichmentJackknifeLM(const string &paramStr, const string &
     
     cout << "Calculating " << paramName << " joint enrichment..." << endl;
 
-    float genVarSnpNull = genVarSnp.sum()/float(numIncdSnps);
+    // LDSC-style heteroskedastic weights: Var ∝ 2*(ℓ_j*varg/M + LDsamplVar_j*varg + vare)^2 (Bulik-Sullivan χ² regression).
+    VectorXf ldWts;
+    ldWts.setOnes(numIncdSnps);
+    const bool haveLdVecs = (LDscore.size() == (Eigen::Index)numIncdSnps)
+        && (LDsamplVar.size() == (Eigen::Index)numIncdSnps);
+    const float totVarComp = varGenotypic + varResidual;
+    if (haveLdVecs && totVarComp > 1e-12f && numIncdSnps > 0) {
+        const float invM = 1.f / float(numIncdSnps);
+        for (unsigned j = 0; j < numIncdSnps; ++j) {
+            float mu = LDscore[j] * varGenotypic * invM + LDsamplVar[j] * varGenotypic + varResidual;
+            mu = std::max(mu, 1e-9f);
+            float varj = 2.f * mu * mu;
+            ldWts[j] = 1.f / varj;
+        }
+        const float wsum = ldWts.sum();
+        if (wsum > 0.f) ldWts *= float(numIncdSnps) / wsum;
+        cout << "  Using LDSC-style inverse-variance weights (LD score + LD sampling variance).\n";
+    } else {
+        cout << "  Unweighted OLS (LD score / LD sampling variance or variance components unavailable).\n";
+    }
+
+    float genVarSnpNull = ldWts.dot(genVarSnp) / ldWts.sum();
     
-    MatrixXf XPX = annoMat.transpose()*annoMat;
-    VectorXf XPy = annoMat.transpose()*genVarSnp;
+    MatrixXf XPX = annoMat.transpose() * ldWts.asDiagonal() * annoMat;
+    VectorXf XPy = annoMat.transpose() * ldWts.cwiseProduct(genVarSnp);
     VectorXf coef = XPX.householderQr().solve(XPy);
         
     VectorXf enrich = 1.0 + coef.array()/genVarSnpNull;
@@ -7714,32 +7735,40 @@ void Data::calcJointEnrichmentJackknifeLM(const string &paramStr, const string &
         MatrixXf annoMat_jk;
         VectorXf genVarSnp_jk;
         
+        VectorXf ldWts_jk;
         if (t == 0) {
-            annoMat_jk = annoMat.bottomRows(numIncdSnps - (blockEnd[t]+1));
-            genVarSnp_jk = genVarSnp.tail(numIncdSnps - (blockEnd[t]+1));
+            const unsigned ntail = numIncdSnps - (blockEnd[t]+1);
+            annoMat_jk = annoMat.bottomRows(ntail);
+            genVarSnp_jk = genVarSnp.tail(ntail);
+            ldWts_jk = ldWts.tail(ntail);
         } else if (t == numJKblocks-1) {
             annoMat_jk = annoMat.topRows(blockStart[t]);
             genVarSnp_jk = genVarSnp.head(blockStart[t]);
+            ldWts_jk = ldWts.head(blockStart[t]);
         } else {
             MatrixXf part1mat = annoMat.topRows(blockStart[t]);
             MatrixXf part2mat = annoMat.bottomRows(numIncdSnps - (blockEnd[t]+1));
             VectorXf part1vec = genVarSnp.head(blockStart[t]);
             VectorXf part2vec = genVarSnp.tail(numIncdSnps - (blockEnd[t]+1));
+            VectorXf part1w = ldWts.head(blockStart[t]);
+            VectorXf part2w = ldWts.tail(numIncdSnps - (blockEnd[t]+1));
 
             annoMat_jk.resize(part1mat.rows() + part2mat.rows(), annoMat.cols());
             annoMat_jk << part1mat, part2mat;   // row-combine
 
             genVarSnp_jk.resize(part1vec.size() + part2vec.size());
             genVarSnp_jk << part1vec, part2vec; // concatenate
+
+            ldWts_jk.resize(part1w.size() + part2w.size());
+            ldWts_jk << part1w, part2w;
         }
         
-        MatrixXf XPX = annoMat_jk.transpose()*annoMat_jk;
-        VectorXf XPy = annoMat_jk.transpose()*genVarSnp_jk;
-        coefJK.row(t) = XPX.householderQr().solve(XPy).transpose();
-        
-        float blockSizet = blockEnd[t] - blockStart[t] + 1;
-        float numSnpJK = numIncdSnps - blockSizet;
-        genVarSnpNullJK[t] = (genVarSnp.sum() - genVarSnp.segment(blockStart[t], blockSizet).sum()) / numSnpJK;
+        const float wjkSum = ldWts_jk.sum();
+        genVarSnpNullJK[t] = (wjkSum > 0.f) ? ldWts_jk.dot(genVarSnp_jk) / wjkSum : genVarSnp_jk.mean();
+
+        MatrixXf XPX_jk = annoMat_jk.transpose() * ldWts_jk.asDiagonal() * annoMat_jk;
+        VectorXf XPy_jk = annoMat_jk.transpose() * ldWts_jk.cwiseProduct(genVarSnp_jk);
+        coefJK.row(t) = XPX_jk.householderQr().solve(XPy_jk).transpose();
     }
     
     for (unsigned i=0; i<numAnnos; ++i) {

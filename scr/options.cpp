@@ -212,6 +212,18 @@ void Options::inputOptions(const int argc, const char* argv[]){
             gwasSummaryFile = argv[++i];
             ss << "--gwas-summary " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--gwas-scalar")) {
+            string v = argv[++i];
+            if (v == "ls")
+                gwasScalarMode = GwasScalarMode::LeastSquares;
+            else if (v == "gwas2pq")
+                gwasScalarMode = GwasScalarMode::Gwas2pq;
+            else if (v == "ref2pq")
+                gwasScalarMode = GwasScalarMode::Ref2pq;
+            else
+                throw(" Error: --gwas-scalar must be ls, gwas2pq, or ref2pq.");
+            ss << "--gwas-scalar " << v << "\n";
+        }
         else if (!strcmp(argv[i], "--ldm")) {
             ldmatrixFile = argv[++i];
             ss << "--ldm " << argv[i] << "\n";
@@ -819,6 +831,15 @@ void Options::readFile(const string &file){  // input options from file
             mcmcSampleFile = value;
         } else if (key == "gwasSummaryFile") {
             gwasSummaryFile = value;
+        } else if (key == "gwasScalar") {
+            if (value == "ls")
+                gwasScalarMode = GwasScalarMode::LeastSquares;
+            else if (value == "gwas2pq")
+                gwasScalarMode = GwasScalarMode::Gwas2pq;
+            else if (value == "ref2pq")
+                gwasScalarMode = GwasScalarMode::Ref2pq;
+            else
+                throw(" Error: gwasScalar in option file must be ls, gwas2pq, or ref2pq.");
         } else if (key == "LDmatrixFile") {
             ldmatrixFile = value;
         } else if (key == "multiLDmatrixFile") {

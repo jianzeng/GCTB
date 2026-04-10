@@ -516,6 +516,8 @@ public:
     bool lowRankModel;
     /// With --skip + --recompute-eigen: rebuild W/Q from LD submatrix of non-skipped SNPs per block
     bool recomputeEigen;
+    /// Copied from Options before buildSparseMME / buildMMEeigen; used in scaleGwasEffects.
+    GwasScalarMode gwasScalarMode;
     
     vector<SnpInfo*> snpInfoVec;
     vector<IndInfo*> indInfoVec;
@@ -618,6 +620,7 @@ public:
         weightedRes = false;
         lowRankModel = false;
         recomputeEigen = false;
+        gwasScalarMode = GwasScalarMode::LeastSquares;
     }
     
     void readFamFile(const string &famFile);
