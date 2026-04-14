@@ -8670,6 +8670,16 @@ void ApproxBayesAPP::AnnoGenotypicVarBivariate::accumulate(const VarBlocks &varB
         }
         G_vec[cat](1,0) = G_vec[cat](0,1);
     }
+    if (this->size() >= 3) {
+        (*this)[0]->values.setZero(numCategories);
+        (*this)[1]->values.setZero(numCategories);
+        (*this)[2]->values.setZero(numCategories);
+        for (unsigned cat = 0; cat < numCategories; ++cat) {
+            (*this)[0]->values[cat] = G_vec[cat](0,0);
+            (*this)[1]->values[cat] = G_vec[cat](1,1);
+            (*this)[2]->values[cat] = G_vec[cat](0,1);
+        }
+    }
 }
 
 unsigned ApproxBayesAPP::DeltaBivariate::countNonZero(const unsigned numCategories) const {
@@ -8793,6 +8803,14 @@ void ApproxBayesAPP::AnnoPiBivariate::sampleFromFC(const vector<VectorXf> &nLoci
         VectorXf alpha = counts.array() + alphaVec.array();
         piVec[c] = Stat::Dirichlet().sample(4, alpha);
     }
+    if (this->size() >= 4) {
+        for (unsigned c = 0; c < numCategories; ++c) {
+            (*this)[0]->values[c] = piVec[c][3];
+            (*this)[1]->values[c] = piVec[c][1];
+            (*this)[2]->values[c] = piVec[c][2];
+            (*this)[3]->values[c] = piVec[c][0];
+        }
+    }
 }
 
 void ApproxBayesAPP::PiBivariate::compute(const AnnoPiBivariate &piAnno, const VectorXf &nLociAnno) {
@@ -8808,6 +8826,53 @@ void ApproxBayesAPP::PiBivariate::compute(const AnnoPiBivariate &piAnno, const V
     (*this)[1]->value = margPi[1];  // Pi_10 = P([1,0])
     (*this)[2]->value = margPi[2];  // Pi_01 = P([0,1])
     (*this)[3]->value = margPi[0];  // Pi_11 = P([1,1])
+}
+
+void ApproxBayesAPP::AnnoCoPolygenicity::compute(const AnnoPiBivariate &piAnno) {
+    const float eps = 1e-12f;
+    values.setZero(size);
+    for (unsigned c = 0; c < size && c < piAnno.numCategories; ++c) {
+        // APP / Julia ordering: [1,1], [1,0], [0,1], [0,0].
+        const float pi11 = piAnno.piVec[c][0];
+        const float pi10 = piAnno.piVec[c][1];
+        const float pi01 = piAnno.piVec[c][2];
+        const float denom = pi11 + pi10 + pi01;
+        if (denom > eps) values[c] = pi11 / denom;
+    }
+}
+
+void ApproxBayesAPP::AnnoPleiotropicEffectCorrelation::compute(const MatrixXf &alphaMatrix,
+                                                               const MatrixXf &deltaMatrix,
+                                                               const unsigned nSNPs,
+                                                               const unsigned numCategories) {
+    const float eps = 1e-12f;
+    values.setZero(size);
+    for (unsigned cat = 0; cat < size && cat < numCategories; ++cat) {
+        double sum1 = 0.0, sum2 = 0.0, sum11 = 0.0, sum22 = 0.0, sum12 = 0.0;
+        unsigned nBoth = 0;
+        for (unsigned i = 0; i < nSNPs; ++i) {
+            const unsigned markerIndex = cat * nSNPs + i;
+            if (deltaMatrix(markerIndex, 0) > 0.5f && deltaMatrix(markerIndex, 1) > 0.5f) {
+                const double a1 = alphaMatrix(markerIndex, 0);
+                const double a2 = alphaMatrix(markerIndex, 1);
+                sum1 += a1;
+                sum2 += a2;
+                sum11 += a1 * a1;
+                sum22 += a2 * a2;
+                sum12 += a1 * a2;
+                ++nBoth;
+            }
+        }
+        if (nBoth < 2) continue;
+
+        const double mean1 = sum1 / double(nBoth);
+        const double mean2 = sum2 / double(nBoth);
+        const double var1 = sum11 / double(nBoth) - mean1 * mean1;
+        const double var2 = sum22 / double(nBoth) - mean2 * mean2;
+        const double cov12 = sum12 / double(nBoth) - mean1 * mean2;
+        const double denom = std::sqrt(std::max(var1, 0.0) * std::max(var2, 0.0));
+        if (denom > eps) values[cat] = cov12 / denom;
+    }
 }
 
 void ApproxBayesAPP::HsqBivariate::compute(const Matrix2f &vargTotal, const vector<Matrix2f> &R_blk) {
@@ -8828,6 +8893,38 @@ void ApproxBayesAPP::GeneticCorrelation::compute(const Matrix2f &vargTotal) {
     float cvg = vargTotal(0, 1);
     float denom = sqrtf(vg1 * vg2);
     (*this)[0]->value = (denom > 0.0f) ? (cvg / denom) : 0.0f;
+}
+
+void ApproxBayesAPP::AnnoHsqCohsqEnrichmentBivariate::compute(const ApproxBayesAPP::AnnoGenotypicVarBivariate &vargAnno,
+                                                              const VectorXf &nLociPerAnno,
+                                                              const float nSnpTotal,
+                                                              const Matrix2f &vargTotal) {
+    const float eps = 1e-12f;
+    if (this->size() != 3) return;
+
+    (*this)[0]->values.setZero((*this)[0]->size);
+    (*this)[1]->values.setZero((*this)[1]->size);
+    (*this)[2]->values.setZero((*this)[2]->size);
+
+    if (nSnpTotal <= eps) return;
+
+    const float genomeRate1 = vargTotal(0, 0) / nSnpTotal;
+    const float genomeRate2 = vargTotal(1, 1) / nSnpTotal;
+    const float genomeRate12 = vargTotal(0, 1) / nSnpTotal;
+
+    for (unsigned c = 0; c < nLociPerAnno.size(); ++c) {
+        const float nA = nLociPerAnno[c];
+        if (nA <= eps) continue;
+
+        const Matrix2f &G = vargAnno.G_vec[c];
+        const float annoRate1 = G(0, 0) / nA;
+        const float annoRate2 = G(1, 1) / nA;
+        const float annoRate12 = G(0, 1) / nA;
+
+        if (fabsf(genomeRate1) > eps) (*this)[0]->values[c] = annoRate1 / genomeRate1;
+        if (fabsf(genomeRate2) > eps) (*this)[1]->values[c] = annoRate2 / genomeRate2;
+        if (fabsf(genomeRate12) > eps) (*this)[2]->values[c] = annoRate12 / genomeRate12;
+    }
 }
 
 void ApproxBayesAPP::AnnoVarEffectsBivariate::sampleFromFC(const MatrixXf &betaMatrix, const VectorXf &nLociAnno) {
@@ -8864,6 +8961,16 @@ void ApproxBayesAPP::AnnoVarEffectsBivariate::sampleFromFC(const MatrixXf &betaM
         
         A_vec[c] = sampleInverseWishart2x2(df_G + nLociAnno[c], scale_tilde);
         Ainv_vec[c] = A_vec[c].inverse();
+    }
+    if (this->size() >= 3) {
+        (*this)[0]->values.setZero(numCategories);
+        (*this)[1]->values.setZero(numCategories);
+        (*this)[2]->values.setZero(numCategories);
+        for (unsigned c = 0; c < numCategories; ++c) {
+            (*this)[0]->values[c] = A_vec[c](0,0);
+            (*this)[1]->values[c] = A_vec[c](1,1);
+            (*this)[2]->values[c] = A_vec[c](0,1);
+        }
     }
 }
 
@@ -9271,7 +9378,7 @@ void ApproxBayesAPP::sampleUnknowns(const unsigned iter) {
     
     // 1. Sample SNP effects (delta and beta) - matching Julia lines 461-599
     snpEffects.sampleFromFC(delta.deltaMatrix, wcorrBlocks, data.Qblocks, whatBlocks,
-                            vareBlk.values, sigmaSq.A_vec, piAnno,
+                            vareBlk.values, sigmaSqAnno.A_vec, piAnno,
                             data.snp2pq, vare.Rinv_blk,
                             data.keptLdBlockInfoVec, nGWASblocks, annoMatIncd);
     
@@ -9296,16 +9403,19 @@ void ApproxBayesAPP::sampleUnknowns(const unsigned iter) {
     }
     // Compute nLociAnno (number of loci per annotation) for the marginal pi
     pi.compute(piAnno, nLociPerAnno);
+    coPolygenicity.compute(piAnno);
+    pleiotropicEffectCorrelation.compute(snpEffects.alphaMatrix, delta.deltaMatrix, snpEffects.betaTotal[0].size, numCategories);
 
     // 6 & 7. Sample marker effect variance (Julia lines 751-760, 789-808)
     if (estimateVara)
-        sigmaSq.sampleFromFC(snpEffects.betaMatrix, nLociPerAnno);
+        sigmaSqAnno.sampleFromFC(snpEffects.betaMatrix, nLociPerAnno);
 
     // 8. Accumulate genetic variance per category across blocks (Julia lines 726-747)
-    varg.accumulate(varBlocks);
+    vargAnno.accumulate(varBlocks);
 
     // 9. Compute total genetic variance, heritability, and global genetic correlation
     vargTotal = varBlocks.computeTotal();
+    enrich.compute(vargAnno, nLociPerAnno, nSnpTotal, vargTotal);
     hsq.compute(vargTotal, vare.R_blk);
     geneticCorrelation.compute(vargTotal);
 

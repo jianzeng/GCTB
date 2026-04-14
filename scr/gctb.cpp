@@ -7,6 +7,7 @@
 //
 
 #include "gctb.hpp"
+#include "mcmc.hpp"
 #include "stat.hpp"
 #include <Eigen/Core>
 #include <cmath>
@@ -39,7 +40,10 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &include
     data.includeMatchedSnp();
     if (data.numAnnos) data.setAnnoInfoVec();
 //    data.makeWindowAnno(annotationFile, 5e5);
-    if (readGenotypes) data.readBedFile(noscale, bedFile + ".bed");
+    if (readGenotypes) {
+        if (!opt.genoTxtFile.empty()) data.readTxtGenotypeFile(noscale, opt.genoTxtFile);
+        else data.readBedFile(noscale, bedFile + ".bed");
+    }
 }
 
 void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &excludeSnpFile, const string &excludeRegionFile, const string &gwasSummaryFile, const string &ldmatrixFile, const unsigned includeChr, const bool excludeAmbiguousSNP, const string &skeletonSnpFile, const string &geneticMapFile, const float genMapN, const string &annotationFile, const bool transpose, const string &continuousAnnoFile, const unsigned flank, const string &eQTLFile, const string &ldscoreFile, const string &windowFile, const bool multiLDmat, const bool excludeMHC, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const float rsqThreshold, const bool sampleOverlap, const bool imputeN, const bool noscale, const bool binSnp, const bool readLDMfromTxtFile){
@@ -179,7 +183,8 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSum
     
     data.readGwasSummaryFile(gwasSummaryFile, afDiff, mafmin, mafmax, pValueThreshold, imputeN, true);
     data.includeMatchedSnp();
-    data.readBedFile(noscale, bedFile + ".bed");
+    if (!opt.genoTxtFile.empty()) data.readTxtGenotypeFile(noscale, opt.genoTxtFile);
+    else data.readBedFile(noscale, bedFile + ".bed");
     data.buildSparseMME(sampleOverlap, noscale);
 }
 
@@ -245,52 +250,62 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
     }
     if (data.numAnnos) {
         if (bayesType == "RC") {
-            data.readBedFile(noscale, bedFile + ".bed");
+            if (!opt.genoTxtFile.empty()) data.readTxtGenotypeFile(noscale, opt.genoTxtFile);
+            else data.readBedFile(noscale, bedFile + ".bed");
             return new BayesRC(data, data.varGenotypic, data.varResidual, data.varRandom, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, estimateRsqEnrich, "Gibbs");
         }
         else
             throw(" Error: Wrong bayes type: " + bayesType + " in the annotation-stratified Bayesian analysis.");
     }
     if (bayesType == "B") {
-        data.readBedFile(noscale, bedFile + ".bed");
+        if (!opt.genoTxtFile.empty()) data.readTxtGenotypeFile(noscale, opt.genoTxtFile);
+        else data.readBedFile(noscale, bedFile + ".bed");
         return new BayesB(data, data.varGenotypic, data.varResidual, data.varRandom, pi, piAlpha, piBeta, estimatePi, noscale);
     }
     if (bayesType == "C") {
-        data.readBedFile(noscale, bedFile + ".bed");
+        if (!opt.genoTxtFile.empty()) data.readTxtGenotypeFile(noscale, opt.genoTxtFile);
+        else data.readBedFile(noscale, bedFile + ".bed");
         return new BayesC(data, data.varGenotypic, data.varResidual, data.varRandom, pi, piAlpha, piBeta, estimatePi, noscale, algorithm);
     } 
     if (bayesType == "R") {
-        data.readBedFile(noscale, bedFile + ".bed");
+        if (!opt.genoTxtFile.empty()) data.readTxtGenotypeFile(noscale, opt.genoTxtFile);
+        else data.readBedFile(noscale, bedFile + ".bed");
         return new BayesR(data, data.varGenotypic, data.varResidual, data.varRandom, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, algorithm);
     }
     else if (bayesType == "S") {
-        data.readBedFile(noscale, bedFile + ".bed");
+        if (!opt.genoTxtFile.empty()) data.readTxtGenotypeFile(noscale, opt.genoTxtFile);
+        else data.readBedFile(noscale, bedFile + ".bed");
         return new BayesS(data, data.varGenotypic, data.varResidual, data.varRandom, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, noscale);
     }
     else if (bayesType == "SMix") {
-        data.readBedFile(noscale, bedFile + ".bed");
+        if (!opt.genoTxtFile.empty()) data.readTxtGenotypeFile(noscale, opt.genoTxtFile);
+        else data.readBedFile(noscale, bedFile + ".bed");
         return new BayesSMix(data, data.varGenotypic, data.varResidual, data.varRandom, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm);
     }
     else if (bayesType == "N") {
-        data.readBedFile(noscale, bedFile + ".bed");
+        if (!opt.genoTxtFile.empty()) data.readTxtGenotypeFile(noscale, opt.genoTxtFile);
+        else data.readBedFile(noscale, bedFile + ".bed");
         data.getNonoverlapWindowInfo(windowWidth);
         return new BayesN(data, data.varGenotypic, data.varResidual, data.varRandom, pi, piAlpha, piBeta, estimatePi, noscale, snpFittedPerWindow);
     }
     else if (bayesType == "NS") {
-        data.readBedFile(noscale, bedFile + ".bed");
+        if (!opt.genoTxtFile.empty()) data.readTxtGenotypeFile(noscale, opt.genoTxtFile);
+        else data.readBedFile(noscale, bedFile + ".bed");
         data.getNonoverlapWindowInfo(windowWidth);
         return new BayesNS(data, data.varGenotypic, data.varResidual, data.varRandom, pi, piAlpha, piBeta, estimatePi, varS, S, snpFittedPerWindow, algorithm);
     }
     else if (bayesType == "RS") {
-        data.readBedFile(noscale, bedFile + ".bed");
+        if (!opt.genoTxtFile.empty()) data.readTxtGenotypeFile(noscale, opt.genoTxtFile);
+        else data.readBedFile(noscale, bedFile + ".bed");
         return new BayesRS(data, data.varGenotypic, data.varResidual, data.varRandom, pis, piPar, gamma, estimatePi, varS, S, noscale, hsqPercModel, algorithm);
     }
     else if (bayesType == "Cap") {
-        //data.readBedFile(bedFile + ".bed");
+        if (!opt.genoTxtFile.empty()) throw("Error: --geno-txt is not supported for Cap because sparse MME construction still requires PLINK BED input.");
         data.buildSparseMME(bedFile + ".bed", windowWidth);
         return new ApproxBayesC(data, data.lowRankModel, data.varGenotypic, data.varResidual, data.varRandom, pi, piAlpha, piBeta, estimatePi, noscale, robustMode);
     }
     else if (bayesType == "Sap") {
+        if (!opt.genoTxtFile.empty()) throw("Error: --geno-txt is not supported for Sap because sparse MME construction still requires PLINK BED input.");
         data.buildSparseMME(bedFile + ".bed", windowWidth);
         return new ApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, noscale);
     }
@@ -615,13 +630,11 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
     // For APP (bivariate), handle output separately
     if (bayesType == "APP") {
         McmcSamples *snpEff1 = NULL, *snpEff2 = NULL, *pip1 = NULL, *pip2 = NULL;
-        vector<McmcSamples*> appPar;
         for (unsigned i = 0; i < mcmcSampleVec.size(); ++i) {
             if (mcmcSampleVec[i]->label == "SnpEffects")  snpEff1 = mcmcSampleVec[i];
             else if (mcmcSampleVec[i]->label == "SnpEffects2") snpEff2 = mcmcSampleVec[i];
-            else if (mcmcSampleVec[i]->label == "PIP")    pip1 = mcmcSampleVec[i];
+            else if (mcmcSampleVec[i]->label == "PIP1" || mcmcSampleVec[i]->label == "PIP") pip1 = mcmcSampleVec[i];
             else if (mcmcSampleVec[i]->label == "PIP2")   pip2 = mcmcSampleVec[i];
-            else appPar.push_back(mcmcSampleVec[i]);
         }
         if (snpEff1 && pip1 && snpEff2 && pip2)
             data.outputBivariateSnpResults(snpEff1->posteriorMean, snpEff1->posteriorSqrMean, pip1->posteriorMean,
@@ -629,7 +642,6 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
                                            noscale, filename + ".snpRes");
         else if (snpEff1 && pip1)
             data.outputSnpResults(snpEff1->posteriorMean, snpEff1->posteriorSqrMean, pip1->posteriorMean, noscale, filename + ".snpRes");
-        for (McmcSamples *s : appPar) s->writeDataTxt(filename);
         return;
     }
 
@@ -1759,6 +1771,11 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
         
         cout << boost::format("%10s %25s %20s\n") % cutoff % cor[i] % rel[i];
 
+        for (unsigned j=0; j<mcmcSampleVeci.size(); ++j) {
+            delete mcmcSampleVeci[j];
+        }
+        delete modeli;
+        mcmcSampleVeci.clear();
     }
     
     data.nGWASblock = nGWASblock;

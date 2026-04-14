@@ -148,6 +148,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             bedFile = argv[++i];
             ss << "--bfile " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--geno-txt")) {
+            genoTxtFile = argv[++i];
+            ss << "--geno-txt " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--pheno")) {
             phenotypeFile = argv[++i];
             ss << "--pheno " << argv[i] << "\n";
@@ -801,6 +805,8 @@ void Options::readFile(const string &file){  // input options from file
     while (in >> key >> value) {
         if (key == "bedFile") {
             bedFile = value;
+        } else if (key == "genoTxtFile") {
+            genoTxtFile = value;
         } else if (key == "phenotypeFile") {
             phenotypeFile = value;
         } else if (key == "mpheno") {

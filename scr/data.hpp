@@ -626,6 +626,7 @@ public:
     void readFamFile(const string &famFile);
     void readBimFile(const string &bimFile);
     void readBedFile(const bool noscale, const string &bedFile);
+    void readTxtGenotypeFile(const bool noscale, const string &genoTxtFile);
     void readPhenotypeFile(const string &phenFile, const unsigned mphen);
     void readCovariateFile(const string &covarFile);
     void readRandomCovariateFile(const string &covarFile);

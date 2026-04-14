@@ -316,6 +316,101 @@ void Data::readBedFile(const bool noscale, const string &bedFile){
     cout << "Genotype data for " << numKeptInds << " individuals and " << numIncdSnps << " SNPs are included from [" + bedFile + "]." << endl;
 }
 
+void Data::readTxtGenotypeFile(const bool noscale, const string &genoTxtFile){
+    if (numIncdSnps == 0) throw ("Error: No SNP is retained for analysis.");
+    if (numKeptInds == 0) throw ("Error: No individual is retained for analysis.");
+
+    Z.resize(numKeptInds, numIncdSnps);
+    ZPZdiag.resize(numIncdSnps);
+    snp2pq.resize(numIncdSnps);
+
+    ifstream in(genoTxtFile.c_str());
+    if (!in) throw ("Error: can not open the file [" + genoTxtFile + "] to read.");
+    cout << "Reading text genotype file from [" + genoTxtFile + "]." << endl;
+
+    VectorXf sum = VectorXf::Zero(numIncdSnps);
+    VectorXi nmiss = VectorXi::Zero(numIncdSnps);
+    string inputStr;
+    string sep(" \t,");
+    Gadget::Tokenizer colData;
+
+    unsigned line = 0;
+    while (getline(in, inputStr)) {
+        if (line >= numInds) {
+            throw ("Error: text genotype file [" + genoTxtFile + "] has more rows than individuals in the FAM file.");
+        }
+
+        colData.getTokens(inputStr, sep);
+        if (colData.size() != numSnps) {
+            throw ("Error: text genotype row " + to_string(static_cast<long long>(line + 1)) + " in [" + genoTxtFile + "] has " +
+                   to_string(static_cast<long long>(colData.size())) + " columns, expected " +
+                   to_string(static_cast<long long>(numSnps)) + " to match the BIM file.");
+        }
+
+        IndInfo *indInfo = indInfoVec[line];
+        if (indInfo->kept) {
+            unsigned snp = 0;
+            for (unsigned j = 0; j < numSnps; ++j) {
+                SnpInfo *snpInfo = snpInfoVec[j];
+                if (!snpInfo->included) continue;
+
+                const string &token = colData[j];
+                if (token == "NA" || token == "." || token == "-9999") {
+                    Z(indInfo->index, snp) = -9999.0f;
+                    ++nmiss[snp];
+                } else {
+                    float genoValue = stof(token);
+                    if (!std::isfinite(genoValue) || genoValue < 0.0f || genoValue > 2.0f) {
+                        throw ("Error: invalid genotype value \"" + token + "\" in [" + genoTxtFile + "] at row " +
+                               to_string(static_cast<long long>(line + 1)) + ", SNP " + snpInfo->ID +
+                               ". Expected 0..2 dosage or missing value NA/./-9.");
+                    }
+                    Z(indInfo->index, snp) = genoValue;
+                    sum[snp] += genoValue;
+                }
+                ++snp;
+            }
+        }
+        ++line;
+    }
+    in.close();
+
+    if (line != numInds) {
+        throw ("Error: text genotype file [" + genoTxtFile + "] has " + to_string(static_cast<long long>(line)) +
+               " rows, expected " + to_string(static_cast<long long>(numInds)) + " to match the FAM file.");
+    }
+
+    unsigned snp = 0;
+    for (unsigned j = 0; j < numSnps; ++j) {
+        SnpInfo *snpInfo = snpInfoVec[j];
+        if (!snpInfo->included) continue;
+
+        const unsigned nobs = numKeptInds - nmiss[snp];
+        if (nobs == 0) {
+            throw ("Error: all retained genotypes are missing for SNP " + snpInfo->ID + " in [" + genoTxtFile + "].");
+        }
+
+        const float mean = sum[snp] / float(nobs);
+        if (nmiss[snp]) {
+            for (unsigned i = 0; i < numKeptInds; ++i) {
+                if (Z(i, snp) == -9999.0f) Z(i, snp) = mean;
+            }
+        }
+
+        snpInfo->af = 0.5f * mean;
+        snp2pq[snp] = snpInfo->twopq = Gadget::calcVariance(Z.col(snp)); //2.0f * snpInfo->af * (1.0f - snpInfo->af);
+
+        Z.col(snp).array() -= mean;
+        if (!noscale) Z.col(snp).array() /= sqrt(snp2pq[snp]);
+        Z.col(snp).array() *= RinverseSqrt.array();
+        ++snp;
+    }
+
+    ZPZdiag = Z.colwise().squaredNorm();
+    cout << "Genotype data for " << numKeptInds << " individuals and " << numIncdSnps
+         << " SNPs are included from [" << genoTxtFile << "]." << endl;
+}
+
 void Data::readPhenotypeFile(const string &phenFile, const unsigned mphen) {
     // NA: missing phenotype
     ifstream in(phenFile.c_str());

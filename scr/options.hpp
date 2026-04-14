@@ -140,6 +140,7 @@ public:
     string covariateFile;
     string randomCovariateFile;
     string bedFile;
+    string genoTxtFile;
     string alleleFreqFile;
     string includeSnpFile;
     string excludeSnpFile;
@@ -289,6 +290,7 @@ public:
         covariateFile           = "";
         randomCovariateFile     = "";
         bedFile                 = "";
+        genoTxtFile             = "";
         alleleFreqFile          = "";
         includeSnpFile          = "";
         excludeSnpFile          = "";

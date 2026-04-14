@@ -2833,6 +2833,7 @@ public:
     
     // Forward declaration
     class AnnoPiBivariate;
+    class AnnoGenotypicVarBivariate;
     
     // 4-state inclusion indicator: [δ₁, δ₂] for each SNP per category
     // Structure: [d1_c1, d2_c1, ..., d_nsnp_c1, d1_c2, d2_c2, ..., d_nsnp_c2, ...] × 2 traits
@@ -2892,6 +2893,7 @@ public:
     // States: 0=[1,1], 1=[1,0], 2=[0,1], 3=[0,0]
     class AnnoPiBivariate : public vector<ParamSet*> {
     public:
+        vector<string> colnames;
         vector<VectorXf> piVec;  // per category: VectorXf(4) with probabilities for [0,0], [1,0], [0,1], [1,1]
         VectorXf alphaVec;  // Dirichlet hyperparameters (size 4)
         unsigned numCategories;
@@ -2899,6 +2901,10 @@ public:
         AnnoPiBivariate(const vector<string> &header, const unsigned nCat):
         numCategories(nCat) {
             alphaVec = VectorXf::Ones(4);
+            colnames = {"PiAnno_00", "PiAnno_10", "PiAnno_01", "PiAnno_11"};
+            for (unsigned i = 0; i < colnames.size(); ++i) {
+                this->push_back(new ParamSet(colnames[i], header));
+            }
             
             for (unsigned c = 0; c < numCategories; ++c) {
                 VectorXf pi_c = VectorXf::Constant(4, 0.25);  // uniform prior
@@ -2930,6 +2936,23 @@ public:
         void compute(const AnnoPiBivariate &piAnno, const VectorXf &nLociAnno);
     };
 
+    class AnnoCoPolygenicity : public ParamSet {
+    public:
+        AnnoCoPolygenicity(const vector<string> &header, const string &lab = "Co_polygenicity"):
+        ParamSet(lab, header) {}
+
+        void compute(const AnnoPiBivariate &piAnno);
+    };
+
+    class AnnoPleiotropicEffectCorrelation : public ParamSet {
+    public:
+        AnnoPleiotropicEffectCorrelation(const vector<string> &header, const string &lab = "Pleiotropic_effect_correlation"):
+        ParamSet(lab, header) {}
+
+        void compute(const MatrixXf &alphaMatrix, const MatrixXf &deltaMatrix, const unsigned nSNPs,
+                     const unsigned numCategories);
+    };
+
     // Per-trait heritability and coheritability between traits
     class HsqBivariate : public vector<Parameter*> {
     public:
@@ -2952,6 +2975,18 @@ public:
         void compute(const Matrix2f &vargTotal);
     };
 
+    class AnnoHsqCohsqEnrichmentBivariate : public vector<ParamSet*> {
+    public:
+        AnnoHsqCohsqEnrichmentBivariate(const vector<string> &header) {
+            this->push_back(new ParamSet("Trait1_Heritability_Enrichment", header));
+            this->push_back(new ParamSet("Trait2_Heritability_Enrichment", header));
+            this->push_back(new ParamSet("Coheritability_Enrichment", header));
+        }
+
+        void compute(const AnnoGenotypicVarBivariate &varg, const VectorXf &nLociPerAnno,
+                     const float nSnpTotal, const Matrix2f &vargTotal);
+    };
+
     // Per-trait SNP PIPs.
     class SnpPIPBivariate : public vector<ParamSet*> {
     public:
@@ -2967,16 +3002,21 @@ public:
     };
 
     // Bivariate marker effect variance matrix (2×2) per annotation category
-    class AnnoVarEffectsBivariate : public vector<Parameter*> {
+    class AnnoVarEffectsBivariate : public vector<ParamSet*> {
     public:
         unsigned numCategories; // number of annotation categories
+        vector<string> colnames;
 
         vector<Matrix2f> A_vec;  // per category: 2×2 covariance matrix
         vector<Matrix2f> Ainv_vec;  // inverse matrices
         
-        AnnoVarEffectsBivariate(const unsigned numCategories, const float varGenotypic1, 
+        AnnoVarEffectsBivariate(const vector<string> &header, const unsigned numCategories, const float varGenotypic1, 
                            const float varGenotypic2, const VectorXf &nLociAnno):
         numCategories(numCategories) {
+            colnames = {"Trait1_SigmaSqAnno", "Trait2_SigmaSqAnno", "Cov_SigmaSqAnno"};
+            for (unsigned i = 0; i < colnames.size(); ++i) {
+                this->push_back(new ParamSet(colnames[i], header));
+            }
             A_vec.resize(numCategories);
             Ainv_vec.resize(numCategories);
             
@@ -3045,10 +3085,15 @@ public:
     // Bivariate genetic variance matrix (2×2) per annotation category
     class AnnoGenotypicVarBivariate : public vector<ParamSet*> {
     public:
+        vector<string> colnames;
         vector<Matrix2f> G_vec;  // per category: 2×2 genetic covariance
         
         AnnoGenotypicVarBivariate(const vector<string> &header, const unsigned numCategories):
         numCategories(numCategories) {
+            colnames = {"Trait1_VargAnno", "Trait2_VargAnno", "Cov_VargAnno"};
+            for (unsigned i = 0; i < colnames.size(); ++i) {
+                this->push_back(new ParamSet(colnames[i], header));
+            }
             G_vec.resize(numCategories);
             for (unsigned c = 0; c < numCategories; ++c) {
                 G_vec[c].setZero();
@@ -3065,13 +3110,19 @@ public:
         unsigned numCategories;
     };
     
+    vector<string> categoryHeaders;
+    vector<string> ldblockHeaders;
+
     SnpEffectsBivariate snpEffects;
     DeltaBivariate delta;
     AnnoPiBivariate piAnno;  // annotation-stratified 4-state inclusion probabilities
     PiBivariate pi;          // marginal 4-state pi across annotations (for output/tracking)
-    AnnoVarEffectsBivariate sigmaSq;
+    AnnoVarEffectsBivariate sigmaSqAnno;
     ResidualVarBivariate vare;
-    AnnoGenotypicVarBivariate varg;
+    AnnoGenotypicVarBivariate vargAnno;
+    AnnoCoPolygenicity coPolygenicity;
+    AnnoPleiotropicEffectCorrelation pleiotropicEffectCorrelation;
+    AnnoHsqCohsqEnrichmentBivariate enrich;
     SnpPIPBivariate snpPip;  // per-trait SNP PIPs [PIP, PIP2]
     HsqBivariate hsq;  // per-trait heritability [hsq1, hsq2]
     GeneticCorrelation geneticCorrelation;  // global rg from vargTotal
@@ -3079,7 +3130,8 @@ public:
     // Precomputed constants (do not change across iterations)
     vector<Vector2f> nGWASblocks;  // per-block bivariate sample sizes
     MatrixXf annoMatIncd;          // annotation matrix for included SNPs only
-    VectorXf nLociPerAnno;         // number of SNPs per annotation category (precomputed)
+    VectorXf nLociPerAnno;         // overlap-adjusted SNP count per annotation category (precomputed)
+    float nSnpTotal;              // overlap-adjusted total SNP count (equals numIncdSnps for binary overlapping annotations)
 
     // Total genetic variance (sum across categories)
     Matrix2f vargTotal;
@@ -3091,17 +3143,19 @@ public:
               const VectorXf &nLociAnno, const bool estPi, const bool estVare,
               const bool estVara, const bool message = true)
     : ApproxBayesC(data, lowrank, varGenotypic1, varResidual1, 0.0, 0.01, 1.0, 1.0, estPi, false, false, false)
+    , categoryHeaders(data.annoNames.size() > 0 ? data.annoNames : vector<string>(1, "Category1"))
+    , ldblockHeaders(data.keptLdBlockInfoVec.size() > 0 ? data.ldblockNames : vector<string>(1, "ResidualVar"))
     , snpEffects(data.snpEffectNames, data.numAnnos > 0 ? data.numAnnos : 1)
     , delta(data.snpEffectNames, data.numAnnos > 0 ? data.numAnnos : 1)
-    , piAnno(data.annoNames.size() > 0 ? data.annoNames : vector<string>(1, "Category1"), 
-             data.numAnnos > 0 ? data.numAnnos : 1)
+    , piAnno(categoryHeaders, data.numAnnos > 0 ? data.numAnnos : 1)
     , pi()
-    , sigmaSq(data.numAnnos > 0 ? data.numAnnos : 1, varGenotypic1, varGenotypic2, 
+    , sigmaSqAnno(categoryHeaders, data.numAnnos > 0 ? data.numAnnos : 1, varGenotypic1, varGenotypic2, 
               nLociAnno.size() > 0 ? nLociAnno : VectorXf::Constant(1, data.numIncdSnps))
-    , vare(data.keptLdBlockInfoVec.size() > 0 ? data.ldblockNames : vector<string>(1, "ResidualVar"), 
-           varResidual1, varResidual2)
-    , varg(data.annoNames.size() > 0 ? data.annoNames : vector<string>(1, "Category1"), 
-           data.numAnnos > 0 ? data.numAnnos : 1)
+    , vare(ldblockHeaders, varResidual1, varResidual2)
+    , vargAnno(categoryHeaders, data.numAnnos > 0 ? data.numAnnos : 1)
+    , coPolygenicity(categoryHeaders)
+    , pleiotropicEffectCorrelation(categoryHeaders)
+    , enrich(categoryHeaders)
     , snpPip(data.snpEffectNames)
     , hsq()
     , geneticCorrelation()
@@ -3144,22 +3198,53 @@ public:
         // Precompute normalised Rinv for first iteration
         vare.normalise(nGWASblocks);
 
-        // Precompute number of SNPs per annotation category
+        // Precompute overlap-adjusted SNP count per annotation category.
+        // For binary overlapping annotations, each SNP contributes 1/c_i to each category it belongs to.
         nLociPerAnno.resize(numCategories);
-        for (unsigned c = 0; c < numCategories; ++c)
-            nLociPerAnno[c] = annoMatIncd.col(c).sum();
+        nLociPerAnno.setZero();
+        nSnpTotal = 0.0f;
+        const float annoTol = 1e-6f;
+        for (unsigned i = 0; i < data.numIncdSnps; ++i) {
+            unsigned numMembership = 0;
+            for (unsigned c = 0; c < numCategories; ++c) {
+                const float x = annoMatIncd(i, c);
+                if (fabsf(x) <= annoTol) continue;
+                if (fabsf(x - 1.0f) <= annoTol) {
+                    ++numMembership;
+                } else {
+                    throw("Error: APP annotation enrichment currently supports binary annotations only.");
+                }
+            }
+            if (!numMembership) {
+                throw("Error: APP annotation enrichment requires each included SNP to belong to at least one annotation category.");
+            }
+            const float wt = 1.0f / float(numMembership);
+            for (unsigned c = 0; c < numCategories; ++c) {
+                if (annoMatIncd(i, c) > 0.5f) nLociPerAnno[c] += wt;
+            }
+            nSnpTotal += wt * float(numMembership);
+        }
 
         // Initialize per-block arrays
         varBlocks.resize(nBlocks, numCategories);
         
         paramSetVec = {&snpEffects.betaTotal[0], snpPip[0], &snpEffects.betaTotal[1], snpPip[1], &vare};
         paramSetVec.insert(paramSetVec.end(), piAnno.begin(), piAnno.end());
-        paramSetVec.insert(paramSetVec.end(), varg.begin(), varg.end());
+        paramSetVec.insert(paramSetVec.end(), sigmaSqAnno.begin(), sigmaSqAnno.end());
+        paramSetVec.insert(paramSetVec.end(), vargAnno.begin(), vargAnno.end());
+        paramSetVec.push_back(&coPolygenicity);
+        paramSetVec.push_back(&pleiotropicEffectCorrelation);
+        paramSetVec.insert(paramSetVec.end(), enrich.begin(), enrich.end());
         paramVec = {&nnzSnp};
         paramVec.insert(paramVec.end(), hsq.begin(), hsq.end());
         paramVec.insert(paramVec.end(), geneticCorrelation.begin(), geneticCorrelation.end());
         paramVec.insert(paramVec.end(), pi.begin(), pi.end());    // marginal Pi_00, Pi_01, Pi_10, Pi_11
-        paramVec.insert(paramVec.end(), sigmaSq.begin(), sigmaSq.end());
+        paramSetToPrint.insert(paramSetToPrint.end(), piAnno.begin(), piAnno.end());
+        paramSetToPrint.insert(paramSetToPrint.end(), sigmaSqAnno.begin(), sigmaSqAnno.end());
+        paramSetToPrint.insert(paramSetToPrint.end(), vargAnno.begin(), vargAnno.end());
+        paramSetToPrint.push_back(&coPolygenicity);
+        paramSetToPrint.push_back(&pleiotropicEffectCorrelation);
+        paramSetToPrint.insert(paramSetToPrint.end(), enrich.begin(), enrich.end());
         paramToPrint = {&nnzSnp};
         paramToPrint.insert(paramToPrint.end(), pi.begin(), pi.end());
         paramToPrint.insert(paramToPrint.end(), hsq.begin(), hsq.end());
