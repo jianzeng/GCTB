@@ -330,6 +330,7 @@ void Data::readTxtGenotypeFile(const bool noscale, const string &genoTxtFile){
 
     VectorXf sum = VectorXf::Zero(numIncdSnps);
     VectorXi nmiss = VectorXi::Zero(numIncdSnps);
+    vector<char> dosageLike(numIncdSnps, 1);
     string inputStr;
     string sep(" \t,");
     Gadget::Tokenizer colData;
@@ -360,11 +361,12 @@ void Data::readTxtGenotypeFile(const bool noscale, const string &genoTxtFile){
                     ++nmiss[snp];
                 } else {
                     float genoValue = stof(token);
-                    if (!std::isfinite(genoValue) || genoValue < 0.0f || genoValue > 2.0f) {
+                    if (!std::isfinite(genoValue)) {
                         throw ("Error: invalid genotype value \"" + token + "\" in [" + genoTxtFile + "] at row " +
                                to_string(static_cast<long long>(line + 1)) + ", SNP " + snpInfo->ID +
-                               ". Expected 0..2 dosage or missing value NA/./-9.");
+                               ". Expected a finite numeric value or missing value NA/./-9999.");
                     }
+                    if (genoValue < 0.0f || genoValue > 2.0f) dosageLike[snp] = 0;
                     Z(indInfo->index, snp) = genoValue;
                     sum[snp] += genoValue;
                 }
@@ -397,7 +399,8 @@ void Data::readTxtGenotypeFile(const bool noscale, const string &genoTxtFile){
             }
         }
 
-        snpInfo->af = 0.5f * mean;
+        if (dosageLike[snp]) snpInfo->af = 0.5f * mean;
+        else snpInfo->af = 0.5f;
         snp2pq[snp] = snpInfo->twopq = Gadget::calcVariance(Z.col(snp)); //2.0f * snpInfo->af * (1.0f - snpInfo->af);
 
         Z.col(snp).array() -= mean;

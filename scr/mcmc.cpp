@@ -8,6 +8,12 @@
 
 #include "mcmc.hpp"
 
+static inline bool skipPosteriorTextOutput(const string &label) {
+    return label.find("Delta") != string::npos ||
+           label.find("PEP") != string::npos ||
+           label.find("PIP") != string::npos;
+}
+
 void McmcSamples::getParSample(const unsigned iter, const Parameter* par){
     if (iter % thin || iter <= burnin) return;
     ++cntPosteriorSample;
@@ -324,6 +330,7 @@ void MCMC::initTxtFile(const vector<Parameter*> &paramVec, const string &title){
     }
     for (unsigned i=0; i<paramVec.size(); ++i) {
         Parameter *par = paramVec[i];
+        if (skipPosteriorTextOutput(par->label)) continue;
         out << boost::format("%12s ") %par->label;
     }
     out << endl;
@@ -341,10 +348,8 @@ vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned nu
             } else {
                 mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "do_not_store", "no_output", title);
             }
-//        } else if (parSet->label.find("Delta") != string::npos) {
-//            mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "do_not_store", "no_output", title);
         } else {
-            if (writeTxtPosterior) {
+            if (writeTxtPosterior && !skipPosteriorTextOutput(parSet->label)) {
                 mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "do_not_store", "txt", title);
             } else {
                 mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "do_not_store", "no_output", title);
@@ -354,7 +359,8 @@ vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned nu
     }
     for (unsigned i=0; i<model.paramVec.size(); ++i) {
         Parameter *par = model.paramVec[i];
-        McmcSamples *mcmcSamples = new McmcSamples(par->label, numChains, chainLength, burnin, thin, 1, "do_not_store", "txt_combine_others", title);
+        const string outputMode = (writeTxtPosterior && !skipPosteriorTextOutput(par->label)) ? "txt_combine_others" : "no_output";
+        McmcSamples *mcmcSamples = new McmcSamples(par->label, numChains, chainLength, burnin, thin, 1, "do_not_store", outputMode, title);
         mcmcSampleVec.push_back(mcmcSamples);
     }
     if (writeTxtPosterior) initTxtFile(model.paramVec, title);
@@ -379,6 +385,9 @@ void MCMC::outputSamples(vector<McmcSamples*> &mcmcSampleVec, const unsigned num
     for (unsigned chain=0; chain<numChains; ++chain) {
         for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
             McmcSamples *mcmcSamples = mcmcSampleVec[i];
+            if (mcmcSamples->label.find("Delta") != string::npos ||
+                mcmcSamples->label.find("PEP") != string::npos ||
+                mcmcSamples->label.find("PIP") != string::npos) continue;
             mcmcSamples->outputSample(chain, out);
         }
     }

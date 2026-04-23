@@ -20,7 +20,7 @@ int main(int argc, const char * argv[]) {
     cout << "* GCTB 2.5.5.5                                          *\n";
     cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
     cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
-    cout << "* Last updated: 12 Dec, 2025                            *\n";
+    cout << "* Last updated: 23 Apr, 2026                            *\n";
     cout << "* MIT License                                           *\n";
     cout << "*********************************************************\n";
     
@@ -442,7 +442,13 @@ int main(int argc, const char * argv[]) {
         }
         else if (opt.analysisType == "Print") {
             if (!opt.eigenMatrixFile.empty()) {
-                data.readEigenMatrix(opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff(), true, true, opt.title);
+                if (opt.includeBlock) {
+                    data.readBlockLdmInfoFile(opt.eigenMatrixFile, opt.includeBlock);
+                    data.readBlockLdmSnpInfoFile(opt.eigenMatrixFile, opt.includeBlock);
+                    data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff(), true, opt.title);
+                } else {
+                    data.readEigenMatrix(opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff(), true, true, opt.title);
+                }
             }
         }
         else if (opt.analysisType == "Predict") {
