@@ -637,6 +637,8 @@ public:
     void readLDmatrixInfoFile(const string &ldmatrixFile);
     void readLDmatrixBinFile(const string &ldmatrixFile);
     void readLDmatrixTxtFile(const string &ldmatrixFile);
+    static void normaliseDenseCorrelation(MatrixXf &ldm);
+    void normaliseStoredCorrelationLD();
     void readGeneticMapFile(const string &freqFile);
     void readfreqFile(const string &geneticMapFile);
     void readGeneMapFile(const string &geneMapFile, const int flank, const string &genomeBuild);

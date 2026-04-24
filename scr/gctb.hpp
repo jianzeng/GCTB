@@ -50,6 +50,7 @@ public:
     void truncBlockEigen(float cutShresh=1e-6);
     
     void inputSnpInfo(Data &data, const string &bedFile, const string &gwasSummaryFile, const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const bool sampleOverlap, const bool imputeN, const bool noscale);
+    void inputBlockLdmSnpInfoForEigen(Data &data, const Options &opt);
 
     Model* buildModel(Data &data, const Options &opt, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
                       const float heritability, const float propVarRandom, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const bool noscale,

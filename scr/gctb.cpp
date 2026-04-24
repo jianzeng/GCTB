@@ -188,6 +188,24 @@ void GCTB::inputSnpInfo(Data &data, const string &bedFile, const string &gwasSum
     data.buildSparseMME(sampleOverlap, noscale);
 }
 
+void GCTB::inputBlockLdmSnpInfoForEigen(Data &data, const Options &opt){
+    data.readBlockLdmInfoFile(opt.ldmatrixFile, opt.includeBlock);
+    data.readBlockLdmSnpInfoFile(opt.ldmatrixFile, opt.includeBlock);
+    if (!opt.includeSnpFile.empty()) data.includeSnp(opt.includeSnpFile);
+    if (!opt.excludeSnpFile.empty()) data.excludeSnp(opt.excludeSnpFile);
+    if (opt.includeChr) data.includeChr(opt.includeChr);
+    if (opt.excludeAmbiguousSNP) data.excludeAmbiguousSNP();
+    if (!opt.excludeRegionFile.empty()) data.excludeRegion(opt.excludeRegionFile);
+    if (opt.excludeMHC) data.excludeMHC();
+    if (!opt.annotationFile.empty())
+        data.readAnnotationFile(opt.annotationFile, opt.transpose, true);
+    else if (!opt.continuousAnnoFile.empty())
+        data.readAnnotationFileFormat2(opt.continuousAnnoFile, opt.flank*1000, opt.eQTLFile);
+    if (!opt.ldscoreFile.empty()) data.readLDscoreFile(opt.ldscoreFile);
+    data.readGwasSummaryFile(opt.gwasSummaryFile, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.imputeN, true);
+    data.includeMatchedSnp();
+}
+
 Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, const string &gwasFile, const string &bayesType, const unsigned windowWidth,
                         const float heritability, const float propVarRandom, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const bool noscale,
                         const VectorXf &pis, const VectorXf &piPar, const VectorXf &gamma, const bool estimateSigmaSq,

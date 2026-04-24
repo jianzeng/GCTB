@@ -19,6 +19,94 @@ bool SnpInfo::isProximal(const SnpInfo &snp2, const unsigned physWindow) const {
     return chrom == snp2.chrom && abs(physPos - snp2.physPos) < physWindow;
 }
 
+static VectorXf makeInvSqrtDiag(const VectorXf &diag, const string &context) {
+    VectorXf invSqrtDiag(diag.size());
+    for (int i = 0; i < diag.size(); ++i) {
+        const float value = diag[i];
+        if (!std::isfinite(value) || value <= 0.0f) {
+            throw("Error: cannot normalise LD diagonal in " + context +
+                  " because diagonal entry " + to_string(static_cast<long long>(i + 1)) +
+                  " is not a positive finite value.");
+        }
+        invSqrtDiag[i] = 1.0f / sqrt(value);
+    }
+    return invSqrtDiag;
+}
+
+void Data::normaliseDenseCorrelation(MatrixXf &ldm) {
+    if (ldm.rows() != ldm.cols()) {
+        throw("Error: can only normalise square LD matrices to unit diagonal.");
+    }
+    if (ldm.rows() == 0) return;
+
+    const VectorXf invSqrtDiag = makeInvSqrtDiag(ldm.diagonal(), "dense LD matrix");
+    for (int i = 0; i < ldm.rows(); ++i) ldm.row(i) *= invSqrtDiag[i];
+    for (int j = 0; j < ldm.cols(); ++j) ldm.col(j) *= invSqrtDiag[j];
+
+    ldm = 0.5f * (ldm + ldm.transpose());
+    ldm.diagonal().setOnes();
+}
+
+void Data::normaliseStoredCorrelationLD() {
+    if (ZPZdiag.size() == 0) return;
+
+    const VectorXf invSqrtDiag = makeInvSqrtDiag(ZPZdiag, "stored LD matrix");
+    ZPZdiag.setOnes();
+
+    if (sparseLDM) {
+        for (unsigned i = 0; i < numIncdSnps; ++i) {
+            SnpInfo *snpi = incdSnpInfoVec[i];
+            snpi->ldSamplVar = 0.0f;
+            snpi->ldSum = 0.0f;
+            if (!readLDscore) snpi->ldsc = 0.0f;
+
+            bool foundDiag = false;
+            for (SparseVector<float>::InnerIterator it(ZPZsp[i]); it; ++it) {
+                float value = it.value() * invSqrtDiag[i] * invSqrtDiag[it.index()];
+                if (it.index() == static_cast<int>(i)) {
+                    value = 1.0f;
+                    foundDiag = true;
+                }
+                it.valueRef() = value;
+
+                const float rsq = value * value;
+                snpi->ldSamplVar += (1.0f - rsq) * (1.0f - rsq) / snpi->sampleSize;
+                snpi->ldSum += value;
+                if (!readLDscore) snpi->ldsc += rsq;
+            }
+            if (!foundDiag) {
+                throw("Error: sparse LD matrix row for SNP " + snpi->ID + " does not contain a diagonal entry.");
+            }
+        }
+    } else {
+        for (unsigned i = 0; i < numIncdSnps; ++i) {
+            SnpInfo *snpi = incdSnpInfoVec[i];
+            snpi->ldSamplVar = 0.0f;
+            snpi->ldSum = 0.0f;
+            if (!readLDscore) snpi->ldsc = 0.0f;
+
+            bool foundDiag = false;
+            for (unsigned j = 0; j < windSize[i]; ++j) {
+                const unsigned globalIdx = windStart[i] + j;
+                float value = ZPZ[i][j] * invSqrtDiag[i] * invSqrtDiag[globalIdx];
+                if (globalIdx == i) {
+                    value = 1.0f;
+                    foundDiag = true;
+                }
+                ZPZ[i][j] = value;
+
+                const float rsq = value * value;
+                snpi->ldSamplVar += (1.0f - rsq) * (1.0f - rsq) / snpi->sampleSize;
+                snpi->ldSum += value;
+                if (!readLDscore) snpi->ldsc += rsq;
+            }
+            if (!foundDiag) {
+                throw("Error: LD matrix row for SNP " + snpi->ID + " does not contain a diagonal entry.");
+            }
+        }
+    }
+}
+
 void AnnoInfo::getSnpInfo() {
     vector<SnpInfo*> incdSnpVec;
     unsigned numIncdSnps = 0;
@@ -2526,6 +2614,8 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
 
     MatrixXf denseZPZ;
     denseZPZ.setZero(numSnpInRange, numIncdSnps);
+    VectorXf colDiag(numIncdSnps);
+    colDiag.setZero();
     VectorXf Zk(numKeptInds);
     D.setZero(numIncdSnps);
     
@@ -2607,6 +2697,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
             Zk = (Zk.array() - Zk.mean())/sqrt(D[inck]);
 //            Zk = (Zk.array() - mean)/sqrt(D[inck]);
             
+            colDiag[inck] = Zk.squaredNorm();
             denseZPZ.col(inck) = ZP * Zk;
 
 //            cout << " inck " << inck << " snpk " << k << " chr " << snpk->chrom << " " << ZP*Zk << endl;
@@ -2676,6 +2767,7 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
             Zk = (Zk.array() - Zk.mean())/sqrt(D[inck]);
 //            Zk = (Zk.array() - mean)/sqrt(D[inck]);
             
+            colDiag[inck] = Zk.squaredNorm();
             denseZPZ.col(inck) = ZP * Zk;
             
 //            // Jackknife estimate of correlation and sampling variance
@@ -2693,6 +2785,12 @@ void Data::makeLDmatrix(const string &bedFile, const string &LDmatType, const fl
     }
 
     fclose(in2);
+
+    const VectorXf invSqrtDiag = makeInvSqrtDiag(colDiag, "newly built LD matrix");
+    for (unsigned i = 0; i < numSnpInRange; ++i) denseZPZ.row(i) *= invSqrtDiag[start + i];
+    for (unsigned j = 0; j < numIncdSnps; ++j) denseZPZ.col(j) *= invSqrtDiag[j];
+    for (unsigned i = 0; i < numSnpInRange; ++i) denseZPZ(i, start + i) = 1.0f;
+    ZPZdiag.setOnes(numSnpInRange);
     
 //    cout << "denseZPZ " << endl << denseZPZ.block(0, 0, 10, 10) << endl;
     
@@ -3271,6 +3369,8 @@ void Data::readLDmatrixBinFile(const string &ldmatrixFile){
     }
     
     fclose(in);
+
+    normaliseStoredCorrelationLD();
     
     timer.getTime();
     
@@ -6269,6 +6369,9 @@ void Data::readLDmatrixTxtFile(const string &ldmatrixFile) {
     }
     
     in.close();
+
+    sparseLDM = false;
+    normaliseStoredCorrelationLD();
     
     timer.getTime();
     

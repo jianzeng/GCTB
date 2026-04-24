@@ -17,7 +17,7 @@ using namespace std;
 int main(int argc, const char * argv[]) {
     
     cout << "*********************************************************\n";
-    cout << "* GCTB 2.5.5.5                                          *\n";
+    cout << "* GCTB 2.5.5.6                                          *\n";
     cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
     cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
     cout << "* Last updated: 23 Apr, 2026                            *\n";
@@ -155,14 +155,7 @@ int main(int argc, const char * argv[]) {
             readGenotypes = false;
             if (opt.eigenMatrixFile.empty()) { // perform eigen decomposition for the blocked LD matrices
                 if (!opt.gwasSummaryFile.empty()) { // match LD ref SNPs with GWAS SNPs
-                    gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile,
-                                      opt.gwasSummaryFile, opt.ldmatrixFile, opt.ldBlockInfoFile,
-                                      opt.includeChr, opt.excludeAmbiguousSNP,
-                                      opt.annotationFile, opt.transpose,
-                                      opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile,
-                                      opt.eigenCutoff.maxCoeff(), opt.excludeMHC,
-                                      opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
-                                      opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.keepSumstatIntactFile, opt.includeBlock, opt.skipSnpFile, opt.setZeroGwasForSkip, false);
+                    gctb.inputBlockLdmSnpInfoForEigen(data, opt);
                     data.resizeBlockLDmatrixAndDoEigenDecomposition(opt.ldmatrixFile, opt.eigenCutoff.maxCoeff(), 0.5, opt.title, opt.writeLdmTxt);
                 } else {
                     //gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.mafmin, opt.mafmax, opt.noscale, readGenotypes);

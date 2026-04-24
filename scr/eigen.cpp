@@ -507,6 +507,7 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
         if(!i) cout << "Reading PLINK BED file from [" + bedFile + "] in SNP-major format ..." << endl;
             
         MatrixXf rval = generateLDmatrixPerBlock(bedFile, ldblock->snpNameVec);
+        normaliseDenseCorrelation(rval);
         
 //        unsigned numSnpInBlock = ldblock->numSnpInBlock;
 //        uint64_t nElements = (uint64_t) numSnpInBlock * (uint64_t) numSnpInBlock;
@@ -603,6 +604,7 @@ void Data::makeBlockLDmatrixFromEigen(const string &eigenDirname, const float ei
         string pwldfilename = dirname + "/block" + ldblock->ID + ".rsq0.5.pwld";  // pairwise LD file
         
         MatrixXf rval = eigenVecLdBlock[i] * eigenValLdBlock[i].asDiagonal() * eigenVecLdBlock[i].transpose();
+        normaliseDenseCorrelation(rval);
         
         unsigned numSnpInBlock = ldblock->numSnpInBlock;
         for (unsigned row = 0; row < numSnpInBlock; ++row) {
@@ -1934,6 +1936,7 @@ bool Data::buildSubmatrixLdFromEigenFactors(
         U_K.row((int)a) = Uuse.row((int)kept[a]);
 
     RssOut = U_K * lambdaUse.asDiagonal() * U_K.transpose();
+    normaliseDenseCorrelation(RssOut);
     return true;
 }
 
@@ -3941,6 +3944,7 @@ void Data::readBlockLDmatrix(const string &dirname, const string &blockID, const
     }
 
     fclose(fp);
+    normaliseDenseCorrelation(ldm);
 }
 
 void Data::convertToBlockTriangularMatrix(const string &inDirname, const bool writeLdmTxt, const string &outDirname){
