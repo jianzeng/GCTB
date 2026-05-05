@@ -7,6 +7,7 @@
 //
 
 #include "model.hpp"
+#include <algorithm>
 
 
 void BayesC::FixedEffects::sampleFromFC(VectorXf &ycorr, const MatrixXf &X,
@@ -6573,6 +6574,10 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks
 //    
 //}
 
+static bool ldmapSnpKeyLess(const SnpInfo *a, const SnpInfo *b) {
+    return a->index < b->index;
+}
+
 void ApproxBayesRC::SnpEffects::sampleFromTGS_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                                                     const map<SnpInfo*, vector<SnpInfo*> > &LDmap, const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                                     const MatrixXf &snpPi, const VectorXf &gamma, const float varg,
@@ -6592,11 +6597,25 @@ void ApproxBayesRC::SnpEffects::sampleFromTGS_eigen(vector<VectorXf> &wcorrBlock
     ArrayXf logWtdSigmaSq = wtdSigmaSq.log();
     
 //    cout << "LDmap size " << LDmap.size() << endl;
-    unsigned cnt_tmp = 0;
+    // unsigned cnt_tmp = 0;
     
-    map<SnpInfo*, vector<SnpInfo*> >::const_iterator it, end = LDmap.end();
-    for (it = LDmap.begin(); it != end; ++it) {
-        SnpInfo *snpInfo = it->first;
+    // map<SnpInfo*, vector<SnpInfo*> >::const_iterator it, end = LDmap.end();
+    // for (it = LDmap.begin(); it != end; ++it) {
+    //     SnpInfo *snpInfo = it->first;
+    // LDmap is std::map<SnpInfo*, ...>: iteration order follows raw pointer order, not SNP
+    // index. That makes TGS update order depend on heap/layout and breaks reproducibility.
+    vector<SnpInfo*> ldmapOrderedKeys;
+    ldmapOrderedKeys.reserve(LDmap.size());
+    map<SnpInfo*, vector<SnpInfo*> >::const_iterator ldIt, ldEnd = LDmap.end();
+    for (ldIt = LDmap.begin(); ldIt != ldEnd; ++ldIt) {
+        ldmapOrderedKeys.push_back(ldIt->first);
+    }
+    sort(ldmapOrderedKeys.begin(), ldmapOrderedKeys.end(), ldmapSnpKeyLess);
+
+    for (unsigned ik = 0; ik < ldmapOrderedKeys.size(); ++ik) {
+        SnpInfo *snpInfo = ldmapOrderedKeys[ik];
+        map<SnpInfo*, vector<SnpInfo*> >::const_iterator it = LDmap.find(snpInfo);
+        if (it == LDmap.end()) continue;
         if (snpInfo->fitAsFixedEffect) continue;
         unsigned snpIdx = snpInfo->index;
                 
@@ -9220,7 +9239,8 @@ void ApproxBayesAPP::SnpEffectsBivariate::sampleFromFC(MatrixXf &deltaMatrix, ve
         for (unsigned i = 0; i < nMarkerb; ++i) {
             markerOrder.push_back(i);
         }
-        random_shuffle(markerOrder.begin(), markerOrder.end());
+        std::mt19937 markerRng(static_cast<uint32_t>(Stat::engine()));
+        std::shuffle(markerOrder.begin(), markerOrder.end(), markerRng);
         
         // Initialize xArrayc/xpxc (Julia lines 502-503)
         MatrixXf xArrayc = xArray_dict[blk][0];
@@ -9301,7 +9321,8 @@ void ApproxBayesAPP::SnpEffectsBivariate::sampleFromFC(MatrixXf &deltaMatrix, ve
                     
                     // Sample delta and beta for each trait (Julia lines 539-578)
                     vector<unsigned> traitOrder = {0, 1};
-                    random_shuffle(traitOrder.begin(), traitOrder.end());
+                    std::mt19937 traitRng(static_cast<uint32_t>(Stat::engine()));
+                    std::shuffle(traitOrder.begin(), traitOrder.end(), traitRng);
                     
                     Vector2f newAlpha = oldAlpha;
                     

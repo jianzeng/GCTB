@@ -148,22 +148,23 @@ vector<int> Gadget::shuffle_index(const int start, const int end){
 }
 
 void Gadget::shuffle_vector(vector<int> &vec){
-    // Get a random integer using Boost random generator (which has been seeded)
-    constexpr int max_integer = std::numeric_limits<int>::max();
-    int random_integer = static_cast<int>(Stat::ranf() * max_integer);
-    
-    // Create a thread-local random number generator
-    thread_local std::mt19937 rng(random_integer);
-
-    // Shuffle using the thread-local RNG
+    // Use a call-local RNG seeded from the shared Stat engine to avoid
+    // hidden thread-local state that can diverge between runs.
+    std::mt19937 rng(static_cast<uint32_t>(Stat::engine()));
     std::shuffle(vec.begin(), vec.end(), rng);
 }
 
 void Gadget::removeSecondElement(VectorXf &vec){
-    // Erase the second element (index 1)
-    vec.segment(1, vec.size() - 1) = vec.segment(2, vec.size() - 2);
+    if (vec.size() <= 1) {
+        return;
+    }
 
-    // Resize the vector to one less element
+    // Shift elements left only when there are elements after index 1.
+    if (vec.size() > 2) {
+        vec.segment(1, vec.size() - 2) = vec.segment(2, vec.size() - 2);
+    }
+
+    // Resize the vector to one less element.
     vec.conservativeResize(vec.size() - 1);
 }
 

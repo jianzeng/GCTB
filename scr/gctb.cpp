@@ -343,7 +343,9 @@ void GCTB::findBestFitModel(Data &data, Options &opt){
         throw(" Error: --n-dist-auto is available only in R or RC model. Current model is " + opt.bayesType + ".");
     }
     data.initVariances(opt.heritability, opt.propVarRandom);
-    
+    Stat::logRngCheckpoint("findBestFitModel_after_initVariances");
+
+    Stat::logRngCheckpoint("findBestFitModel_before_MultiModelSBayesR");
     MultiModelSBayesR model(data, opt);
     
     unsigned numChains = 1;
@@ -355,6 +357,7 @@ void GCTB::findBestFitModel(Data &data, Options &opt){
     
     MCMC mcmc;
     vector<McmcSamples*> mcmcSampleVec = mcmc.run(model, numChains, chainLength, burnin, opt.thin, print, opt.outputFreq, opt.title, writeBinPosterior, writeTxtPosterior);
+    Stat::logRngCheckpoint("findBestFitModel_after_joint_model_MCMC");
 
     vector<float> hsqMeanVec;
     vector<float> hsqSDVec;

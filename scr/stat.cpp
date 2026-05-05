@@ -8,9 +8,29 @@
 
 #include "stat.hpp"
 #include <cmath>
+#include <cstdlib>
+#include <iostream>
 #include <limits>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
+thread_local unsigned long long Stat::rngDrawCount = 0;
+
+Stat::CountedMt19937::CountedMt19937() : impl_() {}
+Stat::CountedMt19937::CountedMt19937(result_type s) : impl_(s) {}
+void Stat::CountedMt19937::seed(result_type s) { impl_.seed(s); }
+Stat::CountedMt19937::result_type Stat::CountedMt19937::operator()() {
+    ++rngDrawCount;
+    return impl_();
+}
+
+thread_local Stat::random_engine Stat::engine;
+thread_local Stat::uniform01_generator Stat::ranf(Stat::engine, Stat::uniform_01());
+thread_local Stat::normal_generator Stat::snorm(Stat::engine, Stat::normal_distribution(0,1));
 
 void Stat::seedEngine(const int seed){
+    rngDrawCount = 0;
     if (seed) {
         srand(seed);
         engine.seed(seed);
@@ -18,6 +38,16 @@ void Stat::seedEngine(const int seed){
         srand((int)time(NULL));
         engine.seed((int)time(NULL));
     }
+}
+
+void Stat::logRngCheckpoint(const char *label) {
+    if (!std::getenv("GCTB_DEBUG_RNG")) return;
+    int tid = 0;
+#ifdef _OPENMP
+    tid = omp_get_thread_num();
+#endif
+    std::cerr << "[GCTB_DEBUG_RNG] " << (label ? label : "(null)")
+              << " omp_tid=" << tid << " rng_draws=" << rngDrawCount << std::endl;
 }
 
 double Stat::Normal::sample(const double mean, const double variance){

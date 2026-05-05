@@ -7,6 +7,9 @@
 //
 
 #include "mcmc.hpp"
+#include "stat.hpp"
+#include <cstdio>
+#include <cstdlib>
 
 static inline bool skipPosteriorTextOutput(const string &label) {
     return label.find("Delta") != string::npos ||
@@ -571,6 +574,7 @@ void MCMC::printSnpAnnoMembership(const vector<ParamSet *> &paramSetToPrint, con
 
 vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const bool print,
                                const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
+    Stat::logRngCheckpoint("MCMC_run_enter");
     if (print) {
         cout << "MCMC launched ..." << endl;
         cout << "  Number of chains: " << numChains << endl;
@@ -586,6 +590,7 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
     }
 
     vector<McmcSamples*> mcmcSampleVec = initMcmcSamples(model, numChains, chainLength, burnin, thin, title, writeBinPosterior, writeTxtPosterior);
+    Stat::logRngCheckpoint("MCMC_after_init_samples");
     
     Gadget::Timer timer;
     timer.setTime();
@@ -594,6 +599,12 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
         unsigned thisIter = iteration + 1;
         
         model.sampleUnknowns(thisIter);
+        if (std::getenv("GCTB_DEBUG_RNG") &&
+            (thisIter <= 5u || (thisIter % 10u) == 0u || thisIter == chainLength)) {
+            char buf[96];
+            std::snprintf(buf, sizeof(buf), "MCMC_after_sampleUnknowns_iter_%u", thisIter);
+            Stat::logRngCheckpoint(buf);
+        }
         
         collectSamples(model, mcmcSampleVec, thisIter);
         
@@ -623,6 +634,8 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
         printSetSummary(model.paramSetToPrint, mcmcSampleVec, numChains, title + ".parSetRes", title + ".enrich");
         printSnpAnnoMembership(model.paramSetToPrint, mcmcSampleVec, title + ".snpAnnoMembership");
     }
+
+    Stat::logRngCheckpoint("MCMC_run_exit");
 
     ///TMP
 //    ofstream tmpOut;

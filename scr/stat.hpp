@@ -21,8 +21,22 @@ using namespace Eigen;
 
 
 namespace Stat {
-    
-    typedef boost::mt19937 random_engine;
+
+    /// Wraps boost::mt19937 and counts every RNG engine draw (for reproducibility debugging).
+    /// Enable checkpoints with environment variable GCTB_DEBUG_RNG=1.
+    class CountedMt19937 {
+        boost::mt19937 impl_;
+    public:
+        typedef boost::mt19937::result_type result_type;
+        CountedMt19937();
+        explicit CountedMt19937(result_type s);
+        static result_type min BOOST_PREVENT_MACRO_SUBSTITUTION () { return (boost::mt19937::min)(); }
+        static result_type max BOOST_PREVENT_MACRO_SUBSTITUTION () { return (boost::mt19937::max)(); }
+        void seed(result_type s);
+        result_type operator()();
+    };
+
+    typedef CountedMt19937 random_engine;
     typedef boost::uniform_01<> uniform_01;
     typedef boost::normal_distribution<> normal_distribution;
     typedef boost::gamma_distribution<> gamma_distribution;
@@ -33,11 +47,14 @@ namespace Stat {
     typedef boost::variate_generator<random_engine&, normal_distribution> normal_generator;
     typedef boost::variate_generator<random_engine&, gamma_distribution> gamma_generator;
     
-    static thread_local random_engine engine;
-    static thread_local uniform01_generator ranf(engine, uniform_01());
-    static thread_local normal_generator snorm(engine, normal_distribution(0,1));  // standard normal
+    extern thread_local random_engine engine;
+    extern thread_local uniform01_generator ranf;
+    extern thread_local normal_generator snorm;  // standard normal
     
     void seedEngine(const int seed);
+
+    extern thread_local unsigned long long rngDrawCount;
+    void logRngCheckpoint(const char *label);
     
     class Normal {
     public:

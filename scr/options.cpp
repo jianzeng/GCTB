@@ -785,7 +785,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
         throw("Error: Chain length is smaller than burn-in!");
     }
     if (chainLength < thin) thin = 1;
-    
+
     cout << ss.str() << endl;
     
     setThread();

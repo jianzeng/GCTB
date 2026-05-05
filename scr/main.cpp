@@ -7,6 +7,7 @@
 //
 
 #include <iostream>
+#include <omp.h>
 #include "gctb.hpp"
 #include "xci.hpp"
 #include "vgmaf.hpp"
@@ -37,9 +38,10 @@ int main(int argc, const char * argv[]) {
         
         Options opt;
         opt.inputOptions(argc, argv);
-        
+
         if (opt.seed) Stat::seedEngine(opt.seed);
         else          Stat::seedEngine(011415);  // fix the random seed if not given due to the use of MPI
+        Stat::logRngCheckpoint("main_after_seedEngine");
         
 //        cout << "==========" << opt.seed << " " << Stat::ranf() << " " << Stat::snorm() << endl;
         
@@ -268,6 +270,8 @@ int main(int argc, const char * argv[]) {
                 data.readFixedEffectSnpFile(opt.fitSnpsAsFixedEffectsFile);
             
             data.label = opt.title;
+            Stat::logRngCheckpoint("SBayesGWFM_after_data_ready");
+            Stat::logRngCheckpoint("SBayesGWFM_before_ndist_auto");
 //            if (opt.numChains > 1) {
 //                vector<McmcSamples*> mcmcSampleVec = gctb.multi_chain_mcmc(data, opt.bayesType, opt.windowWidth, opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.pis, opt.gamma, opt.phi, opt.kappa, opt.algorithm, opt.snpFittedPerWindow, opt.varS, opt.S, opt.overdispersion, opt.estimatePS, opt.icrsq, opt.spouseCorrelation, opt.diagnosticMode, opt.robustMode, opt.numChains, opt.chainLength, opt.burnin, opt.thin, opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
 //                if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.bayesType, opt.noscale, opt.title);
@@ -287,6 +291,7 @@ int main(int argc, const char * argv[]) {
                     gctb.findBestFitModel(data, opt);
                 }
             }
+            Stat::logRngCheckpoint("SBayesGWFM_after_ndist_auto");
             
             Model *model = gctb.buildModel(data, opt, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
                                            opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
@@ -295,9 +300,11 @@ int main(int argc, const char * argv[]) {
 //            vector<McmcSamples*> mcmcSampleVec = gctb.runMcmc(*model, opt.numChains, opt.chainLength, opt.burnin, opt.thin,
 //                                                              opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
 
+            Stat::logRngCheckpoint("SBayesGWFM_before_main_MCMC");
             MCMC *mcmc = new MCMC();
             vector<McmcSamples*> mcmcSampleVec = mcmc->run(*model, opt.numChains, opt.chainLength, opt.burnin, opt.thin, true,
                                                            opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
+            Stat::logRngCheckpoint("SBayesGWFM_after_main_MCMC");
 
             if (mcmc->action == mcmc->restart_and_use_robust_model) {
                 cout << "\nRestarting MCMC with a more robust parameterisation for SBayes" << opt.bayesType << " ..." << endl;
@@ -319,6 +326,7 @@ int main(int argc, const char * argv[]) {
                 data.inputPairwiseLD(opt.eigenMatrixFile+"/"+opt.pairwiseLDfile, opt.rsqThreshold);
                 if (!opt.geneMapFile.empty()) data.readGeneMapFile(opt.geneMapFile, opt.flank, opt.genomeBuild);
                 gctb.calcCredibleSets(data, *snpEffects, opt.pipThreshold, opt.pepThreshold, opt.title);
+                Stat::logRngCheckpoint("GWFM_after_credible_sets");
             }
         }
         else if (opt.analysisType == "CalcRsqEnrichment") {
