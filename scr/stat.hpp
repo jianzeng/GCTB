@@ -52,6 +52,13 @@ namespace Stat {
     extern thread_local normal_generator snorm;  // standard normal
     
     void seedEngine(const int seed);
+    /// Mix master seed with MCMC iteration and parallel task id (e.g. LD block index).
+    /// Call at the start of each OpenMP task so multi-thread runs are reproducible.
+    void setMcmcIteration(unsigned iter);
+    void seedEngineForParallelTask(unsigned taskKey);
+
+    extern unsigned masterSeed;
+    extern unsigned mcmcIterationForRng;
 
     extern thread_local unsigned long long rngDrawCount;
     void logRngCheckpoint(const char *label);

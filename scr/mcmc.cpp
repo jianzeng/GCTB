@@ -597,7 +597,8 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
     
     for (unsigned iteration=0; iteration<chainLength; ++iteration) {
         unsigned thisIter = iteration + 1;
-        
+        Stat::setMcmcIteration(thisIter);
+
         model.sampleUnknowns(thisIter);
         if (std::getenv("GCTB_DEBUG_RNG") &&
             (thisIter <= 5u || (thisIter % 10u) == 0u || thisIter == chainLength)) {

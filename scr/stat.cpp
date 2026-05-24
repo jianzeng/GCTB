@@ -15,6 +15,9 @@
 #include <omp.h>
 #endif
 
+unsigned Stat::masterSeed = 11415u;
+unsigned Stat::mcmcIterationForRng = 0u;
+
 thread_local unsigned long long Stat::rngDrawCount = 0;
 
 Stat::CountedMt19937::CountedMt19937() : impl_() {}
@@ -32,12 +35,25 @@ thread_local Stat::normal_generator Stat::snorm(Stat::engine, Stat::normal_distr
 void Stat::seedEngine(const int seed){
     rngDrawCount = 0;
     if (seed) {
+        masterSeed = (unsigned)seed;
         srand(seed);
         engine.seed(seed);
     } else {
-        srand((int)time(NULL));
-        engine.seed((int)time(NULL));
+        masterSeed = (unsigned)time(NULL);
+        srand((int)masterSeed);
+        engine.seed(masterSeed);
     }
+}
+
+void Stat::setMcmcIteration(unsigned iter) {
+    mcmcIterationForRng = iter;
+}
+
+void Stat::seedEngineForParallelTask(unsigned taskKey) {
+    CountedMt19937::result_type s = masterSeed;
+    s ^= (mcmcIterationForRng + 1u) * 2246822519u;
+    s ^= (taskKey + 1u) * 3266489917u;
+    engine.seed(s);
 }
 
 void Stat::logRngCheckpoint(const char *label) {

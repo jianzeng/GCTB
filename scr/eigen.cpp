@@ -15,7 +15,15 @@
 namespace {
 /** Anchor SNPs for --impute-summary: must have finite beta and positive finite SE (z = b/SE). */
 inline bool gwasUsableAnchorSnp(const SnpInfo *snp) {
-    return snp->included && std::isfinite(snp->gwas_b) && std::isfinite(snp->gwas_se) && snp->gwas_se > 0.0;
+    const bool finite_b = std::isfinite(snp->gwas_b);
+    const bool finite_se = std::isfinite(snp->gwas_se);
+    const bool pos_se = snp->gwas_se > 0.0;
+    const bool ok = snp->included && finite_b && finite_se && pos_se;
+    // cout << snp->ID << " included=" << snp->included
+    //      << " gwas_b=" << snp->gwas_b << " finite_b=" << finite_b
+    //      << " gwas_se=" << snp->gwas_se << " finite_se=" << finite_se
+    //      << " se>0=" << pos_se << " usable=" << ok << endl;
+    return ok;
 }
 
 [[noreturn]] inline void throwEigenReadErr(const string &msg) {
@@ -995,6 +1003,7 @@ void Data::impG(const unsigned block, double diag_mod){
     cout << boost::format("%12s %12s %12s %12s %12s\n") % "Block" % "TotalSNPs" % "Anchors" % "ToImpute" % "PctImpute";
     for (unsigned i = 0; i < numLDBlocks; i++ ){
         LDBlockInfo *ldblock = ldBlockInfoVec[i];
+        if (!ldblock->kept) continue;
         cout << boost::format("%12s %12s %12s %12s %12.3f\n") % (i+1) % ldblock->numSnpInBlock % numValidTyp[i] % numImpSnp[i] % (float(numImpSnp[i])/float(ldblock->numSnpInBlock));
         if (numValidTyp[i] == 0) {
             cout << "  Warning: Block " << (i+1) << " has no anchor SNP (finite beta and SE>0); block skipped." << endl;
@@ -1002,7 +1011,7 @@ void Data::impG(const unsigned block, double diag_mod){
         }
     }
         
-    cout << "Imputing summary statistics for " << to_string(totalNumImpSnp) << " SNPs (not in GWAS and/or SE=0), using LD with SNPs that have valid SE..." << endl;
+    cout << "Imputing summary statistics for " << to_string(totalNumImpSnp) << " SNPs (not in GWAS and/or SE=0)." << endl;
 
     Gadget::Timer timer;
     timer.setTime();
@@ -1081,8 +1090,8 @@ void Data::impG(const unsigned block, double diag_mod){
             }
         }
         
-//        if(!(i%10)) cout << " imputed block " << i << "\r" << flush;
-        cout << " imputed block " << i << endl;
+        if(!(i%10)) cout << " imputed block " << i+1 << "\r" << flush;
+//        cout << " imputed block " << i << endl;
 
         if (block) {
             string outfile = title + ".block" + ldblock->ID + ".imputed.ma";

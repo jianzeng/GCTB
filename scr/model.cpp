@@ -1748,8 +1748,9 @@ void ApproxBayesC::SnpEffects::sampleFromFC_sparse(VectorXf &rcorr, const vector
         nrnd[i] = Stat::snorm();
     }
     
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr) {
+        Stat::seedEngineForParallelTask(chr);
         //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;
         
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -1854,8 +1855,9 @@ void ApproxBayesC::SnpEffects::sampleFromFC_full(VectorXf &rcorr, const vector<V
         nrnd[i] = Stat::snorm();
     }
     
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr) {
+        Stat::seedEngineForParallelTask(chr);
         //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;
 
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -1956,8 +1958,9 @@ void ApproxBayesC::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
     float logSigmaSq = log(sigmaSq);
     float invSigmaSq = 1.0f/sigmaSq;
 
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(static)
     for(unsigned blk = 0; blk < nBlocks; blk++){
+        Stat::seedEngineForParallelTask(blk);
         Ref<const MatrixXf> Q = Qblocks[blk];
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
         Ref<VectorXf> what = whatBlocks[blk];
@@ -2156,8 +2159,9 @@ void ApproxBayesC::SnpEffects::computeFromBLUP(vector<VectorXf> &wcorrBlocks, co
     float invSigmaSq = 1.0f/sigmaSq;
 
     
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(static)
     for(unsigned blk = 0; blk < nBlocks; blk++){
+        Stat::seedEngineForParallelTask(blk);
         Ref<const MatrixXf> Q = Qblocks[blk];
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
         Ref<VectorXf> what = whatBlocks[blk];
@@ -2834,8 +2838,9 @@ void ApproxBayesB::SnpEffects::sampleFromFC_sparse(VectorXf &rcorr, const vector
         nrnd[i] = Stat::snorm();
     }
     
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr) {
+        Stat::seedEngineForParallelTask(chr);
         //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;
         
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -3030,8 +3035,9 @@ void ApproxBayesB::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
     float logPi = log(pi);
     float logPiComp = log(1.0-pi);
     
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(static)
     for(unsigned blk = 0; blk < nBlocks; blk++){
+        Stat::seedEngineForParallelTask(blk);
         Ref<const MatrixXf> Q = Qblocks[blk];
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
         Ref<VectorXf> what = whatBlocks[blk];
@@ -3183,8 +3189,9 @@ void ApproxBayesS::SnpEffects::sampleFromFC_sparse(VectorXf &rcorr,const vector<
         nrnd[i] = Stat::snorm();
     }
     
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr) {
+        Stat::seedEngineForParallelTask(chr);
         //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;
         
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -3278,8 +3285,9 @@ void ApproxBayesS::SnpEffects::sampleFromFC_full(VectorXf &rcorr,const vector<Ve
         nrnd[i] = Stat::snorm();
     }
 
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr) {
+        Stat::seedEngineForParallelTask(chr);
         //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;
         
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -3529,8 +3537,9 @@ void ApproxBayesS::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
     float invSigmaSq = 1.0f/sigmaSq;
 
     
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(static)
     for(unsigned blk = 0; blk < nBlocks; blk++){
+        Stat::seedEngineForParallelTask(blk);
         Ref<const MatrixXf> Q = Qblocks[blk];
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
         Ref<VectorXf> what = whatBlocks[blk];
@@ -3792,8 +3801,9 @@ void ApproxBayesST::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
         nrnd[i] = Stat::snorm();
     }
     
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr) {
+        Stat::seedEngineForParallelTask(chr);
         //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;
         
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -4132,8 +4142,9 @@ void ApproxBayesR::VgMixComps::compute(const VectorXf &snpEffects, const vector<
         vgBlocks[i].resize(size-1);
     }
     
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(static)
     for(unsigned blk = 0; blk < nBlocks; blk++){
+        Stat::seedEngineForParallelTask(blk);
         Ref<const MatrixXf> Q = Qblocks[blk];
         vector<VectorXf> whatBlock(size-1);
         for (unsigned k=0; k<size-1; ++k) {
@@ -4249,9 +4260,10 @@ void ApproxBayesR::SnpEffects::sampleFromFC_sparse(VectorXf &rcorr, const vector
     // Cycle over all variants in the window and sample the genetics effects
     // --------------------------------------------------------------------------------
 
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr) 
     {
+        Stat::seedEngineForParallelTask(chr);
         ChromInfo *chromInfo = chromInfoVec[chr];
         unsigned chrStart = chromInfo->startSnpIdx;
         unsigned chrEnd   = chromInfo->endSnpIdx;
@@ -4449,9 +4461,10 @@ void ApproxBayesR::SnpEffects::sampleFromFC_full(VectorXf &rcorr, const vector<V
     // Cycle over all variants in the window and sample the genetics effects
     // --------------------------------------------------------------------------------
 
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr) 
     {
+        Stat::seedEngineForParallelTask(chr);
         ChromInfo *chromInfo = chromInfoVec[chr];
         unsigned chrStart = chromInfo->startSnpIdx;
         unsigned chrEnd   = chromInfo->endSnpIdx;
@@ -4649,8 +4662,9 @@ void ApproxBayesR::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
     // Cycle over all variants in the window and sample the genetics effects
     // --------------------------------------------------------------------------------
     
-    #pragma omp parallel for schedule(dynamic)
+    #pragma omp parallel for schedule(static)
     for(unsigned blk = 0; blk < nBlocks; blk++){
+        Stat::seedEngineForParallelTask(blk);
         //printf("  Inner: Thread %d of %d\n", omp_get_thread_num(), omp_get_num_threads());
         Ref<const MatrixXf> Q = Qblocks[blk];
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
@@ -5108,8 +5122,9 @@ void ApproxBayesR::updateRHSsparse(VectorXf &rcorr, const vector<SparseVector<fl
 void ApproxBayesR::updateRHSlowRankModel(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &snpEffects){
     long nBlocks = keptLdBlockInfoVec.size();
     
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(static)
     for(unsigned blk = 0; blk < nBlocks; blk++){
+        Stat::seedEngineForParallelTask(blk);
         Ref<const MatrixXf> Q = Qblocks[blk];
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
                 
@@ -6068,9 +6083,10 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_sparse(VectorXf &rcorr, const vecto
     }
 
 
-    #pragma omp parallel for schedule(dynamic)
+    #pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr)
     {
+        Stat::seedEngineForParallelTask(chr);
         ChromInfo *chromInfo = chromInfoVec[chr];
         unsigned chrStart = chromInfo->startSnpIdx;
         unsigned chrEnd   = chromInfo->endSnpIdx;
@@ -6239,8 +6255,9 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks
     // --------------------------------------------------------------------------------
 
     //cout << "Run 1.1" << std::endl;
-    #pragma omp parallel for schedule(dynamic)
+    #pragma omp parallel for schedule(static)
     for(unsigned blk = 0; blk < nBlocks; blk++){
+        Stat::seedEngineForParallelTask(blk);
         Ref<const MatrixXf> Q = Qblocks[blk];
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
         Ref<VectorXf> what = whatBlocks[blk];
@@ -7224,8 +7241,9 @@ void ApproxBayesRC::AnnoGenVar::compute(const VectorXf &snpEffects, const vector
         }
     }
 
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(static)
     for(unsigned blk = 0; blk < nBlocks; blk++){
+        Stat::seedEngineForParallelTask(blk);
         Ref<const MatrixXf> Q = Qblocks[blk];
         vector<vector<VectorXf> > whatBlock(numComp);
         for (unsigned k=0; k<numComp; ++k) {

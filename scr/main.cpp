@@ -18,10 +18,10 @@ using namespace std;
 int main(int argc, const char * argv[]) {
     
     cout << "*********************************************************\n";
-    cout << "* GCTB 2.5.5.6                                          *\n";
+    cout << "* GCTB 2.5.6 beta                                       *\n";
     cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
     cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
-    cout << "* Last updated: 23 Apr, 2026                            *\n";
+    cout << "* Last updated: 24 May, 2026                            *\n";
     cout << "* MIT License                                           *\n";
     cout << "*********************************************************\n";
     
