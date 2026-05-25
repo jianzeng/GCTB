@@ -7,6 +7,9 @@
 //
 
 #include "gadgets.hpp"
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 void Gadget::Tokenizer::getTokens(const string &str, const string &sep){
     clear();
@@ -141,15 +144,32 @@ vector<int> Gadget::shuffle_index(const int start, const int end){
     for (unsigned i = start; i <= end; i++) {
         vec.push_back(i);
     }
-    
-    Gadget::shuffle_vector(vec);
+    shuffle_vector(vec);
+    return vec;
+}
 
+vector<int> Gadget::shuffle_index(const int start, const int end, const unsigned taskKey){
+    vector<int> vec;
+    for (unsigned i = start; i <= end; i++) {
+        vec.push_back(i);
+    }
+    shuffle_vector(vec, taskKey);
     return vec;
 }
 
 void Gadget::shuffle_vector(vector<int> &vec){
-    // Use a call-local RNG seeded from the shared Stat engine to avoid
-    // hidden thread-local state that can diverge between runs.
+    std::mt19937 rng(static_cast<uint32_t>(Stat::engine()));
+    std::shuffle(vec.begin(), vec.end(), rng);
+}
+
+void Gadget::shuffle_vector(vector<int> &vec, const unsigned taskKey){
+#ifdef _OPENMP
+    if (omp_get_max_threads() > 1) {
+        std::mt19937 rng(static_cast<uint32_t>(Stat::parallelTaskSeed(taskKey, 0x9E3779B9u)));
+        std::shuffle(vec.begin(), vec.end(), rng);
+        return;
+    }
+#endif
     std::mt19937 rng(static_cast<uint32_t>(Stat::engine()));
     std::shuffle(vec.begin(), vec.end(), rng);
 }

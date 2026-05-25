@@ -7,12 +7,31 @@
 //
 
 #include "data.hpp"
+#include "stat.hpp"
+#include <Eigen/Core>
 #include <sys/stat.h>
 #include <dirent.h>
 #include <cmath>
 #include <stdexcept>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace {
+
+struct EigenNbThreadsGuard {
+    int saved;
+    EigenNbThreadsGuard() : saved(Eigen::nbThreads()) {
+#ifdef _OPENMP
+        if (omp_get_max_threads() > 1) {
+            omp_set_max_active_levels(1);
+            Eigen::setNbThreads(1);
+        }
+#endif
+    }
+    ~EigenNbThreadsGuard() { Eigen::setNbThreads(saved); }
+};
+
 /** Anchor SNPs for --impute-summary: must have finite beta and positive finite SE (z = b/SE). */
 inline bool gwasUsableAnchorSnp(const SnpInfo *snp) {
     const bool finite_b = std::isfinite(snp->gwas_b);
@@ -2163,12 +2182,14 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
     numEigenvalBlock.resize(numKeptLDBlocks);
     Qblocks.resize(numKeptLDBlocks);
 
-    
+    EigenNbThreadsGuard eigenNbThreadsGuard;
+
     //Constructing pseudo summary statistics for training and validation data sets, with 90% sample size for training and 10% for validation
     
     VectorXf n_trn(numKeptLDBlocks);
     VectorXf n_val(numKeptLDBlocks);
     if (makePseudoSummary) {
+        Stat::setMcmcIteration(0);
         pseudoGwasNtrnBlock.resize(numKeptLDBlocks);
         for(int i = 0; i < numKeptLDBlocks;i++){
             n_trn[i] = 0.9*nGWASblock[i];
@@ -2181,8 +2202,10 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
         b_val.setZero(numIncdSnps);
     }
     
-#pragma omp parallel for schedule(dynamic)
+#pragma omp parallel for schedule(static)
     for(int i = 0; i < numKeptLDBlocks; i++){
+        const unsigned rngSalt = makePseudoSummary ? Stat::pseudoSummaryRngSalt : 0u;
+        Stat::seedEngineForParallelTaskIfNeeded((unsigned)i, rngSalt);
         LDBlockInfo *block = keptLdBlockInfoVec[i];
         block->eigenColRemap.resize(0);
         block->subLdKeptLocalIdx.clear();

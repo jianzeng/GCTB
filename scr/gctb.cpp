@@ -1758,10 +1758,11 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
     
     cout << boost::format("%10s %25s %20s\n") % "Cutoff" % "Prediction accuracy (r)" % "Relative accuracy";
     
+    // Pseudo train/val effects (b_val) are built once in buildMMEeigen; do not regenerate per cutoff.
     for (unsigned i=0; i<size; ++i) {
         float cutoff = opt.eigenCutoff[i];
 
-        data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, cutoff, data.pseudoGwasEffectTrn, data.pseudoGwasNtrnBlock, false, false);
+        data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, cutoff, data.pseudoGwasEffectTrn, data.pseudoGwasNtrnBlock, opt.noscale, false);
         //data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, cutoff);
         //data.constructWandQ(data.pseudoGwasEffectTrn, data.pseudoGwasNtrn);
         

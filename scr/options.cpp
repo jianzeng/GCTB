@@ -42,11 +42,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
         }else if(!strcmp(argv[i], "--eig-cutoff")){
             eigCutMethod = argv[++i];
             eigThreshold = stof(argv[++i]);
-            cout << eigCutMethod << " " << argv[i] << std::endl;
             if(!strncmp(argv[i], "--", 2)){
                 throw("--eig-cutoff need two paramters: method (value, count, percent) threshold");
             }
-            ss << "--eig-cutoff " << eigCutMethod << " " << eigThreshold << std::endl;
+            ss << "--eig-cutoff " << eigCutMethod << " " << eigThreshold << "\n";
         }else if (!strcmp(argv[i], "--cg")) {
             analysisType = "ConjugateGradient";
             ss << "--cg " << "\n";
@@ -786,9 +785,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
     }
     if (chainLength < thin) thin = 1;
 
-    cout << ss.str() << endl;
-    
-    setThread();
+    optionsSummary = ss.str();
 }
 
 void Options::readFile(const string &file){  // input options from file
@@ -938,9 +935,7 @@ void Options::readFile(const string &file){  // input options from file
     }
     in.close();
     
-    cout << ss.str() << endl;
-
-    setThread();
+    optionsSummary = ss.str();
 }
 
 void Options::makeTitle(void){
@@ -953,6 +948,10 @@ void Options::makeTitle(void){
 
 void Options::setThread(void){
     omp_set_num_threads(numThread);
+    if (numThread > 1) {
+        omp_set_dynamic(0);
+        omp_set_max_active_levels(1);
+    }
     if (numThread == 1) {
         if (analysisType == "SBayes") {
             cout << "Multi-threading is available for --sbayes. Use --thread [number] to enable multi-threading." << endl;
@@ -978,7 +977,5 @@ void Options::setThread(void){
         Eigen::setNbThreads(numThread);
         cout << "Eigen library is using " << Eigen::nbThreads( ) << " threads." << endl;
     }
-//#pragma omp parallel
-//    printf("Hello from thread %d, nthreads %d\n", omp_get_thread_num(), omp_get_num_threads());
-    printf("Using %d threads.\n", omp_get_max_threads());
+    cout << "Using " << omp_get_max_threads() << " threads." << endl;
 }

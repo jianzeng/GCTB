@@ -132,6 +132,7 @@ public:
     VectorXf eigenCutoff;
     
     string title;
+    string optionsSummary;
     string analysisType;
     string bayesType;
     string algorithm;
@@ -282,6 +283,7 @@ public:
         gwasScalarMode          = GwasScalarMode::LeastSquares;
         
         title                   = "gctb";
+        optionsSummary          = "";
         analysisType            = "Bayes";
         bayesType               = "C";
         algorithm               = "";
@@ -329,12 +331,13 @@ public:
     }
     
     void inputOptions(const int argc, const char* argv[]);
+    const string& getOptionsSummary(void) const { return optionsSummary; }
+    void setThread(void);
     
 private:
     void readFile(const string &file);
     void makeTitle(void);
     void seedEngine(void);
-    void setThread(void);
 };
 
 #endif /* options_hpp */

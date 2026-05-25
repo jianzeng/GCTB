@@ -11,33 +11,43 @@
 #include "gctb.hpp"
 #include "xci.hpp"
 #include "vgmaf.hpp"
+#include "Logger.hpp"
 
 using namespace std;
 
 
 int main(int argc, const char * argv[]) {
     
-    cout << "*********************************************************\n";
-    cout << "* GCTB 2.5.6 beta                                       *\n";
-    cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
-    cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
-    cout << "* Last updated: 24 May, 2026                            *\n";
-    cout << "* MIT License                                           *\n";
-    cout << "*********************************************************\n";
-    
     Gadget::Timer timer;
     timer.setTime();
-    cout << "\nAnalysis started: " << timer.getDate();
-    
-    if (argc < 2){
-        cerr << " \nDid you forget to give the input parameters?\n" << endl;
-        exit(1);
-    }
     
     try {
         
         Options opt;
         opt.inputOptions(argc, argv);
+
+        const string logPath = opt.title + ".log";
+        LOGGER.open(logPath);
+        LOGGER.attachStdout();
+
+        cout << "*********************************************************\n";
+        cout << "* GCTB 2.5.6 beta                                       *\n";
+        cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
+        cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
+        cout << "* Last updated: 24 May, 2026                            *\n";
+        cout << "* MIT License                                           *\n";
+        cout << "*********************************************************\n";
+
+        if (argc < 2){
+            LOGGER.e(0, "Did you forget to give the input parameters?");
+        }
+
+        if (!opt.getOptionsSummary().empty())
+            cout << opt.getOptionsSummary() << endl;
+
+        opt.setThread();
+
+        cout << "\nAnalysis started: " << timer.getDate();
 
         if (opt.seed) Stat::seedEngine(opt.seed);
         else          Stat::seedEngine(011415);  // fix the random seed if not given due to the use of MPI
@@ -552,6 +562,9 @@ int main(int argc, const char * argv[]) {
     
     cout << "\nAnalysis finished: " << timer.getDate();
     cout << "Computational time: "  << timer.format(timer.getElapse()) << endl;
+
+    LOGGER.flush();
+    LOGGER.close();
 
     return 0;
 }

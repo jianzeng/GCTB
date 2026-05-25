@@ -1750,7 +1750,7 @@ void ApproxBayesC::SnpEffects::sampleFromFC_sparse(VectorXf &rcorr, const vector
     
 #pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr) {
-        Stat::seedEngineForParallelTask(chr);
+        Stat::seedEngineForParallelTaskIfNeeded(chr);
         //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;
         
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -1769,7 +1769,7 @@ void ApproxBayesC::SnpEffects::sampleFromFC_sparse(VectorXf &rcorr, const vector
         float sampleDiff;
         
         // shuffling the SNP index for faster convergence
-        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd);
+        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd, chr);
 
         //for (unsigned i=chrStart; i<=chrEnd; ++i) {
         unsigned i;
@@ -1857,7 +1857,7 @@ void ApproxBayesC::SnpEffects::sampleFromFC_full(VectorXf &rcorr, const vector<V
     
 #pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr) {
-        Stat::seedEngineForParallelTask(chr);
+        Stat::seedEngineForParallelTaskIfNeeded(chr);
         //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;
 
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -1876,7 +1876,7 @@ void ApproxBayesC::SnpEffects::sampleFromFC_full(VectorXf &rcorr, const vector<V
         float sampleDiff;
 
         // shuffling the SNP index for faster convergence
-        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd);
+        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd, chr);
 
         unsigned i;
         for (unsigned t = 0; t < chrSize; t++) {
@@ -1960,7 +1960,7 @@ void ApproxBayesC::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
 
 #pragma omp parallel for schedule(static)
     for(unsigned blk = 0; blk < nBlocks; blk++){
-        Stat::seedEngineForParallelTask(blk);
+        Stat::seedEngineForParallelTaskIfNeeded(blk);
         Ref<const MatrixXf> Q = Qblocks[blk];
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
         Ref<VectorXf> what = whatBlocks[blk];
@@ -1979,7 +1979,7 @@ void ApproxBayesC::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
         float logInvLhsMsigma = logf(invLhs) - logSigmaSq;
 
         // shuffling the SNP index for faster convergence
-        vector<int> snpIndexVec = Gadget::shuffle_index(blockStart, blockEnd);
+        vector<int> snpIndexVec = Gadget::shuffle_index(blockStart, blockEnd, blk);
 
         //for(unsigned i = blockStart; i <= blockEnd; i++){
         for (unsigned t = 0; t < blockSize; t++) {
@@ -2161,7 +2161,7 @@ void ApproxBayesC::SnpEffects::computeFromBLUP(vector<VectorXf> &wcorrBlocks, co
     
 #pragma omp parallel for schedule(static)
     for(unsigned blk = 0; blk < nBlocks; blk++){
-        Stat::seedEngineForParallelTask(blk);
+        Stat::seedEngineForParallelTaskIfNeeded(blk);
         Ref<const MatrixXf> Q = Qblocks[blk];
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
         Ref<VectorXf> what = whatBlocks[blk];
@@ -2840,7 +2840,7 @@ void ApproxBayesB::SnpEffects::sampleFromFC_sparse(VectorXf &rcorr, const vector
     
 #pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr) {
-        Stat::seedEngineForParallelTask(chr);
+        Stat::seedEngineForParallelTaskIfNeeded(chr);
         //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;
         
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -2857,7 +2857,7 @@ void ApproxBayesB::SnpEffects::sampleFromFC_sparse(VectorXf &rcorr, const vector
         float sampleDiff;
 
         // shuffling the SNP index for faster convergence
-        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd);
+        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd, chr);
 
         unsigned i;
         for (unsigned t = 0; t < chrSize; t++) {
@@ -2936,9 +2936,9 @@ void ApproxBayesB::SnpEffects::sampleFromFC_full(VectorXf &rcorr, const vector<V
         nrnd[i] = Stat::snorm();
     }
     
-#pragma omp parallel for
+#pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr) {
-        
+        Stat::seedEngineForParallelTaskIfNeeded(chr);
         ChromInfo *chromInfo = chromInfoVec[chr];
         unsigned chrStart = chromInfo->startSnpIdx;
         unsigned chrEnd   = chromInfo->endSnpIdx;
@@ -2955,7 +2955,7 @@ void ApproxBayesB::SnpEffects::sampleFromFC_full(VectorXf &rcorr, const vector<V
         float sampleDiff;
 
         // shuffling the SNP index for faster convergence
-        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd);
+        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd, chr);
 
         unsigned i;
         for (unsigned t = 0; t < chrSize; t++) {
@@ -3037,7 +3037,7 @@ void ApproxBayesB::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
     
 #pragma omp parallel for schedule(static)
     for(unsigned blk = 0; blk < nBlocks; blk++){
-        Stat::seedEngineForParallelTask(blk);
+        Stat::seedEngineForParallelTaskIfNeeded(blk);
         Ref<const MatrixXf> Q = Qblocks[blk];
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
         Ref<VectorXf> what = whatBlocks[blk];
@@ -3053,7 +3053,7 @@ void ApproxBayesB::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
         float invVareDn = nGWASblocks[blk] / vareBlocks[blk];
 
         // shuffling the SNP index for faster convergence
-        vector<int> snpIndexVec = Gadget::shuffle_index(blockStart, blockEnd);
+        vector<int> snpIndexVec = Gadget::shuffle_index(blockStart, blockEnd, blk);
 
         //for(unsigned i = blockStart; i <= blockEnd; i++){
         for (unsigned t = 0; t < blockSize; t++) {
@@ -3191,7 +3191,7 @@ void ApproxBayesS::SnpEffects::sampleFromFC_sparse(VectorXf &rcorr,const vector<
     
 #pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr) {
-        Stat::seedEngineForParallelTask(chr);
+        Stat::seedEngineForParallelTaskIfNeeded(chr);
         //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;
         
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -3209,7 +3209,7 @@ void ApproxBayesS::SnpEffects::sampleFromFC_sparse(VectorXf &rcorr,const vector<
         float sampleDiff;
 
         // shuffling the SNP index for faster convergence
-        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd);
+        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd, chr);
 
         unsigned i;
         for (unsigned t = 0; t < chrSize; t++) {
@@ -3287,7 +3287,7 @@ void ApproxBayesS::SnpEffects::sampleFromFC_full(VectorXf &rcorr,const vector<Ve
 
 #pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr) {
-        Stat::seedEngineForParallelTask(chr);
+        Stat::seedEngineForParallelTaskIfNeeded(chr);
         //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;
         
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -3305,7 +3305,7 @@ void ApproxBayesS::SnpEffects::sampleFromFC_full(VectorXf &rcorr,const vector<Ve
         float sampleDiff;
 
         // shuffling the SNP index for faster convergence
-        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd);
+        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd, chr);
 
         unsigned i;
         for (unsigned t = 0; t < chrSize; t++) {
@@ -3539,7 +3539,7 @@ void ApproxBayesS::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
     
 #pragma omp parallel for schedule(static)
     for(unsigned blk = 0; blk < nBlocks; blk++){
-        Stat::seedEngineForParallelTask(blk);
+        Stat::seedEngineForParallelTaskIfNeeded(blk);
         Ref<const MatrixXf> Q = Qblocks[blk];
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
         Ref<VectorXf> what = whatBlocks[blk];
@@ -3555,7 +3555,7 @@ void ApproxBayesS::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
         float invVareDn = nGWASblocks[blk] / vareBlocks[blk];
 
         // shuffling the SNP index for faster convergence
-        vector<int> snpIndexVec = Gadget::shuffle_index(blockStart, blockEnd);
+        vector<int> snpIndexVec = Gadget::shuffle_index(blockStart, blockEnd, blk);
 
         //for(unsigned i = blockStart; i <= blockEnd; i++){
         for (unsigned t = 0; t < blockSize; t++) {
@@ -3803,7 +3803,7 @@ void ApproxBayesST::SnpEffects::sampleFromFC(VectorXf &rcorr, const vector<Spars
     
 #pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr) {
-        Stat::seedEngineForParallelTask(chr);
+        Stat::seedEngineForParallelTaskIfNeeded(chr);
         //cout << " thread " << omp_get_thread_num() << " chr " << chr << endl;
         
         ChromInfo *chromInfo = chromInfoVec[chr];
@@ -4144,7 +4144,7 @@ void ApproxBayesR::VgMixComps::compute(const VectorXf &snpEffects, const vector<
     
 #pragma omp parallel for schedule(static)
     for(unsigned blk = 0; blk < nBlocks; blk++){
-        Stat::seedEngineForParallelTask(blk);
+        Stat::seedEngineForParallelTaskIfNeeded(blk);
         Ref<const MatrixXf> Q = Qblocks[blk];
         vector<VectorXf> whatBlock(size-1);
         for (unsigned k=0; k<size-1; ++k) {
@@ -4263,7 +4263,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC_sparse(VectorXf &rcorr, const vector
 #pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr) 
     {
-        Stat::seedEngineForParallelTask(chr);
+        Stat::seedEngineForParallelTaskIfNeeded(chr);
         ChromInfo *chromInfo = chromInfoVec[chr];
         unsigned chrStart = chromInfo->startSnpIdx;
         unsigned chrEnd   = chromInfo->endSnpIdx;
@@ -4281,7 +4281,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC_sparse(VectorXf &rcorr, const vector
         float varei = varg + vare;
         
         // shuffling the SNP index for faster convergence
-        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd);
+        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd, chr);
 
         //for (unsigned i=chrStart; i<=chrEnd; ++i) {
         unsigned i;
@@ -4464,7 +4464,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC_full(VectorXf &rcorr, const vector<V
 #pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr) 
     {
-        Stat::seedEngineForParallelTask(chr);
+        Stat::seedEngineForParallelTaskIfNeeded(chr);
         ChromInfo *chromInfo = chromInfoVec[chr];
         unsigned chrStart = chromInfo->startSnpIdx;
         unsigned chrEnd   = chromInfo->endSnpIdx;
@@ -4481,7 +4481,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC_full(VectorXf &rcorr, const vector<V
         pll.setZero(pis.size());
 
         // shuffling the SNP index for faster convergence
-        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd);
+        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd, chr);
 
         unsigned i;
         for (unsigned t = 0; t < chrSize; t++) {
@@ -4664,7 +4664,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
     
     #pragma omp parallel for schedule(static)
     for(unsigned blk = 0; blk < nBlocks; blk++){
-        Stat::seedEngineForParallelTask(blk);
+        Stat::seedEngineForParallelTaskIfNeeded(blk);
         //printf("  Inner: Thread %d of %d\n", omp_get_thread_num(), omp_get_num_threads());
         Ref<const MatrixXf> Q = Qblocks[blk];
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
@@ -4684,7 +4684,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
         ArrayXf logInvLhsMsigma = invLhs.log() - logWtdSigmaSq;
         
         // shuffling the SNP index for faster convergence
-        vector<int> snpIndexVec = Gadget::shuffle_index(blockStart, blockEnd);
+        vector<int> snpIndexVec = Gadget::shuffle_index(blockStart, blockEnd, blk);
 
         //for(unsigned i = blockStart; i <= blockEnd; i++){
         for (unsigned t = 0; t < blockSize; t++) {
@@ -5124,7 +5124,6 @@ void ApproxBayesR::updateRHSlowRankModel(vector<VectorXf> &wcorrBlocks, const ve
     
 #pragma omp parallel for schedule(static)
     for(unsigned blk = 0; blk < nBlocks; blk++){
-        Stat::seedEngineForParallelTask(blk);
         Ref<const MatrixXf> Q = Qblocks[blk];
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
                 
@@ -5299,7 +5298,7 @@ void ApproxBayesRS::SnpEffects::sampleFromFC_sparse(VectorXf &rcorr, const vecto
         unsigned delta;
         
         // shuffling the SNP index for faster convergence
-        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd);
+        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd, chr);
 
         unsigned i;
         for (unsigned t = 0; t < chrSize; t++) {
@@ -5428,7 +5427,7 @@ void ApproxBayesRS::SnpEffects::sampleFromFC_full(VectorXf &rcorr, const vector<
         unsigned delta;
         
         // shuffling the SNP index for faster convergence
-        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd);
+        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd, chr);
 
         unsigned i;
         for (unsigned t = 0; t < chrSize; t++) {
@@ -6086,7 +6085,7 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_sparse(VectorXf &rcorr, const vecto
     #pragma omp parallel for schedule(static)
     for (unsigned chr=0; chr<numChr; ++chr)
     {
-        Stat::seedEngineForParallelTask(chr);
+        Stat::seedEngineForParallelTaskIfNeeded(chr);
         ChromInfo *chromInfo = chromInfoVec[chr];
         unsigned chrStart = chromInfo->startSnpIdx;
         unsigned chrEnd   = chromInfo->endSnpIdx;
@@ -6105,7 +6104,7 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_sparse(VectorXf &rcorr, const vecto
         unsigned delta;
 
         // shuffling the SNP index for faster convergence
-        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd);
+        vector<int> snpIndexVec = Gadget::shuffle_index(chrStart, chrEnd, chr);
 
         //for (unsigned i=chrStart; i<=chrEnd; ++i) {
         for (unsigned t = 0; t < chrSize; t++) {
@@ -6257,7 +6256,7 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks
     //cout << "Run 1.1" << std::endl;
     #pragma omp parallel for schedule(static)
     for(unsigned blk = 0; blk < nBlocks; blk++){
-        Stat::seedEngineForParallelTask(blk);
+        Stat::seedEngineForParallelTaskIfNeeded(blk);
         Ref<const MatrixXf> Q = Qblocks[blk];
         Ref<VectorXf> wcorr = wcorrBlocks[blk];
         Ref<VectorXf> what = whatBlocks[blk];
@@ -6276,7 +6275,7 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks
         ArrayXf logInvLhsMsigma = invLhs.log() - logWtdSigmaSq;
 
         // shuffling the SNP index for faster convergence
-        vector<int> snpIndexVec = Gadget::shuffle_index(blockStart, blockEnd);
+        vector<int> snpIndexVec = Gadget::shuffle_index(blockStart, blockEnd, blk);
 
         //for(unsigned i = blockStart; i <= blockEnd; i++){
         for (unsigned t = 0; t < blockSize; t++) {
@@ -7243,7 +7242,7 @@ void ApproxBayesRC::AnnoGenVar::compute(const VectorXf &snpEffects, const vector
 
 #pragma omp parallel for schedule(static)
     for(unsigned blk = 0; blk < nBlocks; blk++){
-        Stat::seedEngineForParallelTask(blk);
+        Stat::seedEngineForParallelTaskIfNeeded(blk);
         Ref<const MatrixXf> Q = Qblocks[blk];
         vector<vector<VectorXf> > whatBlock(numComp);
         for (unsigned k=0; k<numComp; ++k) {

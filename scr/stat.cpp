@@ -49,11 +49,23 @@ void Stat::setMcmcIteration(unsigned iter) {
     mcmcIterationForRng = iter;
 }
 
-void Stat::seedEngineForParallelTask(unsigned taskKey) {
+Stat::CountedMt19937::result_type Stat::parallelTaskSeed(unsigned taskKey, unsigned salt) {
     CountedMt19937::result_type s = masterSeed;
     s ^= (mcmcIterationForRng + 1u) * 2246822519u;
     s ^= (taskKey + 1u) * 3266489917u;
-    engine.seed(s);
+    s ^= (salt + 1u) * 668265263u;
+    return s;
+}
+
+void Stat::seedEngineForParallelTask(unsigned taskKey, unsigned salt) {
+    engine.seed(parallelTaskSeed(taskKey, salt));
+}
+
+void Stat::seedEngineForParallelTaskIfNeeded(unsigned taskKey, unsigned salt) {
+#ifdef _OPENMP
+    if (omp_get_max_threads() <= 1) return;
+#endif
+    seedEngineForParallelTask(taskKey, salt);
 }
 
 void Stat::logRngCheckpoint(const char *label) {

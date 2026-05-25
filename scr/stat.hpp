@@ -55,7 +55,12 @@ namespace Stat {
     /// Mix master seed with MCMC iteration and parallel task id (e.g. LD block index).
     /// Call at the start of each OpenMP task so multi-thread runs are reproducible.
     void setMcmcIteration(unsigned iter);
-    void seedEngineForParallelTask(unsigned taskKey);
+    CountedMt19937::result_type parallelTaskSeed(unsigned taskKey, unsigned salt = 0u);
+    void seedEngineForParallelTask(unsigned taskKey, unsigned salt = 0u);
+    /// No-op when OpenMP uses a single thread (preserves serial RNG stream).
+    void seedEngineForParallelTaskIfNeeded(unsigned taskKey, unsigned salt = 0u);
+    /// Salt mixed into parallelTaskSeed for pseudo GWAS construction (eigen data build).
+    static const unsigned pseudoSummaryRngSalt = 0x50534441u;
 
     extern unsigned masterSeed;
     extern unsigned mcmcIterationForRng;

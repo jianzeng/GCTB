@@ -20,8 +20,8 @@ else ifeq ($(shell uname -s),Darwin)
 endif
 
 # Set the source files and headers
-HDR = gctb.hpp data.hpp gadgets.hpp hsq.hpp mcmc.hpp model.hpp options.hpp stat.hpp vgmaf.hpp predict.hpp xci.hpp stratify.hpp multichain.hpp
-SRC = gctb.cpp data.cpp gadgets.cpp hsq.cpp main.cpp mcmc.cpp model.cpp options.cpp stat.cpp vgmaf.cpp predict.cpp xci.cpp stratify.cpp eigen.cpp multichain.cpp
+HDR = gctb.hpp data.hpp gadgets.hpp hsq.hpp mcmc.hpp model.hpp options.hpp stat.hpp vgmaf.hpp predict.hpp xci.hpp stratify.hpp multichain.hpp Logger.hpp
+SRC = gctb.cpp data.cpp gadgets.cpp hsq.cpp main.cpp mcmc.cpp model.cpp options.cpp stat.cpp vgmaf.cpp predict.cpp xci.cpp stratify.cpp eigen.cpp multichain.cpp Logger.cpp
 OBJ = $(SRC:.cpp=.o)
 
 # Define the rules

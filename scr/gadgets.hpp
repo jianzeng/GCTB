@@ -89,7 +89,10 @@ float findMedian(const VectorXf &vec);
 
 // vector manipulation
 vector<int> shuffle_index(const int start, const int end);
+/// Deterministic shuffle for OpenMP tasks; taskKey is e.g. LD block or chromosome index.
+vector<int> shuffle_index(const int start, const int end, const unsigned taskKey);
 void shuffle_vector(vector<int> &vec);
+void shuffle_vector(vector<int> &vec, const unsigned taskKey);
 void removeSecondElement(VectorXf &vec);
 
 

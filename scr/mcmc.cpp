@@ -8,8 +8,12 @@
 
 #include "mcmc.hpp"
 #include "stat.hpp"
+#include <Eigen/Core>
 #include <cstdio>
 #include <cstdlib>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 static inline bool skipPosteriorTextOutput(const string &label) {
     return label.find("Delta") != string::npos ||
@@ -574,6 +578,13 @@ void MCMC::printSnpAnnoMembership(const vector<ParamSet *> &paramSetToPrint, con
 
 vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const bool print,
                                const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
+    int savedEigenThreads = Eigen::nbThreads();
+#ifdef _OPENMP
+    if (omp_get_max_threads() > 1) {
+        omp_set_max_active_levels(1);
+        Eigen::setNbThreads(1);
+    }
+#endif
     Stat::logRngCheckpoint("MCMC_run_enter");
     if (print) {
         cout << "MCMC launched ..." << endl;
@@ -615,6 +626,7 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
         setAction(model);
         if (action != keep_running) {
             cout << "\nMCMC sampling disrupted at iteration " << thisIter << endl;
+            Eigen::setNbThreads(savedEigenThreads);
             return mcmcSampleVec;
         }
         
@@ -643,6 +655,7 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
 //    tmpOut.open(title + ".varei");
 //    tmpOut << static_cast<ApproxBayesS*>(&model)->vareiMean/(chainLength/100) << endl;
 
+    Eigen::setNbThreads(savedEigenThreads);
     return mcmcSampleVec;
 }
 
