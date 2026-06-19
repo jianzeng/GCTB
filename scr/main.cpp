@@ -8,12 +8,32 @@
 
 #include <iostream>
 #include <omp.h>
+#include <sys/resource.h>
 #include "gctb.hpp"
+#include "quantizer.hpp"
 #include "xci.hpp"
 #include "vgmaf.hpp"
 #include "Logger.hpp"
 
 using namespace std;
+
+namespace {
+double getMaxResidentMemoryMb() {
+    struct rusage usage;
+    if (getrusage(RUSAGE_SELF, &usage) != 0) return -1.0;
+#if defined(__APPLE__) && defined(__MACH__)
+    return static_cast<double>(usage.ru_maxrss) / (1024.0 * 1024.0);
+#else
+    return static_cast<double>(usage.ru_maxrss) / 1024.0;
+#endif
+}
+
+void printMaxResidentMemory() {
+    const double memMb = getMaxResidentMemoryMb();
+    if (memMb >= 0.0)
+        cout << "Max memory usage: " << boost::format("%.2f") % memMb << " MB" << endl;
+}
+}
 
 
 int main(int argc, const char * argv[]) {
@@ -39,7 +59,7 @@ int main(int argc, const char * argv[]) {
         cout << "*********************************************************\n";
 
         if (argc < 2){
-            LOGGER.e(0, "Did you forget to give the input parameters?");
+            LOGGER.e(0, "Did you forget to give the input parameters?\n");
         }
 
         if (!opt.getOptionsSummary().empty())
@@ -48,6 +68,24 @@ int main(int argc, const char * argv[]) {
         opt.setThread();
 
         cout << "\nAnalysis started: " << timer.getDate();
+
+        if (opt.analysisType == "QuantizeEigen") {
+            eigen_quantize::QuantizationOptions qopt;
+            qopt.bits = opt.quantEigenBits;
+            qopt.entropy_coding = opt.quantEigenEntropy;
+            qopt.q_per_snp_column = false;
+            const auto summary = eigen_quantize::quantize_directory(opt.quantEigenInputDir, opt.quantEigenOutputDir, qopt);
+            cout << "Completed " << summary.num_files << " eigen block file(s) with q" << qopt.bits;
+            if (qopt.entropy_coding) cout << " (entropy-compressed)";
+            cout << ".\nTotal bytes: " << summary.total_original_bytes << " -> " << summary.total_quantized_bytes << endl;
+            timer.getTime();
+            cout << "\nAnalysis finished: " << timer.getDate();
+            cout << "Computational time: "  << timer.format(timer.getElapse()) << endl;
+            printMaxResidentMemory();
+            LOGGER.flush();
+            LOGGER.close();
+            return 0;
+        }
 
         if (opt.seed) Stat::seedEngine(opt.seed);
         else          Stat::seedEngine(011415);  // fix the random seed if not given due to the use of MPI
@@ -204,14 +242,14 @@ int main(int argc, const char * argv[]) {
         }
         else if (opt.analysisType == "Convert") {
             if (!opt.eigenMatrixFile.empty()) {
-                data.readEigenMatrix(opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff());
+                data.readEigenMatrix(opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff(), false, false, ".", opt.eigenMatrixQuantBits, opt.eigenMatrixQ8Entropy);
                 data.inputMatchedSnpResults(opt.snpResFile);
                 data.convert(opt.eigenMatrixFile, opt.includeSnpFile, opt.title);
             }
         }
         else if (opt.analysisType == "GetLD") {
             if (!opt.eigenMatrixFile.empty()) {
-                data.readEigenMatrix(opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff());
+                data.readEigenMatrix(opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff(), false, false, ".", opt.eigenMatrixQuantBits, opt.eigenMatrixQ8Entropy);
                 data.getLDfromEigenMatrix(opt.eigenMatrixFile, opt.rsqThreshold, opt.title);
             }
         }
@@ -266,7 +304,7 @@ int main(int argc, const char * argv[]) {
                     bestEigenCutoff = opt.eigenCutoff.size() > 1 ? gctb.tuneEigenCutoff(data, opt) : opt.eigenCutoff[0];
                     // Single cutoff: buildMMEeigen (via inputSnpInfo) already called readEigenMatrixBinaryFileAndMakeWandQ; repeating it would redo all work with no console progress (header messages are suppressed when wcorrBlocks is non-empty).
                     if (opt.eigenCutoff.size() > 1) {
-                        data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, bestEigenCutoff, data.gwasEffectInBlock, data.nGWASblock, opt.noscale, false);
+                        data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, bestEigenCutoff, data.gwasEffectInBlock, data.nGWASblock, opt.noscale, false, opt.eigenMatrixQuantBits, opt.eigenMatrixQ8Entropy);
                     }
                 }
                 if (opt.writeWandQ) data.outputWandQ("w_and_Q");
@@ -302,6 +340,7 @@ int main(int argc, const char * argv[]) {
                 }
             }
             Stat::logRngCheckpoint("SBayesGWFM_after_ndist_auto");
+            data.releasePseudoSummaryData();
             
             Model *model = gctb.buildModel(data, opt, opt.bedFile, opt.gwasSummaryFile, opt.bayesType, opt.windowWidth,
                                            opt.heritability, opt.propVarRandom, opt.pi, opt.piAlpha, opt.piBeta, opt.estimatePi, opt.noscale, opt.pis, opt.piPar, opt.gamma, opt.estimateSigmaSq, opt.phi, opt.kappa,
@@ -456,9 +495,9 @@ int main(int argc, const char * argv[]) {
                 if (opt.includeBlock) {
                     data.readBlockLdmInfoFile(opt.eigenMatrixFile, opt.includeBlock);
                     data.readBlockLdmSnpInfoFile(opt.eigenMatrixFile, opt.includeBlock);
-                    data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff(), true, opt.title);
+                    data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff(), true, opt.title, opt.eigenMatrixQuantBits, opt.eigenMatrixQ8Entropy);
                 } else {
-                    data.readEigenMatrix(opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff(), true, true, opt.title);
+                    data.readEigenMatrix(opt.eigenMatrixFile, opt.eigenCutoff.maxCoeff(), true, true, opt.title, opt.eigenMatrixQuantBits, opt.eigenMatrixQ8Entropy);
                 }
             }
         }
@@ -562,6 +601,7 @@ int main(int argc, const char * argv[]) {
     
     cout << "\nAnalysis finished: " << timer.getDate();
     cout << "Computational time: "  << timer.format(timer.getElapse()) << endl;
+    printMaxResidentMemory();
 
     LOGGER.flush();
     LOGGER.close();

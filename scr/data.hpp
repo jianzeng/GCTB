@@ -19,6 +19,7 @@
 #include <set>
 #include <bitset>
 #include <iomanip>     
+#include <stdint.h>
 #include <Eigen/Eigen>
 #include <Eigen/Sparse>
 #include <boost/format.hpp>
@@ -222,6 +223,99 @@ inline int eigenQColIndex(const LDBlockInfo *block, unsigned globalSnpIdx) {
     if (block->eigenColRemap.size() == 0) return j;
     return block->eigenColRemap[j];
 }
+
+struct QuantizedEigenBlock {
+    int bits;
+    int m;
+    int k;
+    VectorXf sqrtLambda;
+    VectorXf dequantScale;
+    VectorXf qScale;
+    vector<uint8_t> q4;
+    vector<int8_t> q8;
+    vector<int16_t> q16;
+
+    QuantizedEigenBlock() : bits(0), m(0), k(0) {}
+
+    bool active() const { return bits == 4 || bits == 8 || bits == 16; }
+
+    inline float q4Component(const int localSnpIdx, const int eigIdx) const {
+        const int packedRows = (m + 1) / 2;
+        const uint8_t byte = q4[(size_t)eigIdx * (size_t)packedRows + (size_t)(localSnpIdx / 2)];
+        int8_t nibble;
+        if (localSnpIdx % 2 == 0)
+            nibble = (int8_t)((int8_t)(byte << 4) >> 4);
+        else
+            nibble = (int8_t)((int8_t)((byte >> 4) << 4) >> 4);
+        return qScale[eigIdx] * (float)nibble;
+    }
+
+    inline float q8Component(const int localSnpIdx, const int eigIdx) const {
+        return qScale[eigIdx] * (float)q8[(size_t)eigIdx * (size_t)m + (size_t)localSnpIdx];
+    }
+
+    inline float q16Component(const int localSnpIdx, const int eigIdx) const {
+        return qScale[eigIdx] * (float)q16[(size_t)eigIdx * (size_t)m + (size_t)localSnpIdx];
+    }
+
+    inline float qComponent(const int localSnpIdx, const int eigIdx) const {
+        if (bits == 4) return q4Component(localSnpIdx, eigIdx);
+        if (bits == 8) return q8Component(localSnpIdx, eigIdx);
+        if (bits == 16) return q16Component(localSnpIdx, eigIdx);
+        return 0.0f;
+    }
+
+    inline float dotQ(const int localSnpIdx, const VectorXf &x) const {
+        float out = 0.0f;
+        if (bits == 4) {
+            for (int eigIdx = 0; eigIdx < k; ++eigIdx)
+                out += q4Component(localSnpIdx, eigIdx) * x[eigIdx];
+        } else if (bits == 8) {
+            for (int eigIdx = 0; eigIdx < k; ++eigIdx)
+                out += q8Component(localSnpIdx, eigIdx) * x[eigIdx];
+        } else if (bits == 16) {
+            for (int eigIdx = 0; eigIdx < k; ++eigIdx)
+                out += q16Component(localSnpIdx, eigIdx) * x[eigIdx];
+        }
+        return out;
+    }
+
+    template <typename Derived>
+    inline void addScaledQ(const int localSnpIdx, const float coeff, MatrixBase<Derived> &target) const {
+        if (coeff == 0.0f) return;
+        if (bits == 4) {
+            for (int eigIdx = 0; eigIdx < k; ++eigIdx)
+                target[eigIdx] += q4Component(localSnpIdx, eigIdx) * coeff;
+        } else if (bits == 8) {
+            for (int eigIdx = 0; eigIdx < k; ++eigIdx)
+                target[eigIdx] += q8Component(localSnpIdx, eigIdx) * coeff;
+        } else if (bits == 16) {
+            for (int eigIdx = 0; eigIdx < k; ++eigIdx)
+                target[eigIdx] += q16Component(localSnpIdx, eigIdx) * coeff;
+        }
+    }
+
+    inline void materializeQ(MatrixXf &Q) const {
+        Q.resize(k, m);
+        if (bits == 4) {
+            for (int col = 0; col < m; ++col)
+                for (int eigIdx = 0; eigIdx < k; ++eigIdx)
+                    Q(eigIdx, col) = q4Component(col, eigIdx);
+        } else if (bits == 8) {
+            for (int eigIdx = 0; eigIdx < k; ++eigIdx) {
+                const float scale = qScale[eigIdx];
+                for (int col = 0; col < m; ++col)
+                    Q(eigIdx, col) = scale * (float)q8[(size_t)eigIdx * (size_t)m + (size_t)col];
+            }
+        } else if (bits == 16) {
+            for (int eigIdx = 0; eigIdx < k; ++eigIdx) {
+                const float scale = qScale[eigIdx];
+                for (int col = 0; col < m; ++col)
+                    Q(eigIdx, col) = scale * (float)q16[(size_t)eigIdx * (size_t)m + (size_t)col];
+            }
+        }
+    }
+};
 
 class locus_bp {
 public:
@@ -559,11 +653,12 @@ public:
      vector<LDBlockInfo *> keptLdBlockInfoVec;
      map<string, LDBlockInfo *> ldBlockInfoMap;
      vector<string> ldblockNames;
-     vector<VectorXf> eigenValLdBlock; // store lambda  (per LD block matrix = U * diag(lambda)* V')  per gene LD
-     vector<MatrixXf> eigenVecLdBlock; // store U   (per  LD block matrix = U * diag(lambda)* V')  per gene LD
-     vector<VectorXf> wcorrBlocks;
-     vector<MatrixXf> Qblocks;
-     ///////// ld block end  ////////
+    vector<VectorXf> eigenValLdBlock; // store lambda  (per LD block matrix = U * diag(lambda)* V')  per gene LD
+    vector<MatrixXf> eigenVecLdBlock; // store U   (per  LD block matrix = U * diag(lambda)* V')  per gene LD
+    vector<VectorXf> wcorrBlocks;
+    vector<MatrixXf> Qblocks;
+    vector<QuantizedEigenBlock> quantizedEigenBlocks;
+    ///////// ld block end  ////////
     ///
     map<int, vector<int>> ldblock2gwasSnpMap;
 
@@ -741,26 +836,31 @@ public:
     void impG(const unsigned block, double diag_mod = 0.1);
 
     ///////////// read LD matrix eigen-decomposition data for LD blocks
-    void readEigenMatrix(const string &eigenMatrixFile, const float eigenCutoff, const bool readBinary = false, const bool writeLdmTxt = false, const string &outputDir = ".");
+    void readEigenMatrix(const string &eigenMatrixFile, const float eigenCutoff, const bool readBinary = false, const bool writeLdmTxt = false, const string &outputDir = ".", const int quantizedBits = 0, const bool q8Entropy = false);
     void readBlockLDmatrixAndDoEigenDecomposition(const string &LDmatrixFile, const unsigned block, const float eigenCutoff, const bool writeLdmTxt);
     void readBlockLdmInfoFile(const string &dirname, const unsigned block = 0);
     void readBlockLdmSnpInfoFile(const string &dirname, const unsigned block = 0);
     void readBlockLDMbinaryFile(const string &svdLDfile, const float eigenCutoff);
     vector<LDBlockInfo *> makeKeptLDBlockInfoVec(const vector<LDBlockInfo *> &ldBlockInfoVec);
     
-    void readEigenMatrixBinaryFile(const string &eigenMatrixFile, const float eigenCutoff, const bool writeLdmTxt = false, const string &outputDir = ".");
+    void readEigenMatrixBinaryFile(const string &eigenMatrixFile, const float eigenCutoff, const bool writeLdmTxt = false, const string &outputDir = ".", const int quantizedBits = 0, const bool q8Entropy = false);
     
-    void readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const VectorXf &nGWASblock, const bool noscale, const bool makePseudoSummary);
+    void readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const VectorXf &nGWASblock, const bool noscale, const bool makePseudoSummary, const int quantizedBits = 0, const bool q8Entropy = false);
     void readEigenMatrixBinaryFileAndMakeWandQBivariate(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects1, const vector<VectorXf> &GWASeffects2, const vector<Vector2f> &nGWASblock, const bool noscale);
+    void releasePseudoSummaryData(void);
 
     
     ///////////// merge eigen matrices
     void mergeMultiEigenLDMatrices(const string & infoFile, const string &filename, const string LDmatType);
 
     //////////// Step 2.2 Build multiple maps
-    void buildMMEeigen(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale); // for eigen decomposition
+    void buildMMEeigen(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale, const int quantizedBits = 0, const bool q8Entropy = false); // for eigen decomposition
     void buildMMEeigenBivariate(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale); // for bivariate eigen decomposition
     void includeMatchedBlocks(void);
+    /** Rebuild keptLdBlockInfoVec, ldblock2gwasSnpMap, and per-SNP blockIdx after changing LDBlockInfo::kept. */
+    void refreshKeptLdBlockMaps(void);
+    /** Exclude LD blocks where every SNP in the reference list has no GWAS summary (gwas_b / gwas_b2 == -999). Bivariate: drops if either trait is missing on all SNPs. Returns number of blocks excluded. */
+    unsigned pruneLdBlocksWithNoGwasOnAllReferenceSnps(bool bivariate);
 
     //////////// Step 2.3 build model matrix
 //    void constructWandQ(const float eigenCutoff, const bool noscale);
@@ -821,7 +921,8 @@ public:
     bool trySubLdEigenFromFullLdm(LDBlockInfo *block, const string &dirname, const float eigenCutoff,
                                   const VectorXf &gwasBlock, VectorXf &eigenValOut, MatrixXf &eigenVecOut,
                                   VectorXf &wcorrOut, MatrixXf &Qout, float &sumPosEigValOut,
-                                  VectorXi &remapOut, vector<unsigned> &keptLocalOut, bool *outUsedEigenRecon);
+                                  VectorXi &remapOut, vector<unsigned> &keptLocalOut, bool *outUsedEigenRecon,
+                                  const int quantizedBits = 0, const bool q8Entropy = false);
     bool trySubLdEigenFromFullLdmBivariate(LDBlockInfo *block, const string &dirname, const float eigenCutoff,
                                            const VectorXf &gwas1, const VectorXf &gwas2, VectorXf &wcorrOut, MatrixXf &Qout,
                                            VectorXf &eigenValOut, MatrixXf &eigenVecOut, float &sumPosEigValOut,

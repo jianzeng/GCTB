@@ -1675,6 +1675,52 @@ void ApproxBayesC::FixedEffects::sampleFromFC_eigen(SnpEffects &snpEffects, vect
     }
 }
 
+void ApproxBayesC::FixedEffects::sampleFromFC_quantizedEigen(SnpEffects &snpEffects, vector<VectorXf> &wcorrBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks, vector<VectorXf> &whatBlocks,
+    const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks, const unsigned numFixedEffectSnps){
+    if (!numFixedEffectSnps) return;
+    vector<float> nrnd(snpEffects.size);
+    for (unsigned i=0; i<snpEffects.size; ++i) nrnd[i] = Stat::snorm();
+    unsigned nBlocks = keptLdBlockInfoVec.size();
+    whatBlocks.resize(nBlocks);
+    for (unsigned blk=0; blk<nBlocks; ++blk) {
+        whatBlocks[blk].resize(wcorrBlocks[blk].size());
+    }
+    for (unsigned blk=0; blk<nBlocks; ++blk) {
+        const QuantizedEigenBlock &Qq = quantizedEigenBlocks[blk];
+        LDBlockInfo *blockInfo = keptLdBlockInfoVec[blk];
+        unsigned blockStart = blockInfo->startSnpIdx;
+        unsigned blockEnd = blockInfo->endSnpIdx;
+        Ref<VectorXf> wcorr = wcorrBlocks[blk];
+        Ref<VectorXf> what = whatBlocks[blk];
+        float invVareDn = nGWASblocks[blk] / vareBlocks[blk];
+        MatrixXf Qtmp;
+        if (Qq.bits == 16) Qq.materializeQ(Qtmp);
+        for (unsigned si=blockStart; si<=blockEnd; ++si) {
+            SnpInfo *snp = blockInfo->snpInfoVec[si - blockStart];
+            if (snp->skip) continue;
+            if (!snp->fitAsFixedEffect) continue;
+            float *valuesPtr = snpEffects.values.data();
+            float *pipPtr = snpEffects.pip.data();
+            float oldSample = valuesPtr[si];
+            int qcol = eigenQColIndex(blockInfo, si);
+            if (qcol < 0) continue;
+            float rhs = ((Qq.bits == 16 ? Qtmp.col(qcol).dot(wcorr) : Qq.dotQ(qcol, wcorr)) + oldSample) * invVareDn;
+            float invLhsFe = 1.0f / invVareDn;
+            float uhat = invLhsFe * rhs;
+            valuesPtr[si] = uhat + nrnd[si] * sqrtf(invLhsFe);
+            if (Qq.bits == 16) {
+                Ref<const VectorXf> Qi = Qtmp.col(qcol);
+                wcorr += Qi * (oldSample - valuesPtr[si]);
+                what += Qi * valuesPtr[si];
+            } else {
+                Qq.addScaledQ(qcol, oldSample - valuesPtr[si], wcorr);
+                Qq.addScaledQ(qcol, valuesPtr[si], what);
+            }
+            pipPtr[si] = 1.0f;
+        }
+    }
+}
+
 void ApproxBayesC::FixedEffects::sampleFromFC_sparse(SnpEffects &snpEffects, VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag,
     const VectorXf &snp2pq, const vector<SnpInfo*> &incdSnpInfoVec, float varg, float vare, const unsigned numFixedEffectSnps){
     if (!numFixedEffectSnps) return;
@@ -2367,6 +2413,46 @@ void ApproxBayesC::Rounding::computeWcorr_eigen(const vector<VectorXf> &wBlocks,
     value = res.sum();
 }
 
+void ApproxBayesC::Rounding::computeWcorr_quantizedEigen(const vector<VectorXf> &wBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks,
+                                                const vector<LDBlockInfo*> keptLdBlockInfoVec,
+                                                const VectorXf &snpEffects, vector<VectorXf> &wcorrBlocks){
+    long nBlocks = keptLdBlockInfoVec.size();
+    VectorXf res(nBlocks);
+
+#pragma omp parallel for
+    for(unsigned blk = 0; blk < nBlocks; blk++){
+        const QuantizedEigenBlock &Qq = quantizedEigenBlocks[blk];
+        Ref<VectorXf> wcorr = wcorrBlocks[blk];
+
+        VectorXf wcorrOld = wcorr;
+        wcorr = wBlocks[blk];
+
+        LDBlockInfo *blockInfo = keptLdBlockInfoVec[blk];
+        unsigned blockStart = blockInfo->startSnpIdx;
+        unsigned blockEnd   = blockInfo->endSnpIdx;
+
+        if (Qq.bits == 16) {
+            MatrixXf Qtmp;
+            Qq.materializeQ(Qtmp);
+            for(unsigned i = blockStart; i <= blockEnd; i++){
+                int qcol = eigenQColIndex(blockInfo, i);
+                if (qcol < 0) continue;
+                if (snpEffects[i]) wcorr -= Qtmp.col(qcol) * snpEffects[i];
+            }
+            res[blk] = sqrt(Gadget::calcVariance(wcorrOld-wcorr));
+            continue;
+        }
+
+        for(unsigned i = blockStart; i <= blockEnd; i++){
+            int qcol = eigenQColIndex(blockInfo, i);
+            if (qcol < 0) continue;
+            if (snpEffects[i]) Qq.addScaledQ(qcol, -snpEffects[i], wcorr);
+        }
+        res[blk] = sqrt(Gadget::calcVariance(wcorrOld-wcorr));
+    }
+    value = res.sum();
+}
+
 void ApproxBayesC::Rounding::computeGhat(const MatrixXf &Z, const VectorXf &snpEffects, VectorXf &ghat){
     VectorXf ghatOld = ghat;
     ghat.setZero(ghat.size());
@@ -2741,6 +2827,66 @@ void ApproxBayesC::NumBadSnps::compute_eigen(VectorXi &badSnps, VectorXf &effect
                 badSnpName.push_back(snpNames[i]);
                 if (writeTxt) out << i+1 << "\t" << snpNames[i] << endl;
                 ++value;
+            }
+        }
+    }
+}
+
+void ApproxBayesC::NumBadSnps::compute_quantizedEigen(VectorXi &badSnps, VectorXf &effects, VectorXf &effectMean, const VectorXf &b, vector<VectorXf> &wcorrBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks, const vector<LDBlockInfo*> keptLdBlockInfoVec, const int iter, const Data &data) {
+    value = 0;
+
+    float rate_thresh1 = 0, rate_thresh2 = 0;
+    if(iter < 300){
+        rate_thresh1 = 4.0;
+        rate_thresh2 = 2.0;
+    }else if(iter < 600){
+        rate_thresh1 = 3.0;
+        rate_thresh2 = 1.5;
+    }else if(iter < 900){
+        rate_thresh1 = 2.0;
+        rate_thresh2 = 1.3;
+    }else{
+        rate_thresh1 = 1.5;
+        rate_thresh2 = 1.1;
+    }
+
+    unsigned nBlocks = quantizedEigenBlocks.size();
+    for(unsigned blk = 0; blk < nBlocks; blk++){
+        const QuantizedEigenBlock &Qq = quantizedEigenBlocks[blk];
+        Ref<VectorXf> wcorr = wcorrBlocks[blk];
+
+        LDBlockInfo *blockInfo = keptLdBlockInfoVec[blk];
+
+        unsigned blockStart = blockInfo->startSnpIdx;
+        unsigned blockEnd   = blockInfo->endSnpIdx;
+
+        MatrixXf Qtmp;
+        if (Qq.bits == 16) Qq.materializeQ(Qtmp);
+
+        for(unsigned i = blockStart; i <= blockEnd; i++){
+            if (badSnps[i]) {
+                continue;
+            }
+            if (data.incdSnpInfoVec[i]->fitAsFixedEffect) {
+                continue;
+            }
+
+            float rate_b = abs((effectMean[i] - b[i])/b[i]);
+            bool sameSign = (b[i] >= 0.0f) == (effectMean[i] >= 0.0f);
+            float compare_rate = sameSign ? rate_thresh1 : rate_thresh2;
+
+            if(abs(effectMean[i]) > betaThresh && rate_b > compare_rate){
+                int qcol = eigenQColIndex(blockInfo, i);
+                if (qcol < 0) continue;
+                if (Qq.bits == 16) wcorr += Qtmp.col(qcol) * effects[i];
+                else Qq.addScaledQ(qcol, effects[i], wcorr);
+                effects[i] = 0.0;
+                effectMean[i] = 0.0;
+                badSnps[i] = 1;
+                badSnpIdx.push_back(i);
+                badSnpName.push_back(snpNames[i]);
+                if (writeTxt) out << i+1 << "\t" << snpNames[i] << endl;
+                value++;
             }
         }
     }
@@ -4770,6 +4916,217 @@ void ApproxBayesR::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
     pip = VectorXf::Map(pipPtr, size);
 }
 
+void ApproxBayesR::SnpEffects::sampleFromFC_quantizedEigen(vector<VectorXf> &wcorrBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks, vector<VectorXf> &whatBlocks,
+                                            const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
+                                            const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore, const float varg,
+                                            const bool hsqPercModel, DeltaPi &deltaPi) {
+    long nBlocks = keptLdBlockInfoVec.size();
+
+    whatBlocks.resize(nBlocks);
+    for (unsigned i=0; i<nBlocks; ++i) {
+        whatBlocks[i].resize(wcorrBlocks[i].size());
+    }
+
+    float ssq[nBlocks], wtdssq[nBlocks], s2pq[nBlocks], nnz[nBlocks];
+    memset(ssq,0, sizeof(float)*nBlocks);
+    memset(wtdssq,0, sizeof(float)*nBlocks);
+    memset(s2pq,0,sizeof(float)*nBlocks);
+    memset(nnz,0, sizeof(float)*nBlocks);
+
+    pip.setZero(size);
+    float *valuesPtr = values.data();
+    float *pipPtr = pip.data();
+
+    vector<float> urnd(size), nrnd(size);
+    for (unsigned i=0; i<size; ++i) {
+        urnd[i] = Stat::ranf();
+        nrnd[i] = Stat::snorm();
+    }
+
+    membership.setZero(size);
+
+    int ndist = pis.size();
+    ArrayXf logPis = pis.array().log();
+    ArrayXf wtdSigmaSq(ndist);
+    ArrayXf invWtdSigmaSq(ndist);
+    ArrayXf logWtdSigmaSq(ndist);
+
+    if (hsqPercModel && varg) {
+        wtdSigmaSq = gamma * 0.01 * varg;
+    } else {
+        wtdSigmaSq = gamma * sigmaSq;
+    }
+
+    invWtdSigmaSq = wtdSigmaSq.inverse();
+    logWtdSigmaSq = wtdSigmaSq.log();
+
+    vector<vector<vector<unsigned> > > snpsetBlocks(nBlocks);
+    for (unsigned i=0; i<nBlocks; ++i) {
+        snpsetBlocks[i].resize(ndist);
+        for (unsigned k=0; k<ndist; ++k) {
+            snpsetBlocks[i][k].resize(0);
+        }
+    }
+
+    for (unsigned k=0; k<ndist; ++k) {
+        deltaPi[k]->values.setZero(size);
+    }
+
+#pragma omp parallel for schedule(static)
+    for(unsigned blk = 0; blk < nBlocks; blk++){
+        Stat::seedEngineForParallelTaskIfNeeded(blk);
+        const QuantizedEigenBlock &Qq = quantizedEigenBlocks[blk];
+        Ref<VectorXf> wcorr = wcorrBlocks[blk];
+        Ref<VectorXf> what = whatBlocks[blk];
+
+        what.setZero();
+
+        LDBlockInfo *blockInfo = keptLdBlockInfoVec[blk];
+
+        unsigned blockStart = blockInfo->startSnpIdx;
+        unsigned blockEnd   = blockInfo->endSnpIdx;
+        unsigned blockSize  = blockEnd - blockStart + 1;
+
+        float invVareDn = nGWASblocks[blk] / vareBlocks[blk];
+
+        ArrayXf invLhs = 1.0/(invVareDn + invWtdSigmaSq);
+        ArrayXf logInvLhsMsigma = invLhs.log() - logWtdSigmaSq;
+
+        vector<int> snpIndexVec = Gadget::shuffle_index(blockStart, blockEnd, blk);
+
+        if (Qq.bits == 16) {
+            MatrixXf Qtmp;
+            Qq.materializeQ(Qtmp);
+            for (unsigned t = 0; t < blockSize; t++) {
+                unsigned i = snpIndexVec[t];
+                SnpInfo *snp = blockInfo->snpInfoVec[i - blockStart];
+                if (snp->skip) {
+                    valuesPtr[i] = 0.0;
+                    pipPtr[i] = 0.0f;
+                    for (unsigned k = 0; k < (unsigned)ndist; ++k)
+                        deltaPi[k]->values[i] = (k == 0) ? 1.0f : 0.0f;
+                    continue;
+                }
+                if (badSnps[i]) {
+                    valuesPtr[i] = 0.0;
+                    continue;
+                }
+                if (snp->fitAsFixedEffect) {
+                    continue;
+                }
+                float oldSample = valuesPtr[i];
+                int qcolR = eigenQColIndex(blockInfo, i);
+                if (qcolR < 0) continue;
+                Ref<const VectorXf> Qi = Qtmp.col(qcolR);
+                float rhs = (Qi.dot(wcorr) + oldSample) * invVareDn;
+                ArrayXf uhat = invLhs * rhs;
+                ArrayXf logDelta = 0.5 * (logInvLhsMsigma + uhat * rhs) + logPis;
+                logDelta[0] = logPis[0];
+
+                ArrayXf probDelta(ndist);
+                for (unsigned k = 0; k < ndist; ++k) {
+                    probDelta[k] = 1.0f / (logDelta - logDelta[k]).exp().sum();
+                    deltaPi[k]->values[i] = probDelta[k];
+                }
+                pipPtr[i] = 1.0f - probDelta[0];
+
+                unsigned delta = bernoulli.sample(probDelta, urnd[i]);
+                membership[i] = delta;
+                snpsetBlocks[blk][delta].push_back(i);
+
+                if (delta) {
+                    valuesPtr[i] = uhat[delta] + nrnd[i] * sqrtf(invLhs[delta]);
+                    wcorr += Qi * (oldSample - valuesPtr[i]);
+                    what += Qi * valuesPtr[i];
+                    ssq[blk] += valuesPtr[i] * valuesPtr[i];
+                    wtdssq[blk] += (valuesPtr[i] * valuesPtr[i]) / gamma[delta];
+                    ++nnz[blk];
+                } else {
+                    if (oldSample) wcorr += Qi * oldSample;
+                    valuesPtr[i] = 0.0;
+                }
+            }
+            continue;
+        }
+
+        for (unsigned t = 0; t < blockSize; t++) {
+            unsigned i = snpIndexVec[t];
+            SnpInfo *snp = blockInfo->snpInfoVec[i - blockStart];
+            if (snp->skip) {
+                valuesPtr[i] = 0.0;
+                pipPtr[i] = 0.0f;
+                for (unsigned k = 0; k < (unsigned)ndist; ++k)
+                    deltaPi[k]->values[i] = (k == 0) ? 1.0f : 0.0f;
+                continue;
+            }
+            if (badSnps[i]) {
+                valuesPtr[i] = 0.0;
+                continue;
+            }
+            if (snp->fitAsFixedEffect) {
+                continue;
+            }
+            float oldSample = valuesPtr[i];
+            int qcolR = eigenQColIndex(blockInfo, i);
+            if (qcolR < 0) continue;
+            float rhs = (Qq.dotQ(qcolR, wcorr) + oldSample) * invVareDn;
+            ArrayXf uhat = invLhs * rhs;
+            ArrayXf logDelta = 0.5 * (logInvLhsMsigma + uhat * rhs) + logPis;
+            logDelta[0] = logPis[0];
+
+            ArrayXf probDelta(ndist);
+            for (unsigned k = 0; k < ndist; ++k) {
+                probDelta[k] = 1.0f / (logDelta - logDelta[k]).exp().sum();
+                deltaPi[k]->values[i] = probDelta[k];
+            }
+            pipPtr[i] = 1.0f - probDelta[0];
+
+            unsigned delta = bernoulli.sample(probDelta, urnd[i]);
+            membership[i] = delta;
+            snpsetBlocks[blk][delta].push_back(i);
+
+            if (delta) {
+                valuesPtr[i] = uhat[delta] + nrnd[i] * sqrtf(invLhs[delta]);
+                Qq.addScaledQ(qcolR, oldSample - valuesPtr[i], wcorr);
+                Qq.addScaledQ(qcolR, valuesPtr[i], what);
+                ssq[blk] += valuesPtr[i] * valuesPtr[i];
+                wtdssq[blk] += (valuesPtr[i] * valuesPtr[i]) / gamma[delta];
+                ++nnz[blk];
+            } else {
+                if (oldSample) Qq.addScaledQ(qcolR, oldSample, wcorr);
+                valuesPtr[i] = 0.0;
+            }
+        }
+
+    }
+
+    sumSq = 0.0;
+    wtdSumSq = 0.0;
+    numNonZeros = 0;
+    nnzPerBlk.setZero(nBlocks);
+    ssqBlocks.setZero(nBlocks);
+    snpStore.setZero(ndist);
+    snpset.resize(ndist);
+    for (unsigned k=0; k<ndist; ++k) {
+        snpset[k].resize(0);
+    }
+    for (unsigned blk=0; blk<nBlocks; ++blk) {
+        sumSq += ssq[blk];
+        wtdSumSq += wtdssq[blk];
+        numNonZeros += nnz[blk];
+        nnzPerBlk[blk] = nnz[blk];
+        ssqBlocks[blk] = ssq[blk];
+        for (unsigned k=0; k<ndist; ++k) {
+            for (unsigned j=0; j<snpsetBlocks[blk][k].size(); ++j) {
+                snpset[k].push_back(snpsetBlocks[blk][k][j]);
+                snpStore[k]++;
+            }
+        }
+    }
+    values = VectorXf::Map(valuesPtr, size);
+    pip = VectorXf::Map(pipPtr, size);
+}
+
 void ApproxBayesR::SnpEffects::sampleFromFC(const VectorXf &ZPy, const VectorXf &ZPZdiag, const MatrixXf &Z, const float n_ref, const float n_gwas,
                                             const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, const float vare,
                                             VectorXf &snpStore, VectorXf &ghat, const float varg, const bool hsqPercModel, DeltaPi &deltaPi) {
@@ -5145,9 +5502,25 @@ void ApproxBayesR::updateRHSlowRankModel(vector<VectorXf> &wcorrBlocks, const ve
 }
 
 void ApproxBayesR::sampleUnknowns(const unsigned iter){
+    bool quantizedLowRank = lowRankModel
+        && data.quantizedEigenBlocks.size() == data.keptLdBlockInfoVec.size()
+        && data.quantizedEigenBlocks.size();
+    if (quantizedLowRank) {
+        for (unsigned blk = 0; blk < data.quantizedEigenBlocks.size(); ++blk) {
+            if (!data.quantizedEigenBlocks[blk].active()) {
+                quantizedLowRank = false;
+                break;
+            }
+        }
+    }
     if (lowRankModel) {
-        fixedSnpEffects.sampleFromFC_eigen(snpEffects, wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, data.numFixedEffectSnps);
-        snpEffects.sampleFromFC_eigen(wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, sigmaSq.value, Pis.values, gamma.values, snpStore, vargRandom.value, hsqPercModel, deltaPi);
+        if (quantizedLowRank) {
+            fixedSnpEffects.sampleFromFC_quantizedEigen(snpEffects, wcorrBlocks, data.quantizedEigenBlocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, data.numFixedEffectSnps);
+            snpEffects.sampleFromFC_quantizedEigen(wcorrBlocks, data.quantizedEigenBlocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, sigmaSq.value, Pis.values, gamma.values, snpStore, vargRandom.value, hsqPercModel, deltaPi);
+        } else {
+            fixedSnpEffects.sampleFromFC_eigen(snpEffects, wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, data.numFixedEffectSnps);
+            snpEffects.sampleFromFC_eigen(wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, sigmaSq.value, Pis.values, gamma.values, snpStore, vargRandom.value, hsqPercModel, deltaPi);
+        }
     } else if (sparse) {
         fixedSnpEffects.sampleFromFC_sparse(snpEffects, rcorr, data.ZPZsp, data.ZPZdiag, data.snp2pq, data.incdSnpInfoVec, varg.value, vare.value, data.numFixedEffectSnps);
         snpEffects.sampleFromFC_sparse(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.chromInfoVec, data.snp2pq, sigmaSq.value, Pis.values, gamma.values, vare.value, snpStore, vargRandom.value, hsqPercModel, deltaPi, data.incdSnpInfoVec);
@@ -5207,7 +5580,10 @@ void ApproxBayesR::sampleUnknowns(const unsigned iter){
 
     if (!(iter % 10)) {
         if (lowRankModel) {
-            nBadSnps.compute_eigen(snpEffects.badSnps, snpEffects.values, snpEffects.posteriorMean, data.b, wcorrBlocks, data.Qblocks, data.keptLdBlockInfoVec, iter, data);
+            if (quantizedLowRank)
+                nBadSnps.compute_quantizedEigen(snpEffects.badSnps, snpEffects.values, snpEffects.posteriorMean, data.b, wcorrBlocks, data.quantizedEigenBlocks, data.keptLdBlockInfoVec, iter, data);
+            else
+                nBadSnps.compute_eigen(snpEffects.badSnps, snpEffects.values, snpEffects.posteriorMean, data.b, wcorrBlocks, data.Qblocks, data.keptLdBlockInfoVec, iter, data);
         } else if (sparse) {
             nBadSnps.compute_sparse(snpEffects.badSnps, snpEffects.values, snpEffects.posteriorMean, data.b, rcorr, data.ZPZsp, data.chromInfoVec, iter, data);
         } else {
@@ -5217,7 +5593,10 @@ void ApproxBayesR::sampleUnknowns(const unsigned iter){
 
     if (!(iter % 100)) {
         if (lowRankModel) {
-            rounding.computeWcorr_eigen(data.wcorrBlocks, data.Qblocks, data.keptLdBlockInfoVec, snpEffects.values, wcorrBlocks);
+            if (quantizedLowRank)
+                rounding.computeWcorr_quantizedEigen(data.wcorrBlocks, data.quantizedEigenBlocks, data.keptLdBlockInfoVec, snpEffects.values, wcorrBlocks);
+            else
+                rounding.computeWcorr_eigen(data.wcorrBlocks, data.Qblocks, data.keptLdBlockInfoVec, snpEffects.values, wcorrBlocks);
         } else if (sparse) {
             rounding.computeRcorr_sparse(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
         } else {
@@ -9481,4 +9860,3 @@ void ApproxBayesAPP::SnpEffectsBivariate::updateValues(void) {
         }
     }
 }
-

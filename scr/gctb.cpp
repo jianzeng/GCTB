@@ -11,6 +11,17 @@
 #include "stat.hpp"
 #include <Eigen/Core>
 #include <cmath>
+#if defined(__linux__)
+#include <malloc.h>
+#endif
+
+namespace {
+void releaseFreedHeapToOS() {
+#if defined(__linux__)
+    malloc_trim(0);
+#endif
+}
+}
 
 void GCTB::inputIndInfo(Data &data, const string &bedFile, const string &phenotypeFile, const string &keepIndFile, const unsigned keepIndMax, const unsigned mphen, const string &covariateFile, const string &randomCovariateFile, const string &residualDiagFile){
     data.readFamFile(bedFile + ".fam");
@@ -111,7 +122,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
                         const float eigenCutoff, const bool excludeMHC,
                         const float afDiff, const float mafmin, const float mafmax, const float pValueThreshold, const float rsqThreshold,
                         const bool sampleOverlap, const bool imputeN, const bool noscale, const bool readLDMfromTxtFile, const bool imputeSummary, const string &keepSumstatIntactFile, const unsigned includeBlock, const string &skipSnpFile, const bool setZeroGwasForSkip, const bool useBlockFullLdm, const bool buildMME){
-    data.readEigenMatrix(eigenMatrixFile, eigenCutoff);
+    data.readEigenMatrix(eigenMatrixFile, eigenCutoff, false, false, ".", opt.eigenMatrixQuantBits, opt.eigenMatrixQ8Entropy);
     if (!includeSnpFile.empty()) data.includeSnp(includeSnpFile);
     if (!excludeSnpFile.empty()) data.excludeSnp(excludeSnpFile);
     if (includeChr) data.includeChr(includeChr);
@@ -146,7 +157,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
         if (imputeSummary) {
             //data.includeMatchedBlocks();
             //data.scaleGwasEffects();
-            data.readEigenMatrixBinaryFile(eigenMatrixFile, eigenCutoff);
+            data.readEigenMatrixBinaryFile(eigenMatrixFile, eigenCutoff, false, ".", opt.eigenMatrixQuantBits, opt.eigenMatrixQ8Entropy);
             data.impG(includeBlock);
             if (setZeroGwasForSkip && !skipSnpFile.empty()) data.applySetZeroGwasForSkip();
             return;
@@ -167,7 +178,7 @@ void GCTB::inputSnpInfo(Data &data, const string &includeSnpFile, const string &
                 throw("Error: --ldm-block is only supported for univariate GWAS (--gwas).");
             data.buildMMEFromBlockFullLdmBin(eigenMatrixFile, sampleOverlap, noscale);
         } else if (token.size() == 1)
-            data.buildMMEeigen(eigenMatrixFile, sampleOverlap, eigenCutoff, noscale);
+            data.buildMMEeigen(eigenMatrixFile, sampleOverlap, eigenCutoff, noscale, opt.eigenMatrixQuantBits, opt.eigenMatrixQ8Entropy);
         else if (token.size() == 2)
             data.buildMMEeigenBivariate(eigenMatrixFile, sampleOverlap, eigenCutoff, noscale);
     }
@@ -480,6 +491,10 @@ void GCTB::findBestFitModelByPredictionAccuracy(Data &data, Options &opt, const 
             }
         }
     }
+    for (unsigned i=0; i<mcmcSampleVec.size(); ++i)
+        delete mcmcSampleVec[i];
+    mcmcSampleVec.clear();
+    releaseFreedHeapToOS();
     for (unsigned i=0; i<numModels; ++i) {
         if (std::isnan(hsqMeanVec[i]) || std::isnan(hsqSDVec[i])) {
             throw(" Error: could not read hsq posterior for model M" + to_string(static_cast<long long>(i + 1)) + " in --n-dist-auto-pred.");
@@ -514,7 +529,7 @@ void GCTB::findBestFitModelByPredictionAccuracy(Data &data, Options &opt, const 
             //cout << "  Pseudo CV short MCMC for model M" << (i+1) << " (K=" << gamma.size() << ") ... " << endl;
         }
         
-        data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, eigenCutoffUsed, data.pseudoGwasEffectTrn, data.pseudoGwasNtrnBlock, opt.noscale, false);
+        data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, eigenCutoffUsed, data.pseudoGwasEffectTrn, data.pseudoGwasNtrnBlock, opt.noscale, false, opt.eigenMatrixQuantBits, opt.eigenMatrixQ8Entropy);
         data.initVariances(opt.heritability, opt.propVarRandom);
         
         bool print = false;
@@ -536,6 +551,8 @@ void GCTB::findBestFitModelByPredictionAccuracy(Data &data, Options &opt, const 
             }
         }
         if (!betaMean.size()) {
+            for (unsigned k=0; k<mcmcSampleVeci.size(); ++k)
+                delete mcmcSampleVeci[k];
             throw(" Error: SnpEffects posterior not found in MCMC output for --n-dist-auto-pred.");
         }
         
@@ -547,6 +564,10 @@ void GCTB::findBestFitModelByPredictionAccuracy(Data &data, Options &opt, const 
             cout << boost::format("%12s %6s %12s %12s %25s\n") % modelTag % gamma.size() % hsqMeanVec[i] % hsqSDVec[i] % cor[i];
             cout.flush();
         }
+        for (unsigned k=0; k<mcmcSampleVeci.size(); ++k)
+            delete mcmcSampleVeci[k];
+        mcmcSampleVeci.clear();
+        releaseFreedHeapToOS();
     }
     
     // --- (3) Sequential simplification: start at largest K (model index 0), drop to K-1 unless both hsq and r justify keeping K ---
@@ -580,7 +601,7 @@ void GCTB::findBestFitModelByPredictionAccuracy(Data &data, Options &opt, const 
     opt.piPar = piParSel;
     
     data.nGWASblock = nGWASblockSaved;
-    data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, eigenCutoffUsed, data.gwasEffectInBlock, data.nGWASblock, opt.noscale, false);
+    data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, eigenCutoffUsed, data.gwasEffectInBlock, data.nGWASblock, opt.noscale, false, opt.eigenMatrixQuantBits, opt.eigenMatrixQ8Entropy);
     
     timer.getTime();
     cout << "\nModel " << selectedIdx+1 << " (" << opt.numDist << "-component model) is selected (hsq + pseudo CV r vs simpler model; time used: " << timer.format(timer.getElapse()) << ")." << endl;
@@ -1744,6 +1765,19 @@ void GCTB::pip2p(const Data &data, const VectorXf &pip, const float propNull, Ve
 
 float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
     data.recomputeEigen = opt.recomputeEigen;
+    bool quantizedLowRank = opt.eigenMatrixQuantBits > 0
+        && data.quantizedEigenBlocks.size() == data.keptLdBlockInfoVec.size()
+        && data.quantizedEigenBlocks.size();
+    if (quantizedLowRank) {
+        for (unsigned blk = 0; blk < data.quantizedEigenBlocks.size(); ++blk) {
+            if (!data.quantizedEigenBlocks[blk].active()) {
+                quantizedLowRank = false;
+                break;
+            }
+        }
+    }
+    if (quantizedLowRank)
+        cout << "Keeping quantized eigenvectors in memory; Q columns will be de-quantized on demand during sampling." << endl;
     cout << "\nFinding the best eigen cutoff from [" << opt.eigenCutoff.transpose() << "] based on pseudo summary data validation." << endl;
     
     Gadget::Timer timer;
@@ -1762,14 +1796,14 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
     for (unsigned i=0; i<size; ++i) {
         float cutoff = opt.eigenCutoff[i];
 
-        data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, cutoff, data.pseudoGwasEffectTrn, data.pseudoGwasNtrnBlock, opt.noscale, false);
+        data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, cutoff, data.pseudoGwasEffectTrn, data.pseudoGwasNtrnBlock, opt.noscale, false, opt.eigenMatrixQuantBits, opt.eigenMatrixQ8Entropy);
         //data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, cutoff);
         //data.constructWandQ(data.pseudoGwasEffectTrn, data.pseudoGwasNtrn);
         
         data.initVariances(opt.heritability, opt.propVarRandom);
         bool nDistAuto = false;
         bool print = false;
-        Model *modeli = new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.algorithm, print);
+        ApproxBayesR *modeli = new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.algorithm, print);
         
         vector<McmcSamples*> mcmcSampleVeci;
         MCMC mcmc;
@@ -1786,6 +1820,11 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
                 betaMean = mcmcSamples->posteriorMean;
             }
         }
+        if (betaMean.size() == 0)
+            betaMean = modeli->snpEffects.posteriorMean;
+        if (betaMean.size() != data.b_val.size())
+            throw("Error: internal mismatch while tuning eigen cutoff; betaMean size " + to_string((long long)betaMean.size()) +
+                  " but validation vector size " + to_string((long long)data.b_val.size()) + ".");
         
         // compute prediction accuracy
         cor[i] = betaMean.dot(data.b_val) / sqrt(betaMean.squaredNorm() * data.varPhenotypic);
@@ -1798,9 +1837,11 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
         }
         delete modeli;
         mcmcSampleVeci.clear();
+        releaseFreedHeapToOS();
     }
     
     data.nGWASblock = nGWASblock;
+    releaseFreedHeapToOS();
     
     int bestCutoff_index;
     cor.maxCoeff(&bestCutoff_index);
@@ -1826,5 +1867,3 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
     
     return bestCutoff;
 }
-
-

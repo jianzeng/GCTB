@@ -13,6 +13,7 @@
 #include <dirent.h>
 #include <cmath>
 #include <stdexcept>
+#include <zlib.h>
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -48,6 +49,318 @@ inline bool gwasUsableAnchorSnp(const SnpInfo *snp) {
 [[noreturn]] inline void throwEigenReadErr(const string &msg) {
     cerr << msg << endl;
     throw std::runtime_error(msg);
+}
+
+inline string eigenBlockFilename(const string &dirname, const string &blockID, const int quantizedBits, const bool q8Entropy) {
+    string suffix;
+    if (quantizedBits == 0) suffix = ".eigen.bin";
+    else if (quantizedBits == 4) suffix = ".eigen.q4.bin";
+    else if (quantizedBits == 8 && q8Entropy) suffix = ".eigen.q8e.bin";
+    else if (quantizedBits == 8) suffix = ".eigen.q8.bin";
+    else if (quantizedBits == 16) suffix = ".eigen.q16.bin";
+    else throw std::runtime_error("Error: unsupported quantized eigen bit width " + to_string(quantizedBits) + ". Use 4, 8, or 16.");
+    return dirname + "/block" + blockID + suffix;
+}
+
+inline int8_t eigenQuantNibbleToSigned4(unsigned n) {
+    n &= 0x0Fu;
+    return static_cast<int8_t>(static_cast<int8_t>(n << 4) >> 4);
+}
+
+void readEigenHeaderOrThrow(FILE *fp, const string &infile, const string &blockID, const int expectedM,
+                            int32_t &cur_m, int32_t &cur_k, float &sumPosEigVal, float &oldEigenCutoff, VectorXf &lambda) {
+    if (fread(&cur_m, sizeof(int32_t), 1, fp) != 1) throwEigenReadErr("Read " + infile + " error (m)");
+    if (cur_m != expectedM) throwEigenReadErr("In LD block " + blockID + ", inconsistent marker number to marker information in " + infile);
+    if (fread(&cur_k, sizeof(int32_t), 1, fp) != 1) throwEigenReadErr("In LD block " + blockID + ", error about number of eigenvalues in  " + infile);
+    if (fread(&sumPosEigVal, sizeof(float), 1, fp) != 1) throwEigenReadErr("In LD block " + blockID + ", error about the sum of positive eigenvalues in " + infile);
+    if (fread(&oldEigenCutoff, sizeof(float), 1, fp) != 1) throwEigenReadErr("In LD block " + blockID + ", error about eigen cutoff used in " + infile);
+    lambda.resize(cur_k);
+    if (fread(lambda.data(), sizeof(float), cur_k, fp) != (size_t)cur_k) throwEigenReadErr("In LD block " + blockID + ",size error about eigenvalues in " + infile);
+}
+
+void readEigenUOrThrow(FILE *fp, const string &infile, const string &blockID, const int32_t cur_m, const int32_t cur_k,
+                       const int quantizedBits, const bool q8Entropy, MatrixXf &U) {
+    U.resize(cur_m, cur_k);
+    const uint64_t nElements = (uint64_t)cur_m * (uint64_t)cur_k;
+    if (quantizedBits == 0) {
+        size_t nReadU = fread(U.data(), sizeof(float), nElements, fp);
+        if (nReadU != nElements) {
+            cerr << "Expected " << nElements << " eigen matrix floats; got " << nReadU
+                 << " (rows " << cur_m << ", cols " << cur_k << ")." << endl;
+            throwEigenReadErr("In LD block " + blockID + ",size error about eigenvectors in " + infile);
+        }
+        return;
+    }
+
+    VectorXf scales(cur_k);
+    if (fread(scales.data(), sizeof(float), cur_k, fp) != (size_t)cur_k) {
+        throwEigenReadErr("In LD block " + blockID + ",size error about quantized eigenvector scales in " + infile);
+    }
+    float invBound = 0.0f;
+    if (quantizedBits == 4) invBound = 1.0f / 7.0f;
+    else if (quantizedBits == 8) invBound = 1.0f / 127.0f;
+    else if (quantizedBits == 16) invBound = 1.0f / 32767.0f;
+    else throwEigenReadErr("Error: unsupported quantized eigen bit width " + to_string(quantizedBits) + ".");
+
+    if (quantizedBits == 4) {
+        const int packedRows = (cur_m + 1) / 2;
+        vector<uint8_t> packed(packedRows);
+        for (int col = 0; col < cur_k; ++col) {
+            if (fread(packed.data(), sizeof(uint8_t), packedRows, fp) != (size_t)packedRows)
+                throwEigenReadErr("In LD block " + blockID + ",size error about q4 eigenvectors in " + infile);
+            const float scale = scales[col] * invBound;
+            for (int row = 0; row < cur_m; ++row) {
+                const uint8_t byte = packed[row / 2];
+                const int8_t q = (row % 2 == 0) ? eigenQuantNibbleToSigned4(byte) : eigenQuantNibbleToSigned4(byte >> 4);
+                U(row, col) = scale * (float)q;
+            }
+        }
+    } else if (quantizedBits == 8) {
+        vector<int8_t> raw(nElements);
+        if (q8Entropy) {
+            uint64_t uncompressedSize = 0, compressedSize = 0;
+            if (fread(&uncompressedSize, sizeof(uint64_t), 1, fp) != 1)
+                throwEigenReadErr("In LD block " + blockID + ", read error (zlib uncompressed size) in " + infile);
+            if (fread(&compressedSize, sizeof(uint64_t), 1, fp) != 1)
+                throwEigenReadErr("In LD block " + blockID + ", read error (zlib compressed size) in " + infile);
+            if (uncompressedSize != nElements)
+                throwEigenReadErr("In LD block " + blockID + ", zlib uncompressed size mismatch in " + infile);
+            vector<Bytef> compressed(compressedSize);
+            if (fread(compressed.data(), 1, compressedSize, fp) != compressedSize)
+                throwEigenReadErr("In LD block " + blockID + ", size error about zlib payload in " + infile);
+            uLongf destLen = (uLongf)uncompressedSize;
+            int zrc = uncompress(reinterpret_cast<Bytef*>(raw.data()), &destLen, compressed.data(), (uLong)compressedSize);
+            if (zrc != Z_OK || destLen != (uLongf)uncompressedSize)
+                throwEigenReadErr("In LD block " + blockID + ", zlib uncompress failed for " + infile);
+        } else {
+            if (fread(raw.data(), sizeof(int8_t), nElements, fp) != nElements)
+                throwEigenReadErr("In LD block " + blockID + ",size error about q8 eigenvectors in " + infile);
+        }
+        for (int col = 0; col < cur_k; ++col) {
+            const float scale = scales[col] * invBound;
+            for (int row = 0; row < cur_m; ++row)
+                U(row, col) = scale * (float)raw[(uint64_t)col * (uint64_t)cur_m + (uint64_t)row];
+        }
+    } else {
+        vector<int16_t> colRaw(cur_m);
+        for (int col = 0; col < cur_k; ++col) {
+            if (fread(colRaw.data(), sizeof(int16_t), cur_m, fp) != (size_t)cur_m)
+                throwEigenReadErr("In LD block " + blockID + ",size error about q16 eigenvectors in " + infile);
+            const float scale = scales[col] * invBound;
+            for (int row = 0; row < cur_m; ++row)
+                U(row, col) = scale * (float)colRaw[row];
+        }
+    }
+}
+
+void readQuantizedEigenUOrThrow(FILE *fp, const string &infile, const string &blockID, const int32_t cur_m, const int32_t cur_k,
+                                const int quantizedBits, const bool q8Entropy, const VectorXf &lambda, QuantizedEigenBlock &qb) {
+    if (quantizedBits == 0) throwEigenReadErr("Internal error: readQuantizedEigenUOrThrow called for unquantized eigen file.");
+    qb.bits = quantizedBits;
+    qb.m = cur_m;
+    qb.k = cur_k;
+    qb.sqrtLambda = lambda.array().sqrt();
+
+    VectorXf scales(cur_k);
+    if (fread(scales.data(), sizeof(float), cur_k, fp) != (size_t)cur_k) {
+        throwEigenReadErr("In LD block " + blockID + ",size error about quantized eigenvector scales in " + infile);
+    }
+
+    float invBound = 0.0f;
+    if (quantizedBits == 4) invBound = 1.0f / 7.0f;
+    else if (quantizedBits == 8) invBound = 1.0f / 127.0f;
+    else if (quantizedBits == 16) invBound = 1.0f / 32767.0f;
+    else throwEigenReadErr("Error: unsupported quantized eigen bit width " + to_string(quantizedBits) + ".");
+    qb.dequantScale = scales * invBound;
+    qb.qScale = qb.sqrtLambda.array() * qb.dequantScale.array();
+
+    const uint64_t nElements = (uint64_t)cur_m * (uint64_t)cur_k;
+    qb.q4.clear();
+    qb.q8.clear();
+    qb.q16.clear();
+
+    if (quantizedBits == 4) {
+        const int packedRows = (cur_m + 1) / 2;
+        qb.q4.resize((size_t)packedRows * (size_t)cur_k);
+        for (int col = 0; col < cur_k; ++col) {
+            uint8_t *colPtr = &qb.q4[(size_t)col * (size_t)packedRows];
+            if (fread(colPtr, sizeof(uint8_t), packedRows, fp) != (size_t)packedRows)
+                throwEigenReadErr("In LD block " + blockID + ",size error about q4 eigenvectors in " + infile);
+        }
+    } else if (quantizedBits == 8) {
+        qb.q8.resize(nElements);
+        if (q8Entropy) {
+            uint64_t uncompressedSize = 0, compressedSize = 0;
+            if (fread(&uncompressedSize, sizeof(uint64_t), 1, fp) != 1)
+                throwEigenReadErr("In LD block " + blockID + ", read error (zlib uncompressed size) in " + infile);
+            if (fread(&compressedSize, sizeof(uint64_t), 1, fp) != 1)
+                throwEigenReadErr("In LD block " + blockID + ", read error (zlib compressed size) in " + infile);
+            if (uncompressedSize != nElements)
+                throwEigenReadErr("In LD block " + blockID + ", zlib uncompressed size mismatch in " + infile);
+            vector<Bytef> compressed(compressedSize);
+            if (fread(compressed.data(), 1, compressedSize, fp) != compressedSize)
+                throwEigenReadErr("In LD block " + blockID + ", size error about zlib payload in " + infile);
+            uLongf destLen = (uLongf)uncompressedSize;
+            int zrc = uncompress(reinterpret_cast<Bytef*>(qb.q8.data()), &destLen, compressed.data(), (uLong)compressedSize);
+            if (zrc != Z_OK || destLen != (uLongf)uncompressedSize)
+                throwEigenReadErr("In LD block " + blockID + ", zlib uncompress failed for " + infile);
+        } else {
+            if (fread(qb.q8.data(), sizeof(int8_t), nElements, fp) != nElements)
+                throwEigenReadErr("In LD block " + blockID + ",size error about q8 eigenvectors in " + infile);
+        }
+    } else {
+        qb.q16.resize(nElements);
+        for (int col = 0; col < cur_k; ++col) {
+            int16_t *colPtr = &qb.q16[(size_t)col * (size_t)cur_m];
+            if (fread(colPtr, sizeof(int16_t), cur_m, fp) != (size_t)cur_m)
+                throwEigenReadErr("In LD block " + blockID + ",size error about q16 eigenvectors in " + infile);
+        }
+    }
+}
+
+int eigenTailStartIndex(const float sumPosEigVal, const float eigenCutoff, const VectorXf &lambda) {
+    int revIdx = (int)lambda.size();
+    VectorXf cumsumNonNeg(revIdx);
+    cumsumNonNeg.setZero();
+    revIdx = revIdx - 1;
+    cumsumNonNeg(revIdx) = lambda(revIdx);
+    revIdx = revIdx - 1;
+
+    while (revIdx >= 0 && lambda(revIdx) > 1e-10f) {
+        cumsumNonNeg(revIdx) = lambda(revIdx) + cumsumNonNeg(revIdx + 1);
+        revIdx = revIdx - 1;
+        if (revIdx < 0) break;
+    }
+    cumsumNonNeg = cumsumNonNeg / sumPosEigVal;
+
+    bool haveValue = false;
+    for (revIdx = revIdx + 1; revIdx < lambda.size(); revIdx++) {
+        if (eigenCutoff >= cumsumNonNeg(revIdx)) {
+            revIdx = revIdx - 1;
+            haveValue = true;
+            break;
+        }
+    }
+    if (!haveValue) revIdx = lambda.size() - 1;
+    if (revIdx < 0) revIdx = 0;
+    return revIdx;
+}
+
+void keepQuantizedEigenTail(QuantizedEigenBlock &qb, const int startCol) {
+    if (startCol <= 0) return;
+    const int oldK = qb.k;
+    const int newK = oldK - startCol;
+    if (newK <= 0) return;
+
+    qb.sqrtLambda = qb.sqrtLambda.tail(newK).eval();
+    qb.dequantScale = qb.dequantScale.tail(newK).eval();
+    qb.qScale = qb.qScale.tail(newK).eval();
+
+    if (qb.bits == 4) {
+        const int packedRows = (qb.m + 1) / 2;
+        vector<uint8_t> kept((size_t)newK * (size_t)packedRows);
+        for (int col = 0; col < newK; ++col) {
+            const uint8_t *src = &qb.q4[(size_t)(startCol + col) * (size_t)packedRows];
+            uint8_t *dst = &kept[(size_t)col * (size_t)packedRows];
+            std::copy(src, src + packedRows, dst);
+        }
+        qb.q4.swap(kept);
+    } else if (qb.bits == 8) {
+        vector<int8_t> kept((size_t)newK * (size_t)qb.m);
+        for (int col = 0; col < newK; ++col) {
+            const int8_t *src = &qb.q8[(size_t)(startCol + col) * (size_t)qb.m];
+            int8_t *dst = &kept[(size_t)col * (size_t)qb.m];
+            std::copy(src, src + qb.m, dst);
+        }
+        qb.q8.swap(kept);
+    } else if (qb.bits == 16) {
+        vector<int16_t> kept((size_t)newK * (size_t)qb.m);
+        for (int col = 0; col < newK; ++col) {
+            const int16_t *src = &qb.q16[(size_t)(startCol + col) * (size_t)qb.m];
+            int16_t *dst = &kept[(size_t)col * (size_t)qb.m];
+            std::copy(src, src + qb.m, dst);
+        }
+        qb.q16.swap(kept);
+    }
+    qb.k = newK;
+}
+
+void quantizeEigenMatrixToBlock(const MatrixXf &U, const VectorXf &lambda, const int quantizedBits, QuantizedEigenBlock &qb) {
+    const int m = U.rows();
+    const int k = U.cols();
+    qb = QuantizedEigenBlock();
+    qb.bits = quantizedBits;
+    qb.m = m;
+    qb.k = k;
+    qb.sqrtLambda = lambda.array().sqrt();
+    qb.dequantScale.resize(k);
+
+    int bound = 0;
+    if (quantizedBits == 4) bound = 7;
+    else if (quantizedBits == 8) bound = 127;
+    else if (quantizedBits == 16) bound = 32767;
+    else throwEigenReadErr("Error: unsupported quantized eigen bit width " + to_string(quantizedBits) + ".");
+
+    VectorXf maxAbs(k);
+    for (int col = 0; col < k; ++col) {
+        maxAbs[col] = U.col(col).cwiseAbs().maxCoeff();
+        if (maxAbs[col] <= 0.0f) maxAbs[col] = 1.0f;
+        qb.dequantScale[col] = maxAbs[col] / (float)bound;
+    }
+    qb.qScale = qb.sqrtLambda.array() * qb.dequantScale.array();
+
+    if (quantizedBits == 4) {
+        const int packedRows = (m + 1) / 2;
+        qb.q4.assign((size_t)packedRows * (size_t)k, 0);
+        for (int col = 0; col < k; ++col) {
+            const float invScale = (float)bound / maxAbs[col];
+            for (int row = 0; row < m; ++row) {
+                int q = (int)lrintf(U(row, col) * invScale);
+                if (q > bound) q = bound;
+                if (q < -bound) q = -bound;
+                uint8_t nibble = (uint8_t)(q & 0x0F);
+                uint8_t &byte = qb.q4[(size_t)col * (size_t)packedRows + (size_t)(row / 2)];
+                if (row % 2 == 0) byte = (byte & 0xF0u) | nibble;
+                else byte = (byte & 0x0Fu) | (uint8_t)(nibble << 4);
+            }
+        }
+    } else if (quantizedBits == 8) {
+        qb.q8.resize((size_t)m * (size_t)k);
+        for (int col = 0; col < k; ++col) {
+            const float invScale = (float)bound / maxAbs[col];
+            for (int row = 0; row < m; ++row) {
+                int q = (int)lrintf(U(row, col) * invScale);
+                if (q > bound) q = bound;
+                if (q < -bound) q = -bound;
+                qb.q8[(size_t)col * (size_t)m + (size_t)row] = (int8_t)q;
+            }
+        }
+    } else {
+        qb.q16.resize((size_t)m * (size_t)k);
+        for (int col = 0; col < k; ++col) {
+            const float invScale = (float)bound / maxAbs[col];
+            for (int row = 0; row < m; ++row) {
+                int q = (int)lrintf(U(row, col) * invScale);
+                if (q > bound) q = bound;
+                if (q < -bound) q = -bound;
+                qb.q16[(size_t)col * (size_t)m + (size_t)row] = (int16_t)q;
+            }
+        }
+    }
+}
+
+VectorXf makeWcorrFromQuantizedEigen(const QuantizedEigenBlock &qb, const VectorXf &gwasEffects) {
+    VectorXf wcorr(qb.k);
+    wcorr.setZero();
+    for (int eigIdx = 0; eigIdx < qb.k; ++eigIdx) {
+        float uDotB = 0.0f;
+        for (int row = 0; row < qb.m; ++row) {
+            const float u = qb.qComponent(row, eigIdx) / qb.sqrtLambda[eigIdx];
+            uDotB += u * gwasEffects[row];
+        }
+        wcorr[eigIdx] = uDotB / qb.sqrtLambda[eigIdx];
+    }
+    return wcorr;
 }
 }
 
@@ -1143,17 +1456,21 @@ void Data::impG(const unsigned block, double diag_mod){
     string outfile = title + ".imputed.ma";
     ofstream out(outfile.c_str());
     out << boost::format("%15s %10s %10s %15s %15s %15s %15s %15s\n") % "SNP" % "A1" % "A2" % "freq" % "b" % "se" % "p" % "N";
-    for (unsigned i=0; i<numSnps; ++i) {
-        SnpInfo *snp = snpInfoVec[i];
-        out << boost::format("%15s %10s %10s %15s %15s %15s %15s %15s\n")
-        % snp->ID
-        % snp->a1
-        % snp->a2
-        % snp->gwas_af
-        % snp->gwas_b
-        % snp->gwas_se
-        % snp->gwas_pvalue
-        % snp->gwas_n;
+    for (unsigned bi=0; bi<numLDBlocks; ++bi) {
+        LDBlockInfo *ldblock = ldBlockInfoVec[bi];
+        if (!ldblock->kept) continue;
+        for (unsigned j=0; j<ldblock->numSnpInBlock; ++j) {
+            SnpInfo *snp = ldblock->snpInfoVec[j];
+            out << boost::format("%15s %10s %10s %15s %15s %15s %15s %15s\n")
+            % snp->ID
+            % snp->a1
+            % snp->a2
+            % snp->gwas_af
+            % snp->gwas_b
+            % snp->gwas_se
+            % snp->gwas_pvalue
+            % snp->gwas_n;
+        }
     }
     out.close();
 
@@ -1756,7 +2073,7 @@ void Data::readSparseBlockLdmBinaryAndDoEigenDecomposition(const string &dirname
 
 }
 
-void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCutoff, const bool writeLdmTxt, const string &outputDir){
+void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCutoff, const bool writeLdmTxt, const string &outputDir, const int quantizedBits, const bool q8Entropy){
     if (!Gadget::directoryExist(dirname)) {
         throwEigenReadErr("Error: cannot find the folder [" + dirname + "]");
     }
@@ -1784,53 +2101,16 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
         float sumPosEigVal = 0;
         float oldEigenCutoff =0;
         
-        string infile = dirname + "/block" + block->ID + ".eigen.bin";
+        string infile = eigenBlockFilename(dirname, block->ID, quantizedBits, q8Entropy);
         FILE *fp = fopen(infile.c_str(), "rb");
         if(!fp){
             throwEigenReadErr("Error: can not open the file [" + infile + "] to read.");
         }
 
-        // 1. marker number
-        if(fread(&cur_m, sizeof(int32_t), 1, fp) != 1){
-            fclose(fp);
-            throwEigenReadErr("Read " + infile + " error (m)");
-        }
-                
-        if(cur_m != numSnpInRegion[i]){
-            fclose(fp);
-            throwEigenReadErr("In LD block " + block->ID + ", inconsistent marker number to marker information in " + infile);
-        }
-        // 2. ncol of eigenVec (number of eigenvalues)
-        if(fread(&cur_k, sizeof(int32_t), 1, fp) != 1){
-            fclose(fp);
-            throwEigenReadErr("In LD block " + block->ID + ", error about number of eigenvalues in  " + infile);
-        }
-        // 3. sum of all positive eigenvalues
-        if(fread(&sumPosEigVal, sizeof(float), 1, fp) != 1){
-            fclose(fp);
-            throwEigenReadErr("In LD block " + block->ID + ", error about the sum of positive eigenvalues in " + infile);
-        }
-        // 4. eigenCutoff
-        if(fread(&oldEigenCutoff, sizeof(float), 1, fp) != 1){
-            fclose(fp);
-            throwEigenReadErr("In LD block " + block->ID + ", error about eigen cutoff used in " + infile);
-        }
-        // 5. eigenvalues
-        VectorXf lambda(cur_k);
-        if(fread(lambda.data(), sizeof(float), cur_k, fp) != (size_t)cur_k){
-            fclose(fp);
-            throwEigenReadErr("In LD block " + block->ID + ",size error about eigenvalues in " + infile);
-        }
-        // 6. eigenvector
-        MatrixXf U(cur_m, cur_k);
-        uint64_t nElements = (uint64_t)cur_m * (uint64_t)cur_k;
-        size_t nReadU = fread(U.data(), sizeof(float), nElements, fp);
-        if(nReadU != nElements){
-            fclose(fp);
-            cerr << "Expected " << nElements << " eigen matrix floats; got " << nReadU
-                 << " (rows " << cur_m << ", cols " << cur_k << ")." << endl;
-            throwEigenReadErr("In LD block " + block->ID + ",size error about eigenvectors in " + infile);
-        }
+        VectorXf lambda;
+        MatrixXf U;
+        readEigenHeaderOrThrow(fp, infile, block->ID, numSnpInRegion[i], cur_m, cur_k, sumPosEigVal, oldEigenCutoff, lambda);
+        readEigenUOrThrow(fp, infile, block->ID, cur_m, cur_k, quantizedBits, q8Entropy, U);
         
         fclose(fp);
         
@@ -1980,7 +2260,9 @@ bool Data::trySubLdEigenFromFullLdm(
     float &sumPosEigValOut,
     VectorXi &remapOut,
     vector<unsigned> &keptLocalOut,
-    bool *outUsedEigenRecon
+    bool *outUsedEigenRecon,
+    const int quantizedBits,
+    const bool q8Entropy
 ) {
     if (outUsedEigenRecon) *outUsedEigenRecon = false;
 
@@ -2021,11 +2303,43 @@ bool Data::trySubLdEigenFromFullLdm(
         float sumPosEigVal = 0, oldEigenCutoff = 0;
         VectorXf lambda;
         MatrixXf U;
-        if (!readBlockEigenBinContents(dirname, block->ID, m, cur_m, cur_k, sumPosEigVal, oldEigenCutoff, lambda, U))
+        if (readBlockEigenBinContents(dirname, block->ID, m, cur_m, cur_k, sumPosEigVal, oldEigenCutoff, lambda, U)) {
+            if (!buildSubmatrixLdFromEigenFactors(eigenCutoff, sumPosEigVal, oldEigenCutoff, lambda, U, kept, Rss))
+                return false;
+            if (outUsedEigenRecon) *outUsedEigenRecon = true;
+        } else if (quantizedBits > 0) {
+            string infile = eigenBlockFilename(dirname, block->ID, quantizedBits, q8Entropy);
+            FILE *fp = fopen(infile.c_str(), "rb");
+            if (!fp) return false;
+            QuantizedEigenBlock qb;
+            try {
+                readEigenHeaderOrThrow(fp, infile, block->ID, m, cur_m, cur_k, sumPosEigVal, oldEigenCutoff, lambda);
+                readQuantizedEigenUOrThrow(fp, infile, block->ID, cur_m, cur_k, quantizedBits, q8Entropy, lambda, qb);
+            } catch (...) {
+                fclose(fp);
+                return false;
+            }
+            fclose(fp);
+            if (eigenCutoff + 1e-6f < oldEigenCutoff) {
+                const int startCol = eigenTailStartIndex(sumPosEigVal, eigenCutoff, lambda);
+                keepQuantizedEigenTail(qb, startCol);
+            }
+            Rss.resize(m2, m2);
+            Rss.setZero();
+            for (unsigned a = 0; a < m2; ++a) {
+                for (unsigned b = 0; b <= a; ++b) {
+                    float val = 0.0f;
+                    for (int eigIdx = 0; eigIdx < qb.k; ++eigIdx)
+                        val += qb.qComponent((int)kept[a], eigIdx) * qb.qComponent((int)kept[b], eigIdx);
+                    Rss((int)a, (int)b) = val;
+                    Rss((int)b, (int)a) = val;
+                }
+            }
+            normaliseDenseCorrelation(Rss);
+            if (outUsedEigenRecon) *outUsedEigenRecon = true;
+        } else {
             return false;
-        if (!buildSubmatrixLdFromEigenFactors(eigenCutoff, sumPosEigVal, oldEigenCutoff, lambda, U, kept, Rss))
-            return false;
-        if (outUsedEigenRecon) *outUsedEigenRecon = true;
+        }
     }
 
     eigenDecomposition(Rss, eigenCutoff, eigenValOut, eigenVecOut, sumPosEigValOut);
@@ -2133,8 +2447,9 @@ bool Data::trySubLdEigenFromFullLdmBivariate(
     return true;
 }
 
-void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const VectorXf &nGWASblock, const bool noscale, const bool makePseudoSummary){
-    if (!wcorrBlocks.size()) {  // only print for the first time reading the data
+void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const VectorXf &nGWASblock, const bool noscale, const bool makePseudoSummary, const int quantizedBits, const bool q8Entropy){
+    const bool firstEigenRead = !wcorrBlocks.size();
+    if (firstEigenRead) {  // only print for the first time reading the data
         cout << "Reading eigenvectors from binary file and making W and Q matrices..." << endl;
     }
     if (!Gadget::directoryExist(dirname)) {
@@ -2159,14 +2474,20 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
         for (int j = 0; j < m; ++j)
             if (block->snpInfoVec[j]->skip) ++n_skip;
         if (n_skip == 0 || n_skip >= (unsigned)m) continue;
-        if (blockLdmBinFileExists(dirname, block->ID) || blockEigenBinFileExists(dirname, block->ID))
+        bool haveQuantEigen = false;
+        if (quantizedBits > 0) {
+            struct stat qsb;
+            string qpath = eigenBlockFilename(dirname, block->ID, quantizedBits, q8Entropy);
+            haveQuantEigen = stat(qpath.c_str(), &qsb) == 0 && S_ISREG(qsb.st_mode);
+        }
+        if (blockLdmBinFileExists(dirname, block->ID) || blockEigenBinFileExists(dirname, block->ID) || haveQuantEigen)
             ++subLdPlanned;
         else
             subLdMissingLdBlockIds.push_back(block->ID);
     }
     if (!subLdMissingLdBlockIds.empty() && !wcorrBlocks.size()) {
         cout << "Warning: --recompute-eigen with --skip: partial skip in " << subLdMissingLdBlockIds.size()
-             << " LD block(s); need block<ID>.ldm.bin or block<ID>.eigen.bin in [" << dirname << "]. Missing for block ID(s):";
+             << " LD block(s); need block<ID>.ldm.bin, block<ID>.eigen.bin, or matching block<ID>.eigen.q*.bin in [" << dirname << "]. Missing for block ID(s):";
         for (size_t t = 0; t < subLdMissingLdBlockIds.size(); ++t)
             cout << " " << subLdMissingLdBlockIds[t];
         cout << ". Falling back to full-block block*.eigen.bin for those blocks." << endl;
@@ -2181,6 +2502,7 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
     numSnpsBlock.resize(numKeptLDBlocks);
     numEigenvalBlock.resize(numKeptLDBlocks);
     Qblocks.resize(numKeptLDBlocks);
+    quantizedEigenBlocks.assign(numKeptLDBlocks, QuantizedEigenBlock());
 
     EigenNbThreadsGuard eigenNbThreadsGuard;
 
@@ -2218,7 +2540,7 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
         VectorXi remapSub;
         vector<unsigned> keptSub;
 
-        bool didSubLd = trySubLdEigenFromFullLdm(block, dirname, eigenCutoff, GWASeffects[i], eigenValSub, eigenVecSub, wcorrSub, Qsub, sumPosSub, remapSub, keptSub, nullptr);
+        bool didSubLd = trySubLdEigenFromFullLdm(block, dirname, eigenCutoff, GWASeffects[i], eigenValSub, eigenVecSub, wcorrSub, Qsub, sumPosSub, remapSub, keptSub, nullptr, quantizedBits, q8Entropy);
 
         if (didSubLd) {
 #pragma omp critical
@@ -2227,21 +2549,30 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
                      << " SNPs skipped, " << keptSub.size() << " retained." << endl;
             }
             eigenValLdBlock[i] = eigenValSub;
-            eigenVecLdBlock[i] = eigenVecSub;
             wcorrBlocks[i] = wcorrSub;
-            Qblocks[i] = Qsub;
             block->sumPosEigVal = sumPosSub;
             block->eigenvalues = eigenValSub;
             block->eigenColRemap = remapSub;
             block->subLdKeptLocalIdx = keptSub;
-            numSnpsBlock[i] = Qblocks[i].cols();
-            numEigenvalBlock[i] = Qblocks[i].rows();
+            if (quantizedBits > 0) {
+                quantizeEigenMatrixToBlock(eigenVecSub, eigenValSub, quantizedBits, quantizedEigenBlocks[i]);
+                eigenVecLdBlock[i].resize(0, 0);
+                Qblocks[i].resize(0, 0);
+                numSnpsBlock[i] = quantizedEigenBlocks[i].m;
+                numEigenvalBlock[i] = quantizedEigenBlocks[i].k;
+            } else {
+                eigenVecLdBlock[i] = eigenVecSub;
+                Qblocks[i] = Qsub;
+                quantizedEigenBlocks[i] = QuantizedEigenBlock();
+                numSnpsBlock[i] = Qblocks[i].cols();
+                numEigenvalBlock[i] = Qblocks[i].rows();
+            }
 
             if (makePseudoSummary) {
-                long size = eigenValLdBlock[i].size();
+                long size = eigenValSub.size();
                 VectorXf rnd(size);
                 for (long j = 0; j < size; ++j) rnd[j] = Stat::snorm();
-                VectorXf noise_kept = eigenVecLdBlock[i] * (eigenValLdBlock[i].array().sqrt().matrix().asDiagonal() * rnd);
+                VectorXf noise_kept = eigenVecSub * (eigenValSub.array().sqrt().matrix().asDiagonal() * rnd);
                 VectorXf noise_full = VectorXf::Zero(block->numSnpInBlock);
                 for (unsigned a = 0; a < keptSub.size(); ++a)
                     noise_full[(int)keptSub[a]] = noise_kept[a];
@@ -2258,80 +2589,72 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
         float sumPosEigVal = 0;
         float oldEigenCutoff =0;
         
-        string infile = dirname + "/block" + block->ID + ".eigen.bin";
+        string infile = eigenBlockFilename(dirname, block->ID, quantizedBits, q8Entropy);
         FILE *fp = fopen(infile.c_str(), "rb");
         if(!fp){cout << "Error: can not open the file [" + infile + "] to read." << endl;}
         if(!fp){throw ("Error: can not open the file [" + infile + "] to read.");}
 
-        // 1. marker number
-        if(fread(&cur_m, sizeof(int32_t), 1, fp) != 1){
-            throw("Read " + infile + " error (m)");
-        }
-
-        if(cur_m != numSnpInRegion[i]){
-            throw("In LD block " + block->ID + ", inconsistent marker number to marker information in " + infile);
-        }
-
-        // 2. ncol of eigenVec (number of eigenvalues)
-        if(fread(&cur_k, sizeof(int32_t), 1, fp) != 1){
-            throw("In LD block " + block->ID + ", error about number of eigenvalues in  " + infile);
-            // cout << "Read " << eigenBinFile << " error (k)" << endl;
-            // throw("read file error");
-        }
-
-        // 3. sum of all positive eigenvalues
-        if(fread(&sumPosEigVal, sizeof(float), 1, fp) != 1){
-            throw("In LD block " + block->ID + ", error about the sum of positive eigenvalues in " + infile);
-            // cout << "Read " << eigenBinFile << " error sumLambda" << endl;
-            // throw("read file error");
-        }
-
-        // 4. eigenCutoff
-        if(fread(&oldEigenCutoff, sizeof(float), 1, fp) != 1){
-            throw("In LD block " + block->ID + ", error about eigen cutoff used in " + infile);
-            // cout << "Read " << eigenBinFile << " error svdVarProp" << endl;
-            // throw("read file error");
-        }
-
-        // 5. eigenvalues
-        VectorXf lambda(cur_k);
-        if(fread(lambda.data(), sizeof(float), cur_k, fp) != cur_k){
-            throw("In LD block " + block->ID + ",size error about eigenvalues in " + infile);
-            // cout << "Read " << eigenBinFile << " error (lambda)" << endl;
-            // throw("read file error");
-        }
-
-        // 6. eigenvector
-        MatrixXf U(cur_m, cur_k);
-        uint64_t nElements = (uint64_t)cur_m * (uint64_t)cur_k;
-        if(fread(U.data(), sizeof(float), nElements, fp) != nElements){
-            cout << "fread(U.data(), sizeof(float), nElements, fp): " << fread(U.data(), sizeof(float), nElements, fp) << endl;
-            cout << "nEle: " << nElements << " U.size: " << U.size() <<  " U.col: " << U.cols() << " row: " << U.rows() << endl;
-            throw("In LD block " + block->ID + ",size error about eigenvectors in " + infile);
-            // cout << "Read " << eigenBinFile << " error (U)" << endl;
-            // throw("read file error");
-        }
-        
-        fclose(fp);   // this is important!
-        
+        VectorXf lambda;
+        MatrixXf U;
+        readEigenHeaderOrThrow(fp, infile, block->ID, numSnpInRegion[i], cur_m, cur_k, sumPosEigVal, oldEigenCutoff, lambda);
         bool haveValue = false;
         int revIdx = 0;
-        if(oldEigenCutoff < eigenCutoff & i == 0){
+        if(oldEigenCutoff + 1e-6f < eigenCutoff & i == 0){
             cout << "Warning: current proportion of variance in LD block is set as " + to_string(eigenCutoff)+ ". But the proportion of variance is set as "<< to_string(oldEigenCutoff) + " in "  + infile + ".\n";
             // throw("");
         }
+
+        const bool keepQuantizedInMemory = quantizedBits > 0;
+        if (keepQuantizedInMemory) {
+            if (i == 0 && firstEigenRead)
+                cout << "Keeping quantized eigenvectors in memory; Q columns will be de-quantized on demand during sampling." << endl;
+            readQuantizedEigenUOrThrow(fp, infile, block->ID, cur_m, cur_k, quantizedBits, q8Entropy, lambda, quantizedEigenBlocks[i]);
+            fclose(fp);   // this is important!
+
+            if (eigenCutoff + 1e-6f < oldEigenCutoff) {
+                const int startCol = eigenTailStartIndex(sumPosEigVal, eigenCutoff, lambda);
+                keepQuantizedEigenTail(quantizedEigenBlocks[i], startCol);
+                lambda = lambda.tail(quantizedEigenBlocks[i].k).eval();
+            }
+
+            eigenValLdBlock[i] = lambda;
+            eigenVecLdBlock[i].resize(0, 0);
+            block->sumPosEigVal = sumPosEigVal;
+            block->eigenvalues = lambda;
+            wcorrBlocks[i] = makeWcorrFromQuantizedEigen(quantizedEigenBlocks[i], GWASeffects[i]);
+            Qblocks[i].resize(0, 0);
+            numSnpsBlock[i] = cur_m;
+            numEigenvalBlock[i] = quantizedEigenBlocks[i].k;
+
+            if (makePseudoSummary) {
+                VectorXf rnd(quantizedEigenBlocks[i].k);
+                for (int j = 0; j < quantizedEigenBlocks[i].k; ++j) rnd[j] = Stat::snorm();
+                VectorXf noise(cur_m);
+                for (int row = 0; row < cur_m; ++row)
+                    noise[row] = quantizedEigenBlocks[i].dotQ(row, rnd);
+                pseudoGwasEffectTrn[i] = gwasEffectInBlock[i] + sqrt(1.0f/n_trn[i] - 1.0f/nGWASblock[i]) * noise;
+                pseudoGwasEffectVal[i] = nGWASblock[i]/n_val[i] * gwasEffectInBlock[i] - n_trn[i]/n_val[i] * pseudoGwasEffectTrn[i];
+                b_val.segment(block->startSnpIdx, block->numSnpInBlock) = pseudoGwasEffectVal[i];
+            }
+            continue;
+        }
+
+        readEigenUOrThrow(fp, infile, block->ID, cur_m, cur_k, quantizedBits, q8Entropy, U);
+        
+        fclose(fp);   // this is important!
 
         // cout << "lambda: " << lambda << endl;
         // cout << "U: " << U << endl;
         // eigenVecLdBlock[i] = U;
         // eigenValLdBlock[i] = lambda;
         
-        if (eigenCutoff < oldEigenCutoff) {
+        if (eigenCutoff + 1e-6f < oldEigenCutoff) {
             truncateEigenMatrix(sumPosEigVal, eigenCutoff, lambda, U, eigenValLdBlock[i], eigenVecLdBlock[i]);
         } else {
             eigenValLdBlock[i] = lambda;
             eigenVecLdBlock[i] = U;
         }
+        quantizedEigenBlocks[i] = QuantizedEigenBlock();
         block->sumPosEigVal = sumPosEigVal;
         block->eigenvalues = lambda;
                         
@@ -2371,6 +2694,25 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
         
         eigenVecLdBlock[i].resize(0,0);
     }
+}
+
+void Data::releasePseudoSummaryData(void){
+    for (unsigned i = 0; i < pseudoGwasEffectTrn.size(); ++i) {
+        VectorXf empty;
+        pseudoGwasEffectTrn[i].swap(empty);
+    }
+    for (unsigned i = 0; i < pseudoGwasEffectVal.size(); ++i) {
+        VectorXf empty;
+        pseudoGwasEffectVal[i].swap(empty);
+    }
+    vector<VectorXf>().swap(pseudoGwasEffectTrn);
+    vector<VectorXf>().swap(pseudoGwasEffectVal);
+    VectorXf emptyNtrn;
+    pseudoGwasNtrnBlock.swap(emptyNtrn);
+    VectorXf emptyNval;
+    pseudoGwasNValBlock.swap(emptyNval);
+    VectorXf emptyBval;
+    b_val.swap(emptyBval);
 }
 
 void Data::truncateEigenMatrix(const float sumPosEigVal, const float eigenCutoff, const VectorXf &oriEigenVal, const MatrixXf &oriEigenVec, VectorXf &newEigenVal, MatrixXf &newEigenVec){
@@ -2435,14 +2777,14 @@ void Data::readSparseBlockLDmatrixAndDoEigenDecomposition(const string &dirname,
     readSparseBlockLdmBinaryAndDoEigenDecomposition(dirname, block, eigenCutoff, writeLdmTxt);
 }
 
-void Data::readEigenMatrix(const string &dirname, const float eigenCutoff, const bool readBinary, const bool writeLdmTxt, const string &outputDir){
+void Data::readEigenMatrix(const string &dirname, const float eigenCutoff, const bool readBinary, const bool writeLdmTxt, const string &outputDir, const int quantizedBits, const bool q8Entropy){
     cout << "Reading LD matrix eigen-decomposition data..." << endl;
     //Gadget::Timer timer;
     //timer.setTime();
     
     readBlockLdmInfoFile(dirname);
     readBlockLdmSnpInfoFile(dirname);
-    if (readBinary) readEigenMatrixBinaryFile(dirname, eigenCutoff, writeLdmTxt, outputDir);
+    if (readBinary) readEigenMatrixBinaryFile(dirname, eigenCutoff, writeLdmTxt, outputDir, quantizedBits, q8Entropy);
     
     //timer.getTime();
     //cout << "Read LD data completed (time used: " << timer.format(timer.getElapse()) << ")." << endl;
@@ -2463,9 +2805,15 @@ vector<LDBlockInfo*> Data::makeKeptLDBlockInfoVec(const vector<LDBlockInfo*> &ld
     return keptLDBlock;
 }
 
-void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale){
+void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale, const int quantizedBits, const bool q8Entropy){
     includeMatchedBlocks();
-    
+    pruneLdBlocksWithNoGwasOnAllReferenceSnps(false);
+    if (!numKeptLDBlocks) {
+        string msg = "Error: no LD blocks remain after matching GWAS to LD. Check --gwas / --impute-summary.";
+        cerr << msg << endl;
+        throw std::runtime_error(msg);
+    }
+
 //    for (unsigned i=0; i<numIncdSnps; ++i) {
 //        SnpInfo *snp = incdSnpInfoVec[i];
 //        if (snp->gwas_b == -999) {
@@ -2484,7 +2832,7 @@ void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const 
         }
     }
     if (nmiss) {
-        string msg = "Error: " + to_string(nmiss) + " SNPs in the LD reference have no summary data after imputation. Run --impute-summary first, or check GWAS SE (finite, >0) and blocks with no anchor SNPs.";
+        string msg = "Error: " + to_string(nmiss) + " SNP(s) in the LD reference still have no summary data within a retained LD block (incomplete coverage). Run --impute-summary first, or check GWAS SE (finite, >0).";
         cerr << msg << endl;
         throw std::runtime_error(msg);
     }
@@ -2494,7 +2842,7 @@ void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const 
     ldBlockInfoMap.clear();
 //    snpInfoMap.clear();  // free memory from snpInfoMap which is no longer needed
     
-    readEigenMatrixBinaryFileAndMakeWandQ(dirname, eigenCutoff, gwasEffectInBlock, nGWASblock, noscale, true);
+    readEigenMatrixBinaryFileAndMakeWandQ(dirname, eigenCutoff, gwasEffectInBlock, nGWASblock, noscale, true, quantizedBits, q8Entropy);
     //constructPseudoSummaryData();  // for finding the best eigen cutoff by pseudo validation
     //if (numIncdSnps!=0) constructWandQ(gwasEffectInBlock, numKeptInds);
     //if (numIncdSnps!=0) constructWandQ(eigenCutoff, noscale);
@@ -2517,8 +2865,14 @@ void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const 
 
 void Data::buildMMEeigenBivariate(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale){
     includeMatchedBlocks();
-    
-    // Check for missing data for both traits
+    pruneLdBlocksWithNoGwasOnAllReferenceSnps(true);
+    if (!numKeptLDBlocks) {
+        string msg = "Error: no LD blocks remain after matching GWAS to LD. Check --gwas / --impute-summary.";
+        cerr << msg << endl;
+        throw std::runtime_error(msg);
+    }
+
+    // Check for missing data for both traits (within retained blocks only)
     unsigned nmiss1 = 0, nmiss2 = 0;
     for (unsigned i=0; i<numKeptLDBlocks; ++i) {
         LDBlockInfo *block = keptLdBlockInfoVec[i];
@@ -2529,12 +2883,12 @@ void Data::buildMMEeigenBivariate(const string &dirname, const bool sampleOverla
         }
     }
     if (nmiss1) {
-        string msg = "Error: " + to_string(nmiss1) + " SNPs in the LD reference have no summary data for trait 1. Run --impute-summary first, or check GWAS SE (finite, >0) and blocks with no anchor SNPs.";
+        string msg = "Error: " + to_string(nmiss1) + " SNP(s) in the LD reference still have no summary data for trait 1 within a retained LD block (incomplete coverage). Run --impute-summary first, or check GWAS SE (finite, >0).";
         cerr << msg << endl;
         throw std::runtime_error(msg);
     }
     if (nmiss2) {
-        string msg = "Error: " + to_string(nmiss2) + " SNPs in the LD reference have no summary data for trait 2. Run --impute-summary first, or check GWAS SE (finite, >0) and blocks with no anchor SNPs.";
+        string msg = "Error: " + to_string(nmiss2) + " SNP(s) in the LD reference still have no summary data for trait 2 within a retained LD block (incomplete coverage). Run --impute-summary first, or check GWAS SE (finite, >0).";
         cerr << msg << endl;
         throw std::runtime_error(msg);
     }
@@ -2612,6 +2966,8 @@ void Data::includeMatchedBlocks(){
     for (unsigned i=0; i<numLDBlocks; ++i){
         ldblock = ldBlockInfoVec[i];
         if(ldblock->block2GwasSnpVec.size() == 0){
+            cout << "Warning: Skipping LD block " << ldblock->ID
+                 << ": no GWAS summary SNPs matched any SNP in this LD reference block." << endl;
             ldblock->kept = false;
         } else {
             ldblock->startSnpIdx = ldblock->block2GwasSnpVec[0];
@@ -2619,24 +2975,62 @@ void Data::includeMatchedBlocks(){
             ldblock->kept = true;
         }
     }
-        
+
+    refreshKeptLdBlockMaps();
+    cout << numKeptLDBlocks << " LD blocks are included." << endl;
+}
+
+void Data::refreshKeptLdBlockMaps(void){
     keptLdBlockInfoVec = makeKeptLDBlockInfoVec(ldBlockInfoVec);
     numKeptLDBlocks = (unsigned) keptLdBlockInfoVec.size();
 
     ldblock2gwasSnpMap.clear();
-//    cout << "Construct map from ld to snp" << endl;
     for(unsigned i = 0; i < numKeptLDBlocks; i++){
-        ldblock = keptLdBlockInfoVec[i];
+        LDBlockInfo *ldblock = keptLdBlockInfoVec[i];
         ldblock2gwasSnpMap.insert(pair<int, vector<int> > (i,ldblock->block2GwasSnpVec));
     }
-    
-    for (unsigned j=0; j<numIncdSnps; ++j){  // update each SNP's LD block index
-        snp = incdSnpInfoVec[j];
-        ldblock = ldBlockInfoMap[snp->block];
+
+    for (unsigned j=0; j<numIncdSnps; ++j){
+        SnpInfo *snp = incdSnpInfoVec[j];
+        LDBlockInfo *ldblock = ldBlockInfoMap[snp->block];
         snp->blockIdx = ldblock->index;
     }
-    
-    cout << numKeptLDBlocks << " LD blocks are included." << endl;
+}
+
+unsigned Data::pruneLdBlocksWithNoGwasOnAllReferenceSnps(bool bivariate){
+    unsigned pruned = 0;
+    for (unsigned i=0; i<numLDBlocks; ++i){
+        LDBlockInfo *ldblock = ldBlockInfoVec[i];
+        if (!ldblock->kept) continue;
+        const int m = ldblock->numSnpInBlock;
+        if (m <= 0) continue;
+        unsigned missing1 = 0, missing2 = 0;
+        for (int j=0; j<m; ++j){
+            SnpInfo *s = ldblock->snpInfoVec[j];
+            if (s->gwas_b == -999) ++missing1;
+            if (bivariate && s->gwas_b2 == -999) ++missing2;
+        }
+        const bool noTrait1 = (missing1 == (unsigned)m);
+        const bool noTrait2 = bivariate && (missing2 == (unsigned)m);
+        if (noTrait1 || noTrait2){
+            cout << "Warning: Skipping LD block " << ldblock->ID << " (" << m << " SNPs in LD reference): ";
+            if (bivariate) {
+                if (noTrait1 && noTrait2)
+                    cout << "all SNPs lack GWAS summary data for both traits (every SNP missing)";
+                else if (noTrait1)
+                    cout << "all SNPs lack GWAS summary data for trait 1 (every SNP has gwas_b == -999)";
+                else
+                    cout << "all SNPs lack GWAS summary data for trait 2 (every SNP has gwas_b2 == -999)";
+            } else {
+                cout << "all SNPs lack GWAS summary data (every SNP has gwas_b == -999)";
+            }
+            cout << "; excluding this block from the low-rank model." << endl;
+            ldblock->kept = false;
+            ++pruned;
+        }
+    }
+    if (pruned) refreshKeptLdBlockMaps();
+    return pruned;
 }
 
 //void Data::constructWandQ(const float eigenCutoff, const bool noscale){

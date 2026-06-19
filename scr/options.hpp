@@ -116,6 +116,12 @@ public:
     bool writeWandQ; // output w and Q in text format
     bool estimateRsqEnrich;  // estimate prediction R2 enrichment
     GwasScalarMode gwasScalarMode;  // --gwas-scalar: effect scaling for summary-data GWAS (see Data::gwasScalarMode)
+    int eigenMatrixQuantBits;    // 0 for float .eigen.bin; 4/8/16 for U-column quantized .eigen.q*.bin
+    bool eigenMatrixQ8Entropy;   // true for .eigen.q8e.bin
+    int quantEigenBits;
+    bool quantEigenEntropy;
+    string quantEigenInputDir;
+    string quantEigenOutputDir;
     
     string eigCutMethod = "value";
     float eigThreshold = 0.001;
@@ -281,6 +287,12 @@ public:
         writeWandQ              = false;
         estimateRsqEnrich       = false;
         gwasScalarMode          = GwasScalarMode::LeastSquares;
+        eigenMatrixQuantBits    = 0;
+        eigenMatrixQ8Entropy    = false;
+        quantEigenBits          = 8;
+        quantEigenEntropy       = false;
+        quantEigenInputDir      = "";
+        quantEigenOutputDir     = "";
         
         title                   = "gctb";
         optionsSummary          = "";
