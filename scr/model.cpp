@@ -1694,7 +1694,8 @@ void ApproxBayesC::FixedEffects::sampleFromFC_quantizedEigen(SnpEffects &snpEffe
         Ref<VectorXf> what = whatBlocks[blk];
         float invVareDn = nGWASblocks[blk] / vareBlocks[blk];
         MatrixXf Qtmp;
-        if (Qq.bits == 16) Qq.materializeQ(Qtmp);
+        const bool useBlockQCache = (Qq.bits == 8 || Qq.bits == 16);
+        if (useBlockQCache) Qq.materializeQ(Qtmp);
         for (unsigned si=blockStart; si<=blockEnd; ++si) {
             SnpInfo *snp = blockInfo->snpInfoVec[si - blockStart];
             if (snp->skip) continue;
@@ -1704,11 +1705,11 @@ void ApproxBayesC::FixedEffects::sampleFromFC_quantizedEigen(SnpEffects &snpEffe
             float oldSample = valuesPtr[si];
             int qcol = eigenQColIndex(blockInfo, si);
             if (qcol < 0) continue;
-            float rhs = ((Qq.bits == 16 ? Qtmp.col(qcol).dot(wcorr) : Qq.dotQ(qcol, wcorr)) + oldSample) * invVareDn;
+            float rhs = ((useBlockQCache ? Qtmp.col(qcol).dot(wcorr) : Qq.dotQ(qcol, wcorr)) + oldSample) * invVareDn;
             float invLhsFe = 1.0f / invVareDn;
             float uhat = invLhsFe * rhs;
             valuesPtr[si] = uhat + nrnd[si] * sqrtf(invLhsFe);
-            if (Qq.bits == 16) {
+            if (useBlockQCache) {
                 Ref<const VectorXf> Qi = Qtmp.col(qcol);
                 wcorr += Qi * (oldSample - valuesPtr[si]);
                 what += Qi * valuesPtr[si];
@@ -2431,7 +2432,7 @@ void ApproxBayesC::Rounding::computeWcorr_quantizedEigen(const vector<VectorXf> 
         unsigned blockStart = blockInfo->startSnpIdx;
         unsigned blockEnd   = blockInfo->endSnpIdx;
 
-        if (Qq.bits == 16) {
+        if (Qq.bits == 8 || Qq.bits == 16) {
             MatrixXf Qtmp;
             Qq.materializeQ(Qtmp);
             for(unsigned i = blockStart; i <= blockEnd; i++){
@@ -2861,7 +2862,8 @@ void ApproxBayesC::NumBadSnps::compute_quantizedEigen(VectorXi &badSnps, VectorX
         unsigned blockEnd   = blockInfo->endSnpIdx;
 
         MatrixXf Qtmp;
-        if (Qq.bits == 16) Qq.materializeQ(Qtmp);
+        const bool useBlockQCache = (Qq.bits == 8 || Qq.bits == 16);
+        if (useBlockQCache) Qq.materializeQ(Qtmp);
 
         for(unsigned i = blockStart; i <= blockEnd; i++){
             if (badSnps[i]) {
@@ -2878,7 +2880,7 @@ void ApproxBayesC::NumBadSnps::compute_quantizedEigen(VectorXi &badSnps, VectorX
             if(abs(effectMean[i]) > betaThresh && rate_b > compare_rate){
                 int qcol = eigenQColIndex(blockInfo, i);
                 if (qcol < 0) continue;
-                if (Qq.bits == 16) wcorr += Qtmp.col(qcol) * effects[i];
+                if (useBlockQCache) wcorr += Qtmp.col(qcol) * effects[i];
                 else Qq.addScaledQ(qcol, effects[i], wcorr);
                 effects[i] = 0.0;
                 effectMean[i] = 0.0;
@@ -4994,7 +4996,7 @@ void ApproxBayesR::SnpEffects::sampleFromFC_quantizedEigen(vector<VectorXf> &wco
 
         vector<int> snpIndexVec = Gadget::shuffle_index(blockStart, blockEnd, blk);
 
-        if (Qq.bits == 16) {
+        if (Qq.bits == 8 || Qq.bits == 16) {
             MatrixXf Qtmp;
             Qq.materializeQ(Qtmp);
             for (unsigned t = 0; t < blockSize; t++) {

@@ -29,7 +29,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
             if (!strcmp(argv[i], "--quantize-eigen")) {
                 continue;
             } else if (!strcmp(argv[i], "--bits")) {
-                if (++i >= (unsigned)argc) throw("\nError: --bits requires a value (4, 8, or 16).\n");
+                if (++i >= (unsigned)argc) throw("\nError: --bits requires a value (8 or 16).\n");
                 quantEigenBits = stoi(argv[i]);
             } else if (!strcmp(argv[i], "--entropy")) {
                 quantEigenEntropy = true;
@@ -46,8 +46,8 @@ void Options::inputOptions(const int argc, const char* argv[]){
             throw("\nError: --quantize-eigen requires exactly two path arguments: <input_folder> <output_folder>\n"
                   "Example: gctb --quantize-eigen --bits 8 /path/to/eigen_bin /path/to/out\n");
         }
-        if (quantEigenBits != 4 && quantEigenBits != 8 && quantEigenBits != 16) {
-            throw("\nError: --bits must be 4, 8, or 16 for --quantize-eigen.\n");
+        if (quantEigenBits != 8 && quantEigenBits != 16) {
+            throw("\nError: --bits must be 8 or 16 for --quantize-eigen.\n");
         }
         if (quantEigenEntropy && quantEigenBits != 8) {
             throw("\nError: --entropy is only supported with 8-bit quantization.\n");
@@ -300,12 +300,6 @@ void Options::inputOptions(const int argc, const char* argv[]){
             eigenMatrixQuantBits = 0;
             eigenMatrixQ8Entropy = false;
             ss << "--ldm-eigen " << argv[i] << "\n";
-        }
-        else if (!strcmp(argv[i], "--ldm-eigen-q4")) {
-            eigenMatrixFile = argv[++i];
-            eigenMatrixQuantBits = 4;
-            eigenMatrixQ8Entropy = false;
-            ss << "--ldm-eigen-q4 " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--ldm-eigen-q8")) {
             eigenMatrixFile = argv[++i];

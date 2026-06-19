@@ -54,17 +54,11 @@ inline bool gwasUsableAnchorSnp(const SnpInfo *snp) {
 inline string eigenBlockFilename(const string &dirname, const string &blockID, const int quantizedBits, const bool q8Entropy) {
     string suffix;
     if (quantizedBits == 0) suffix = ".eigen.bin";
-    else if (quantizedBits == 4) suffix = ".eigen.q4.bin";
     else if (quantizedBits == 8 && q8Entropy) suffix = ".eigen.q8e.bin";
     else if (quantizedBits == 8) suffix = ".eigen.q8.bin";
     else if (quantizedBits == 16) suffix = ".eigen.q16.bin";
-    else throw std::runtime_error("Error: unsupported quantized eigen bit width " + to_string(quantizedBits) + ". Use 4, 8, or 16.");
+    else throw std::runtime_error("Error: unsupported quantized eigen bit width " + to_string(quantizedBits) + ". Use 8 or 16.");
     return dirname + "/block" + blockID + suffix;
-}
-
-inline int8_t eigenQuantNibbleToSigned4(unsigned n) {
-    n &= 0x0Fu;
-    return static_cast<int8_t>(static_cast<int8_t>(n << 4) >> 4);
 }
 
 void readEigenHeaderOrThrow(FILE *fp, const string &infile, const string &blockID, const int expectedM,
@@ -97,25 +91,11 @@ void readEigenUOrThrow(FILE *fp, const string &infile, const string &blockID, co
         throwEigenReadErr("In LD block " + blockID + ",size error about quantized eigenvector scales in " + infile);
     }
     float invBound = 0.0f;
-    if (quantizedBits == 4) invBound = 1.0f / 7.0f;
-    else if (quantizedBits == 8) invBound = 1.0f / 127.0f;
+    if (quantizedBits == 8) invBound = 1.0f / 127.0f;
     else if (quantizedBits == 16) invBound = 1.0f / 32767.0f;
     else throwEigenReadErr("Error: unsupported quantized eigen bit width " + to_string(quantizedBits) + ".");
 
-    if (quantizedBits == 4) {
-        const int packedRows = (cur_m + 1) / 2;
-        vector<uint8_t> packed(packedRows);
-        for (int col = 0; col < cur_k; ++col) {
-            if (fread(packed.data(), sizeof(uint8_t), packedRows, fp) != (size_t)packedRows)
-                throwEigenReadErr("In LD block " + blockID + ",size error about q4 eigenvectors in " + infile);
-            const float scale = scales[col] * invBound;
-            for (int row = 0; row < cur_m; ++row) {
-                const uint8_t byte = packed[row / 2];
-                const int8_t q = (row % 2 == 0) ? eigenQuantNibbleToSigned4(byte) : eigenQuantNibbleToSigned4(byte >> 4);
-                U(row, col) = scale * (float)q;
-            }
-        }
-    } else if (quantizedBits == 8) {
+    if (quantizedBits == 8) {
         vector<int8_t> raw(nElements);
         if (q8Entropy) {
             uint64_t uncompressedSize = 0, compressedSize = 0;
@@ -167,28 +147,18 @@ void readQuantizedEigenUOrThrow(FILE *fp, const string &infile, const string &bl
     }
 
     float invBound = 0.0f;
-    if (quantizedBits == 4) invBound = 1.0f / 7.0f;
-    else if (quantizedBits == 8) invBound = 1.0f / 127.0f;
+    if (quantizedBits == 8) invBound = 1.0f / 127.0f;
     else if (quantizedBits == 16) invBound = 1.0f / 32767.0f;
     else throwEigenReadErr("Error: unsupported quantized eigen bit width " + to_string(quantizedBits) + ".");
     qb.dequantScale = scales * invBound;
     qb.qScale = qb.sqrtLambda.array() * qb.dequantScale.array();
 
     const uint64_t nElements = (uint64_t)cur_m * (uint64_t)cur_k;
-    qb.q4.clear();
     qb.q8.clear();
     qb.q16.clear();
 
-    if (quantizedBits == 4) {
-        const int packedRows = (cur_m + 1) / 2;
-        qb.q4.resize((size_t)packedRows * (size_t)cur_k);
-        for (int col = 0; col < cur_k; ++col) {
-            uint8_t *colPtr = &qb.q4[(size_t)col * (size_t)packedRows];
-            if (fread(colPtr, sizeof(uint8_t), packedRows, fp) != (size_t)packedRows)
-                throwEigenReadErr("In LD block " + blockID + ",size error about q4 eigenvectors in " + infile);
-        }
-    } else if (quantizedBits == 8) {
-        qb.q8.resize(nElements);
+    if (quantizedBits == 8) {
+        vector<int8_t> raw(nElements);
         if (q8Entropy) {
             uint64_t uncompressedSize = 0, compressedSize = 0;
             if (fread(&uncompressedSize, sizeof(uint64_t), 1, fp) != 1)
@@ -201,19 +171,25 @@ void readQuantizedEigenUOrThrow(FILE *fp, const string &infile, const string &bl
             if (fread(compressed.data(), 1, compressedSize, fp) != compressedSize)
                 throwEigenReadErr("In LD block " + blockID + ", size error about zlib payload in " + infile);
             uLongf destLen = (uLongf)uncompressedSize;
-            int zrc = uncompress(reinterpret_cast<Bytef*>(qb.q8.data()), &destLen, compressed.data(), (uLong)compressedSize);
+            int zrc = uncompress(reinterpret_cast<Bytef*>(raw.data()), &destLen, compressed.data(), (uLong)compressedSize);
             if (zrc != Z_OK || destLen != (uLongf)uncompressedSize)
                 throwEigenReadErr("In LD block " + blockID + ", zlib uncompress failed for " + infile);
         } else {
-            if (fread(qb.q8.data(), sizeof(int8_t), nElements, fp) != nElements)
+            if (fread(raw.data(), sizeof(int8_t), nElements, fp) != nElements)
                 throwEigenReadErr("In LD block " + blockID + ",size error about q8 eigenvectors in " + infile);
         }
+        qb.q8.resize(nElements);
+        for (int row = 0; row < cur_m; ++row)
+            for (int col = 0; col < cur_k; ++col)
+                qb.q8[(size_t)row * (size_t)cur_k + (size_t)col] = raw[(size_t)col * (size_t)cur_m + (size_t)row];
     } else {
         qb.q16.resize(nElements);
         for (int col = 0; col < cur_k; ++col) {
-            int16_t *colPtr = &qb.q16[(size_t)col * (size_t)cur_m];
-            if (fread(colPtr, sizeof(int16_t), cur_m, fp) != (size_t)cur_m)
+            vector<int16_t> colRaw(cur_m);
+            if (fread(colRaw.data(), sizeof(int16_t), cur_m, fp) != (size_t)cur_m)
                 throwEigenReadErr("In LD block " + blockID + ",size error about q16 eigenvectors in " + infile);
+            for (int row = 0; row < cur_m; ++row)
+                qb.q16[(size_t)row * (size_t)cur_k + (size_t)col] = colRaw[row];
         }
     }
 }
@@ -256,29 +232,20 @@ void keepQuantizedEigenTail(QuantizedEigenBlock &qb, const int startCol) {
     qb.dequantScale = qb.dequantScale.tail(newK).eval();
     qb.qScale = qb.qScale.tail(newK).eval();
 
-    if (qb.bits == 4) {
-        const int packedRows = (qb.m + 1) / 2;
-        vector<uint8_t> kept((size_t)newK * (size_t)packedRows);
-        for (int col = 0; col < newK; ++col) {
-            const uint8_t *src = &qb.q4[(size_t)(startCol + col) * (size_t)packedRows];
-            uint8_t *dst = &kept[(size_t)col * (size_t)packedRows];
-            std::copy(src, src + packedRows, dst);
-        }
-        qb.q4.swap(kept);
-    } else if (qb.bits == 8) {
-        vector<int8_t> kept((size_t)newK * (size_t)qb.m);
-        for (int col = 0; col < newK; ++col) {
-            const int8_t *src = &qb.q8[(size_t)(startCol + col) * (size_t)qb.m];
-            int8_t *dst = &kept[(size_t)col * (size_t)qb.m];
-            std::copy(src, src + qb.m, dst);
+    if (qb.bits == 8) {
+        vector<int8_t> kept((size_t)qb.m * (size_t)newK);
+        for (int row = 0; row < qb.m; ++row) {
+            const int8_t *src = &qb.q8[(size_t)row * (size_t)oldK + (size_t)startCol];
+            int8_t *dst = &kept[(size_t)row * (size_t)newK];
+            std::copy(src, src + newK, dst);
         }
         qb.q8.swap(kept);
     } else if (qb.bits == 16) {
-        vector<int16_t> kept((size_t)newK * (size_t)qb.m);
-        for (int col = 0; col < newK; ++col) {
-            const int16_t *src = &qb.q16[(size_t)(startCol + col) * (size_t)qb.m];
-            int16_t *dst = &kept[(size_t)col * (size_t)qb.m];
-            std::copy(src, src + qb.m, dst);
+        vector<int16_t> kept((size_t)qb.m * (size_t)newK);
+        for (int row = 0; row < qb.m; ++row) {
+            const int16_t *src = &qb.q16[(size_t)row * (size_t)oldK + (size_t)startCol];
+            int16_t *dst = &kept[(size_t)row * (size_t)newK];
+            std::copy(src, src + newK, dst);
         }
         qb.q16.swap(kept);
     }
@@ -296,8 +263,7 @@ void quantizeEigenMatrixToBlock(const MatrixXf &U, const VectorXf &lambda, const
     qb.dequantScale.resize(k);
 
     int bound = 0;
-    if (quantizedBits == 4) bound = 7;
-    else if (quantizedBits == 8) bound = 127;
+    if (quantizedBits == 8) bound = 127;
     else if (quantizedBits == 16) bound = 32767;
     else throwEigenReadErr("Error: unsupported quantized eigen bit width " + to_string(quantizedBits) + ".");
 
@@ -309,22 +275,7 @@ void quantizeEigenMatrixToBlock(const MatrixXf &U, const VectorXf &lambda, const
     }
     qb.qScale = qb.sqrtLambda.array() * qb.dequantScale.array();
 
-    if (quantizedBits == 4) {
-        const int packedRows = (m + 1) / 2;
-        qb.q4.assign((size_t)packedRows * (size_t)k, 0);
-        for (int col = 0; col < k; ++col) {
-            const float invScale = (float)bound / maxAbs[col];
-            for (int row = 0; row < m; ++row) {
-                int q = (int)lrintf(U(row, col) * invScale);
-                if (q > bound) q = bound;
-                if (q < -bound) q = -bound;
-                uint8_t nibble = (uint8_t)(q & 0x0F);
-                uint8_t &byte = qb.q4[(size_t)col * (size_t)packedRows + (size_t)(row / 2)];
-                if (row % 2 == 0) byte = (byte & 0xF0u) | nibble;
-                else byte = (byte & 0x0Fu) | (uint8_t)(nibble << 4);
-            }
-        }
-    } else if (quantizedBits == 8) {
+    if (quantizedBits == 8) {
         qb.q8.resize((size_t)m * (size_t)k);
         for (int col = 0; col < k; ++col) {
             const float invScale = (float)bound / maxAbs[col];
@@ -332,7 +283,7 @@ void quantizeEigenMatrixToBlock(const MatrixXf &U, const VectorXf &lambda, const
                 int q = (int)lrintf(U(row, col) * invScale);
                 if (q > bound) q = bound;
                 if (q < -bound) q = -bound;
-                qb.q8[(size_t)col * (size_t)m + (size_t)row] = (int8_t)q;
+                qb.q8[(size_t)row * (size_t)k + (size_t)col] = (int8_t)q;
             }
         }
     } else {
@@ -343,7 +294,7 @@ void quantizeEigenMatrixToBlock(const MatrixXf &U, const VectorXf &lambda, const
                 int q = (int)lrintf(U(row, col) * invScale);
                 if (q > bound) q = bound;
                 if (q < -bound) q = -bound;
-                qb.q16[(size_t)col * (size_t)m + (size_t)row] = (int16_t)q;
+                qb.q16[(size_t)row * (size_t)k + (size_t)col] = (int16_t)q;
             }
         }
     }

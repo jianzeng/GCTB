@@ -231,35 +231,22 @@ struct QuantizedEigenBlock {
     VectorXf sqrtLambda;
     VectorXf dequantScale;
     VectorXf qScale;
-    vector<uint8_t> q4;
     vector<int8_t> q8;
     vector<int16_t> q16;
 
     QuantizedEigenBlock() : bits(0), m(0), k(0) {}
 
-    bool active() const { return bits == 4 || bits == 8 || bits == 16; }
-
-    inline float q4Component(const int localSnpIdx, const int eigIdx) const {
-        const int packedRows = (m + 1) / 2;
-        const uint8_t byte = q4[(size_t)eigIdx * (size_t)packedRows + (size_t)(localSnpIdx / 2)];
-        int8_t nibble;
-        if (localSnpIdx % 2 == 0)
-            nibble = (int8_t)((int8_t)(byte << 4) >> 4);
-        else
-            nibble = (int8_t)((int8_t)((byte >> 4) << 4) >> 4);
-        return qScale[eigIdx] * (float)nibble;
-    }
+    bool active() const { return bits == 8 || bits == 16; }
 
     inline float q8Component(const int localSnpIdx, const int eigIdx) const {
-        return qScale[eigIdx] * (float)q8[(size_t)eigIdx * (size_t)m + (size_t)localSnpIdx];
+        return qScale[eigIdx] * (float)q8[(size_t)localSnpIdx * (size_t)k + (size_t)eigIdx];
     }
 
     inline float q16Component(const int localSnpIdx, const int eigIdx) const {
-        return qScale[eigIdx] * (float)q16[(size_t)eigIdx * (size_t)m + (size_t)localSnpIdx];
+        return qScale[eigIdx] * (float)q16[(size_t)localSnpIdx * (size_t)k + (size_t)eigIdx];
     }
 
     inline float qComponent(const int localSnpIdx, const int eigIdx) const {
-        if (bits == 4) return q4Component(localSnpIdx, eigIdx);
         if (bits == 8) return q8Component(localSnpIdx, eigIdx);
         if (bits == 16) return q16Component(localSnpIdx, eigIdx);
         return 0.0f;
@@ -267,10 +254,7 @@ struct QuantizedEigenBlock {
 
     inline float dotQ(const int localSnpIdx, const VectorXf &x) const {
         float out = 0.0f;
-        if (bits == 4) {
-            for (int eigIdx = 0; eigIdx < k; ++eigIdx)
-                out += q4Component(localSnpIdx, eigIdx) * x[eigIdx];
-        } else if (bits == 8) {
+        if (bits == 8) {
             for (int eigIdx = 0; eigIdx < k; ++eigIdx)
                 out += q8Component(localSnpIdx, eigIdx) * x[eigIdx];
         } else if (bits == 16) {
@@ -283,10 +267,7 @@ struct QuantizedEigenBlock {
     template <typename Derived>
     inline void addScaledQ(const int localSnpIdx, const float coeff, MatrixBase<Derived> &target) const {
         if (coeff == 0.0f) return;
-        if (bits == 4) {
-            for (int eigIdx = 0; eigIdx < k; ++eigIdx)
-                target[eigIdx] += q4Component(localSnpIdx, eigIdx) * coeff;
-        } else if (bits == 8) {
+        if (bits == 8) {
             for (int eigIdx = 0; eigIdx < k; ++eigIdx)
                 target[eigIdx] += q8Component(localSnpIdx, eigIdx) * coeff;
         } else if (bits == 16) {
@@ -297,21 +278,17 @@ struct QuantizedEigenBlock {
 
     inline void materializeQ(MatrixXf &Q) const {
         Q.resize(k, m);
-        if (bits == 4) {
-            for (int col = 0; col < m; ++col)
+        if (bits == 8) {
+            for (int col = 0; col < m; ++col) {
+                const int8_t *qCol = &q8[(size_t)col * (size_t)k];
                 for (int eigIdx = 0; eigIdx < k; ++eigIdx)
-                    Q(eigIdx, col) = q4Component(col, eigIdx);
-        } else if (bits == 8) {
-            for (int eigIdx = 0; eigIdx < k; ++eigIdx) {
-                const float scale = qScale[eigIdx];
-                for (int col = 0; col < m; ++col)
-                    Q(eigIdx, col) = scale * (float)q8[(size_t)eigIdx * (size_t)m + (size_t)col];
+                    Q(eigIdx, col) = qScale[eigIdx] * (float)qCol[eigIdx];
             }
         } else if (bits == 16) {
-            for (int eigIdx = 0; eigIdx < k; ++eigIdx) {
-                const float scale = qScale[eigIdx];
-                for (int col = 0; col < m; ++col)
-                    Q(eigIdx, col) = scale * (float)q16[(size_t)eigIdx * (size_t)m + (size_t)col];
+            for (int col = 0; col < m; ++col) {
+                const int16_t *qCol = &q16[(size_t)col * (size_t)k];
+                for (int eigIdx = 0; eigIdx < k; ++eigIdx)
+                    Q(eigIdx, col) = qScale[eigIdx] * (float)qCol[eigIdx];
             }
         }
     }

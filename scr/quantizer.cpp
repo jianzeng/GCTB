@@ -87,14 +87,12 @@ const char* output_suffix(const QuantizationOptions& options) {
     if (options.q_per_snp_column) {
         throw runtime_error("Q-column quantization is not enabled in this GCTB integration.");
     }
-    if (options.bits == 4) return ".eigen.q4.bin";
     if (options.bits == 8 && options.entropy_coding) return ".eigen.q8e.bin";
     if (options.bits == 8) return ".eigen.q8.bin";
     return ".eigen.q16.bin";
 }
 
 static float quantization_bound(int bits) {
-    if (bits == 4) return 7.0f;
     if (bits == 8) return 127.0f;
     return 32767.0f;
 }
@@ -242,22 +240,7 @@ static void quantize_file(const string& input_dir,
             }
 
             const float scale = scales[col];
-            if (options.bits == 4) {
-                const int32_t packed_bytes = (num_snps + 1) / 2;
-                vector<uint8_t> packed(packed_bytes);
-                for (int32_t row = 0; row < num_snps; row += 2) {
-                    const int16_t q0 = quantize_value(column[row], scale, options.bits);
-                    const int16_t q1 = row + 1 < num_snps
-                                           ? quantize_value(column[row + 1], scale, options.bits)
-                                           : 0;
-                    packed[row / 2] = static_cast<uint8_t>((q0 & 0x0F) | ((q1 & 0x0F) << 4));
-                }
-                if (fwrite(packed.data(), sizeof(uint8_t), packed_bytes, out) !=
-                    static_cast<size_t>(packed_bytes)) {
-                    throw runtime_error("Write error (quantized eigenvector column) in " +
-                                        output_path);
-                }
-            } else if (options.bits == 8) {
+            if (options.bits == 8) {
                 if (q8_entropy) {
                     int8_t* col_dst = matrix_q8.data() +
                                       static_cast<size_t>(col) * static_cast<size_t>(num_snps);
@@ -352,8 +335,8 @@ QuantizationSummary quantize_directory(const string& input_dir,
     if (options.entropy_coding && options.bits != 8) {
         throw runtime_error("--entropy is only supported with 8-bit quantization.");
     }
-    if (options.bits != 4 && options.bits != 8 && options.bits != 16) {
-        throw runtime_error("Only q4, q8, and q16 are supported.");
+    if (options.bits != 8 && options.bits != 16) {
+        throw runtime_error("Only q8 and q16 are supported.");
     }
     if (options.q_per_snp_column) {
         throw runtime_error("Q-column quantization is not enabled in this GCTB integration.");

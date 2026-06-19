@@ -116,7 +116,7 @@ public:
     bool writeWandQ; // output w and Q in text format
     bool estimateRsqEnrich;  // estimate prediction R2 enrichment
     GwasScalarMode gwasScalarMode;  // --gwas-scalar: effect scaling for summary-data GWAS (see Data::gwasScalarMode)
-    int eigenMatrixQuantBits;    // 0 for float .eigen.bin; 4/8/16 for U-column quantized .eigen.q*.bin
+    int eigenMatrixQuantBits;    // 0 for float .eigen.bin; 8/16 for U-column quantized .eigen.q*.bin
     bool eigenMatrixQ8Entropy;   // true for .eigen.q8e.bin
     int quantEigenBits;
     bool quantEigenEntropy;

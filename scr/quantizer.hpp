@@ -20,7 +20,8 @@ struct QuantizationOptions {
     bool entropy_coding = false;
     /**
      * If true, quantize Q = diag(sqrt(lambda)) * U' (k x m) with one scale per SNP column
-     * (max abs in that column). Writes .eigen.q*qc.bin (and .eigen.q8eqc.bin with --entropy).
+     * (max abs in that column). Writes .eigen.q8qc.bin/.eigen.q16qc.bin
+     * (and .eigen.q8eqc.bin with --entropy).
      */
     bool q_per_snp_column = false;
 };
