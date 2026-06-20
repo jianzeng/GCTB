@@ -706,8 +706,9 @@ public:
     class ChainVecSBayesRD : public vector<ApproxBayesRD*> {
     public:
         ChainVecSBayesRD(const Data &data, const Options &opt){
+            bool sampleAnnoEffectsIndep = opt.bayesType == "RD_indep";
             for (unsigned i=0; i<opt.numChains; ++i) {
-                this->push_back(new ApproxBayesRD(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.estimateRsqEnrich, opt.algorithm, false));
+                this->push_back(new ApproxBayesRD(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.estimateRsqEnrich, opt.algorithm, sampleAnnoEffectsIndep, false));
             }
         }
     };

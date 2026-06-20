@@ -231,7 +231,7 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
             return new MultiChainSBayesR(data, opt);
         else if (bayesType == "RC")
             return new MultiChainSBayesRC(data, opt);
-        else if (bayesType == "RD")
+        else if (bayesType == "RD" || bayesType == "RD_indep")
             return new MultiChainSBayesRD(data, opt);
         else if (bayesType == "S")
             return new MultiChainSBayesS(data, opt);
@@ -244,8 +244,8 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
                 return new StratApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, robustMode, noscale);
             else if (bayesType == "RC")
                 return new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, algorithm);
-            else if (bayesType == "RD")
-                return new ApproxBayesRD(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, algorithm);
+            else if (bayesType == "RD" || bayesType == "RD_indep")
+                return new ApproxBayesRD(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, algorithm, bayesType == "RD_indep");
             else if (bayesType == "APP") {
                 VectorXf nLociAnno(data.numAnnos);
                 for(unsigned i=0; i<data.numAnnos; ++i) nLociAnno[i] = data.numSnpAnnoVec[i];
@@ -757,7 +757,7 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
         }
         out.close();
     }
-    else if (bayesType == "RC" || bayesType == "R" || bayesType == "RD") {
+    else if (bayesType == "RC" || bayesType == "R" || bayesType == "RD" || bayesType == "RD_indep") {
         McmcSamples *snpEffects = NULL;
         McmcSamples *pip = NULL;
         McmcSamples *pep = NULL;

@@ -1109,6 +1109,8 @@ public:
         /** Gibbs sweep over all --fixed-effect SNPs (call before mixture SnpEffects::sampleFromFC_*). */
         void sampleFromFC_eigen(SnpEffects &snpEffects, vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
             const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks, const unsigned numFixedEffectSnps);
+        void sampleFromFC_quantizedEigen(SnpEffects &snpEffects, vector<VectorXf> &wcorrBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks, vector<VectorXf> &whatBlocks,
+            const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks, const unsigned numFixedEffectSnps);
         void sampleFromFC_sparse(SnpEffects &snpEffects, VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag,
             const VectorXf &snp2pq, const vector<SnpInfo*> &incdSnpInfoVec, float varg, float vare, const unsigned numFixedEffectSnps);
         void sampleFromFC_full(SnpEffects &snpEffects, VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXf &ZPZdiag,
@@ -1141,6 +1143,9 @@ public:
                           const float sigmaSq, const float pi, const float vare, const float varg,
                           const vector<SnpInfo*> &incdSnpInfoVec);
         void sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
+                          const vector<LDBlockInfo*> keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
+                          const float sigmaSq, const float pi, const float varg, const VectorXf &snp2pq);
+        void sampleFromFC_quantizedEigen(vector<VectorXf> &wcorrBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks, vector<VectorXf> &whatBlocks,
                           const vector<LDBlockInfo*> keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                           const float sigmaSq, const float pi, const float varg, const VectorXf &snp2pq);
         
@@ -1233,6 +1238,8 @@ public:
                           const VectorXf &snpEffects, VectorXf &rcorr);
         void computeWcorr_eigen(const vector<VectorXf> &wBlocks, const vector<MatrixXf> &Qblocks, const vector<LDBlockInfo*> keptLdBlockInfoVec,
                                 const VectorXf &snpEffects, vector<VectorXf> &wcorrBlocks);
+        void computeWcorr_quantizedEigen(const vector<VectorXf> &wBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks, const vector<LDBlockInfo*> keptLdBlockInfoVec,
+                                const VectorXf &snpEffects, vector<VectorXf> &wcorrBlocks);
         void computeGhat(const MatrixXf &Z, const VectorXf &snpEffects, VectorXf &ghat);
     };
         
@@ -1311,6 +1318,7 @@ public:
         void compute_sparse(VectorXi &badSnps, VectorXf &effects, VectorXf &effectMean, const VectorXf &b, VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const vector<ChromInfo*> &chromInfoVec, const int iter, const Data &data);
         void compute_full(VectorXi &badSnps, VectorXf &effects, VectorXf &effectMean, const VectorXf &b, VectorXf &rcorr, const vector<VectorXf> &ZPZ, const VectorXi &windStart, const VectorXi &windSize, const vector<ChromInfo*> &chromInfoVec, const int iter, const Data &data);
         void compute_eigen(VectorXi &badSnps, VectorXf &effects, VectorXf &effectMean, const VectorXf &b, vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, const vector<LDBlockInfo*> keptLdBlockInfoVec, const int iter, const Data &data);
+        void compute_quantizedEigen(VectorXi &badSnps, VectorXf &effects, VectorXf &effectMean, const VectorXf &b, vector<VectorXf> &wcorrBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks, const vector<LDBlockInfo*> keptLdBlockInfoVec, const int iter, const Data &data);
     };
     
 
@@ -1320,6 +1328,7 @@ public:
     bool robustMode;
     bool noscale;
     bool lowRankModel;
+    bool quantizedLowRankModel;
 
     SnpEffects snpEffects;
     VarEffects sigmaSq;
@@ -1360,9 +1369,22 @@ public:
     , sparse(data.sparseLDM)
     , robustMode(robustMode)
     , lowRankModel(lowRank)
+    , quantizedLowRankModel(false)
     {
         (void)varGenotypic;
         (void)varRandom;
+
+        quantizedLowRankModel = lowRankModel
+            && data.quantizedEigenBlocks.size() == data.keptLdBlockInfoVec.size()
+            && data.quantizedEigenBlocks.size();
+        if (quantizedLowRankModel) {
+            for (unsigned blk = 0; blk < data.quantizedEigenBlocks.size(); ++blk) {
+                if (!data.quantizedEigenBlocks[blk].active()) {
+                    quantizedLowRankModel = false;
+                    break;
+                }
+            }
+        }
         
         paramSetVec = {&snpEffects, &snpPip};
         if (data.numFixedEffectSnps) {
@@ -1505,6 +1527,10 @@ public:
                           const vector<LDBlockInfo*> keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                           const float sigmaSq, const float pi, const float varg,
                           const VectorXf &snp2pqPowS, const VectorXf &snp2pq);
+        void sampleFromFC_quantizedEigen(vector<VectorXf> &wcorrBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks, vector<VectorXf> &whatBlocks,
+                          const vector<LDBlockInfo*> keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
+                          const float sigmaSq, const float pi, const float varg,
+                          const VectorXf &snp2pqPowS, const VectorXf &snp2pq);
 
     };
 
@@ -1541,6 +1567,7 @@ public:
         
     bool sparse;
     bool lowRankModel;
+    bool quantizedLowRankModel;
     bool estimateEffectMean;
 
     SnpEffects snpEffects;
@@ -1572,9 +1599,22 @@ public:
     , nBadSnps(data.title, data.b, data.snpEffectNames)
     , sparse(data.sparseLDM)
     , lowRankModel(lowRank)
+    , quantizedLowRankModel(false)
    {
 
         estimateEffectMean = false;
+
+        quantizedLowRankModel = lowRankModel
+            && data.quantizedEigenBlocks.size() == data.keptLdBlockInfoVec.size()
+            && data.quantizedEigenBlocks.size();
+        if (quantizedLowRankModel) {
+            for (unsigned blk = 0; blk < data.quantizedEigenBlocks.size(); ++blk) {
+                if (!data.quantizedEigenBlocks[blk].active()) {
+                    quantizedLowRankModel = false;
+                    break;
+                }
+            }
+        }
     
         // Override paramVec to use ApproxBayesS's own varg and vare members
         paramSetVec = {&snpEffects, &fixedEffects, &snpPip};
@@ -1752,6 +1792,10 @@ public:
                           const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                           const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore, const float varg,
                           const bool hsqPercModel, DeltaPi &deltaPi);
+        void sampleFromFC_quantizedEigen(vector<VectorXf> &wcorrBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks, vector<VectorXf> &whatBlocks,
+                          const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
+                          const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore, const float varg,
+                          const bool hsqPercModel, DeltaPi &deltaPi);
         
         // tempered Gibbs sampler
 //        void sampleFromTGS_eigen(const vector<vector<int> > &selectedSnps, vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
@@ -1798,6 +1842,7 @@ public:
     bool robustMode;
     bool noscale;
     bool lowRankModel;
+    bool quantizedLowRankModel;
 
     SnpEffects snpEffects;
     VarEffects sigmaSq;
@@ -1843,6 +1888,7 @@ public:
     , sparse(data.sparseLDM)
     , robustMode(robustMode)
     , lowRankModel(lowRank)
+    , quantizedLowRankModel(false)
     {
 
         if (alg == "cg") algorithm = cg;
@@ -1850,6 +1896,18 @@ public:
         else if (alg == "TGS") algorithm = tgs;
         else if (alg == "TGS_thin") algorithm = tgs_thin;
         else algorithm = gibbs;
+
+        quantizedLowRankModel = lowRankModel
+            && data.quantizedEigenBlocks.size() == data.keptLdBlockInfoVec.size()
+            && data.quantizedEigenBlocks.size();
+        if (quantizedLowRankModel) {
+            for (unsigned blk = 0; blk < data.quantizedEigenBlocks.size(); ++blk) {
+                if (!data.quantizedEigenBlocks[blk].active()) {
+                    quantizedLowRankModel = false;
+                    break;
+                }
+            }
+        }
 
         paramSetVec = {&snpEffects, &snpPip, &snpHsqPep};
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
@@ -2219,11 +2277,16 @@ public:
                                 const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                 const MatrixXf &snpPi, const VectorXf &gamma, const float varg,
                                 DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq, const vector<SnpInfo*> &incdSnpInfoVec);
+        void sampleFromFC_quantizedEigen(vector<VectorXf> &wcorrBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks, vector<VectorXf> &whatBlocks,
+                                const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
+                                const MatrixXf &snpPi, const VectorXf &gamma, const float varg,
+                                DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq, const vector<SnpInfo*> &incdSnpInfoVec);
         // tempered Gibbs sampler
         void sampleFromTGS_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                                  const map<SnpInfo*, vector<SnpInfo*> > &LDmap, const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                  const MatrixXf &snpPi, const VectorXf &gamma, const float varg,
-                                 DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq);
+                                 DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq,
+                                 const vector<QuantizedEigenBlock> *quantizedEigenBlocks = nullptr);
         
     };
     
@@ -2743,20 +2806,40 @@ public:
         AnnoPIP(const vector<string> &header, const string &lab = "AnnoPIP"): BayesC::SnpPIP(header, lab){}
     };
 
+    class AnnoPIPs : public vector<AnnoPIP*> {
+    public:
+        AnnoPIPs(const vector<string> &header, const unsigned numComp) {
+            for (unsigned i=0; i<numComp; ++i) {
+                this->push_back(new AnnoPIP(header, "AnnoPIP_p" + to_string(static_cast<long long>(i + 2))));
+            }
+        }
+
+        void getValues(const AnnoEffects &annoEffects) {
+            for (unsigned i=0; i<this->size(); ++i) {
+                (*this)[i]->getValues(annoEffects[i]->pip);
+            }
+        }
+    };
+
     AnnoEffects annoEffects;
     AnnoPi piAnno;
     AnnoCondProb annoCondProb;
     AnnoPIP annoPip;
+    AnnoPIPs annoPips;
+    bool sampleAnnoEffectsIndep;
 
-    ApproxBayesRD(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool robustMode, const bool estimateRsqEnrich, const string &alg, const bool message = true):
+    ApproxBayesRD(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool robustMode, const bool estimateRsqEnrich, const string &alg, const bool sampleAnnoEffectsIndepOpt = false, const bool message = true):
     ApproxBayesRC(data, lowRank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, alg, false),
     annoEffects(data.annoNames, pis.size(), data.annoMat),
     annoCondProb(data.annoNames, annoEffects.numComp),
-    annoPip(data.annoNames)
+    annoPip(data.annoNames),
+    annoPips(data.annoNames, annoEffects.numComp),
+    sampleAnnoEffectsIndep(sampleAnnoEffectsIndepOpt)
     {
         annoEffects.initIntercept(pis);
         
         paramSetVec = {&snpEffects, &snpPip, &snpHsqPep, &annoPip};
+        paramSetVec.insert(paramSetVec.end(), annoPips.begin(), annoPips.end());
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
         paramSetVec.insert(paramSetVec.end(), annoEffects.begin(), annoEffects.end());
         paramSetVec.insert(paramSetVec.end(), annoCondProb.begin(), annoCondProb.end());
@@ -2782,7 +2865,11 @@ public:
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
         paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
-        paramSetToPrint.push_back(&annoPip);
+        if (sampleAnnoEffectsIndep) {
+            paramSetToPrint.insert(paramSetToPrint.end(), annoPips.begin(), annoPips.end());
+        } else {
+            paramSetToPrint.push_back(&annoPip);
+        }
 
         if (data.numFixedEffectSnps) {
             paramToPrint = {&sigmaSq, &hsqFixed, &hsqRandom, &hsq, &vare, &piAnno};
@@ -3274,7 +3361,3 @@ private:
 };
 
 #endif /* model_hpp */
-
-
-
-
