@@ -11,6 +11,7 @@
 
 #include <iostream>
 #include <math.h>
+#include <cstdlib>
 #include "stat.hpp"
 #include "data.hpp"
 
@@ -2257,34 +2258,32 @@ public:
     public:
         unsigned ndist;
         ArrayXf numSnpMix;
-        MatrixXf z;
         vector<vector<unsigned> > snpset;
         VectorXf fcMean;
         
         SnpEffects(const vector<string> &header, const VectorXf &pis): ApproxBayesR::SnpEffects(header){
             ndist = pis.size();
             numSnpMix.setZero(ndist);
-            z.setZero(size, ndist-1);
             fcMean.setZero(size);
         }
         
         void sampleFromFC_sparse(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                                  const vector<ChromInfo*> &chromInfoVec,
-                                 const float sigmaSq, const MatrixXf &snpPi, const VectorXf &gamma,
+                                 const float sigmaSq, const MatrixXf &snpLogPi, const VectorXf &gamma,
                                  const float vare, const float varg,
                                  const bool hsqPercModel, DeltaPi &deltaPi, const vector<SnpInfo*> &incdSnpInfoVec);
         void sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                                 const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
-                                const MatrixXf &snpPi, const VectorXf &gamma, const float varg,
+                                const MatrixXf &snpLogPi, const VectorXf &gamma, const float varg,
                                 DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq, const vector<SnpInfo*> &incdSnpInfoVec);
         void sampleFromFC_quantizedEigen(vector<VectorXf> &wcorrBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks, vector<VectorXf> &whatBlocks,
                                 const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
-                                const MatrixXf &snpPi, const VectorXf &gamma, const float varg,
+                                const MatrixXf &snpLogPi, const VectorXf &gamma, const float varg,
                                 DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq, const vector<SnpInfo*> &incdSnpInfoVec);
         // tempered Gibbs sampler
         void sampleFromTGS_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                                  const map<SnpInfo*, vector<SnpInfo*> > &LDmap, const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
-                                 const MatrixXf &snpPi, const VectorXf &gamma, const float varg,
+                                 const MatrixXf &snpLogPi, const VectorXf &gamma, const float varg,
                                  DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq,
                                  const vector<QuantizedEigenBlock> *quantizedEigenBlocks = nullptr);
         
@@ -2302,12 +2301,26 @@ public:
 
         VectorXf varProp;
         vector<BayesS::AcceptanceRate*> ar;
+        bool profileTiming;
+        double profileTimeMembership;
+        double profileTimeSetup;
+        double profileTimeMean;
+        double profileTimeLatent;
+        double profileTimeAlpha;
+        double profileTimeSnpP;
 
         AnnoEffects(const vector<string> &header, const unsigned ndist, const MatrixXf &annoMat) {
             numComp = ndist - 1;
             colnames.resize(numComp);
             ar.resize(numComp);
             varProp.setZero(numComp);
+            profileTiming = false;
+            profileTimeMembership = 0.0;
+            profileTimeSetup = 0.0;
+            profileTimeMean = 0.0;
+            profileTimeLatent = 0.0;
+            profileTimeAlpha = 0.0;
+            profileTimeSnpP = 0.0;
             numAnno = header.size();
             unsigned numSnps = annoMat.rows();
             for (unsigned i = 0; i<numComp; ++i) {
@@ -2327,7 +2340,9 @@ public:
         }
         
 //        void sampleFromFC(MatrixXf &snpP, const MatrixXf &annoMat);
+        void sampleFromFC_Gibbs(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
         void sampleFromFC_Gibbs(MatrixXf &z, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
+        void sampleFromFC_MH(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
         void sampleFromFC_MH(MatrixXf &z, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
         void initIntercept_probit(const VectorXf &pis);
         void initIntercept_logistic(const VectorXf &pis);
@@ -2502,11 +2517,28 @@ public:
     AnnoDistribution annoDist;
         
     MatrixXf snpP;    // p = Pr(k>i | k>i-1); p2 = pi2+pi3+pi4; p3 = (pi3+pi4)/(pi2+pi3+pi4); p4 = pi4/(pi3+pi4)
-    MatrixXf snpPi;   // pi1 = 1-p2; pi2 = (1-p3)*p2; pi3 = (1-p4)*p2*p3; pi4 = p2*p3*p4
+    MatrixXf snpLogPi;   // log(pi1), log(pi2), ...
     
     VectorXf snpAnnoCntInv;
     
     bool estimateRsqEnrich;
+    bool profileTiming;
+    unsigned profileTimingFreq;
+    unsigned profileTimingCount;
+    double profileTimeSnpEffects;
+    double profileTimeTgs;
+    double profileTimePosterior;
+    double profileTimeAnnoEffects;
+    double profileTimeAnnoCondProb;
+    double profileTimeAnnoVar;
+    double profileTimeLogPi;
+    double profileTimeAnnoJointProb;
+    double profileTimeVariance;
+    double profileTimeAnnoSummary;
+    double profileTimeMiscSummary;
+    double profileTimeBadSnps;
+    double profileTimeRounding;
+    double profileTimeTotal;
             
     ApproxBayesRC(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool robustMode, const bool estimateRsqEnrich, const string &alg, const bool message = true):
     ApproxBayesR(data, lowRank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, alg, false),
@@ -2522,10 +2554,36 @@ public:
     annoJointPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
     annoJointPerSnpRsqEnrich(data.annoNames, data.annoInfoVec),
     annoDist(data.annoNames, pis.size()),
-    estimateRsqEnrich(estimateRsqEnrich)
+    estimateRsqEnrich(estimateRsqEnrich),
+    profileTiming(false),
+    profileTimingFreq(10),
+    profileTimingCount(0),
+    profileTimeSnpEffects(0.0),
+    profileTimeTgs(0.0),
+    profileTimePosterior(0.0),
+    profileTimeAnnoEffects(0.0),
+    profileTimeAnnoCondProb(0.0),
+    profileTimeAnnoVar(0.0),
+    profileTimeLogPi(0.0),
+    profileTimeAnnoJointProb(0.0),
+    profileTimeVariance(0.0),
+    profileTimeAnnoSummary(0.0),
+    profileTimeMiscSummary(0.0),
+    profileTimeBadSnps(0.0),
+    profileTimeRounding(0.0),
+    profileTimeTotal(0.0)
     {
-                
-        initSnpPandPi(pis, data.numIncdSnps, snpP, snpPi);
+        const char *profileEnv = getenv("GCTB_PROFILE_RC");
+        profileTiming = profileEnv && string(profileEnv) != "0";
+        annoEffects.profileTiming = profileTiming;
+        const char *profileFreqEnv = getenv("GCTB_PROFILE_RC_FREQ");
+        if (profileFreqEnv) {
+            int freq = atoi(profileFreqEnv);
+            if (freq > 0) profileTimingFreq = unsigned(freq);
+        }
+
+        initSnpPandPi(pis, data.numIncdSnps, snpP, snpLogPi);
+        computeLogPiFromP(snpP, snpLogPi);
         
         annoEffects.initIntercept_probit(pis);
 //        if (algorithm == gibbs) annoEffects.initIntercept_probit(pis);
@@ -2607,6 +2665,7 @@ public:
 //    void sampleUnknownsTGS(vector<vector<int> > &selectedSnps);
     void computePfromPi(const MatrixXf &snpPi, MatrixXf &snpP);
     void computePiFromP(const MatrixXf &snpP, MatrixXf &snpPi);
+    void computeLogPiFromP(const MatrixXf &snpP, MatrixXf &snpLogPi);
     void initSnpPandPi(const VectorXf &pis, const unsigned numSnps, MatrixXf &snpP, MatrixXf &snpPi);
     void getSnpAnnoCntInv(const MatrixXf &annoMat, VectorXf &snpAnnoCntInv);
 };
@@ -2783,8 +2842,8 @@ public:
             pip.setZero(numAnno);
         }
         
-        void sampleFromFC_indep(MatrixXf &z, const MatrixXf &annoMat, const VectorXf &sigmaSq, const float pi, MatrixXf &snpP);
-        void sampleFromFC_joint(MatrixXf &z, const MatrixXf &annoMat, const VectorXf &sigmaSq, const float pi, MatrixXf &snpP);
+        void sampleFromFC_indep(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, const float pi, MatrixXf &snpP);
+        void sampleFromFC_joint(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, const float pi, MatrixXf &snpP);
         void initIntercept(const VectorXf &pis);
     };
     
