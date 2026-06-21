@@ -8623,12 +8623,15 @@ void ApproxBayesRC::sampleUnknowns(const unsigned iter){
     if (profileTiming) {
         profileStart = profileLast = gctbWallTime();
     }
-    auto addProfileTime = [&](double &bucket) {
+    auto addProfileTime = [&](double &bucket) -> double {
         if (profileTiming) {
             double now = gctbWallTime();
-            bucket += now - profileLast;
+            double elapsed = now - profileLast;
+            bucket += elapsed;
             profileLast = now;
+            return elapsed;
         }
+        return 0.0;
     };
 
     if (lowRankModel) {
@@ -8723,14 +8726,18 @@ void ApproxBayesRC::sampleUnknowns(const unsigned iter){
     addProfileTime(profileTimeVariance);
 
     annoGenVar.compute(snpEffects.values, snpEffects.snpset, data.annoMat);
+    profileTimeAnnoSummary += addProfileTime(profileTimeAnnoGenVar);
     annoTotalGenVar.compute(annoGenVar);
+    profileTimeAnnoSummary += addProfileTime(profileTimeAnnoTotalGenVar);
     annoPerSnpHsqEnrich.compute(annoTotalGenVar.values, data.annoInfoVec);
+    profileTimeAnnoSummary += addProfileTime(profileTimeAnnoPerSnpHsqEnrich);
     annoJointPerSnpHsqEnrich.compute(snpEffects.values, data.annoMat, annoJointProb, data.annoInfoVec, gamma.values, snpAnnoCntInv);
+    profileTimeAnnoSummary += addProfileTime(profileTimeAnnoJointPerSnpHsqEnrich);
     if (estimateRsqEnrich) {
         annoPerSnpRsqEnrich.compute(snpEffects.fcMean, data.annoMat, data.annoInfoVec);
         annoJointPerSnpRsqEnrich.compute(snpEffects.fcMean, data.annoMat, annoJointProb, data.annoInfoVec, gamma.values, snpAnnoCntInv);
+        addProfileTime(profileTimeAnnoSummary);
     }
-    addProfileTime(profileTimeAnnoSummary);
 
     Vgs.compute(snpEffects.values, snpEffects.snpset);
 
@@ -8785,6 +8792,10 @@ void ApproxBayesRC::sampleUnknowns(const unsigned iter){
             cout << "    anno joint prob:  " << profileTimeAnnoJointProb / denom << endl;
             cout << "  Variance updates:   " << profileTimeVariance / denom << endl;
             cout << "  Annotation summary: " << profileTimeAnnoSummary / denom << endl;
+            cout << "    anno GenVar:      " << profileTimeAnnoGenVar / denom << endl;
+            cout << "    anno total GenVar:" << profileTimeAnnoTotalGenVar / denom << endl;
+            cout << "    per-SNP hsq enrich:" << profileTimeAnnoPerSnpHsqEnrich / denom << endl;
+            cout << "    joint hsq enrich: " << profileTimeAnnoJointPerSnpHsqEnrich / denom << endl;
             cout << "  Misc summary:       " << profileTimeMiscSummary / denom << endl;
             cout << "  Bad SNP check:      " << profileTimeBadSnps / denom << endl;
             cout << "  Rounding:           " << profileTimeRounding / denom << endl;

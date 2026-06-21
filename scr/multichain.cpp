@@ -300,6 +300,7 @@ void MultiChainSBayesRD::sampleUnknowns(const unsigned iter){
     snpHsqPep.getValues();
     piAnno.getValues();
     annoPip.getValues();
+    annoPips.getValues();
 
     nHighPips.getValue(pip.values);
     nBadSnps.output();
@@ -366,4 +367,3 @@ void MultiChainSBayesS::sampleUnknowns(const unsigned iter){
     nHighPips.getValue(pip.values);
     nBadSnps.output();
 }
-

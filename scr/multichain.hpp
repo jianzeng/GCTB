@@ -502,27 +502,37 @@ public:
         void output(void);
     };
     
-    class AnnoEffects : public MultiChainParamSetVec {
+    class AnnoEffects : public vector<MultiChainParamSet*> {
     public:
         AnnoEffects(const vector<string> &header, const unsigned numDist, const ChainVecSBayesRC &chains):
-        MultiChainParamSetVec("AnnoEffects", header, numDist, chains.size()) {
+        vector<MultiChainParamSet*>() {
             for (unsigned i=0; i<numDist; ++i) {
+                this->push_back(new MultiChainParamSet("AnnoEffects_p" + to_string(static_cast<long long>(i + 2)), header, chains.size()));
                 for (unsigned j=0; j<chains.size(); ++j) {
                     (*this)[i]->chainVec.push_back(chains[j]->annoEffects[i]);
                 }
             }
         }
+
+        void getValues(void) {
+            for (unsigned i=0; i<this->size(); ++i) (*this)[i]->getValues();
+        }
     };
         
-    class AnnoJointProb : public MultiChainParamSetVec {
+    class AnnoJointProb : public vector<MultiChainParamSet*> {
     public:
         AnnoJointProb(const vector<string> &header, const unsigned numDist, const ChainVecSBayesRC &chains):
-        MultiChainParamSetVec("AnnoJointProb", header, numDist, chains.size()) {
+        vector<MultiChainParamSet*>() {
             for (unsigned i=0; i<numDist; ++i) {
+                this->push_back(new MultiChainParamSet("AnnoJointProb_pi" + to_string(static_cast<long long>(i + 1)), header, chains.size()));
                 for (unsigned j=0; j<chains.size(); ++j) {
                     (*this)[i]->chainVec.push_back(chains[j]->annoJointProb[i]);
                 }
             }
+        }
+
+        void getValues(void) {
+            for (unsigned i=0; i<this->size(); ++i) (*this)[i]->getValues();
         }
     };
 
@@ -797,27 +807,37 @@ public:
         void output(void);
     };
     
-    class AnnoEffects : public MultiChainParamSetVec {
+    class AnnoEffects : public vector<MultiChainParamSet*> {
     public:
         AnnoEffects(const vector<string> &header, const unsigned numDist, const ChainVecSBayesRD &chains):
-        MultiChainParamSetVec("AnnoEffects", header, numDist, chains.size()) {
+        vector<MultiChainParamSet*>() {
             for (unsigned i=0; i<numDist; ++i) {
+                this->push_back(new MultiChainParamSet("AnnoEffects_p" + to_string(static_cast<long long>(i + 2)), header, chains.size()));
                 for (unsigned j=0; j<chains.size(); ++j) {
                     (*this)[i]->chainVec.push_back(chains[j]->annoEffects[i]);
                 }
             }
         }
+
+        void getValues(void) {
+            for (unsigned i=0; i<this->size(); ++i) (*this)[i]->getValues();
+        }
     };
         
-    class AnnoJointProb : public MultiChainParamSetVec {
+    class AnnoJointProb : public vector<MultiChainParamSet*> {
     public:
         AnnoJointProb(const vector<string> &header, const unsigned numDist, const ChainVecSBayesRD &chains):
-        MultiChainParamSetVec("AnnoJointProb", header, numDist, chains.size()) {
+        vector<MultiChainParamSet*>() {
             for (unsigned i=0; i<numDist; ++i) {
+                this->push_back(new MultiChainParamSet("AnnoJointProb_pi" + to_string(static_cast<long long>(i + 1)), header, chains.size()));
                 for (unsigned j=0; j<chains.size(); ++j) {
                     (*this)[i]->chainVec.push_back(chains[j]->annoJointProb[i]);
                 }
             }
+        }
+
+        void getValues(void) {
+            for (unsigned i=0; i<this->size(); ++i) (*this)[i]->getValues();
         }
     };
 
@@ -874,6 +894,23 @@ public:
              }
          }
     };
+
+    class AnnoPIPs : public vector<MultiChainParamSet*> {
+    public:
+        AnnoPIPs(const vector<string> &header, const unsigned numComp, const ChainVecSBayesRD &chains):
+        vector<MultiChainParamSet*>() {
+            for (unsigned i=0; i<numComp; ++i) {
+                this->push_back(new MultiChainParamSet("AnnoPIP_p" + to_string(static_cast<long long>(i + 2)), header, chains.size()));
+                for (unsigned j=0; j<chains.size(); ++j) {
+                    (*this)[i]->chainVec.push_back(chains[j]->annoPips[i]);
+                }
+            }
+        }
+
+        void getValues(void) {
+            for (unsigned i=0; i<this->size(); ++i) (*this)[i]->getValues();
+        }
+    };
     
     
     ChainVecSBayesRD chainVec;
@@ -892,8 +929,10 @@ public:
     SnpHsqPEP snpHsqPep;
     AnnoPi piAnno;
     AnnoPIP annoPip;
+    AnnoPIPs annoPips;
     
     bool estimateRsqEnrich;
+    bool sampleAnnoEffectsIndep;
     
     MultiChainSBayesRD(const Data &data, const Options &opt, const bool message = true):
     MultiChainSBayesRC(data, opt, false),
@@ -913,7 +952,9 @@ public:
     snpHsqPep(data.snpEffectNames, chainVec),
     piAnno(chainVec),
     annoPip(data.annoNames, chainVec),
-    estimateRsqEnrich(opt.estimateRsqEnrich)
+    annoPips(data.annoNames, opt.gamma.size()-1, chainVec),
+    estimateRsqEnrich(opt.estimateRsqEnrich),
+    sampleAnnoEffectsIndep(opt.bayesType == "RD_indep")
     {
         
         paramVec    = {&hsq, &piAnno};
@@ -921,6 +962,7 @@ public:
         paramVec.insert(paramVec.end(), vgMix.begin(), vgMix.end());
 
         paramSetVec = {&snpEffects, &pip, &snpHsqPep, &annoTotalGenVar, &annoPerSnpHsqEnrich, &annoPip};
+        paramSetVec.insert(paramSetVec.end(), annoPips.begin(), annoPips.end());
         paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
         paramSetVec.insert(paramSetVec.end(), annoEffects.begin(), annoEffects.end());
@@ -936,7 +978,11 @@ public:
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
         paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
-        paramSetToPrint.push_back(&annoPip);
+        if (sampleAnnoEffectsIndep) {
+            paramSetToPrint.insert(paramSetToPrint.end(), annoPips.begin(), annoPips.end());
+        } else {
+            paramSetToPrint.push_back(&annoPip);
+        }
 
         if (message) {
             cout << "\nMulti-chain SBayesRD (" << numChains << " chains)" << endl;

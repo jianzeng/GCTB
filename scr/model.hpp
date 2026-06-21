@@ -2535,6 +2535,10 @@ public:
     double profileTimeAnnoJointProb;
     double profileTimeVariance;
     double profileTimeAnnoSummary;
+    double profileTimeAnnoGenVar;
+    double profileTimeAnnoTotalGenVar;
+    double profileTimeAnnoPerSnpHsqEnrich;
+    double profileTimeAnnoJointPerSnpHsqEnrich;
     double profileTimeMiscSummary;
     double profileTimeBadSnps;
     double profileTimeRounding;
@@ -2568,6 +2572,10 @@ public:
     profileTimeAnnoJointProb(0.0),
     profileTimeVariance(0.0),
     profileTimeAnnoSummary(0.0),
+    profileTimeAnnoGenVar(0.0),
+    profileTimeAnnoTotalGenVar(0.0),
+    profileTimeAnnoPerSnpHsqEnrich(0.0),
+    profileTimeAnnoJointPerSnpHsqEnrich(0.0),
     profileTimeMiscSummary(0.0),
     profileTimeBadSnps(0.0),
     profileTimeRounding(0.0),
