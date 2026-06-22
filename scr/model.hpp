@@ -2850,14 +2850,38 @@ public:
             pip.setZero(numAnno);
         }
         
-        void sampleFromFC_indep(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, const float pi, MatrixXf &snpP);
+        void sampleFromFC_indep(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, const VectorXf &pi, MatrixXf &snpP);
         void sampleFromFC_joint(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, const float pi, MatrixXf &snpP);
         void initIntercept(const VectorXf &pis);
     };
     
-    class AnnoPi : public BayesC::Pi {
+    class AnnoPi : public BayesC::Pi, public vector<Parameter*> {
     public:
+        using BayesC::Pi::sampleFromFC;
+
+        VectorXf values;
+
         AnnoPi(): BayesC::Pi(0.1, 1, 1, "AnnoPi"){}
+
+        void init(const unsigned numComp) {
+            values.setConstant(numComp, value);
+            if (!this->empty()) return;
+            for (unsigned i=0; i<numComp; ++i) {
+                this->push_back(new Parameter("AnnoPi_p" + to_string(static_cast<long long>(i + 2))));
+                (*this)[i]->value = values[i];
+            }
+        }
+
+        void sampleFromFC(const unsigned numAnnoPerComp, const VectorXf &numNonZeros) {
+            if (values.size() != numNonZeros.size()) values.setConstant(numNonZeros.size(), value);
+            for (unsigned i=0; i<(unsigned)numNonZeros.size(); ++i) {
+                float alphaTilde = numNonZeros[i] + alpha;
+                float betaTilde  = numAnnoPerComp - numNonZeros[i] + beta;
+                values[i] = Beta::sample(alphaTilde, betaTilde);
+                if (i < this->size()) (*this)[i]->value = values[i];
+            }
+            value = values.mean();
+        }
     };
     
     class AnnoCondProb : public ApproxBayesRC::AnnoCondProb {
@@ -2904,6 +2928,7 @@ public:
     sampleAnnoEffectsIndep(sampleAnnoEffectsIndepOpt)
     {
         annoEffects.initIntercept(pis);
+        piAnno.init(annoEffects.numComp);
         
         paramSetVec = {&snpEffects, &snpPip, &snpHsqPep, &annoPip};
         paramSetVec.insert(paramSetVec.end(), annoPips.begin(), annoPips.end());
@@ -2917,10 +2942,14 @@ public:
         paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
 
         if (data.numFixedEffectSnps) {
-            paramVec = {&nnzSnp, &sigmaSq, &hsqFixed, &hsqRandom, &hsq, &vare, &piAnno};
+            paramVec = {&nnzSnp, &sigmaSq, &hsqFixed, &hsqRandom, &hsq, &vare};
         } else {
-            paramVec = {&nnzSnp, &sigmaSq, &hsq, &vare, &piAnno};
+            paramVec = {&nnzSnp, &sigmaSq, &hsq, &vare};
         }
+        if (sampleAnnoEffectsIndep)
+            paramVec.insert(paramVec.end(), piAnno.begin(), piAnno.end());
+        else
+            paramVec.push_back(&piAnno);
         paramVec.insert(paramVec.end(), numSnps.begin(), numSnps.end());
         paramVec.insert(paramVec.end(), Vgs.begin(), Vgs.end());
         
@@ -2939,10 +2968,14 @@ public:
         }
 
         if (data.numFixedEffectSnps) {
-            paramToPrint = {&sigmaSq, &hsqFixed, &hsqRandom, &hsq, &vare, &piAnno};
+            paramToPrint = {&sigmaSq, &hsqFixed, &hsqRandom, &hsq, &vare};
         } else {
-            paramToPrint = {&sigmaSq, &hsq, &vare, &piAnno};
+            paramToPrint = {&sigmaSq, &hsq, &vare};
         }
+        if (sampleAnnoEffectsIndep)
+            paramToPrint.insert(paramToPrint.end(), piAnno.begin(), piAnno.end());
+        else
+            paramToPrint.push_back(&piAnno);
         paramToPrint.insert(paramToPrint.begin(), Vgs.begin(), Vgs.end());
         paramToPrint.insert(paramToPrint.begin(), numSnps.begin(), numSnps.end());
 

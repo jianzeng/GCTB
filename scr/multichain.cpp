@@ -299,6 +299,7 @@ void MultiChainSBayesRD::sampleUnknowns(const unsigned iter){
     annoJointPerSnpHsqEnrich.getValues();
     snpHsqPep.getValues();
     piAnno.getValues();
+    piAnnos.getValues();
     annoPip.getValues();
     annoPips.getValues();
 

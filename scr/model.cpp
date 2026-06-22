@@ -9014,7 +9014,7 @@ void ApproxBayesRD::AnnoEffects::initIntercept(const VectorXf &pis){
     }
 }
 
-void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, const float pi, MatrixXf &snpP){
+void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, const VectorXf &pi, MatrixXf &snpP){
     VectorXf numOnes(numComp);
     #pragma omp parallel for schedule(static)
     for (unsigned i=0; i<numComp; ++i) {
@@ -9028,14 +9028,17 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(const VectorXi &membership, 
     unsigned numSnps = membership.size();
     numNonZeros.setZero(numComp);
 
-    float logPi = log(pi);
-    float logPiComp = log(1.0-pi);
     float logDelta0, logDelta1, probDelta1;
 
     for (unsigned i=0; i<numComp; ++i) {
         VectorXf &alphai = (*this)[i]->values;
         VectorXf &pip = (*this)[i]->pip;
         Stat::Bernoulli &bernoulli = (*this)[i]->bernoulli;
+        float pii = pi[i];
+        float logPi = log(pii);
+        float logPiComp = log(1.0-pii);
+        pip.setZero();
+        pip[0] = 1.0;
 
         VectorXf y, zi;
         unsigned numDP;  // number of data points for each component
@@ -9112,7 +9115,6 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(const VectorXi &membership, 
             float logSigmaSq = log(sigmaSq[i]);
             alphai[0] = Normal::sample(ahat, invLhs);
             y.array() += oldSample - alphai[0];
-            pip[0] = 1.0;
 
             // annotations are fitted with a BayesC-type mixture prior
             // shuffle the annotations
@@ -9128,9 +9130,11 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(const VectorXi &membership, 
                 logDelta1 = 0.5*(logf(invLhs) - logSigmaSq + ahat*rhs) + logPi;
                 logDelta0 = logPiComp;
                 probDelta1 = 1.0f/(1.0f + expf(logDelta0-logDelta1));
-                pip[k] = probDelta1;
 
-                if (bernoulli.sample(probDelta1)) {
+                bool included = bernoulli.sample(probDelta1);
+                pip[k] = included ? 1.0f : 0.0f;
+
+                if (included) {
                     alphai[k] = Normal::sample(ahat, invLhs);
                     y += annoMati.col(k) * (oldSample - alphai[k]);
                     ssq[i] += alphai[k] * alphai[k];
@@ -9542,11 +9546,14 @@ void ApproxBayesRD::sampleUnknowns(const unsigned iter){
 
     if (estimatePi) {
         if (sampleAnnoEffectsIndep)
-            annoEffects.sampleFromFC_indep(snpEffects.membership, data.annoMat, sigmaSqAnno.values, piAnno.value, snpP);
+            annoEffects.sampleFromFC_indep(snpEffects.membership, data.annoMat, sigmaSqAnno.values, piAnno.values, snpP);
         else
             annoEffects.sampleFromFC_joint(snpEffects.membership, data.annoMat, sigmaSqAnno.values, piAnno.value, snpP);
         sigmaSqAnno.sampleFromFC(annoEffects.ssq);
-        piAnno.sampleFromFC(annoEffects.numAnnoTotal, annoEffects.nnz);
+        if (sampleAnnoEffectsIndep)
+            piAnno.sampleFromFC(annoEffects.numAnno - 1, annoEffects.numNonZeros);
+        else
+            piAnno.sampleFromFC(annoEffects.numAnnoTotal, annoEffects.nnz);
         computeLogPiFromP(snpP, snpLogPi);
         annoCondProb.compute(annoEffects, data.annoInfoVec);
         annoJointProb.compute(annoCondProb);

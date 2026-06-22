@@ -885,6 +885,23 @@ public:
             }
         }
     };
+
+    class AnnoPis : public vector<MultiChainParameter*> {
+    public:
+        AnnoPis(const unsigned numComp, const ChainVecSBayesRD &chains):
+        vector<MultiChainParameter*>() {
+            for (unsigned i=0; i<numComp; ++i) {
+                this->push_back(new MultiChainParameter("AnnoPi_p" + to_string(static_cast<long long>(i + 2)), chains.size()));
+                for (unsigned j=0; j<chains.size(); ++j) {
+                    (*this)[i]->chainVec.push_back(chains[j]->piAnno[i]);
+                }
+            }
+        }
+
+        void getValues(void) {
+            for (unsigned i=0; i<this->size(); ++i) (*this)[i]->getValues();
+        }
+    };
     
     class AnnoPIP : public MultiChainParamSet {
     public:
@@ -928,6 +945,7 @@ public:
     AnnoJointPerSnpHsqEnrichment annoJointPerSnpHsqEnrich;
     SnpHsqPEP snpHsqPep;
     AnnoPi piAnno;
+    AnnoPis piAnnos;
     AnnoPIP annoPip;
     AnnoPIPs annoPips;
     
@@ -951,13 +969,18 @@ public:
     annoJointPerSnpHsqEnrich(data.annoNames, chainVec),
     snpHsqPep(data.snpEffectNames, chainVec),
     piAnno(chainVec),
+    piAnnos(opt.gamma.size()-1, chainVec),
     annoPip(data.annoNames, chainVec),
     annoPips(data.annoNames, opt.gamma.size()-1, chainVec),
     estimateRsqEnrich(opt.estimateRsqEnrich),
     sampleAnnoEffectsIndep(opt.bayesType == "RD_indep")
     {
         
-        paramVec    = {&hsq, &piAnno};
+        paramVec    = {&hsq};
+        if (sampleAnnoEffectsIndep)
+            paramVec.insert(paramVec.end(), piAnnos.begin(), piAnnos.end());
+        else
+            paramVec.push_back(&piAnno);
         paramVec.insert(paramVec.end(), numSnpMix.begin(), numSnpMix.end());
         paramVec.insert(paramVec.end(), vgMix.begin(), vgMix.end());
 
@@ -968,7 +991,11 @@ public:
         paramSetVec.insert(paramSetVec.end(), annoEffects.begin(), annoEffects.end());
         paramSetVec.insert(paramSetVec.end(), annoJointProb.begin(), annoJointProb.end());
 
-        paramToPrint = {&hsq, &nHighPips, &nBadSnps, &piAnno};
+        paramToPrint = {&hsq, &nHighPips, &nBadSnps};
+        if (sampleAnnoEffectsIndep)
+            paramToPrint.insert(paramToPrint.end(), piAnnos.begin(), piAnnos.end());
+        else
+            paramToPrint.push_back(&piAnno);
         paramToPrint.insert(paramToPrint.begin(), vgMix.begin(), vgMix.end());
         paramToPrint.insert(paramToPrint.begin(), numSnpMix.begin(), numSnpMix.end());
         
