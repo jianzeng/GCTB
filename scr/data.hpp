@@ -306,6 +306,22 @@ struct QuantizedEigenBlock {
         return out;
     }
 
+    inline float dotQColumns(const int localSnpIdxA, const int localSnpIdxB) const {
+        float out = 0.0f;
+        if (bits == 8) {
+            const int8_t *qColA = &q8[(size_t)localSnpIdxA * (size_t)k];
+            const int8_t *qColB = &q8[(size_t)localSnpIdxB * (size_t)k];
+            for (int eigIdx = 0; eigIdx < k; ++eigIdx)
+                out += qScale[eigIdx] * qScale[eigIdx] * (float)qColA[eigIdx] * (float)qColB[eigIdx];
+        } else if (bits == 16) {
+            const int16_t *qColA = &q16[(size_t)localSnpIdxA * (size_t)k];
+            const int16_t *qColB = &q16[(size_t)localSnpIdxB * (size_t)k];
+            for (int eigIdx = 0; eigIdx < k; ++eigIdx)
+                out += qScale[eigIdx] * qScale[eigIdx] * (float)qColA[eigIdx] * (float)qColB[eigIdx];
+        }
+        return out;
+    }
+
     template <typename Derived>
     inline void addScaledQ(const int localSnpIdx, const float coeff, MatrixBase<Derived> &target) const {
         if (coeff == 0.0f) return;
@@ -334,6 +350,14 @@ struct QuantizedEigenBlock {
             }
         }
     }
+};
+
+struct TgsWorkset {
+    unsigned focalSnpIdx;
+    unsigned blockIdx;
+    vector<int> selectedSnps;
+
+    TgsWorkset() : focalSnpIdx(0), blockIdx(0) {}
 };
 
 class locus_bp {
@@ -669,6 +693,7 @@ public:
     vector<vector<unsigned> > windowSnpIdxVec;
     
     map<SnpInfo*, vector<SnpInfo*> > LDmap;
+    vector<TgsWorkset> tgsWorksets;
     
     //////// ld block begin ///////
      vector<LDBlockInfo *> ldBlockInfoVec;
@@ -692,6 +717,7 @@ public:
     VectorXf pseudoGwasNtrnBlock;
     VectorXf pseudoGwasNValBlock;
     VectorXf b_val;
+    VectorXf b_val_mask;
 
     unsigned numFixedEffects;
     unsigned numRandomEffects;

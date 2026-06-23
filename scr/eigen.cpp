@@ -1975,6 +1975,10 @@ void Data::readBlockLdmSnpInfoFile(const string &dirname, const unsigned block){
     cout << "Reading LDM SNP info from file [" + snpInfoFile + "]." << endl;
     snpInfoVec.clear();
     snpInfoMap.clear();
+    for (unsigned i=0; i<ldBlockInfoVec.size(); ++i) {
+        ldBlockInfoVec[i]->snpNameVec.clear();
+        ldBlockInfoVec[i]->snpInfoVec.clear();
+    }
     
     map<string,int> ld2snpMap;
     string header;
@@ -2804,22 +2808,22 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
 
     EigenNbThreadsGuard eigenNbThreadsGuard;
 
-    //Constructing pseudo summary statistics for training and validation data sets, with 90% sample size for training and 10% for validation
-    
-    VectorXf n_trn(numKeptLDBlocks);
-    VectorXf n_val(numKeptLDBlocks);
+    // Construct masked observed summary statistics for eigen-cutoff validation:
+    // randomly hold out 20% of SNP marginal effects, fit on the remaining 80%,
+    // and validate against the held-out observed marginal effects.
     if (makePseudoSummary) {
         Stat::setMcmcIteration(0);
         pseudoGwasNtrnBlock.resize(numKeptLDBlocks);
+        pseudoGwasNValBlock.resize(numKeptLDBlocks);
         for(int i = 0; i < numKeptLDBlocks;i++){
-            n_trn[i] = 0.9*nGWASblock[i];
-            n_val[i] = nGWASblock[i] - n_trn[i];
-            pseudoGwasNtrnBlock[i] = n_trn[i];
+            pseudoGwasNtrnBlock[i] = nGWASblock[i];
+            pseudoGwasNValBlock[i] = nGWASblock[i];
         }
 
         pseudoGwasEffectTrn.resize(numKeptLDBlocks);
         pseudoGwasEffectVal.resize(numKeptLDBlocks);
         b_val.setZero(numIncdSnps);
+        b_val_mask.setZero(numIncdSnps);
     }
     
 #pragma omp parallel for schedule(static)
@@ -2829,6 +2833,35 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
         LDBlockInfo *block = keptLdBlockInfoVec[i];
         block->eigenColRemap.resize(0);
         block->subLdKeptLocalIdx.clear();
+
+        if (makePseudoSummary) {
+            pseudoGwasEffectTrn[i] = GWASeffects[i];
+            pseudoGwasEffectVal[i].setZero(block->numSnpInBlock);
+            unsigned numHeldOut = 0;
+            for (int j = 0; j < block->numSnpInBlock; ++j) {
+                if (Stat::ranf() < 0.20f) {
+                    pseudoGwasEffectTrn[i][j] = 0.0f;
+                    pseudoGwasEffectVal[i][j] = GWASeffects[i][j];
+                    SnpInfo *snp = block->snpInfoVec[j];
+                    if (snp && snp->index >= 0 && (unsigned)snp->index < numIncdSnps) {
+                        b_val[snp->index] = GWASeffects[i][j];
+                        b_val_mask[snp->index] = 1.0f;
+                    }
+                    ++numHeldOut;
+                }
+            }
+            if (!numHeldOut && block->numSnpInBlock > 0) {
+                int j = int(Stat::ranf() * block->numSnpInBlock);
+                if (j >= block->numSnpInBlock) j = block->numSnpInBlock - 1;
+                pseudoGwasEffectTrn[i][j] = 0.0f;
+                pseudoGwasEffectVal[i][j] = GWASeffects[i][j];
+                SnpInfo *snp = block->snpInfoVec[j];
+                if (snp && snp->index >= 0 && (unsigned)snp->index < numIncdSnps) {
+                    b_val[snp->index] = GWASeffects[i][j];
+                    b_val_mask[snp->index] = 1.0f;
+                }
+            }
+        }
 
         VectorXf eigenValSub;
         MatrixXf eigenVecSub;
@@ -2866,18 +2899,6 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
                 numEigenvalBlock[i] = Qblocks[i].rows();
             }
 
-            if (makePseudoSummary) {
-                long size = eigenValSub.size();
-                VectorXf rnd(size);
-                for (long j = 0; j < size; ++j) rnd[j] = Stat::snorm();
-                VectorXf noise_kept = eigenVecSub * (eigenValSub.array().sqrt().matrix().asDiagonal() * rnd);
-                VectorXf noise_full = VectorXf::Zero(block->numSnpInBlock);
-                for (unsigned a = 0; a < keptSub.size(); ++a)
-                    noise_full[(int)keptSub[a]] = noise_kept[a];
-                pseudoGwasEffectTrn[i] = gwasEffectInBlock[i] + sqrt(1.0f/n_trn[i] - 1.0f/nGWASblock[i]) * noise_full;
-                pseudoGwasEffectVal[i] = nGWASblock[i]/n_val[i] * gwasEffectInBlock[i] - n_trn[i]/n_val[i] * pseudoGwasEffectTrn[i];
-                b_val.segment(block->startSnpIdx, block->numSnpInBlock) = pseudoGwasEffectVal[i];
-            }
             eigenVecLdBlock[i].resize(0,0);
             continue;
         }
@@ -2924,16 +2945,6 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
             numSnpsBlock[i] = cur_m;
             numEigenvalBlock[i] = quantizedEigenBlocks[i].k;
 
-            if (makePseudoSummary) {
-                VectorXf rnd(quantizedEigenBlocks[i].k);
-                for (int j = 0; j < quantizedEigenBlocks[i].k; ++j) rnd[j] = Stat::snorm();
-                VectorXf noise(cur_m);
-                for (int row = 0; row < cur_m; ++row)
-                    noise[row] = quantizedEigenBlocks[i].dotQ(row, rnd);
-                pseudoGwasEffectTrn[i] = gwasEffectInBlock[i] + sqrt(1.0f/n_trn[i] - 1.0f/nGWASblock[i]) * noise;
-                pseudoGwasEffectVal[i] = nGWASblock[i]/n_val[i] * gwasEffectInBlock[i] - n_trn[i]/n_val[i] * pseudoGwasEffectTrn[i];
-                b_val.segment(block->startSnpIdx, block->numSnpInBlock) = pseudoGwasEffectVal[i];
-            }
             continue;
         }
 
@@ -2976,20 +2987,6 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
         numSnpsBlock[i] = Qblocks[i].cols();
         numEigenvalBlock[i] = Qblocks[i].rows();
                 
-        // make pseudo summary data
-        if (makePseudoSummary) {
-            long size = eigenValLdBlock[i].size();
-            VectorXf rnd(size);
-            for (unsigned j=0; j<size; ++j) {
-                rnd[j] = Stat::snorm();
-            }
-            
-            pseudoGwasEffectTrn[i] = gwasEffectInBlock[i] + sqrt(1.0/n_trn[i] - 1.0/nGWASblock[i]) * eigenVecLdBlock[i] * (eigenValLdBlock[i].array().sqrt().matrix().asDiagonal() * rnd);
-
-            pseudoGwasEffectVal[i] = nGWASblock[i]/n_val[i] * gwasEffectInBlock[i] - n_trn[i]/n_val[i] * pseudoGwasEffectTrn[i];
-            b_val.segment(block->startSnpIdx, block->numSnpInBlock) = pseudoGwasEffectVal[i];
-        }
-        
         eigenVecLdBlock[i].resize(0,0);
     }
 }
@@ -3011,6 +3008,8 @@ void Data::releasePseudoSummaryData(void){
     pseudoGwasNValBlock.swap(emptyNval);
     VectorXf emptyBval;
     b_val.swap(emptyBval);
+    VectorXf emptyBvalMask;
+    b_val_mask.swap(emptyBvalMask);
 }
 
 void Data::truncateEigenMatrix(const float sumPosEigVal, const float eigenCutoff, const VectorXf &oriEigenVal, const MatrixXf &oriEigenVec, VectorXf &newEigenVal, MatrixXf &newEigenVec){
@@ -3144,7 +3143,7 @@ void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const 
 //    snpInfoMap.clear();  // free memory from snpInfoMap which is no longer needed
     
     readEigenMatrixBinaryFileAndMakeWandQ(dirname, eigenCutoff, gwasEffectInBlock, nGWASblock, noscale, true, quantizedBits, q8Entropy);
-    //constructPseudoSummaryData();  // for finding the best eigen cutoff by pseudo validation
+    //constructPseudoSummaryData();  // legacy pseudo-validation path; current cutoff tuning uses masked observed marginal effects
     //if (numIncdSnps!=0) constructWandQ(gwasEffectInBlock, numKeptInds);
     //if (numIncdSnps!=0) constructWandQ(eigenCutoff, noscale);
 
@@ -3527,10 +3526,7 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
     if (file_list.size() == 0) {
         string msg = "there are no block-specific SNP info files (block*.snp.info) in folder [" + dirname + "] to merge.";
         if (print) throw ("Error: " + msg);
-        else {
-            cout << "Warning: " << msg << endl;
-            return;
-        }
+        else return;
     }
     if (file_list.size() == 1) {
         if (print) throw ("Error: there is only one block-specific info file in folder [" + dirname + "], so no need to merge.");

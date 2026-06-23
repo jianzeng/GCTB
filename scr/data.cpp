@@ -7,6 +7,7 @@
 //
 
 #include "data.hpp"
+#include <algorithm>
 #include <unordered_set>
 
 // most read file methods are adopted from GCTA with modification
@@ -1954,7 +1955,7 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
         }
         if (size == 0) {
             cout << "Warning: No SNPs with valid sample sizes found. Skipping outlier removal based on sample size." << endl;
-        } else if (size > 0) {
+        } else {
             ArrayXf perSnpN(size);
             vector<SnpInfo*> snpvec(size);
             for (unsigned i=0, j=0; i<numSnps; ++i) {
@@ -1965,9 +1966,8 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
                     ++j;
                 }
             }
-            
-            float n_med = Gadget::findMedian(perSnpN);
-            float sd = sqrt(Gadget::calcVariance(perSnpN));
+            const float n_med = Gadget::findMedian(perSnpN);
+            const float sd = sqrt(Gadget::calcVariance(perSnpN));
             for (unsigned i=0; i<size; ++i) {
                 snp = snpvec[i];
                 if (perSnpN[i] < n_med - 3*sd || perSnpN[i] > n_med + 3*sd) {
@@ -1977,7 +1977,6 @@ void Data::readGwasSummaryFile(const string &gwasFile, const float afDiff, const
                     }
                 }
             }
-            
             match -= numOutlierN;
         }
     }
@@ -2200,67 +2199,41 @@ void Data::readBivariateGwasSummaryFile(const string &gwasFile1, const string &g
     }
     match = snpMap1.size();
     
-    // Remove outliers based on sample size for trait 1
+    // Remove outliers based on sample size (genome-wide median ± 3 SD)
     if (removeOutlierN) {
-        unsigned size = 0;
-        for (unsigned i=0; i<numSnps; ++i) {
-            snp = snpInfoVec[i];
-            if (snp->included && snp->gwas_n != -999) ++size;
-        }
-        if (size > 0) {
-            ArrayXf perSnpN(size);
-            vector<SnpInfo*> snpvec(size);
-            for (unsigned i=0, j=0; i<numSnps; ++i) {
+        for (unsigned traitPass=0; traitPass<2; ++traitPass) {
+            unsigned &numRemoved = (traitPass == 0) ? numOutlierN1 : numOutlierN2;
+            unsigned size = 0;
+            for (unsigned i=0; i<numSnps; ++i) {
                 snp = snpInfoVec[i];
-                if (snp->included && snp->gwas_n != -999) {
-                    perSnpN[j] = snp->gwas_n;
-                    snpvec[j] = snp;
-                    ++j;
-                }
+                const float nval = (traitPass == 0) ? snp->gwas_n : snp->gwas_n2;
+                if (snp->included && nval != -999) ++size;
             }
-            float n_med = Gadget::findMedian(perSnpN);
-            float sd = sqrt(Gadget::calcVariance(perSnpN));
-            for (unsigned i=0; i<size; ++i) {
-                snp = snpvec[i];
-                if (perSnpN[i] < n_med - 3*sd || perSnpN[i] > n_med + 3*sd) {
-                    if (!snp->keepSumstatIntact) {
-                        snp->included = false;
-                        ++numOutlierN1;
+            if (size > 0) {
+                ArrayXf perSnpN(size);
+                vector<SnpInfo*> snpvec(size);
+                for (unsigned i=0, j=0; i<numSnps; ++i) {
+                    snp = snpInfoVec[i];
+                    const float nval = (traitPass == 0) ? snp->gwas_n : snp->gwas_n2;
+                    if (snp->included && nval != -999) {
+                        perSnpN[j] = nval;
+                        snpvec[j] = snp;
+                        ++j;
+                    }
+                }
+                const float n_med = Gadget::findMedian(perSnpN);
+                const float sd = sqrt(Gadget::calcVariance(perSnpN));
+                for (unsigned i=0; i<size; ++i) {
+                    snp = snpvec[i];
+                    if (perSnpN[i] < n_med - 3*sd || perSnpN[i] > n_med + 3*sd) {
+                        if (!snp->keepSumstatIntact) {
+                            snp->included = false;
+                            ++numRemoved;
+                        }
                     }
                 }
             }
-            match -= numOutlierN1;
-        }
-        
-        // Remove outliers based on sample size for trait 2
-        size = 0;
-        for (unsigned i=0; i<numSnps; ++i) {
-            snp = snpInfoVec[i];
-            if (snp->included && snp->gwas_n2 != -999) ++size;
-        }
-        if (size > 0) {
-            ArrayXf perSnpN(size);
-            vector<SnpInfo*> snpvec(size);
-            for (unsigned i=0, j=0; i<numSnps; ++i) {
-                snp = snpInfoVec[i];
-                if (snp->included && snp->gwas_n2 != -999) {
-                    perSnpN[j] = snp->gwas_n2;
-                    snpvec[j] = snp;
-                    ++j;
-                }
-            }
-            float n_med = Gadget::findMedian(perSnpN);
-            float sd = sqrt(Gadget::calcVariance(perSnpN));
-            for (unsigned i=0; i<size; ++i) {
-                snp = snpvec[i];
-                if (perSnpN[i] < n_med - 3*sd || perSnpN[i] > n_med + 3*sd) {
-                    if (!snp->keepSumstatIntact) {
-                        snp->included = false;
-                        ++numOutlierN2;
-                    }
-                }
-            }
-            match -= numOutlierN2;
+            match -= numRemoved;
         }
     }
     
@@ -7089,6 +7062,33 @@ void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold){
         ++cnt;
         sum += itLDmap->second.size();
     }
+
+    tgsWorksets.clear();
+    tgsWorksets.reserve(LDmap.size());
+    for (itLDmap=LDmap.begin(); itLDmap!=endLDmap; ++itLDmap) {
+        SnpInfo *snp = itLDmap->first;
+        if (!snp || snp->fitAsFixedEffect || snp->index < 0) continue;
+        TgsWorkset ws;
+        ws.focalSnpIdx = (unsigned)snp->index;
+        ws.blockIdx = snp->blockIdx;
+        ws.selectedSnps.reserve(itLDmap->second.size() + 1);
+        ws.selectedSnps.push_back(snp->index);
+        for (unsigned j = 0; j < itLDmap->second.size(); ++j) {
+            SnpInfo *friendSnp = itLDmap->second[j];
+            if (!friendSnp || friendSnp->index < 0) continue;
+            if (friendSnp->blockIdx != snp->blockIdx) continue;
+            ws.selectedSnps.push_back(friendSnp->index);
+        }
+        if (ws.selectedSnps.size() > 1) {
+            sort(ws.selectedSnps.begin() + 1, ws.selectedSnps.end());
+            ws.selectedSnps.erase(unique(ws.selectedSnps.begin(), ws.selectedSnps.end()), ws.selectedSnps.end());
+            tgsWorksets.push_back(ws);
+        }
+    }
+    sort(tgsWorksets.begin(), tgsWorksets.end(),
+         [](const TgsWorkset &a, const TgsWorkset &b) {
+             return a.focalSnpIdx < b.focalSnpIdx;
+         });
     
 //    SnpInfo *snp = snpInfoVec[0];
 //    map<string, SnpInfo*>::iterator it;
@@ -8011,4 +8011,3 @@ void Data::calcJointEnrichmentJackknifeLM(const string &paramStr, const string &
     cout << "Output " << paramName << " enrichment results into file [" + outfile + "]." << endl;
 
 }
-

@@ -345,6 +345,7 @@ QuantizationSummary quantize_directory(const string& input_dir,
     create_directories(output_dir);
     copy_file_if_exists(input_dir, output_dir, "ldm.info");
     copy_file_if_exists(input_dir, output_dir, "snp.info");
+    copy_file_if_exists(input_dir, output_dir, "rsq0.5.pwld");
 
     const vector<string> names = list_input_names(input_dir);
     if (names.empty()) {

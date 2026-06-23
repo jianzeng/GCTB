@@ -1802,9 +1802,16 @@ public:
                           const bool hsqPercModel, DeltaPi &deltaPi);
         
         // tempered Gibbs sampler
-//        void sampleFromTGS_eigen(const vector<vector<int> > &selectedSnps, vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
-//                                 const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
-//                                 const VectorXf &pis, const VectorXf &gamma, const float varg, const bool hsqPercModel, const float sigmaSq);
+        void sampleFromTGS_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
+                                 const map<SnpInfo*, vector<SnpInfo*> > &LDmap, const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
+                                 const VectorXf &pis, const VectorXf &gamma, const float varg, DeltaPi &deltaPi,
+                                 const bool hsqPercModel, const float sigmaSq,
+                                 const vector<QuantizedEigenBlock> *quantizedEigenBlocks = nullptr,
+                                 const vector<TgsWorkset> *tgsWorksets = nullptr,
+                                 const MatrixXf *snpLogPi = nullptr);
+        void recomputeLowRankSummary(vector<VectorXf> &whatBlocks, const vector<MatrixXf> &Qblocks,
+                                     const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &gamma,
+                                     VectorXf &snpStore, const vector<QuantizedEigenBlock> *quantizedEigenBlocks = nullptr);
         
 
         // obsoleted
@@ -1951,7 +1958,7 @@ public:
             }
             if (robustMode) cout << "Using a more robust parameterisation " << endl;
             if (algorithm == cg) cout << "Conjugate gradient-adjusted Gibbs sampling" << endl;
-            if (algorithm == tgs_thin) cout << "Using tempered Gibbs sampling (TGS)" << endl;
+            if (algorithm == tgs || algorithm == tgs_thin) cout << "Using tempered Gibbs sampling (TGS)" << endl;
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
             if (data.numFixedEffectSnps)
                 cout << "Fitting " << data.numFixedEffectSnps << " SNP(s) as fixed effects (flat prior)." << endl;
@@ -2289,7 +2296,8 @@ public:
                                  const map<SnpInfo*, vector<SnpInfo*> > &LDmap, const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                  const MatrixXf &snpLogPi, const VectorXf &gamma, const float varg,
                                  DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq,
-                                 const vector<QuantizedEigenBlock> *quantizedEigenBlocks = nullptr);
+                                 const vector<QuantizedEigenBlock> *quantizedEigenBlocks = nullptr,
+                                 const vector<TgsWorkset> *tgsWorksets = nullptr);
         
     };
     

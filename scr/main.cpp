@@ -59,6 +59,11 @@ bool fileExistsAndNonEmpty(const string &filename) {
     return in.is_open() && static_cast<long long>(in.tellg()) > 0;
 }
 
+bool defaultPairwiseLDFileAvailable(const Options &opt) {
+    const string filename = opt.pairwiseLDfile.empty() ? "rsq0.5.pwld" : opt.pairwiseLDfile;
+    return fileExistsAndNonEmpty(opt.eigenMatrixFile + "/" + filename);
+}
+
 void ensureDefaultPairwiseLDFile(Data &data, const Options &opt) {
     if (opt.pairwiseLDfile != "rsq0.5.pwld") return;
     const string pwldFile = opt.eigenMatrixFile + "/" + opt.pairwiseLDfile;
@@ -68,6 +73,16 @@ void ensureDefaultPairwiseLDFile(Data &data, const Options &opt) {
     }
     cout << "Pairwise LD file [" << pwldFile << "] not found; generating it from eigen data for TGS..." << endl;
     data.getLDfromEigenMatrix(opt.eigenMatrixFile, 0.5, opt.eigenMatrixFile + "/rsq0.5");
+}
+
+void ensureQuantizedOutputPairwiseLDSource(const Options &opt) {
+    const string pwldFile = opt.quantEigenInputDir + "/rsq0.5.pwld";
+    if (fileExistsAndNonEmpty(pwldFile)) return;
+    cout << "Pairwise LD file [" << pwldFile << "] not found; generating it from input float eigen data for quantized TGS..." << endl;
+    Data data;
+    data.readBlockLdmInfoFile(opt.quantEigenInputDir);
+    data.readBlockLdmSnpInfoFile(opt.quantEigenInputDir);
+    data.getLDfromEigenMatrix(opt.quantEigenInputDir, 0.5, opt.quantEigenInputDir + "/rsq0.5");
 }
 }
 
@@ -103,13 +118,14 @@ int main(int argc, const char * argv[]) {
 
         opt.setThread();
 
-        cout << "\nAnalysis started: " << timer.getDate();
+        cout << "\nAnalysis started: " << timer.getDate() << endl;
 
         if (opt.analysisType == "QuantizeEigen") {
             eigen_quantize::QuantizationOptions qopt;
             qopt.bits = opt.quantEigenBits;
             qopt.entropy_coding = opt.quantEigenEntropy;
             qopt.q_per_snp_column = false;
+            ensureQuantizedOutputPairwiseLDSource(opt);
             const auto summary = eigen_quantize::quantize_directory(opt.quantEigenInputDir, opt.quantEigenOutputDir, qopt);
             cout << "Completed " << summary.num_files << " eigen block file(s) with q" << qopt.bits;
             if (qopt.entropy_coding) cout << " (entropy-compressed)";
@@ -393,11 +409,16 @@ int main(int argc, const char * argv[]) {
                     }
                 }
                 if (opt.analysisType == "SBayes"
-                    && (opt.bayesType == "RC" || opt.bayesType == "RD" || opt.bayesType == "RD_indep")
+                    && (opt.bayesType == "R" || opt.bayesType == "RC" || opt.bayesType == "RD" || opt.bayesType == "RD_indep")
                     && opt.algorithm.empty() && !data.overlapLdmEigen) {
-                    opt.algorithm = "TGS_thin";
                     if (opt.pairwiseLDfile.empty()) opt.pairwiseLDfile = "rsq0.5.pwld";
-                    cout << "Using tempered Gibbs sampling (TGS) as the default algorithm for SBayes" << opt.bayesType << "." << endl;
+                    if (opt.eigenMatrixQuantBits && !defaultPairwiseLDFileAvailable(opt)) {
+                        cout << "Pairwise LD file [" << opt.eigenMatrixFile + "/" + opt.pairwiseLDfile
+                             << "] not found; using standard Gibbs sampling for SBayes" << opt.bayesType
+                             << " with quantized eigen data." << endl;
+                    } else {
+                        opt.algorithm = "TGS_thin";
+                    }
                 }
                 if ((opt.algorithm == "TGS" || opt.algorithm == "TGS_thin") && !data.overlapLdmEigen) {
                     if (opt.pairwiseLDfile.empty()) opt.pairwiseLDfile = "rsq0.5.pwld";

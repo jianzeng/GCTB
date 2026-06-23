@@ -21,6 +21,40 @@ void releaseFreedHeapToOS() {
     malloc_trim(0);
 #endif
 }
+
+VectorXf predictMarginalEffectsFromLowRank(const VectorXf &beta, const Data &data) {
+    VectorXf pred = VectorXf::Zero(beta.size());
+    for (unsigned blk = 0; blk < data.keptLdBlockInfoVec.size(); ++blk) {
+        LDBlockInfo *block = data.keptLdBlockInfoVec[blk];
+        MatrixXf Qtmp;
+        const MatrixXf *Qptr = nullptr;
+        if (blk < data.Qblocks.size() && data.Qblocks[blk].size()) {
+            Qptr = &data.Qblocks[blk];
+        } else if (blk < data.quantizedEigenBlocks.size() && data.quantizedEigenBlocks[blk].active()) {
+            data.quantizedEigenBlocks[blk].materializeQ(Qtmp);
+            Qptr = &Qtmp;
+        } else {
+            continue;
+        }
+        const MatrixXf &Q = *Qptr;
+        const unsigned localM = Q.cols();
+        VectorXf localBeta(localM);
+        localBeta.setZero();
+        const unsigned blockSnpCount = std::min<unsigned>(block->snpInfoVec.size(), localM);
+        for (unsigned j = 0; j < blockSnpCount; ++j) {
+            SnpInfo *snp = block->snpInfoVec[j];
+            if (!snp || snp->index < 0 || (unsigned)snp->index >= (unsigned)beta.size()) continue;
+            localBeta[j] = beta[snp->index];
+        }
+        VectorXf localPred = Q.transpose() * (Q * localBeta);
+        for (unsigned j = 0; j < blockSnpCount; ++j) {
+            SnpInfo *snp = block->snpInfoVec[j];
+            if (!snp || snp->index < 0 || (unsigned)snp->index >= (unsigned)pred.size()) continue;
+            pred[snp->index] = localPred[j];
+        }
+    }
+    return pred;
+}
 }
 
 void GCTB::inputIndInfo(Data &data, const string &bedFile, const string &phenotypeFile, const string &keepIndFile, const unsigned keepIndMax, const unsigned mphen, const string &covariateFile, const string &randomCovariateFile, const string &residualDiagFile){
@@ -417,7 +451,7 @@ void GCTB::findBestFitModelByPredictionAccuracy(Data &data, Options &opt, const 
     const float predRelMin = 1.05f;
     
     cout << "\nComparing models with different numbers of mixture components ..." << endl;
-    cout << "Criterion (combined): keep K over K-1 only if (1) hsq is significantly higher than for the simpler model (mean[K] - SD[K] > mean[K-1], as in --n-dist-auto), and (2) pseudo CV r[K] > " << predRelMin << " * r[K-1]." << endl;
+    cout << "Criterion (combined): keep K over K-1 only if (1) hsq is significantly higher than for the simpler model (mean[K] - SD[K] > mean[K-1], as in --n-dist-auto), and (2) held-out validation r[K] > " << predRelMin << " * r[K-1]." << endl;
     if (opt.bayesType != "R" && opt.bayesType != "RC") {
         throw(" Error: --n-dist-auto-pred is available only in R or RC model. Current model is " + opt.bayesType + ".");
     }
@@ -425,7 +459,7 @@ void GCTB::findBestFitModelByPredictionAccuracy(Data &data, Options &opt, const 
         throw(" Error: --n-dist-auto-pred requires a low-rank eigen LD matrix (--ldm-eigen).");
     }
     if (!data.pseudoGwasNtrnBlock.size()) {
-        throw(" Error: --n-dist-auto-pred requires pseudo summary statistics from the eigen data build (buildMMEeigen).");
+        throw(" Error: --n-dist-auto-pred requires held-out marginal-effect validation data from the eigen data build (buildMMEeigen).");
     }
     
     unsigned numModels = opt.numDist - 1;
@@ -471,7 +505,7 @@ void GCTB::findBestFitModelByPredictionAccuracy(Data &data, Options &opt, const 
     // --- (1) Joint multi-model MCMC on real GWAS for hsq (same as findBestFitModel) ---
     data.initVariances(opt.heritability, opt.propVarRandom);
     MultiModelSBayesR jointModel(data, opt);
-    // Constructor sets omp_set_max_active_levels(2) for nested model parallelism — re-lock for pseudo CV.
+    // Constructor sets omp_set_max_active_levels(2) for nested model parallelism; re-lock for validation CV.
     omp_set_dynamic(0);
     omp_set_max_active_levels(1);
     omp_set_num_threads(1);
@@ -506,7 +540,7 @@ void GCTB::findBestFitModelByPredictionAccuracy(Data &data, Options &opt, const 
         }
     }
     
-    // --- (2) Pseudo CV prediction r per model (short MCMC on pseudo training summaries) ---
+    // --- (2) Held-out marginal-effect prediction r per model (short MCMC on masked training summaries) ---
     VectorXf nGWASblockSaved = data.nGWASblock;
     data.nGWASblock = data.pseudoGwasNtrnBlock;
     
@@ -514,8 +548,8 @@ void GCTB::findBestFitModelByPredictionAccuracy(Data &data, Options &opt, const 
     
 #pragma omp critical(gctb_ndist_cout)
     {
-        cout << "\nPseudo cross-validation uses SBayesR (R) for each candidate K, including when the final analysis is RC." << endl;
-        cout << boost::format("%12s %6s %12s %12s %25s\n") % "Model" % "K" % "hsq mean" % "hsq SD" % "Pseudo CV r";
+        cout << "\nHeld-out marginal-effect validation uses SBayesR (R) for each candidate K, including when the final analysis is RC." << endl;
+        cout << boost::format("%12s %6s %12s %12s %25s\n") % "Model" % "K" % "hsq mean" % "hsq SD" % "Validation r";
         cout.flush();
     }
     
@@ -531,7 +565,7 @@ void GCTB::findBestFitModelByPredictionAccuracy(Data &data, Options &opt, const 
         
 #pragma omp critical(gctb_ndist_cout)
         {
-            //cout << "  Pseudo CV short MCMC for model M" << (i+1) << " (K=" << gamma.size() << ") ... " << endl;
+            //cout << "  Validation short MCMC for model M" << (i+1) << " (K=" << gamma.size() << ") ... " << endl;
         }
         
         data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, eigenCutoffUsed, data.pseudoGwasEffectTrn, data.pseudoGwasNtrnBlock, opt.noscale, false, opt.eigenMatrixQuantBits, opt.eigenMatrixQ8Entropy);
@@ -561,7 +595,10 @@ void GCTB::findBestFitModelByPredictionAccuracy(Data &data, Options &opt, const 
             throw(" Error: SnpEffects posterior not found in MCMC output for --n-dist-auto-pred.");
         }
         
-        cor[i] = betaMean.dot(data.b_val) / sqrt(betaMean.squaredNorm() * data.varPhenotypic);
+        VectorXf predMarginal = predictMarginalEffectsFromLowRank(betaMean, data);
+        VectorXf predVal = predMarginal.array() * data.b_val_mask.array();
+        float denom = sqrt(predVal.squaredNorm() * data.b_val.squaredNorm());
+        cor[i] = denom > 0.0f ? predVal.dot(data.b_val) / denom : 0.0f;
         
         string modelTag = "M" + to_string(i+1);
 #pragma omp critical(gctb_ndist_cout)
@@ -609,7 +646,7 @@ void GCTB::findBestFitModelByPredictionAccuracy(Data &data, Options &opt, const 
     data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, eigenCutoffUsed, data.gwasEffectInBlock, data.nGWASblock, opt.noscale, false, opt.eigenMatrixQuantBits, opt.eigenMatrixQ8Entropy);
     
     timer.getTime();
-    cout << "\nModel " << selectedIdx+1 << " (" << opt.numDist << "-component model) is selected (hsq + pseudo CV r vs simpler model; time used: " << timer.format(timer.getElapse()) << ")." << endl;
+    cout << "\nModel " << selectedIdx+1 << " (" << opt.numDist << "-component model) is selected (hsq + held-out validation r vs simpler model; time used: " << timer.format(timer.getElapse()) << ")." << endl;
 }
 
 vector<McmcSamples*> GCTB::multi_chain_mcmc(Data &data, const string &bayesType, const unsigned windowWidth, const float heritability, const float propVarRandom, const float pi, const float piAlpha, const float piBeta, const bool estimatePi, const VectorXf &pis, const VectorXf &gamma, const float phi, const float kappa, const string &algorithm, const unsigned snpFittedPerWindow, const float varS, const vector<float> &S, const float overdispersion, const bool estimatePS, const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool robustMode, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
@@ -1783,7 +1820,7 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
     }
     if (quantizedLowRank)
         cout << "Keeping quantized eigenvectors in memory; Q columns will be de-quantized on demand during sampling." << endl;
-    cout << "\nFinding the best eigen cutoff from [" << opt.eigenCutoff.transpose() << "] based on pseudo summary data validation." << endl;
+    cout << "\nFinding the best eigen cutoff from [" << opt.eigenCutoff.transpose() << "] based on held-out marginal-effect validation." << endl;
     
     Gadget::Timer timer;
     timer.setTime();
@@ -1797,7 +1834,11 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
     
     cout << boost::format("%10s %25s %20s\n") % "Cutoff" % "Prediction accuracy (r)" % "Relative accuracy";
     
-    // Pseudo train/val effects (b_val) are built once in buildMMEeigen; do not regenerate per cutoff.
+    if (!data.b_val.size() || !data.b_val_mask.size() || data.b_val_mask.sum() <= 0.0f) {
+        throw("Error: no held-out SNP marginal effects are available for eigen cutoff validation.");
+    }
+
+    // Masked train/validation effects are built once in buildMMEeigen; do not regenerate per cutoff.
     for (unsigned i=0; i<size; ++i) {
         float cutoff = opt.eigenCutoff[i];
 
@@ -1831,9 +1872,12 @@ float GCTB::tuneEigenCutoff(Data &data, const Options &opt){
             throw("Error: internal mismatch while tuning eigen cutoff; betaMean size " + to_string((long long)betaMean.size()) +
                   " but validation vector size " + to_string((long long)data.b_val.size()) + ".");
         
-        // compute prediction accuracy
-        cor[i] = betaMean.dot(data.b_val) / sqrt(betaMean.squaredNorm() * data.varPhenotypic);
-        rel[i] = cor[i]/cor[0];
+        // compute prediction accuracy on the held-out marginal effects
+        VectorXf predMarginal = predictMarginalEffectsFromLowRank(betaMean, data);
+        VectorXf predVal = predMarginal.array() * data.b_val_mask.array();
+        float denom = sqrt(predVal.squaredNorm() * data.b_val.squaredNorm());
+        cor[i] = denom > 0.0f ? predVal.dot(data.b_val) / denom : 0.0f;
+        rel[i] = fabs(cor[0]) > 1e-8f ? cor[i]/cor[0] : 0.0f;
         
         cout << boost::format("%10s %25s %20s\n") % cutoff % cor[i] % rel[i];
 
