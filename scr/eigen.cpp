@@ -13,6 +13,8 @@
 #include <dirent.h>
 #include <cmath>
 #include <stdexcept>
+#include <sstream>
+#include <algorithm>
 #include <zlib.h>
 #ifdef _OPENMP
 #include <omp.h>
@@ -59,6 +61,86 @@ inline string eigenBlockFilename(const string &dirname, const string &blockID, c
     else if (quantizedBits == 16) suffix = ".eigen.q16.bin";
     else throw std::runtime_error("Error: unsupported quantized eigen bit width " + to_string(quantizedBits) + ". Use 8 or 16.");
     return dirname + "/block" + blockID + suffix;
+}
+
+MatrixXf generateLDmatrixForSnpInfoVecThreadSafe(const string &bedFile, const vector<SnpInfo*> &snps,
+                                                 const vector<IndInfo*> &indInfoVec,
+                                                 const unsigned numInds, const unsigned numKeptInds,
+                                                 const unsigned numSnps,
+                                                 const map<const SnpInfo*, unsigned> &bedRowIndex) {
+    if (snps.empty()) throw("Error: no SNPs are available for tiled LD block.");
+    if (numKeptInds < 2) throw("Error: Cannot calculate LD matrix with number of individuals < 2.");
+
+    const int bedToGeno[4] = {2, -9, 1, 0};
+    const unsigned bedLineSize = (numInds + 3) >> 2;
+    MatrixXf Z(snps.size(), numKeptInds);
+
+    FILE *in = fopen(bedFile.c_str(), "rb");
+    if (!in) throw("Error: can not open the file [" + bedFile + "] to read.");
+    char header[3];
+    if (fread(header, sizeof(header), 1, in) != 1 ||
+        header[0] != 0x6c || header[1] != 0x1b || header[2] != 0x01) {
+        fclose(in);
+        throw("Error: Incorrect first three bytes of bed file: " + bedFile);
+    }
+
+    vector<SnpInfo*> sortedSnps = snps;
+    std::sort(sortedSnps.begin(), sortedSnps.end(),
+              [](const SnpInfo *a, const SnpInfo *b){ return a->index < b->index; });
+
+    char *bedLineIn = new char[bedLineSize];
+    for (unsigned row = 0; row < sortedSnps.size(); ++row) {
+        SnpInfo *snp = sortedSnps[row];
+        map<const SnpInfo*, unsigned>::const_iterator rowIt = bedRowIndex.find(snp);
+        if (rowIt == bedRowIndex.end() || rowIt->second >= numSnps) {
+            delete[] bedLineIn;
+            fclose(in);
+            throw("Error: SNP index out of range while reading tiled LD block for " + snp->ID + ".");
+        }
+        const long offset = 3L + (long)rowIt->second * (long)bedLineSize;
+        if (fseek(in, offset, SEEK_SET) != 0 ||
+            fread(bedLineIn, sizeof(char), bedLineSize, in) != bedLineSize) {
+            delete[] bedLineIn;
+            fclose(in);
+            throw("Error: failed to read genotype row for SNP " + snp->ID + " from [" + bedFile + "].");
+        }
+
+        float mean = 0.0f;
+        unsigned nmiss = 0;
+        for (unsigned i = 0; i < numInds; ++i) {
+            IndInfo *indi = indInfoVec[i];
+            if (!indi->kept) continue;
+            int genoValue = bedToGeno[(bedLineIn[i >> 2] >> ((i & 3) << 1)) & 3];
+            Z(row, indi->index) = (float)genoValue;
+            if (genoValue == -9) ++nmiss;
+            else mean += genoValue;
+        }
+
+        const unsigned observed = numKeptInds - nmiss;
+        if (!observed) {
+            delete[] bedLineIn;
+            fclose(in);
+            throw("Error: all genotypes are missing for SNP " + snp->ID + ".");
+        }
+        mean /= float(observed);
+        if (nmiss) {
+            for (unsigned i = 0; i < numKeptInds; ++i) {
+                if (Z(row, i) == -9) Z(row, i) = mean;
+            }
+        }
+
+        float ss = (Z.row(row).array() - Z.row(row).mean()).square().sum();
+        if (ss <= 0.0f) {
+            delete[] bedLineIn;
+            fclose(in);
+            throw("Error: " + snp->ID + " is a fixed SNP (MAF=0)!");
+        }
+        Z.row(row) = (Z.row(row).array() - Z.row(row).mean()) / sqrt(ss);
+    }
+
+    delete[] bedLineIn;
+    fclose(in);
+    return Z * Z.transpose();
 }
 
 void readEigenHeaderOrThrow(FILE *fp, const string &infile, const string &blockID, const int expectedM,
@@ -862,6 +944,187 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
     }
 }
 
+void Data::makeTiledBlockEigen(const string &bedFile, const string &dirname, const float eigenCutoff, const float tileMb, const unsigned tileGroupSize, const bool writeLdmTxt){
+    if (!(tileMb > 0.0f)) throw("Error: --tile-mb must be > 0.");
+    if (!tileGroupSize) throw("Error: --tile-group-size must be >= 1.");
+
+    cout << "Making tiled LD eigen matrices with " << tileMb
+         << " Mb base tiles and alternating non-overlapping groups of "
+         << tileGroupSize << " tile(s)..." << endl;
+
+    struct stat sb;
+    if (stat(dirname.c_str(), &sb) != 0 || !S_ISDIR(sb.st_mode)) {
+        if (mkdir(dirname.c_str(), 0755) != 0) {
+            throw("Error: can not create folder [" + dirname + "] to store tiled LD eigen matrices.");
+        }
+        cout << "Created folder [" << dirname << "] to store tiled LD eigen matrices." << endl;
+    } else {
+        DIR *existingDir = opendir(dirname.c_str());
+        if (!existingDir) throw("Error: can not open folder [" + dirname + "].");
+        dirent *entry;
+        while ((entry = readdir(existingDir)) != NULL) {
+            string fname = entry->d_name;
+            if (fname == "." || fname == "..") continue;
+            string path = dirname + "/" + fname;
+            struct stat fstat;
+            if (stat(path.c_str(), &fstat) != 0) continue;
+            if (S_ISDIR(fstat.st_mode)) {
+                throw("Error: output folder [" + dirname + "] contains subfolder [" + fname + "]. "
+                      "Please remove it or use a different --out folder before --make-tiled-ldm-eigen.");
+            }
+            if (remove(path.c_str()) != 0) {
+                closedir(existingDir);
+                throw("Error: failed to remove existing file [" + path + "] before rewriting tiled LD eigen output.");
+            }
+        }
+        closedir(existingDir);
+        cout << "Cleared existing files in folder [" << dirname << "] before writing tiled LD eigen matrices." << endl;
+    }
+
+    const int tileBp = int(tileMb * 1000000.0f + 0.5f);
+
+    map<const SnpInfo*, unsigned> bedRowIndex;
+    for (unsigned i = 0; i < snpInfoVec.size(); ++i)
+        bedRowIndex[snpInfoVec[i]] = i;
+
+    map<int, vector<SnpInfo*> > chrMap;
+    for (unsigned i=0; i<incdSnpInfoVec.size(); ++i) {
+        chrMap[incdSnpInfoVec[i]->chrom].push_back(incdSnpInfoVec[i]);
+    }
+
+    vector<LDBlockInfo*> overlapBlocks;
+    int blockId = 1;
+    for (map<int, vector<SnpInfo*> >::iterator it=chrMap.begin(); it!=chrMap.end(); ++it) {
+        vector<SnpInfo*> &snps = it->second;
+        if (snps.empty()) continue;
+        int chr = it->first;
+        int chrStart = snps.front()->physPos;
+        int chrEnd = snps.back()->physPos;
+        int firstTileStart = (chrStart / tileBp) * tileBp;
+        vector<vector<SnpInfo*> > tileSnps;
+        vector<int> tileStarts;
+        vector<int> tileEnds;
+        for (int tileStart = firstTileStart; tileStart <= chrEnd; tileStart += tileBp) {
+            int tileEnd = tileStart + tileBp - 1;
+            vector<SnpInfo*> currentTile;
+            for (unsigned j=0; j<snps.size(); ++j) {
+                if (snps[j]->physPos >= tileStart && snps[j]->physPos <= tileEnd)
+                    currentTile.push_back(snps[j]);
+            }
+            if (currentTile.empty()) continue;
+            tileStarts.push_back(tileStart);
+            tileEnds.push_back(tileEnd);
+            tileSnps.push_back(currentTile);
+        }
+
+        for (unsigned phase = 0; phase < tileGroupSize; ++phase) {
+            if (phase >= tileSnps.size()) continue;
+            unsigned tile = 0;
+            if (phase > 0) {
+                vector<SnpInfo*> groupSnps;
+                for (unsigned t = 0; t < phase; ++t)
+                    groupSnps.insert(groupSnps.end(), tileSnps[t].begin(), tileSnps[t].end());
+                string id = to_string(blockId++);
+                LDBlockInfo *block = new LDBlockInfo((int)overlapBlocks.size(), id, chr);
+                block->startPos = groupSnps.front()->physPos;
+                block->endPos = groupSnps.back()->physPos;
+                block->startSnpIdx = groupSnps.front()->index;
+                block->endSnpIdx = groupSnps.back()->index;
+                block->numSnpInBlock = (int)groupSnps.size();
+                block->tilePhase = (int)phase;
+                block->tileGroupSize = (int)tileGroupSize;
+                block->snpInfoVec = groupSnps;
+                for (unsigned j=0; j<groupSnps.size(); ++j) block->snpNameVec.push_back(groupSnps[j]->ID);
+                overlapBlocks.push_back(block);
+                tile = phase;
+            }
+
+            for (; tile < tileSnps.size(); tile += tileGroupSize) {
+                unsigned lastTile = std::min<unsigned>(tile + tileGroupSize - 1, tileSnps.size() - 1);
+                vector<SnpInfo*> groupSnps;
+                for (unsigned t = tile; t <= lastTile; ++t)
+                    groupSnps.insert(groupSnps.end(), tileSnps[t].begin(), tileSnps[t].end());
+
+                string id = to_string(blockId++);
+                LDBlockInfo *block = new LDBlockInfo((int)overlapBlocks.size(), id, chr);
+                block->startPos = groupSnps.front()->physPos;
+                block->endPos = groupSnps.back()->physPos;
+                block->startSnpIdx = groupSnps.front()->index;
+                block->endSnpIdx = groupSnps.back()->index;
+                block->numSnpInBlock = (int)groupSnps.size();
+                block->tilePhase = (int)phase;
+                block->tileGroupSize = (int)tileGroupSize;
+                block->snpInfoVec = groupSnps;
+                for (unsigned j=0; j<groupSnps.size(); ++j) block->snpNameVec.push_back(groupSnps[j]->ID);
+                overlapBlocks.push_back(block);
+            }
+        }
+    }
+
+    if (overlapBlocks.empty()) throw("Error: no tiled LD eigen blocks could be generated.");
+
+    ofstream combinedPwld((dirname + "/rsq0.5.pwld").c_str());
+    combinedPwld << boost::format("%12s %12s %12s\n") % "SNP1" % "SNP2" % "LDcorrelation";
+    combinedPwld.close();
+
+    VectorXf snpNumInBlock(overlapBlocks.size());
+    VectorXf eigenNumInBlock(overlapBlocks.size());
+
+#pragma omp parallel for schedule(dynamic)
+    for (unsigned i=0; i<overlapBlocks.size(); ++i) {
+        LDBlockInfo *block = overlapBlocks[i];
+        if (!i) cout << "Reading PLINK BED file from [" + bedFile + "] in SNP-major format ..." << endl;
+        MatrixXf rval = generateLDmatrixForSnpInfoVecThreadSafe(bedFile, block->snpInfoVec, indInfoVec, numInds, numKeptInds, numSnps, bedRowIndex);
+        normaliseDenseCorrelation(rval);
+
+        MatrixXf eigenVec;
+        VectorXf eigenVal;
+        float sumPosEigVal = 0;
+        eigenDecomposition(rval, eigenCutoff, eigenVal, eigenVec, sumPosEigVal);
+        block->sumPosEigVal = sumPosEigVal;
+
+        int32_t numSnpInBlock = block->numSnpInBlock;
+        int32_t numEigenValue = eigenVal.size();
+        string outBinfile = dirname + "/block" + block->ID + ".eigen.bin";
+        FILE *outbin = fopen(outBinfile.c_str(), "wb");
+        fwrite(&numSnpInBlock, sizeof(int32_t), 1, outbin);
+        fwrite(&numEigenValue, sizeof(int32_t), 1, outbin);
+        fwrite(&sumPosEigVal, sizeof(float), 1, outbin);
+        fwrite(&eigenCutoff, sizeof(float), 1, outbin);
+        fwrite(eigenVal.data(), sizeof(float), numEigenValue, outbin);
+        uint64_t nElements = (uint64_t)numSnpInBlock * (uint64_t)numEigenValue;
+        fwrite(eigenVec.data(), sizeof(float), nElements, outbin);
+        fclose(outbin);
+
+        if (writeLdmTxt) {
+            string outTxtfile = dirname + "/block" + block->ID + ".eigen.txt";
+            ofstream outtxt(outTxtfile.c_str());
+            outtxt << "Block " << block->ID << endl;
+            outtxt << "NumSnp " << numSnpInBlock << endl;
+            outtxt << "NumEigen " << numEigenValue << endl;
+            outtxt << "EigenCutoff " << eigenCutoff << endl;
+            outtxt << "Eigenvalues\n" << eigenVal.transpose() << endl;
+            outtxt << "Eigenvectors\n" << eigenVec << endl;
+        }
+
+        string outSnpfile = dirname + "/block" + block->ID + ".snp.info";
+        string outldmfile = dirname + "/block" + block->ID + ".ldm.info";
+        outputBlockLDmatrixInfo(*block, outSnpfile, outldmfile);
+
+        snpNumInBlock[i] = numSnpInBlock;
+        eigenNumInBlock[i] = numEigenValue;
+        if(!(i%1)) cout << " computed tiled block " << block->ID << "\r" << flush;
+    }
+
+    mergeLdmInfo("block", dirname, false);
+
+    cout << "Written phased tiled LD eigen matrices into folder [" << dirname << "/block*.eigen.bin]." << endl;
+    if (writeLdmTxt) cout << "Written tiled LD eigen text files into folder [" << dirname << "/block*.eigen.txt]." << endl;
+    cout << "To explain " << eigenCutoff*100 << "% variance in LD, on average " << int(eigenNumInBlock.mean())
+         << " eigenvalues are selected across phased tiled blocks (mean number of SNPs is "
+         << int(snpNumInBlock.mean()) << ")." << endl;
+}
+
 void Data::makeBlockLDmatrixFromEigen(const string &eigenDirname, const float eigenCutoff, const string &LDmatType, const unsigned block, const string &dirname, const bool writeLdmTxt, int ldBlockRegionWind){
     (void)ldBlockRegionWind;
     cout << "Making block LD matrices from eigen decomposition in [" << eigenDirname << "] ..." << endl;
@@ -969,28 +1232,70 @@ void Data::outputBlockLDmatrixInfo(const LDBlockInfo &block, const string &outSn
         % snp->a2
         % snp->af
         % numKeptInds
-        % snp->block;
+        % block.ID;
     }
     out1.close();
     
     // svd matrix for ld blocks here.
     ofstream out2(outldmfile.c_str());
-    out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
-    % "Block"
-    % "Chrom"
-    % "StartSnpIdx"
-    % "StartSnpID"
-    % "EndSnpIdx"
-    % "EndSnpID"
-    % "NumSnps";
-    out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
-    % block.ID
-    % block.chrom
-    % block.startSnpIdx
-    % block.snpInfoVec[0]->ID
-    % block.endSnpIdx
-    % block.snpInfoVec[block.numSnpInBlock-1]->ID
-    % block.numSnpInBlock;
+    if (block.hasTilePhaseMetadata()) {
+        out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s %12s %15s\n")
+        % "Block" % "Chrom" % "StartSnpIdx" % "StartSnpID" % "EndSnpIdx" % "EndSnpID" % "NumSnps"
+        % "TilePhase" % "TileGroupSize";
+        out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s %12s %15s\n")
+        % block.ID
+        % block.chrom
+        % block.startSnpIdx
+        % block.snpInfoVec[0]->ID
+        % block.endSnpIdx
+        % block.snpInfoVec[block.numSnpInBlock-1]->ID
+        % block.numSnpInBlock
+        % block.tilePhase
+        % block.tileGroupSize;
+    } else if (block.hasCoreMetadata()) {
+        string coreStartID, coreEndID;
+        for (unsigned i=0; i<block.snpInfoVec.size(); ++i) {
+            if (block.snpInfoVec[i]->index == block.coreStartSnpIdx) coreStartID = block.snpInfoVec[i]->ID;
+            if (block.snpInfoVec[i]->index == block.coreEndSnpIdx) coreEndID = block.snpInfoVec[i]->ID;
+        }
+        if (coreStartID.empty() || coreEndID.empty()) {
+            throw("Error: core SNP metadata is inconsistent with context SNP list for overlapping LD block " + block.ID + ".");
+        }
+        out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s %15s %15s %15s %15s %15s %15s\n")
+        % "Block" % "Chrom" % "StartSnpIdx" % "StartSnpID" % "EndSnpIdx" % "EndSnpID" % "NumSnps"
+        % "CoreStartPos" % "CoreEndPos" % "CoreStartSnpIdx" % "CoreStartSnpID" % "CoreEndSnpIdx" % "CoreEndSnpID";
+        out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s %15s %15s %15s %15s %15s %15s\n")
+        % block.ID
+        % block.chrom
+        % block.startSnpIdx
+        % block.snpInfoVec[0]->ID
+        % block.endSnpIdx
+        % block.snpInfoVec[block.numSnpInBlock-1]->ID
+        % block.numSnpInBlock
+        % block.coreStartPos
+        % block.coreEndPos
+        % block.coreStartSnpIdx
+        % coreStartID
+        % block.coreEndSnpIdx
+        % coreEndID;
+    } else {
+        out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
+        % "Block"
+        % "Chrom"
+        % "StartSnpIdx"
+        % "StartSnpID"
+        % "EndSnpIdx"
+        % "EndSnpID"
+        % "NumSnps";
+        out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
+        % block.ID
+        % block.chrom
+        % block.startSnpIdx
+        % block.snpInfoVec[0]->ID
+        % block.endSnpIdx
+        % block.snpInfoVec[block.numSnpInBlock-1]->ID
+        % block.numSnpInBlock;
+    }
     out2.close();
 }
 
@@ -1615,7 +1920,14 @@ void Data::readBlockLdmInfoFile(const string &dirname, const unsigned block){
     string startSnpID, endSnpID;
     LDBlockInfo *ldblock;
     getline(in, header);
-    while (in >> id >> chr >> blockStart >> startSnpID >> blockEnd >> endSnpID >> snpNum) {
+    overlapLdmEigen = false;
+    phasedTiledLdmEigen = false;
+    tileGroupSize = 1;
+    string line;
+    while (getline(in, line)) {
+        if (line.empty()) continue;
+        std::istringstream iss(line);
+        if (!(iss >> id >> chr >> blockStart >> startSnpID >> blockEnd >> endSnpID >> snpNum)) continue;
         if (block && id != block) continue;
 
         string idstr = to_string(id);
@@ -1623,6 +1935,22 @@ void Data::readBlockLdmInfoFile(const string &dirname, const unsigned block){
         ldblock->startSnpIdx = blockStart;
         ldblock->endSnpIdx   = blockEnd;
         ldblock->numSnpInBlock = snpNum;
+        vector<string> extra;
+        string token;
+        while (iss >> token) extra.push_back(token);
+        if (extra.size() == 2) {
+            ldblock->tilePhase = stoi(extra[0]);
+            ldblock->tileGroupSize = stoi(extra[1]);
+            overlapLdmEigen = true;
+            phasedTiledLdmEigen = true;
+            tileGroupSize = std::max<unsigned>(tileGroupSize, (unsigned)ldblock->tileGroupSize);
+        } else if (extra.size() >= 6) {
+            ldblock->coreStartPos = stoi(extra[0]);
+            ldblock->coreEndPos = stoi(extra[1]);
+            ldblock->coreStartSnpIdx = stoi(extra[2]);
+            ldblock->coreEndSnpIdx = stoi(extra[4]);
+            overlapLdmEigen = true;
+        }
                 
         ldBlockInfoVec.push_back(ldblock);
         ldBlockInfoMap[idstr] = ldblock;
@@ -1663,17 +1991,33 @@ void Data::readBlockLdmSnpInfoFile(const string &dirname, const unsigned block){
         
         string blockIDstr = to_string(blockID);
 
-        SnpInfo *snp = new SnpInfo(index, id, allele1, allele2, chr, genPos, physPos);
+        ldblock = ldBlockInfoMap[blockIDstr];
+
+        SnpInfo *snp = NULL;
+        map<string, SnpInfo*>::iterator snpIt = snpInfoMap.find(id);
+        if (snpIt != snpInfoMap.end()) {
+            if (!overlapLdmEigen) {
+                throw ("Error: Duplicate SNP ID found: \"" + id + "\".");
+            }
+            snp = snpIt->second;
+        } else {
+            snp = new SnpInfo(index, id, allele1, allele2, chr, genPos, physPos);
+            snp->af = allele1Freq;
+            snp->ld_n = ld_n;
+            snpInfoVec.push_back(snp);
+            chromosomes.insert(snp->chrom);
+            snpInfoMap.insert(pair<string, SnpInfo*>(id, snp));
+        }
         
 //        cout << idx << " " << id << " " << blockID << endl;
         
         snp->af = allele1Freq;
         snp->ld_n = ld_n;
-        snp->block = blockIDstr;
-        snpInfoVec.push_back(snp);
-        chromosomes.insert(snp->chrom);
-        
-        ldblock = ldBlockInfoMap[blockIDstr];
+        if (!overlapLdmEigen
+            || (phasedTiledLdmEigen && ldblock && ldblock->tilePhase == 0)
+            || (ldblock && index >= ldblock->coreStartSnpIdx && index <= ldblock->coreEndSnpIdx)) {
+            snp->block = blockIDstr;
+        }
         
         if (ld2snpMap.insert(pair<string, int>(blockIDstr + "_" + id, index)).second == false) {
             throw ("Error: Duplicate LDBlock-SNP pair found: \"" + blockIDstr + "_" + id + "\".");
@@ -1682,9 +2026,6 @@ void Data::readBlockLdmSnpInfoFile(const string &dirname, const unsigned block){
             ldblock->snpInfoVec.push_back(snp);
         }
 
-        if (snpInfoMap.insert(pair<string, SnpInfo*>(id, snp)).second == false) {
-            throw ("Error: Duplicate SNP ID found: \"" + id + "\".");
-        }
     }
     in.close();
     numSnps = (unsigned) snpInfoVec.size();
@@ -1695,6 +2036,12 @@ void Data::readBlockLdmSnpInfoFile(const string &dirname, const unsigned block){
             // Filtered snp.info: snpInfoVec is only this block's SNPs; startSnpIdx/endSnpIdx in ldm.info are global indices.
             if (b->snpInfoVec.empty()) {
                 throw ("Error: no SNPs read for LD block " + b->ID + "; check snp.info block IDs match ldm.info.");
+            }
+            b->startPos = b->snpInfoVec.front()->physPos;
+            b->endPos = b->snpInfoVec.back()->physPos;
+        } else if (overlapLdmEigen) {
+            if (b->snpInfoVec.empty()) {
+                throw ("Error: no SNPs read for LD block " + b->ID + "; check overlapping snp.info block IDs match ldm.info.");
             }
             b->startPos = b->snpInfoVec.front()->physPos;
             b->endPos = b->snpInfoVec.back()->physPos;
@@ -2758,6 +3105,9 @@ vector<LDBlockInfo*> Data::makeKeptLDBlockInfoVec(const vector<LDBlockInfo*> &ld
 
 void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale, const int quantizedBits, const bool q8Entropy){
     includeMatchedBlocks();
+    if (overlapLdmEigen && quantizedBits) {
+        throw("Error: phased tiled/overlap eigen LD is supported only for float eigen data in v1; q8/q16 is not supported yet.");
+    }
     pruneLdBlocksWithNoGwasOnAllReferenceSnps(false);
     if (!numKeptLDBlocks) {
         string msg = "Error: no LD blocks remain after matching GWAS to LD. Check --gwas / --impute-summary.";
@@ -2807,6 +3157,26 @@ void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const 
     cout << boost::format("%40s %8.3f %8.3f\n") %"GWAS SNP SE" %Gadget::calcMean(se) %sqrt(Gadget::calcVariance(se));
     cout << boost::format("%40s %8.0f %8.0f\n") %"LD block size" %Gadget::calcMean(numSnpsBlock) %sqrt(Gadget::calcVariance(numSnpsBlock));
     cout << boost::format("%40s %8.0f %8.0f\n") %"LD block rank" %Gadget::calcMean(numEigenvalBlock) %sqrt(Gadget::calcVariance(numEigenvalBlock));
+    if (phasedTiledLdmEigen) {
+        cout << boost::format("%40s %8u\n") %"Tile group size" %tileGroupSize;
+        for (unsigned phase = 0; phase < tileGroupSize; ++phase) {
+            unsigned phaseBlockCount = 0;
+            float phaseBlockSizeSum = 0.0f;
+            float phaseBlockRankSum = 0.0f;
+            for (unsigned blk = 0; blk < keptLdBlockInfoVec.size(); ++blk) {
+                if (!keptLdBlockInfoVec[blk]->hasTilePhaseMetadata()) continue;
+                if ((unsigned)keptLdBlockInfoVec[blk]->tilePhase != phase) continue;
+                ++phaseBlockCount;
+                phaseBlockSizeSum += numSnpsBlock[blk];
+                phaseBlockRankSum += numEigenvalBlock[blk];
+            }
+            cout << boost::format("%40s %8u %8.0f %8.0f\n")
+                %("Tile phase " + to_string(phase) + " blocks")
+                %phaseBlockCount
+                %(phaseBlockCount ? phaseBlockSizeSum / phaseBlockCount : 0.0f)
+                %(phaseBlockCount ? phaseBlockRankSum / phaseBlockCount : 0.0f);
+        }
+    }
     cout << endl;
 
     if (numAnnos) setAnnoInfoVec();
@@ -2816,6 +3186,9 @@ void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const 
 
 void Data::buildMMEeigenBivariate(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale){
     includeMatchedBlocks();
+    if (overlapLdmEigen) {
+        throw("Error: phased tiled/overlap eigen LD is supported only for univariate low-rank SBayes in v1; bivariate analysis is not supported yet.");
+    }
     pruneLdBlocksWithNoGwasOnAllReferenceSnps(true);
     if (!numKeptLDBlocks) {
         string msg = "Error: no LD blocks remain after matching GWAS to LD. Check --gwas / --impute-summary.";
@@ -2906,6 +3279,33 @@ void Data::includeMatchedBlocks(){
     for (unsigned i=0; i<numLDBlocks; ++i){
         ldblock = ldBlockInfoVec[i];
         ldblock->block2GwasSnpVec.clear();
+        if (overlapLdmEigen) {
+            for (unsigned j=0; j<ldblock->snpInfoVec.size(); ++j) {
+                snp = ldblock->snpInfoVec[j];
+                if (snp->included && snp->index >= 0) ldblock->block2GwasSnpVec.push_back(snp->index);
+            }
+            if (ldblock->block2GwasSnpVec.size() == 0) {
+                cout << "Warning: Skipping LD block " << ldblock->ID
+                     << ": no GWAS summary SNPs matched any SNP in this phased tiled/overlap block." << endl;
+                ldblock->kept = false;
+            } else {
+                if (ldblock->block2GwasSnpVec.size() != ldblock->snpInfoVec.size()) {
+                    throw("Error: phased tiled/overlap eigen block " + ldblock->ID + " has SNPs removed by analysis filters. V1 requires the analysis SNP set to match the generated eigen reference.");
+                }
+                ldblock->startSnpIdx = ldblock->block2GwasSnpVec.front();
+                ldblock->endSnpIdx = ldblock->block2GwasSnpVec.back();
+                ldblock->kept = true;
+            }
+        }
+    }
+    if (overlapLdmEigen) {
+        refreshKeptLdBlockMaps();
+        if (phasedTiledLdmEigen)
+            cout << numKeptLDBlocks << " phased tiled LD blocks are included across "
+                 << tileGroupSize << " phase(s)." << endl;
+        else
+            cout << numKeptLDBlocks << " overlapping LD context blocks are included." << endl;
+        return;
     }
     for (unsigned j=0; j<numIncdSnps; ++j){
         snp = incdSnpInfoVec[j];
@@ -3114,11 +3514,6 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
     
     closedir(dirp);
     
-    if (file_list.size() == 1) {
-        if (print) throw ("Error: there is only one info file in folder [" + dirname + "], so no need to merge.");
-        else return;
-    }
-
     search_str = "block";
 
     vector<string> filtered_list;
@@ -3128,6 +3523,19 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
         }
     }
     file_list.swap(filtered_list); // replace original with filtered
+
+    if (file_list.size() == 0) {
+        string msg = "there are no block-specific SNP info files (block*.snp.info) in folder [" + dirname + "] to merge.";
+        if (print) throw ("Error: " + msg);
+        else {
+            cout << "Warning: " << msg << endl;
+            return;
+        }
+    }
+    if (file_list.size() == 1) {
+        if (print) throw ("Error: there is only one block-specific info file in folder [" + dirname + "], so no need to merge.");
+        else return;
+    }
 
     
     set<unsigned> blockIdxSet;
@@ -3148,10 +3556,47 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
     cout << "Merging " << nldm << " LD matrices info files" << endl;
     
     set<unsigned>::iterator it = blockIdxSet.begin();
+    bool mergeOverlap = false;
+    bool mergePhase = false;
+    {
+        string firstLdmInfoFile = dirname + "/block" + to_string(*it) + ".ldm.info";
+        ifstream probe(firstLdmInfoFile.c_str());
+        string headerProbe, lineProbe, tokProbe;
+        getline(probe, headerProbe);
+        if (getline(probe, lineProbe)) {
+            std::istringstream iss(lineProbe);
+            unsigned ntok = 0;
+            while (iss >> tokProbe) ++ntok;
+            mergeOverlap = ntok >= 13;
+            mergePhase = ntok == 9;
+        }
+    }
     
     string outSnpInfoFile = dirname + "/snp.info";
     string outldmInfoFile = dirname + "/ldm.info";
     string outpwldFile    = dirname + "/rsq0.5.pwld";
+
+    {
+        ifstream existingLdm(outldmInfoFile.c_str());
+        if (existingLdm) {
+            string line;
+            unsigned existingBlockCount = 0;
+            getline(existingLdm, line);
+            while (getline(existingLdm, line)) {
+                if (!line.empty()) ++existingBlockCount;
+            }
+            if (existingBlockCount > nldm) {
+                string msg = "existing combined ldm.info has " + to_string(existingBlockCount)
+                    + " blocks but only " + to_string(nldm)
+                    + " block-specific info files remain; keeping the existing combined info to avoid dropping blocks.";
+                if (print) throw("Error: " + msg);
+                else {
+                    cout << "Warning: " << msg << endl;
+                    return;
+                }
+            }
+        }
+    }
 
     // If a combined rsq0.5.pwld already exists (e.g. built across blocks elsewhere), merge only
     // snp.info / ldm.info from per-block files and keep the existing pwld (do not require block*.rsq0.5.pwld).
@@ -3180,14 +3625,24 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
     % "Block";
     
     ofstream out2(outldmInfoFile.c_str());
-    out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
-    % "Block"
-    % "Chrom"
-    % "StartSnpIdx"
-    % "StartSnpID"
-    % "EndSnpIdx"
-    % "EndSnpID"
-    % "NumSnps";
+    if (mergePhase) {
+        out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s %12s %15s\n")
+        % "Block" % "Chrom" % "StartSnpIdx" % "StartSnpID" % "EndSnpIdx" % "EndSnpID" % "NumSnps"
+        % "TilePhase" % "TileGroupSize";
+    } else if (mergeOverlap) {
+        out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s %15s %15s %15s %15s %15s %15s\n")
+        % "Block" % "Chrom" % "StartSnpIdx" % "StartSnpID" % "EndSnpIdx" % "EndSnpID" % "NumSnps"
+        % "CoreStartPos" % "CoreEndPos" % "CoreStartSnpIdx" % "CoreStartSnpID" % "CoreEndSnpIdx" % "CoreEndSnpID";
+    } else {
+        out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
+        % "Block"
+        % "Chrom"
+        % "StartSnpIdx"
+        % "StartSnpID"
+        % "EndSnpIdx"
+        % "EndSnpID"
+        % "NumSnps";
+    }
 
     ofstream out3;
     if (!useExistingCombinedPwld) {
@@ -3222,10 +3677,11 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
         map<string, int> snpID2index;
         getline(in1, header);
         while (in1 >> chr >> id >> index >> genPos >> physPos >> allele1 >> allele2 >> allele1Freq >> ld_n >> blockID) {
+            unsigned outIndex = (mergeOverlap || mergePhase) ? (unsigned)index : snpIdx;
             out1 << boost::format("%6s %15s %10s %10s %15s %6s %6s %12f %10s %10s\n")
             % chr
             % id
-            % snpIdx
+            % outIndex
             % genPos
             % physPos
             % allele1
@@ -3233,7 +3689,7 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
             % allele1Freq
             % ld_n
             % blockID;
-            snpID2index[id] = snpIdx;
+            snpID2index[id] = outIndex;
             ++snpIdx;
         }
         in1.close();
@@ -3247,15 +3703,38 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
         int blockStart, blockEnd, snpNum;
         string startSnpID, endSnpID;
         getline(in2, header);
-        while (in2 >> id >> chr >> blockStart >> startSnpID >> blockEnd >> endSnpID >> snpNum) {
-            out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
-            % id
-            % chr
-            % snpID2index[startSnpID]
-            % startSnpID
-            % snpID2index[endSnpID]
-            % endSnpID
-            % snpNum;
+        string ldmLine;
+        while (getline(in2, ldmLine)) {
+            if (ldmLine.empty()) continue;
+            std::istringstream iss(ldmLine);
+            if (!(iss >> id >> chr >> blockStart >> startSnpID >> blockEnd >> endSnpID >> snpNum)) continue;
+            if (mergePhase) {
+                int tilePhase, tileGroupSize;
+                if (!(iss >> tilePhase >> tileGroupSize)) {
+                    throw("Error: inconsistent phased tiled ldm.info line in [" + ldmInfoFile + "].");
+                }
+                out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s %12s %15s\n")
+                % id % chr % blockStart % startSnpID % blockEnd % endSnpID % snpNum
+                % tilePhase % tileGroupSize;
+            } else if (mergeOverlap) {
+                int coreStartPos, coreEndPos, coreStartIdx, coreEndIdx;
+                string coreStartID, coreEndID;
+                if (!(iss >> coreStartPos >> coreEndPos >> coreStartIdx >> coreStartID >> coreEndIdx >> coreEndID)) {
+                    throw("Error: inconsistent overlapping ldm.info line in [" + ldmInfoFile + "].");
+                }
+                out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s %15s %15s %15s %15s %15s %15s\n")
+                % id % chr % blockStart % startSnpID % blockEnd % endSnpID % snpNum
+                % coreStartPos % coreEndPos % coreStartIdx % coreStartID % coreEndIdx % coreEndID;
+            } else {
+                out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
+                % id
+                % chr
+                % snpID2index[startSnpID]
+                % startSnpID
+                % snpID2index[endSnpID]
+                % endSnpID
+                % snpNum;
+            }
             
             ++ldmIdx;
         }
@@ -3278,14 +3757,10 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
                     % ldcor;
                 }
                 in3.close();
-                remove(pwldFile.c_str());
             }
         }
 
         ++it;
-        
-        remove(snpInfoFile.c_str());
-        remove(ldmInfoFile.c_str());
     }
     
     out1.close();

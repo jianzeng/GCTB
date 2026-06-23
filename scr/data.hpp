@@ -175,6 +175,12 @@ public:
     // the following variables aim to read svd-ld matrix from SBayesRC-Eigen
     int startSnpIdx;
     int endSnpIdx;
+    int coreStartPos;
+    int coreEndPos;
+    int coreStartSnpIdx;
+    int coreEndSnpIdx;
+    int tilePhase;
+    int tileGroupSize;
     
     //int idxStart;
     //int idxEnd;
@@ -206,6 +212,12 @@ public:
         // svd'ed ld info
         startSnpIdx = -999;
         endSnpIdx = -999;
+        coreStartPos = -999;
+        coreEndPos = -999;
+        coreStartSnpIdx = -999;
+        coreEndSnpIdx = -999;
+        tilePhase = -999;
+        tileGroupSize = -999;
         //idxStart = -999;
         //idxEnd = -999;
         preBlock = -999;
@@ -214,14 +226,44 @@ public:
         kept = true;
         sumPosEigVal = 0;
     }
+
+    bool hasCoreMetadata(void) const {
+        return coreStartSnpIdx >= 0 && coreEndSnpIdx >= coreStartSnpIdx;
+    }
+
+    bool hasTilePhaseMetadata(void) const {
+        return tilePhase >= 0 && tileGroupSize > 0;
+    }
 };
 
 /** Column index in Q for low-rank eigen (global SNP index). Returns -1 if skipped in sub-LD remap. */
 inline int eigenQColIndex(const LDBlockInfo *block, unsigned globalSnpIdx) {
     int j = (int)globalSnpIdx - block->startSnpIdx;
-    if (j < 0 || j >= block->numSnpInBlock) return -1;
-    if (block->eigenColRemap.size() == 0) return j;
-    return block->eigenColRemap[j];
+    if (j >= 0 && j < block->numSnpInBlock
+        && block->snpInfoVec.size() > (unsigned)j
+        && block->snpInfoVec[j]->index == (int)globalSnpIdx) {
+        if (block->eigenColRemap.size() == 0) return j;
+        return block->eigenColRemap[j];
+    }
+    for (unsigned i = 0; i < block->snpInfoVec.size(); ++i) {
+        if (block->snpInfoVec[i]->index != (int)globalSnpIdx) continue;
+        if (block->eigenColRemap.size() == 0) return (int)i;
+        return block->eigenColRemap[i];
+    }
+    return -1;
+}
+
+inline bool isCoreSnp(const LDBlockInfo *block, unsigned globalSnpIdx) {
+    if (!block->hasCoreMetadata()) return true;
+    return (int)globalSnpIdx >= block->coreStartSnpIdx && (int)globalSnpIdx <= block->coreEndSnpIdx;
+}
+
+inline unsigned coreStartSnpIdx(const LDBlockInfo *block) {
+    return block->hasCoreMetadata() ? (unsigned)block->coreStartSnpIdx : (unsigned)block->startSnpIdx;
+}
+
+inline unsigned coreEndSnpIdx(const LDBlockInfo *block) {
+    return block->hasCoreMetadata() ? (unsigned)block->coreEndSnpIdx : (unsigned)block->endSnpIdx;
 }
 
 struct QuantizedEigenBlock {
@@ -585,6 +627,9 @@ public:
     bool weightedRes;
     
     bool lowRankModel;
+    bool overlapLdmEigen;
+    bool phasedTiledLdmEigen;
+    unsigned tileGroupSize;
     /// With --skip + --recompute-eigen: rebuild W/Q from LD submatrix of non-skipped SNPs per block
     bool recomputeEigen;
     /// Copied from Options before buildSparseMME / buildMMEeigen; used in scaleGwasEffects.
@@ -691,6 +736,9 @@ public:
         makeWindows = false;
         weightedRes = false;
         lowRankModel = false;
+        overlapLdmEigen = false;
+        phasedTiledLdmEigen = false;
+        tileGroupSize = 1;
         recomputeEigen = false;
         gwasScalarMode = GwasScalarMode::LeastSquares;
     }
@@ -808,6 +856,7 @@ public:
     void readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, const unsigned block, const float eigenCutoff, const bool writeLdmTxt);
     
     void getEigenDataForLDBlock(const string &bedFile, const string &ldBlockInfoFile, int ldBlockRegionWind, const string &filename, const float eigenCutoff);
+    void makeTiledBlockEigen(const string &bedFile, const string &dirname, const float eigenCutoff, const float tileMb, const unsigned tileGroupSize, const bool writeLdmTxt);
     void outputBlockLDmatrixInfo(const LDBlockInfo &block, const string &outSnpfile, const string &outldmfile) const;
 
     void impG(const unsigned block, double diag_mod = 0.1);

@@ -295,6 +295,18 @@ void Options::inputOptions(const int argc, const char* argv[]){
             analysisType = "LDmatrixEigen";
             ss << "--make-ldm-eigen " << "\n";
         }
+        else if (!strcmp(argv[i], "--make-tiled-ldm-eigen")) {
+            analysisType = "TiledLDmatrixEigen";
+            ss << "--make-tiled-ldm-eigen " << "\n";
+        }
+        else if (!strcmp(argv[i], "--tile-mb")) {
+            tileMb = stof(argv[++i]);
+            ss << "--tile-mb " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--tile-group-size")) {
+            tileGroupSize = stoi(argv[++i]);
+            ss << "--tile-group-size " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--ldm-eigen")) {
             eigenMatrixFile = argv[++i];
             eigenMatrixQuantBits = 0;
@@ -325,6 +337,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
             eigenCutoff.resize(strvec.size());
             for (unsigned j=0; j<strvec.size(); ++j) eigenCutoff[j] = stof(strvec[j]);
             std::sort(eigenCutoff.data(), eigenCutoff.data()+eigenCutoff.size(), std::greater<float>());
+            eigenCutoffUserSpecified = true;
             ss << "--ldm-eigen-cutoff " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--ldm-block")) {
@@ -923,6 +936,10 @@ void Options::readFile(const string &file){  // input options from file
             snpResFile = value;
         } else if (key == "windowWidth") {
             windowWidth = unsigned(stof(value) * Megabase);
+        } else if (key == "tileMb") {
+            tileMb = stof(value);
+        } else if (key == "tileGroupSize") {
+            tileGroupSize = stoi(value);
         } else if (key == "pi") {
             pi = stof(value);
         } else if (key == "heritability") {
@@ -1034,6 +1051,8 @@ void Options::setThread(void){
             cout << "For --make-block-ldm, --ldm-eigen <dir> (with block*.eigen.bin and ldm/snp info) can reconstruct block LDM without --bfile; use --ldm-eigen-cutoff as for other eigen input." << endl;
         } else if (analysisType == "LDmatrixEigen") {
             cout << "Multi-threading is available for --make-ldm-eigen. Use --thread [number] to enable multi-threading." << endl;
+        } else if (analysisType == "TiledLDmatrixEigen") {
+            cout << "Multi-threading is available for --make-tiled-ldm-eigen. Use --thread [number] to enable multi-threading." << endl;
         } else if (analysisType == "ImputeSumStats") {
             cout << "Multi-threading is available for --impute-summary. Use --thread [number] to enable multi-threading." << endl;
         } else if (analysisType == "Convert") {

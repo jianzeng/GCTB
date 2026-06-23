@@ -78,6 +78,8 @@ public:
     float pipThreshold;
     float pepThreshold;
     float nDistAutoThreshold;
+    float tileMb;
+    unsigned tileGroupSize;
     
     bool estimatePi;
     bool estimateSigmaSq; // variance of SNP effects
@@ -136,6 +138,7 @@ public:
     
     // for low-rank model
     VectorXf eigenCutoff;
+    bool eigenCutoffUserSpecified;
     
     string title;
     string optionsSummary;
@@ -235,6 +238,8 @@ public:
         pipThreshold            = 0.9;
         pepThreshold            = 0.7;
         nDistAutoThreshold      = 0.5;
+        tileMb                  = 1.0;
+        tileGroupSize           = 2;
 
         // Bayes R defaults
         numDist                  = 5;
@@ -250,6 +255,7 @@ public:
         
         eigenCutoff.resize(4);
         eigenCutoff             << 0.995, 0.99, 0.95, 0.9;
+        eigenCutoffUserSpecified = false;
 
         estimatePi              = true;
         estimateSigmaSq         = true;

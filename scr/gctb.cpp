@@ -226,6 +226,11 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
     
     data.initVariances(heritability, propVarRandom);
 
+    if (data.overlapLdmEigen && (!data.lowRankModel ||
+        (bayesType != "R" && bayesType != "RC" && bayesType != "RD" && bayesType != "RD_indep"))) {
+        throw(" Error: phased tiled/overlap eigen LD is supported only for low-rank SBayesR, SBayesRC, SBayesRD, and SBayesRD_indep in v1.");
+    }
+
     if (opt.numChains > 1) {
         if (bayesType == "R")
             return new MultiChainSBayesR(data, opt);

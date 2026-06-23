@@ -7,6 +7,7 @@
 //
 
 #include <iostream>
+#include <fstream>
 #include <omp.h>
 #include <sys/resource.h>
 #include "gctb.hpp"
@@ -32,6 +33,41 @@ void printMaxResidentMemory() {
     const double memMb = getMaxResidentMemoryMb();
     if (memMb >= 0.0)
         cout << "Max memory usage: " << boost::format("%.2f") % memMb << " MB" << endl;
+}
+
+bool folderHasOverlapEigenMetadata(const string &dirname) {
+    ifstream in((dirname + "/ldm.info").c_str());
+    if (!in) return false;
+    string header;
+    getline(in, header);
+    return header.find("CoreStartSnpIdx") != string::npos
+        && header.find("CoreEndSnpIdx") != string::npos;
+}
+
+void setDefaultOverlapEigenCutoff(Options &opt) {
+    if (opt.eigenCutoffUserSpecified) return;
+    opt.eigenCutoff.resize(1);
+    opt.eigenCutoff[0] = 0.995f;
+}
+
+bool isSupportedOverlapSbayesType(const string &bayesType) {
+    return bayesType == "R" || bayesType == "RC" || bayesType == "RD" || bayesType == "RD_indep";
+}
+
+bool fileExistsAndNonEmpty(const string &filename) {
+    ifstream in(filename.c_str(), ios::ate | ios::binary);
+    return in.is_open() && static_cast<long long>(in.tellg()) > 0;
+}
+
+void ensureDefaultPairwiseLDFile(Data &data, const Options &opt) {
+    if (opt.pairwiseLDfile != "rsq0.5.pwld") return;
+    const string pwldFile = opt.eigenMatrixFile + "/" + opt.pairwiseLDfile;
+    if (fileExistsAndNonEmpty(pwldFile)) return;
+    if (opt.eigenMatrixQuantBits) {
+        throw("Error: cannot generate [" + pwldFile + "] from quantized eigen data. Please provide --pwld-file generated from the corresponding float eigen LD reference.");
+    }
+    cout << "Pairwise LD file [" << pwldFile << "] not found; generating it from eigen data for TGS..." << endl;
+    data.getLDfromEigenMatrix(opt.eigenMatrixFile, 0.5, opt.eigenMatrixFile + "/rsq0.5");
 }
 }
 
@@ -217,6 +253,19 @@ int main(int argc, const char * argv[]) {
                 //gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile, "", opt.eigenMatrixFile, opt.ldBlockInfoFile, opt.includeChr, opt.excludeAmbiguousSNP, opt.annotationFile, opt.transpose, opt.continuousAnnoFile, opt.flank, opt.eQTLFile, opt.ldscoreFile, opt.eigenCutoff, opt.excludeMHC, opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold, opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt);
             }
         }
+        else if (opt.analysisType == "TiledLDmatrixEigen") {
+            readGenotypes = false;
+            if (opt.bedFile.empty()) throw("Error: --make-tiled-ldm-eigen requires --bfile.");
+            setDefaultOverlapEigenCutoff(opt);
+            gctb.inputIndInfo(data, opt.bedFile, opt.bedFile + ".fam", opt.keepIndFile, opt.keepIndMax,
+                              opt.mphen, opt.covariateFile, opt.randomCovariateFile, opt.residualDiagFile);
+            gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile,
+                              opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile,
+                              "", opt.includeBlock, opt.annotationFile, opt.transpose, opt.continuousAnnoFile,
+                              opt.flank, opt.eQTLFile, opt.mafmin, opt.mafmax, opt.noscale, readGenotypes);
+            data.makeTiledBlockEigen(opt.bedFile + ".bed", opt.title, opt.eigenCutoff.maxCoeff(),
+                                     opt.tileMb, opt.tileGroupSize, opt.writeLdmTxt);
+        }
         else if (opt.analysisType == "sparseLDmatrixEigen") {
             readGenotypes = false;
             data.readSparseBlockLDmatrixAndDoEigenDecomposition(opt.ldmatrixFile, opt.includeBlock, opt.eigenCutoff.maxCoeff(), opt.writeLdmTxt);
@@ -284,6 +333,21 @@ int main(int argc, const char * argv[]) {
             } else if (!opt.eigenMatrixFile.empty()) {  // low-rank model
                 data.recomputeEigen = opt.recomputeEigen;
                 data.mergeLdmInfo("block", opt.eigenMatrixFile, false); // if each block has its own .info file, then merge them
+                if (folderHasOverlapEigenMetadata(opt.eigenMatrixFile)) {
+                    setDefaultOverlapEigenCutoff(opt);
+                    if (opt.analysisType != "SBayes" || !isSupportedOverlapSbayesType(opt.bayesType)) {
+                        throw("Error: phased tiled/overlap eigen LD is supported only for --sbayes R, RC, RD, and RD_indep in v1.");
+                    }
+                    if (isBivariate) {
+                        throw("Error: phased tiled/overlap eigen LD is not supported for bivariate SBayes in v1.");
+                    }
+                    if (opt.eigenMatrixQuantBits) {
+                        throw("Error: phased tiled/overlap eigen LD is not supported with quantized eigen data in v1.");
+                    }
+                    if (opt.algorithm == "TGS" || opt.algorithm == "TGS_thin") {
+                        throw("Error: phased tiled/overlap eigen LD is not supported with tempered Gibbs/GWFM in v1.");
+                    }
+                }
                 gctb.inputSnpInfo(data, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile,
                                   opt.gwasSummaryFile, opt.eigenMatrixFile, opt.ldBlockInfoFile,
                                   opt.includeChr, opt.excludeAmbiguousSNP,
@@ -295,8 +359,29 @@ int main(int argc, const char * argv[]) {
                 if (opt.analysisType == "GWFM") {
                     data.inputPairwiseLD(opt.eigenMatrixFile+"/"+opt.pairwiseLDfile, 0.95);  // for TGS sampling
                 }
+                if (data.overlapLdmEigen) {
+                    if (opt.analysisType != "SBayes" || !isSupportedOverlapSbayesType(opt.bayesType)) {
+                        throw("Error: phased tiled/overlap eigen LD is supported only for --sbayes R, RC, RD, and RD_indep in v1.");
+                    }
+                    if (isBivariate) {
+                        throw("Error: phased tiled/overlap eigen LD is not supported for bivariate SBayes in v1.");
+                    }
+                    if (opt.eigenMatrixQuantBits) {
+                        throw("Error: phased tiled/overlap eigen LD is not supported with quantized eigen data in v1.");
+                    }
+                    if (opt.algorithm == "TGS" || opt.algorithm == "TGS_thin") {
+                        throw("Error: phased tiled/overlap eigen LD is not supported with tempered Gibbs/GWFM in v1.");
+                    }
+                    if (opt.eigenCutoff.size() > 1) {
+                        cout << "Note: eigen cutoff tuning is not supported for phased tiled/overlap eigen LD in v1; using "
+                             << opt.eigenCutoff[0] << "." << endl;
+                    }
+                    bestEigenCutoff = opt.eigenCutoff[0];
+                }
                 // Check if bivariate (comma-separated GWAS files) - skip tuning for bivariate
-                if (isBivariate) {
+                if (data.overlapLdmEigen) {
+                    // handled above
+                } else if (isBivariate) {
                     // Skip tuning for bivariate - use first cutoff value
                     bestEigenCutoff = opt.eigenCutoff[0];
                     cout << "Using eigen cutoff " << bestEigenCutoff << " for bivariate analysis (tuning not yet supported for bivariate)." << endl;
@@ -306,6 +391,18 @@ int main(int argc, const char * argv[]) {
                     if (opt.eigenCutoff.size() > 1) {
                         data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, bestEigenCutoff, data.gwasEffectInBlock, data.nGWASblock, opt.noscale, false, opt.eigenMatrixQuantBits, opt.eigenMatrixQ8Entropy);
                     }
+                }
+                if (opt.analysisType == "SBayes"
+                    && (opt.bayesType == "RC" || opt.bayesType == "RD" || opt.bayesType == "RD_indep")
+                    && opt.algorithm.empty() && !data.overlapLdmEigen) {
+                    opt.algorithm = "TGS_thin";
+                    if (opt.pairwiseLDfile.empty()) opt.pairwiseLDfile = "rsq0.5.pwld";
+                    cout << "Using tempered Gibbs sampling (TGS) as the default algorithm for SBayes" << opt.bayesType << "." << endl;
+                }
+                if ((opt.algorithm == "TGS" || opt.algorithm == "TGS_thin") && !data.overlapLdmEigen) {
+                    if (opt.pairwiseLDfile.empty()) opt.pairwiseLDfile = "rsq0.5.pwld";
+                    ensureDefaultPairwiseLDFile(data, opt);
+                    data.inputPairwiseLD(opt.eigenMatrixFile + "/" + opt.pairwiseLDfile, 0.95);
                 }
                 if (opt.writeWandQ) data.outputWandQ("w_and_Q");
                 //data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, bestEigenCutoff);
