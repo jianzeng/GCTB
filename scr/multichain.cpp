@@ -185,6 +185,72 @@ void MultiChainSBayesRC::SnpPIP::selectUnconvergedSnps(const vector<LDBlockInfo*
     }
 }
 
+void MultiChainSBayesRC::AnnoPerSnpRsqEnrichment::compute(const VectorXf &snpCrossChainEffectProduct, const MatrixXf &annoMat, const vector<AnnoInfo*> &annoInfoVec){
+    VectorXf rsqVec;
+    rsqVec.setZero(size);
+    
+    for (unsigned k=0; k<size; ++k) {
+        AnnoInfo *anno = annoInfoVec[k];
+        for (unsigned j=0; j<anno->size; ++j) {
+            SnpInfo *snp = anno->memberSnpVec[j];
+            rsqVec[k] += annoMat(snp->index,k) * snpCrossChainEffectProduct[snp->index];
+        }
+        if (rsqVec[0] == 0.0f) {
+            values[k] = 0.0f;
+        } else if (anno->isBinary) {
+            values[k] = rsqVec[k]/rsqVec[0] / anno->fraction;
+        } else {
+            MatrixXf XPX(2,2);
+            XPX(0,0) = size;
+            XPX(0,1) = XPX(1,0) = anno->sum;
+            XPX(1,1) = anno->ssq;
+            VectorXf XPy(2);
+            XPy(0) = rsqVec[0];
+            XPy(1) = rsqVec[k];
+            VectorXf coef = XPX.householderQr().solve(XPy);
+            values[k] = 1.0f + coef(1) / rsqVec[0];
+        }
+    }
+}
+
+void MultiChainSBayesRC::AnnoJointPerSnpRsqEnrichment::compute(const VectorXf &snpCrossChainEffectProduct, const MatrixXf &annoMat, const AnnoJointProb &annoJointProb, const VectorXf &gamma, const VectorXf &snpAnnoCntInv){
+    unsigned numAnno = annoMat.cols();
+    unsigned numSnps = annoMat.rows();
+    unsigned numDist = annoJointProb.size();
+    VectorXf rsqAnnoObs;
+    VectorXf rsqAnnoNull;
+    rsqAnnoObs.setZero(numAnno);
+    rsqAnnoNull.setZero(numAnno);
+    
+    float betaSqNull = snpCrossChainEffectProduct.sum()/float(numSnps);
+    VectorXf probAnnoObs(numAnno);
+    for (unsigned j=0; j<numSnps; ++j) {
+        probAnnoObs.setZero(numAnno);
+        for (unsigned i=0; i<numAnno; ++i) {
+            if (annoMat(j,i)) {
+                for (unsigned k=1; k<numDist; ++k) {
+                    probAnnoObs[i] += (*annoJointProb[k]).values[i] * gamma[k];
+                }
+            }
+        }
+        float probSum = probAnnoObs.sum();
+        if (probSum == 0.0f) continue;
+        probAnnoObs /= probSum;
+        float betajSq = snpCrossChainEffectProduct[j];
+        for (unsigned i=0; i<numAnno; ++i) {
+            if (annoMat(j,i)) {
+                rsqAnnoObs[i]  += probAnnoObs[i]  * betajSq;
+                rsqAnnoNull[i] += snpAnnoCntInv[j] * betaSqNull;
+            }
+        }
+    }
+    
+    values.setZero(numAnno);
+    for (unsigned i=0; i<numAnno; ++i) {
+        values[i] = rsqAnnoNull[i] == 0.0f ? 0.0f : rsqAnnoObs[i]/rsqAnnoNull[i];
+    }
+}
+
 void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
     
 #pragma omp parallel for num_threads(numThreadLevel1)
@@ -211,8 +277,11 @@ void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
     annoJointPerSnpHsqEnrich.getValues();
     annoPerSnpHsqEnrich.getValues();
     if (estimateRsqEnrich) {
-        annoPerSnpRsqEnrich.getValues();
-        annoJointPerSnpRsqEnrich.getValues();
+        VectorXf chainSum = snpEffects.perChainValues.rowwise().sum();
+        VectorXf chainSumSq = snpEffects.perChainValues.array().square().rowwise().sum();
+        VectorXf snpCrossChainEffectProduct = (chainSum.array().square() - chainSumSq.array()) / float(numChains * (numChains - 1));
+        annoPerSnpRsqEnrich.compute(snpCrossChainEffectProduct, annoMat, annoInfoVec);
+        annoJointPerSnpRsqEnrich.compute(snpCrossChainEffectProduct, annoMat, annoJointProb, gamma.values, snpAnnoCntInv);
     }
     snpHsqPep.getValues();
 
@@ -232,7 +301,8 @@ void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
 
 
 void MultiModelSBayesR::sampleUnknowns(const unsigned iter){
-        
+    omp_set_max_active_levels(2);
+
 #pragma omp parallel for num_threads(numThreadLevel1)
     for (unsigned i=0; i<numModels; ++i) {
         //cout << "sampling chain " << i << " in " << numChains << " chains " << endl;

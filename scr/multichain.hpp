@@ -336,7 +336,7 @@ public:
     Heritability hsq;
     NumNonZeroSnp nnzSnp;
 
-    MultiModelSBayesR(const Data &data, const Options &opt, const bool message = true):
+    MultiModelSBayesR(const Data &data, const Options &opt, const bool message = true, const unsigned shortChainLength = 0):
     MultiChainSBayesR(data, opt, false),
     numModels(opt.numDist - 1),
     modelVec(data, opt),
@@ -352,9 +352,14 @@ public:
         numThreadLevel2 = std::floor(numThreadTotal/numThreadLevel1);
 
         // Parent MultiChainSBayesR paramSetVec points at chainVec; we only sample modelVec.
-        // MCMC::collectSamples would read stale/wrong-sized ParamSets → crash. Keep only model scalars.
+        // MCMC::collectSamples would read stale/wrong-sized ParamSets → crash. Keep model scalars
+        // plus model-specific SNP effects for held-out marginal-effect validation.
         paramSetVec.clear();
         paramSetToPrint.clear();
+        for (unsigned i=0; i<numModels; ++i) {
+            modelVec[i]->snpEffects.label += "_M" + to_string(static_cast<long long>(i + 1));
+            paramSetVec.push_back(&modelVec[i]->snpEffects);
+        }
 
         paramVec.resize(0);
         paramToPrint.resize(0);
@@ -366,7 +371,9 @@ public:
         paramToPrint.insert(paramToPrint.end(), nnzSnp.chainVec.begin(), nnzSnp.chainVec.end());
 
         if (message) {
-            cout << "Running " << numModels << " SBayesR models" << endl;
+            cout << "Running " << numModels << " SBayesR models";
+            if (shortChainLength) cout << " with short chains (" << shortChainLength << " iterations)";
+            cout << endl;
             if (opt.algorithm == "TGS_thin") cout << "Using tempered Gibbs sampling (TGS)" << endl;
             for (unsigned i=0; i<numModels; ++i) {
                 unsigned numComp = modelVec[i]->gamma.values.size();
@@ -561,6 +568,8 @@ public:
                 chainVec.push_back(&chains[i]->annoPerSnpRsqEnrich);
             }
         }
+        
+        void compute(const VectorXf &snpCrossChainEffectProduct, const MatrixXf &annoMat, const vector<AnnoInfo*> &annoInfoVec);
     };
 
     class AnnoJointPerSnpHsqEnrichment : public MultiChainParamSet {
@@ -579,6 +588,8 @@ public:
                 chainVec.push_back(&chains[i]->annoJointPerSnpRsqEnrich);
             }
         }
+        
+        void compute(const VectorXf &snpCrossChainEffectProduct, const MatrixXf &annoMat, const AnnoJointProb &annoJointProb, const VectorXf &gamma, const VectorXf &snpAnnoCntInv);
     };
 
     class SnpHsqPEP : public MultiChainParamSet {
@@ -614,6 +625,9 @@ public:
     std::unique_ptr<MultiChainSBayesR::HeritabilityRandom> rcMcHsqRandom;
     
     const vector<LDBlockInfo*> &keptLdBlockInfoVec;
+    const MatrixXf &annoMat;
+    const vector<AnnoInfo*> &annoInfoVec;
+    const VectorXf &snpAnnoCntInv;
     
     bool estimateRsqEnrich;
     
@@ -638,6 +652,9 @@ public:
     annoJointPerSnpRsqEnrich(data.annoNames, chainVec),
     snpHsqPep(data.snpEffectNames, chainVec),
     keptLdBlockInfoVec(data.keptLdBlockInfoVec),
+    annoMat(data.annoMat),
+    annoInfoVec(data.annoInfoVec),
+    snpAnnoCntInv(chainVec[0]->snpAnnoCntInv),
     estimateRsqEnrich(opt.estimateRsqEnrich)
     {
 

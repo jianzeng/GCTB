@@ -4,6 +4,7 @@
 #include <cerrno>
 #include <cmath>
 #include <cstdio>
+#include <cctype>
 #include <cstring>
 #include <dirent.h>
 #include <fstream>
@@ -19,6 +20,7 @@
 namespace eigen_quantize {
 
 const char* kInputSuffix = ".eigen.bin";
+const char* kLdmInputSuffix = ".ldm.bin";
 
 static string join_path(const string& dir, const string& file) {
     if (dir.empty()) return file;
@@ -83,6 +85,52 @@ static void copy_file_if_exists(const string& input_dir, const string& output_di
     if (!out) throw runtime_error("Write error copying " + output_path);
 }
 
+static bool gzip_file_if_exists(const string& input_dir, const string& output_dir,
+                                const string& input_filename, const string& output_filename) {
+    const string input_path = join_path(input_dir, input_filename);
+    if (!is_regular_file(input_path)) return false;
+    const string output_path = join_path(output_dir, output_filename);
+
+    ifstream in(input_path.c_str(), ios::binary);
+    if (!in) throw runtime_error("Cannot open input file " + input_path);
+    gzFile out = gzopen(output_path.c_str(), "wb");
+    if (!out) throw runtime_error("Cannot open gzip output file " + output_path);
+
+    vector<char> buffer(1 << 20);
+    while (in) {
+        in.read(buffer.data(), buffer.size());
+        streamsize nread = in.gcount();
+        if (nread > 0) {
+            int nwritten = gzwrite(out, buffer.data(), static_cast<unsigned>(nread));
+            if (nwritten == 0) {
+                int zerr = Z_OK;
+                const char *msg = gzerror(out, &zerr);
+                gzclose(out);
+                throw runtime_error("Write error compressing " + output_path + ": " + (msg ? string(msg) : string("unknown zlib error")));
+            }
+        }
+    }
+    if (!in.eof()) {
+        gzclose(out);
+        throw runtime_error("Read error compressing " + input_path);
+    }
+    if (gzclose(out) != Z_OK) {
+        throw runtime_error("Write error closing gzip output file " + output_path);
+    }
+    return true;
+}
+
+static void copy_pairwise_ld_files(const string& input_dir, const string& output_dir) {
+    const string output_plain = join_path(output_dir, "rsq0.5.pwld");
+    if (is_regular_file(join_path(input_dir, "rsq0.5.pwld.gz"))) {
+        copy_file_if_exists(input_dir, output_dir, "rsq0.5.pwld.gz");
+        remove(output_plain.c_str());
+    } else if (gzip_file_if_exists(input_dir, output_dir, "rsq0.5.pwld", "rsq0.5.pwld.gz")) {
+        remove(output_plain.c_str());
+    }
+    copy_file_if_exists(input_dir, output_dir, "rsq0.5.pwld.bin");
+}
+
 const char* output_suffix(const QuantizationOptions& options) {
     if (options.q_per_snp_column) {
         throw runtime_error("Q-column quantization is not enabled in this GCTB integration.");
@@ -106,6 +154,219 @@ static int16_t quantize_value(float value, float scale, int bits) {
     const long limit = static_cast<long>(bound);
     const long clamped = std::max<long>(-limit, std::min<long>(limit, rounded));
     return static_cast<int16_t>(clamped);
+}
+
+static int16_t quantize_correlation(float value, int bits) {
+    const float bound = quantization_bound(bits);
+    if (value > 1.0f) value = 1.0f;
+    if (value < -1.0f) value = -1.0f;
+    const long rounded = lround(value * bound);
+    const long limit = static_cast<long>(bound);
+    const long clamped = std::max<long>(-limit, std::min<long>(limit, rounded));
+    return static_cast<int16_t>(clamped);
+}
+
+static int parse_block_id_from_name(const string& name) {
+    if (name.size() <= 5 || name.substr(0, 5) != "block") return 0;
+    size_t pos = 5;
+    while (pos < name.size() && isdigit(static_cast<unsigned char>(name[pos]))) ++pos;
+    if (pos == 5) return 0;
+    return atoi(name.substr(5, pos - 5).c_str());
+}
+
+static int read_block_snp_count(const string& input_dir, int block_id) {
+    const string info_path = join_path(input_dir, "block" + to_string(block_id) + ".ldm.info");
+    ifstream in(info_path.c_str());
+    if (!in) {
+        const string combined_path = join_path(input_dir, "ldm.info");
+        ifstream combined(combined_path.c_str());
+        if (!combined) throw runtime_error("Cannot open block LDM info file " + info_path + " or combined file " + combined_path);
+        string header;
+        getline(combined, header);
+        string id, start_id, end_id;
+        int chr = 0;
+        int start = 0;
+        int end = 0;
+        int num_snps = 0;
+        while (combined >> id >> chr >> start >> start_id >> end >> end_id >> num_snps) {
+            if (atoi(id.c_str()) == block_id) {
+                if (num_snps <= 0) throw runtime_error("Invalid SNP count in " + combined_path);
+                return num_snps;
+            }
+            string rest;
+            getline(combined, rest);
+        }
+        throw runtime_error("Cannot find block " + to_string(block_id) + " in " + combined_path);
+    }
+    string header;
+    getline(in, header);
+    string id, start_id, end_id;
+    int chr = 0;
+    int start = 0;
+    int end = 0;
+    int num_snps = 0;
+    if (!(in >> id >> chr >> start >> start_id >> end >> end_id >> num_snps)) {
+        throw runtime_error("Cannot parse block LDM info file " + info_path);
+    }
+    if (num_snps <= 0) throw runtime_error("Invalid SNP count in " + info_path);
+    return num_snps;
+}
+
+static const char* ldm_output_suffix(int bits) {
+    if (bits == 8) return ".ldm.q8.bin";
+    if (bits == 16) return ".ldm.q16.bin";
+    throw runtime_error("Only q8 and q16 are supported for LD matrix quantization.");
+}
+
+static vector<string> list_ldm_input_names(const string& input_dir) {
+    vector<string> names;
+    DIR* dir = opendir(input_dir.c_str());
+    if (!dir) {
+        throw runtime_error("Cannot open input folder " + input_dir);
+    }
+
+    const size_t suffix_len = string(kLdmInputSuffix).size();
+    struct dirent* entry = NULL;
+    while ((entry = readdir(dir)) != NULL) {
+        const string filename(entry->d_name);
+        if (filename.size() < suffix_len) continue;
+        if (filename.substr(filename.size() - suffix_len) != kLdmInputSuffix) continue;
+        if (filename.find(".ldm.q") != string::npos) continue;
+
+        const string full_path = join_path(input_dir, filename);
+        if (!is_regular_file(full_path)) continue;
+        names.push_back(filename.substr(0, filename.size() - suffix_len));
+    }
+    closedir(dir);
+
+    sort(names.begin(), names.end());
+    return names;
+}
+
+static void copy_block_info_files(const string& input_dir, const string& output_dir) {
+    DIR* dir = opendir(input_dir.c_str());
+    if (!dir) {
+        throw runtime_error("Cannot open input folder " + input_dir);
+    }
+    struct dirent* entry = NULL;
+    while ((entry = readdir(dir)) != NULL) {
+        const string filename(entry->d_name);
+        const bool is_block_info =
+            filename.size() > 5 &&
+            filename.substr(0, 5) == "block" &&
+            (filename.find(".snp.info") != string::npos ||
+             filename.find(".ldm.info") != string::npos);
+        if (is_block_info) copy_file_if_exists(input_dir, output_dir, filename);
+    }
+    closedir(dir);
+}
+
+static void quantize_ldm_file(const string& input_dir,
+                              const string& output_dir,
+                              const string& name,
+                              int bits,
+                              QuantizationSummary& summary) {
+    const int block_id = parse_block_id_from_name(name);
+    if (!block_id) throw runtime_error("Cannot parse block ID from " + name + kLdmInputSuffix);
+
+    const int num_snps = read_block_snp_count(input_dir, block_id);
+    const uint64_t n_full = static_cast<uint64_t>(num_snps) * static_cast<uint64_t>(num_snps);
+    const uint64_t n_tri = static_cast<uint64_t>(num_snps) * static_cast<uint64_t>(num_snps + 1) / 2;
+    const string input_path = join_path(input_dir, name + kLdmInputSuffix);
+    const string output_path = join_path(output_dir, name + ldm_output_suffix(bits));
+    const uint64_t original_bytes = file_size(input_path);
+    if (original_bytes % sizeof(float) != 0) {
+        throw runtime_error("Input LD matrix size is not a multiple of float size in " + input_path);
+    }
+    const uint64_t n_float = original_bytes / sizeof(float);
+    if (n_float != n_full && n_float != n_tri) {
+        throw runtime_error("Unrecognized LD matrix shape in " + input_path +
+                            ": got " + to_string(n_float) + " floats, expected " +
+                            to_string(n_full) + " full or " + to_string(n_tri) + " triangular.");
+    }
+
+    FILE* fp = fopen(input_path.c_str(), "rb");
+    if (!fp) throw runtime_error("Cannot open input file " + input_path);
+    FILE* out = fopen(output_path.c_str(), "wb");
+    if (!out) {
+        fclose(fp);
+        throw runtime_error("Cannot open output file " + output_path);
+    }
+
+    try {
+        if (n_float == n_tri) {
+            vector<float> fbuf(4096);
+            if (bits == 8) {
+                vector<int8_t> qbuf(fbuf.size());
+                uint64_t remaining = n_tri;
+                while (remaining) {
+                    const size_t chunk = static_cast<size_t>(std::min<uint64_t>(remaining, fbuf.size()));
+                    if (fread(fbuf.data(), sizeof(float), chunk, fp) != chunk)
+                        throw runtime_error("Read error in " + input_path);
+                    for (size_t i = 0; i < chunk; ++i)
+                        qbuf[i] = static_cast<int8_t>(quantize_correlation(fbuf[i], bits));
+                    if (fwrite(qbuf.data(), sizeof(int8_t), chunk, out) != chunk)
+                        throw runtime_error("Write error in " + output_path);
+                    remaining -= chunk;
+                }
+            } else {
+                vector<int16_t> qbuf(fbuf.size());
+                uint64_t remaining = n_tri;
+                while (remaining) {
+                    const size_t chunk = static_cast<size_t>(std::min<uint64_t>(remaining, fbuf.size()));
+                    if (fread(fbuf.data(), sizeof(float), chunk, fp) != chunk)
+                        throw runtime_error("Read error in " + input_path);
+                    for (size_t i = 0; i < chunk; ++i)
+                        qbuf[i] = quantize_correlation(fbuf[i], bits);
+                    if (fwrite(qbuf.data(), sizeof(int16_t), chunk, out) != chunk)
+                        throw runtime_error("Write error in " + output_path);
+                    remaining -= chunk;
+                }
+            }
+        } else {
+            vector<float> row(num_snps);
+            if (bits == 8) {
+                vector<int8_t> qrow(num_snps);
+                for (int r = 0; r < num_snps; ++r) {
+                    if (fread(row.data(), sizeof(float), num_snps, fp) != static_cast<size_t>(num_snps))
+                        throw runtime_error("Read error in " + input_path);
+                    for (int c = 0; c <= r; ++c)
+                        qrow[c] = static_cast<int8_t>(quantize_correlation(row[c], bits));
+                    if (fwrite(qrow.data(), sizeof(int8_t), r + 1, out) != static_cast<size_t>(r + 1))
+                        throw runtime_error("Write error in " + output_path);
+                }
+            } else {
+                vector<int16_t> qrow(num_snps);
+                for (int r = 0; r < num_snps; ++r) {
+                    if (fread(row.data(), sizeof(float), num_snps, fp) != static_cast<size_t>(num_snps))
+                        throw runtime_error("Read error in " + input_path);
+                    for (int c = 0; c <= r; ++c)
+                        qrow[c] = quantize_correlation(row[c], bits);
+                    if (fwrite(qrow.data(), sizeof(int16_t), r + 1, out) != static_cast<size_t>(r + 1))
+                        throw runtime_error("Write error in " + output_path);
+                }
+            }
+        }
+
+        fclose(fp);
+        fclose(out);
+
+        const uint64_t quantized_bytes = file_size(output_path);
+        cout << "Quantized " << name << ".ldm.bin"
+             << " -> " << name << ldm_output_suffix(bits)
+             << " (m=" << num_snps
+             << ", q=" << bits
+             << ", bytes " << original_bytes
+             << " -> " << quantized_bytes << ")\n" << flush;
+
+        summary.total_original_bytes += original_bytes;
+        summary.total_quantized_bytes += quantized_bytes;
+        summary.num_files += 1;
+    } catch (...) {
+        fclose(fp);
+        fclose(out);
+        throw;
+    }
 }
 
 static void write_zlib_matrix(FILE* out, const vector<int8_t>& raw, const string& output_path) {
@@ -345,7 +606,7 @@ QuantizationSummary quantize_directory(const string& input_dir,
     create_directories(output_dir);
     copy_file_if_exists(input_dir, output_dir, "ldm.info");
     copy_file_if_exists(input_dir, output_dir, "snp.info");
-    copy_file_if_exists(input_dir, output_dir, "rsq0.5.pwld");
+    copy_pairwise_ld_files(input_dir, output_dir);
 
     const vector<string> names = list_input_names(input_dir);
     if (names.empty()) {
@@ -357,6 +618,34 @@ QuantizationSummary quantize_directory(const string& input_dir,
         quantize_file(input_dir, output_dir, names[i], options, summary);
     }
 
+    return summary;
+}
+
+QuantizationSummary quantize_ldm_directory(const string& input_dir,
+                                           const string& output_dir,
+                                           int bits) {
+    if (!is_directory(input_dir)) {
+        throw runtime_error("Input folder does not exist: " + input_dir);
+    }
+    if (bits != 8 && bits != 16) {
+        throw runtime_error("Only q8 and q16 are supported for LD matrix quantization.");
+    }
+
+    create_directories(output_dir);
+    copy_file_if_exists(input_dir, output_dir, "ldm.info");
+    copy_file_if_exists(input_dir, output_dir, "snp.info");
+    copy_pairwise_ld_files(input_dir, output_dir);
+    copy_block_info_files(input_dir, output_dir);
+
+    const vector<string> names = list_ldm_input_names(input_dir);
+    if (names.empty()) {
+        throw runtime_error("No .ldm.bin files found in " + input_dir);
+    }
+
+    QuantizationSummary summary;
+    for (size_t i = 0; i < names.size(); ++i) {
+        quantize_ldm_file(input_dir, output_dir, names[i], bits, summary);
+    }
     return summary;
 }
 

@@ -653,6 +653,7 @@ public:
     bool lowRankModel;
     bool overlapLdmEigen;
     bool phasedTiledLdmEigen;
+    bool removeSkepticalSnps;
     unsigned tileGroupSize;
     /// With --skip + --recompute-eigen: rebuild W/Q from LD submatrix of non-skipped SNPs per block
     bool recomputeEigen;
@@ -694,6 +695,7 @@ public:
     
     map<SnpInfo*, vector<SnpInfo*> > LDmap;
     vector<TgsWorkset> tgsWorksets;
+    vector<vector<TgsWorkset> > tgsWorksetsByBlock;
     
     //////// ld block begin ///////
      vector<LDBlockInfo *> ldBlockInfoVec;
@@ -764,6 +766,7 @@ public:
         lowRankModel = false;
         overlapLdmEigen = false;
         phasedTiledLdmEigen = false;
+        removeSkepticalSnps = true;
         tileGroupSize = 1;
         recomputeEigen = false;
         gwasScalarMode = GwasScalarMode::LeastSquares;
@@ -906,7 +909,7 @@ public:
     void mergeMultiEigenLDMatrices(const string & infoFile, const string &filename, const string LDmatType);
 
     //////////// Step 2.2 Build multiple maps
-    void buildMMEeigen(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale, const int quantizedBits = 0, const bool q8Entropy = false); // for eigen decomposition
+    void buildMMEeigen(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale, const int quantizedBits = 0, const bool q8Entropy = false, const bool makeHeldoutGwasValidation = false); // for eigen decomposition
     void buildMMEeigenBivariate(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale); // for bivariate eigen decomposition
     void includeMatchedBlocks(void);
     /** Rebuild keptLdBlockInfoVec, ldblock2gwasSnpMap, and per-SNP blockIdx after changing LDBlockInfo::kept. */
@@ -938,6 +941,7 @@ public:
     void getLDfromEigenMatrix(const string &eigenMatrixFile, const float rsqThreshold, const string &title);
     
     void inputPairwiseLD(const string &ldfile, const float rsqThreshold);
+    void outputPairwiseLDBinAsText(const string &ldfile, const string &outfile);
     void inputLDfriends(const string &ldfriendFile);
     void getLDfriends(const string &ldfile, const float rsqThreshold, const string &title);
     
@@ -981,7 +985,7 @@ public:
                                            VectorXi &remapOut, vector<unsigned> &keptLocalOut, bool *outUsedEigenRecon);
 
     void convertToBlockTriangularMatrix(const string &dirname, const bool writeLdmTxt, const string &title);
-    void outputLDfriends(const MatrixXf &ldm, const LDBlockInfo *blockInfo, const string &outDirname);
+    void outputLDfriends(const MatrixXf &ldm, const LDBlockInfo *blockInfo, const string &outDirname, const bool writeText = false);
     
     void calcMarginalEnrichmentPermute(const string &paramStr, const string &title);
     void calcMarignalEnrichmentJackknife(const string &paramStr, const string &title);

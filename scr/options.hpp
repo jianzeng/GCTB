@@ -86,8 +86,8 @@ public:
     bool estimatePiNDC;  // for XCI
     bool estimatePiGxE;  // for XCI
     bool estimateScale;
-    bool writeBinPosterior;
-    bool writeTxtPosterior;
+    bool writeBinPosterior;  // sparse binary MCMC samples for SNP effects
+    bool writeTxtPosterior;  // text MCMC samples for model parameters
     bool outputResults;
     bool multiLDmat;
     bool multiThreadEigen;
@@ -108,13 +108,15 @@ public:
     bool twoStageModel;  // two-step approach for estimating X-chr dosage model and G by sex
     bool binSnp;  // bin SNPs
     bool robustMode;  // use the robust parameterisation in SBayes models
+    bool removeSkepticalSnps;  // zero/skip skeptical SNPs detected during SBayes MCMC
     bool perSnpGV;
     bool mergeLdm;
     bool imputeSummary;
     /// Optional SNP ID list (one ID per line; # comments): do not alter b/se/N for these SNPs after GWAS read (outlier-N filter, N imputation, LD imputation).
     string keepSumstatIntactFile;
     bool nDistAuto;  // automatically determine the number of mixture distributions
-    bool nDistAutoByPred;  // if true with nDistAuto, select K by pseudo CV prediction accuracy (else heritability)
+    bool nDistAutoByPred;  // if true with nDistAuto, select K by held-out marginal-effect prediction (else heritability)
+    bool eigenCutoffByPred;  // if true, tune eigen cutoff by held-out GWAS effect prediction (else pseudo summary validation)
     bool writeWandQ; // output w and Q in text format
     bool estimateRsqEnrich;  // estimate prediction R2 enrichment
     GwasScalarMode gwasScalarMode;  // --gwas-scalar: effect scaling for summary-data GWAS (see Data::gwasScalarMode)
@@ -284,12 +286,14 @@ public:
         twoStageModel           = false;
         binSnp                  = false;
         robustMode              = false;
+        removeSkepticalSnps     = true;
         perSnpGV                = false;
         mergeLdm                = false;
         imputeSummary           = false;
         keepSumstatIntactFile   = "";
         nDistAuto               = false;
         nDistAutoByPred         = false;
+        eigenCutoffByPred       = false;
         writeWandQ              = false;
         estimateRsqEnrich       = false;
         gwasScalarMode          = GwasScalarMode::LeastSquares;

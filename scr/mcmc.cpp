@@ -344,19 +344,19 @@ void MCMC::initTxtFile(const vector<Parameter*> &paramVec, const string &title){
 }
 
 vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin,
-                                           const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
+                                           const string &title, const bool writeSnpMcmcBin, const bool writeParamMcmcTxt){
     vector<McmcSamples*> mcmcSampleVec;
     for (unsigned i=0; i<model.paramSetVec.size(); ++i) {
         ParamSet *parSet = model.paramSetVec[i];
         McmcSamples *mcmcSamples;
         if (parSet->label.find("SnpEffects") != string::npos) {
-            if (writeBinPosterior) {
+            if (writeSnpMcmcBin) {
                 mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "do_not_store", "bin", title);
             } else {
                 mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "do_not_store", "no_output", title);
             }
         } else {
-            if (writeTxtPosterior && !skipPosteriorTextOutput(parSet->label)) {
+            if (writeParamMcmcTxt && !skipPosteriorTextOutput(parSet->label)) {
                 mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "do_not_store", "txt", title);
             } else {
                 mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "do_not_store", "no_output", title);
@@ -366,11 +366,11 @@ vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned nu
     }
     for (unsigned i=0; i<model.paramVec.size(); ++i) {
         Parameter *par = model.paramVec[i];
-        const string outputMode = (writeTxtPosterior && !skipPosteriorTextOutput(par->label)) ? "txt_combine_others" : "no_output";
+        const string outputMode = (writeParamMcmcTxt && !skipPosteriorTextOutput(par->label)) ? "txt_combine_others" : "no_output";
         McmcSamples *mcmcSamples = new McmcSamples(par->label, numChains, chainLength, burnin, thin, 1, "do_not_store", outputMode, title);
         mcmcSampleVec.push_back(mcmcSamples);
     }
-    if (writeTxtPosterior) initTxtFile(model.paramVec, title);
+    if (writeParamMcmcTxt) initTxtFile(model.paramVec, title);
     return mcmcSampleVec;
 }
 
@@ -577,7 +577,8 @@ void MCMC::printSnpAnnoMembership(const vector<ParamSet *> &paramSetToPrint, con
 }
 
 vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const bool print,
-                               const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior){
+                               const unsigned outputFreq, const string &title, const bool writeSnpMcmcBin, const bool writeParamMcmcTxt,
+                               const bool printFinalSummary){
     int savedEigenThreads = Eigen::nbThreads();
 #ifdef _OPENMP
     if (omp_get_max_threads() > 1) {
@@ -593,14 +594,14 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
         cout << "  Burn-in: " << burnin << " iterations" << endl << endl;
     }
     
-    if (writeBinPosterior || writeTxtPosterior) {
+    if (writeSnpMcmcBin || writeParamMcmcTxt) {
         if (!Gadget::directoryExist(title + ".mcmcsamples")){
             Gadget::createDirectory(title + ".mcmcsamples");
             if (print) cout << "  Created directory [" << title << ".mcmcsamples] to store MCMC samples.\n\n";
         }
     }
 
-    vector<McmcSamples*> mcmcSampleVec = initMcmcSamples(model, numChains, chainLength, burnin, thin, title, writeBinPosterior, writeTxtPosterior);
+    vector<McmcSamples*> mcmcSampleVec = initMcmcSamples(model, numChains, chainLength, burnin, thin, title, writeSnpMcmcBin, writeParamMcmcTxt);
     Stat::logRngCheckpoint("MCMC_after_init_samples");
     
     Gadget::Timer timer;
@@ -620,7 +621,7 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
         
         collectSamples(model, mcmcSampleVec, thisIter);
         
-        if (writeBinPosterior || writeTxtPosterior) outputSamples(mcmcSampleVec, numChains);
+        if (writeSnpMcmcBin || writeParamMcmcTxt) outputSamples(mcmcSampleVec, numChains);
         if (numChains > 1 && thisIter == chainLength) computeGelmanRubinStat(mcmcSampleVec);
         
         setAction(model);
@@ -643,9 +644,11 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
     
     if (print) {
         cout << "\nMCMC cycles completed." << endl;
-        printSummary(model.paramToPrint, mcmcSampleVec, numChains, title + ".parRes");
-        printSetSummary(model.paramSetToPrint, mcmcSampleVec, numChains, title + ".parSetRes", title + ".enrich");
-        printSnpAnnoMembership(model.paramSetToPrint, mcmcSampleVec, title + ".snpAnnoMembership");
+        if (printFinalSummary) {
+            printSummary(model.paramToPrint, mcmcSampleVec, numChains, title + ".parRes");
+            printSetSummary(model.paramSetToPrint, mcmcSampleVec, numChains, title + ".parSetRes", title + ".enrich");
+            printSnpAnnoMembership(model.paramSetToPrint, mcmcSampleVec, title + ".snpAnnoMembership");
+        }
     }
 
     Stat::logRngCheckpoint("MCMC_run_exit");

@@ -150,7 +150,7 @@ public:
     
     void initTxtFile(const vector<Parameter*> &paramVec, const string &title);
     vector<McmcSamples*> initMcmcSamples(const Model &model, const unsigned numChains, const unsigned chainLength, const unsigned burnin,
-                                         const unsigned thin, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior);
+                                         const unsigned thin, const string &title, const bool writeSnpMcmcBin, const bool writeParamMcmcTxt);
     void collectSamples(const Model &model, vector<McmcSamples*> &mcmcSampleVec, const unsigned iteration);
     void outputSamples(vector<McmcSamples*> &mcmcSampleVec, const unsigned numChains);
     void computeGelmanRubinStat(vector<McmcSamples*> &mcmcSampleVec);
@@ -165,7 +165,8 @@ public:
     }
 
     vector<McmcSamples*> run(Model &model, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const bool print,
-                             const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior);
+                             const unsigned outputFreq, const string &title, const bool writeSnpMcmcBin, const bool writeParamMcmcTxt,
+                             const bool printFinalSummary = true);
     void convergeDiagGelmanRubin(const Model &model, vector<vector<McmcSamples*> > &mcmcSampleVecChain, const string &filename);
     void setAction(const Model &model);
 };

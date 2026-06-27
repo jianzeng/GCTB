@@ -15,12 +15,94 @@
 #include <stdexcept>
 #include <sstream>
 #include <algorithm>
+#include <stdint.h>
+#include <unordered_map>
+#include <cstring>
 #include <zlib.h>
 #ifdef _OPENMP
 #include <omp.h>
 #endif
 
 namespace {
+
+bool fileExistsAndNonEmptyLocal(const string &filename) {
+    ifstream in(filename.c_str(), ios::ate | ios::binary);
+    return in.is_open() && static_cast<long long>(in.tellg()) > 0;
+}
+
+const char PWLD_BIN_MAGIC[8] = {'G','C','T','B','P','W','L','D'};
+const uint32_t PWLD_BIN_VERSION = 2;
+
+struct PwldBinRecord {
+    uint32_t snp1;
+    uint32_t snp2;
+    float ldcor;
+};
+
+void writePwldBinHeader(FILE *out, uint64_t numSnps, uint64_t numRecords, const vector<string> &snpIDs) {
+    if (snpIDs.size() != numSnps) {
+        throw("Error: internal mismatch while writing binary pairwise LD SNP IDs.");
+    }
+    fwrite(PWLD_BIN_MAGIC, sizeof(char), 8, out);
+    fwrite(&PWLD_BIN_VERSION, sizeof(uint32_t), 1, out);
+    fwrite(&numSnps, sizeof(uint64_t), 1, out);
+    fwrite(&numRecords, sizeof(uint64_t), 1, out);
+    for (uint64_t i = 0; i < numSnps; ++i) {
+        const string &id = snpIDs[i];
+        uint32_t len = (uint32_t)id.size();
+        fwrite(&len, sizeof(uint32_t), 1, out);
+        if (len && fwrite(id.data(), sizeof(char), len, out) != len) {
+            throw("Error: failed writing binary pairwise LD SNP ID.");
+        }
+    }
+}
+
+bool readPwldBinHeaderLocal(FILE *in, const string &filename, uint64_t &numSnps, uint64_t &numRecords, vector<string> &snpIDs) {
+    char magic[8];
+    uint32_t version = 0;
+    if (fread(magic, sizeof(char), 8, in) != 8) return false;
+    if (memcmp(magic, PWLD_BIN_MAGIC, 8) != 0) {
+        throw("Error: invalid binary pairwise LD file header in [" + filename + "].");
+    }
+    if (fread(&version, sizeof(uint32_t), 1, in) != 1 ||
+        fread(&numSnps, sizeof(uint64_t), 1, in) != 1 ||
+        fread(&numRecords, sizeof(uint64_t), 1, in) != 1) {
+        throw("Error: incomplete binary pairwise LD file header in [" + filename + "].");
+    }
+    if (version != PWLD_BIN_VERSION) {
+        throw("Error: unsupported binary pairwise LD file version in [" + filename + "]. Please regenerate .pwld.bin so SNP IDs are embedded.");
+    }
+    snpIDs.clear();
+    snpIDs.reserve(numSnps);
+    for (uint64_t i = 0; i < numSnps; ++i) {
+        uint32_t len = 0;
+        if (fread(&len, sizeof(uint32_t), 1, in) != 1) {
+            throw("Error: incomplete SNP ID table in binary pairwise LD file [" + filename + "].");
+        }
+        string id(len, '\0');
+        if (len && fread(&id[0], sizeof(char), len, in) != len) {
+            throw("Error: incomplete SNP ID in binary pairwise LD file [" + filename + "].");
+        }
+        snpIDs.push_back(id);
+    }
+    return true;
+}
+
+bool readGzLineLocal(gzFile in, string &line) {
+    line.clear();
+    char buffer[65536];
+    bool got = false;
+    while (gzgets(in, buffer, sizeof(buffer))) {
+        got = true;
+        line += buffer;
+        if (!line.empty() && line[line.size() - 1] == '\n') break;
+    }
+    if (!got) return false;
+    while (!line.empty() && (line[line.size() - 1] == '\n' || line[line.size() - 1] == '\r')) {
+        line.erase(line.size() - 1);
+    }
+    return true;
+}
 
 struct EigenNbThreadsGuard {
     int saved;
@@ -914,7 +996,7 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
         
         outputBlockLDmatrixInfo(*ldblock, outSnpfile, outldmfile);
         
-        outputLDfriends(rval, ldblock, dirname);
+        outputLDfriends(rval, ldblock, dirname, writeLdmTxt);
         
         
         if(!(i%1)) cout << " computed block " << ldblock->ID << "\r" << flush;
@@ -924,7 +1006,7 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
             if (writeLdmTxt) cout << "Written the LD matrix into file [" << outTxtfile << "]." << endl;
             cout << "Written the LD matrix SNP info into file [" << outSnpfile << "]." << endl;
             cout << "Written the LD matrix ldm info into file [" << outldmfile << "]." << endl;
-            cout << "Written the high pairwise LD correlations (rsq>0.5) into [" << pwldfilename << "]." << endl;
+            cout << "Written the high pairwise LD correlations (rsq>0.5) into [" << pwldfilename << ".gz]." << endl;
         }
     }
     
@@ -1182,7 +1264,7 @@ void Data::makeBlockLDmatrixFromEigen(const string &eigenDirname, const float ei
         
         outputBlockLDmatrixInfo(*ldblock, outSnpfile, outldmfile);
         
-        outputLDfriends(rval, ldblock, dirname);
+        outputLDfriends(rval, ldblock, dirname, writeLdmTxt);
         
         
         if(!(i%1)) cout << " computed block " << ldblock->ID << "\r" << flush;
@@ -1192,7 +1274,7 @@ void Data::makeBlockLDmatrixFromEigen(const string &eigenDirname, const float ei
             if (writeLdmTxt) cout << "Written the LD matrix into file [" << outTxtfile << "]." << endl;
             cout << "Written the LD matrix SNP info into file [" << outSnpfile << "]." << endl;
             cout << "Written the LD matrix ldm info into file [" << outldmfile << "]." << endl;
-            cout << "Written the high pairwise LD correlations (rsq>0.5) into [" << pwldfilename << "]." << endl;
+            cout << "Written the high pairwise LD correlations (rsq>0.5) into [" << pwldfilename << ".gz]." << endl;
         }
     }
     
@@ -2809,7 +2891,7 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
     EigenNbThreadsGuard eigenNbThreadsGuard;
 
     // Construct masked observed summary statistics for eigen-cutoff validation:
-    // randomly hold out 20% of SNP marginal effects, fit on the remaining 80%,
+    // randomly hold out 10% of SNP marginal effects, fit on the remaining 90%,
     // and validate against the held-out observed marginal effects.
     if (makePseudoSummary) {
         Stat::setMcmcIteration(0);
@@ -2839,7 +2921,7 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
             pseudoGwasEffectVal[i].setZero(block->numSnpInBlock);
             unsigned numHeldOut = 0;
             for (int j = 0; j < block->numSnpInBlock; ++j) {
-                if (Stat::ranf() < 0.20f) {
+                if (Stat::ranf() < 0.10f) {
                     pseudoGwasEffectTrn[i][j] = 0.0f;
                     pseudoGwasEffectVal[i][j] = GWASeffects[i][j];
                     SnpInfo *snp = block->snpInfoVec[j];
@@ -3102,7 +3184,7 @@ vector<LDBlockInfo*> Data::makeKeptLDBlockInfoVec(const vector<LDBlockInfo*> &ld
     return keptLDBlock;
 }
 
-void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale, const int quantizedBits, const bool q8Entropy){
+void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const float eigenCutoff, const bool noscale, const int quantizedBits, const bool q8Entropy, const bool makeHeldoutGwasValidation){
     includeMatchedBlocks();
     if (overlapLdmEigen && quantizedBits) {
         throw("Error: phased tiled/overlap eigen LD is supported only for float eigen data in v1; q8/q16 is not supported yet.");
@@ -3142,8 +3224,7 @@ void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const 
     ldBlockInfoMap.clear();
 //    snpInfoMap.clear();  // free memory from snpInfoMap which is no longer needed
     
-    readEigenMatrixBinaryFileAndMakeWandQ(dirname, eigenCutoff, gwasEffectInBlock, nGWASblock, noscale, true, quantizedBits, q8Entropy);
-    //constructPseudoSummaryData();  // legacy pseudo-validation path; current cutoff tuning uses masked observed marginal effects
+    readEigenMatrixBinaryFileAndMakeWandQ(dirname, eigenCutoff, gwasEffectInBlock, nGWASblock, noscale, makeHeldoutGwasValidation, quantizedBits, q8Entropy);
     //if (numIncdSnps!=0) constructWandQ(gwasEffectInBlock, numKeptInds);
     //if (numIncdSnps!=0) constructWandQ(eigenCutoff, noscale);
 
@@ -3548,6 +3629,96 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
     }
         
     unsigned nldm = blockIdxSet.size();
+    if (!nldm) {
+        string msg = "no valid block IDs were found in block-specific SNP info files in folder [" + dirname + "].";
+        if (print) throw("Error: " + msg);
+        else {
+            cout << "Warning: " << msg << endl;
+            return;
+        }
+    }
+
+    unsigned firstBlock = *blockIdxSet.begin();
+    unsigned lastBlock = *blockIdxSet.rbegin();
+    vector<unsigned> missingBlocks;
+    for (unsigned blockID = firstBlock; blockID <= lastBlock; ++blockID) {
+        if (!blockIdxSet.count(blockID)) missingBlocks.push_back(blockID);
+    }
+    if (!missingBlocks.empty()) {
+        string msg = "block-specific info files are incomplete in [" + dirname + "]; missing block ID(s)";
+        for (unsigned i = 0; i < missingBlocks.size() && i < 20; ++i)
+            msg += " " + to_string(missingBlocks[i]);
+        if (missingBlocks.size() > 20)
+            msg += " ...";
+        msg += ". Please wait until all per-block jobs finish before merging.";
+        if (print) throw("Error: " + msg);
+        else {
+            cout << "Warning: " << msg << endl;
+            return;
+        }
+    }
+
+    for (set<unsigned>::iterator chk = blockIdxSet.begin(); chk != blockIdxSet.end(); ++chk) {
+        string snpInfoFile = dirname + "/block" + to_string(*chk) + ".snp.info";
+        string ldmInfoFile = dirname + "/block" + to_string(*chk) + ".ldm.info";
+        ifstream snpIn(snpInfoFile.c_str());
+        ifstream ldmIn(ldmInfoFile.c_str());
+        if (!snpIn || !ldmIn) {
+            string msg = "missing paired block-specific info file(s) for block " + to_string(*chk)
+                + " in [" + dirname + "]. Expected both block*.snp.info and block*.ldm.info.";
+            if (print) throw("Error: " + msg);
+            else {
+                cout << "Warning: " << msg << endl;
+                return;
+            }
+        }
+
+        string line;
+        unsigned snpLines = 0;
+        getline(snpIn, line);
+        while (getline(snpIn, line)) {
+            if (!line.empty()) ++snpLines;
+        }
+        if (!snpLines) {
+            string msg = "block" + to_string(*chk) + ".snp.info has no SNP records; block job may still be writing.";
+            if (print) throw("Error: " + msg);
+            else {
+                cout << "Warning: " << msg << endl;
+                return;
+            }
+        }
+
+        unsigned ldmLines = 0;
+        int snpNum = -1;
+        string header;
+        getline(ldmIn, header);
+        while (getline(ldmIn, line)) {
+            if (line.empty()) continue;
+            ++ldmLines;
+            std::istringstream iss(line);
+            string id, startSnpID, endSnpID;
+            int chr, blockStart, blockEnd;
+            if (!(iss >> id >> chr >> blockStart >> startSnpID >> blockEnd >> endSnpID >> snpNum)) {
+                string msg = "cannot parse ldm info for block " + to_string(*chk) + " in [" + ldmInfoFile + "].";
+                if (print) throw("Error: " + msg);
+                else {
+                    cout << "Warning: " << msg << endl;
+                    return;
+                }
+            }
+        }
+        if (ldmLines != 1 || snpNum < 0 || (unsigned)snpNum != snpLines) {
+            string msg = "inconsistent block-specific info for block " + to_string(*chk)
+                + ": snp.info has " + to_string(snpLines)
+                + " SNP records but ldm.info reports " + to_string((long long)snpNum)
+                + ". Block job may still be writing.";
+            if (print) throw("Error: " + msg);
+            else {
+                cout << "Warning: " << msg << endl;
+                return;
+            }
+        }
+    }
     
     cout << "Merging " << nldm << " LD matrices info files" << endl;
     
@@ -3571,20 +3742,36 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
     string outSnpInfoFile = dirname + "/snp.info";
     string outldmInfoFile = dirname + "/ldm.info";
     string outpwldFile    = dirname + "/rsq0.5.pwld";
+    string outpwldGzFile  = outpwldFile + ".gz";
 
     {
         ifstream existingLdm(outldmInfoFile.c_str());
         if (existingLdm) {
             string line;
             unsigned existingBlockCount = 0;
+            set<unsigned> existingBlockIdxSet;
             getline(existingLdm, line);
             while (getline(existingLdm, line)) {
-                if (!line.empty()) ++existingBlockCount;
+                if (line.empty()) continue;
+                ++existingBlockCount;
+                std::istringstream iss(line);
+                string id;
+                if (iss >> id) {
+                    unsigned blockID = (unsigned)atoi(id.c_str());
+                    if (blockID) existingBlockIdxSet.insert(blockID);
+                }
             }
-            if (existingBlockCount > nldm) {
+            bool newCoversExisting = true;
+            for (set<unsigned>::iterator oldIt = existingBlockIdxSet.begin(); oldIt != existingBlockIdxSet.end(); ++oldIt) {
+                if (!blockIdxSet.count(*oldIt)) {
+                    newCoversExisting = false;
+                    break;
+                }
+            }
+            if (existingBlockCount > nldm || !newCoversExisting) {
                 string msg = "existing combined ldm.info has " + to_string(existingBlockCount)
-                    + " blocks but only " + to_string(nldm)
-                    + " block-specific info files remain; keeping the existing combined info to avoid dropping blocks.";
+                    + " blocks, but the currently visible block-specific info files cover " + to_string(nldm)
+                    + " block(s) and do not contain all existing merged block IDs; keeping the existing combined info to avoid dropping blocks.";
                 if (print) throw("Error: " + msg);
                 else {
                     cout << "Warning: " << msg << endl;
@@ -3594,17 +3781,17 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
         }
     }
 
-    // If a combined rsq0.5.pwld already exists (e.g. built across blocks elsewhere), merge only
-    // snp.info / ldm.info from per-block files and keep the existing pwld (do not require block*.rsq0.5.pwld).
+    // If a combined rsq0.5.pwld.gz already exists (e.g. built across blocks elsewhere),
+    // merge only snp.info / ldm.info from per-block files and keep the existing pwld source
+    // (do not require block*.rsq0.5.pwld).
     bool useExistingCombinedPwld = false;
-    {
-        ifstream ex(outpwldFile.c_str(), ios::ate | ios::binary);
-        if (ex.is_open() && static_cast<long long>(ex.tellg()) > 0) {
-            useExistingCombinedPwld = true;
-        }
+    string existingCombinedPwldFile = outpwldFile;
+    if (fileExistsAndNonEmptyLocal(outpwldGzFile)) {
+        useExistingCombinedPwld = true;
+        existingCombinedPwldFile = outpwldGzFile;
     }
     if (useExistingCombinedPwld) {
-        cout << "Found existing combined pairwise LD file [" + outpwldFile + "]; merging snp/ldm info only and keeping this pwld file." << endl;
+        cout << "Found existing combined pairwise LD file [" + existingCombinedPwldFile + "]; merging snp/ldm info only and keeping this pwld file." << endl;
     }
 
     ofstream out1(outSnpInfoFile.c_str());
@@ -3640,13 +3827,13 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
         % "NumSnps";
     }
 
-    ofstream out3;
+    gzFile out3gz = NULL;
     if (!useExistingCombinedPwld) {
-        out3.open(outpwldFile.c_str());
-        out3 << boost::format("%12s %12s %12s\n")
-        % "SNP1"
-        % "SNP2"
-        % "LDcorrelation";
+        out3gz = gzopen(outpwldGzFile.c_str(), "wb");
+        if (!out3gz) throw("Error: cannot open file [" + outpwldGzFile + "] to write.");
+        gzprintf(out3gz, "%12s %12s %12s\n", "SNP1", "SNP2", "LDcorrelation");
+        remove(outpwldFile.c_str());
+        remove((outpwldFile + ".bin").c_str());
     }
 
     unsigned snpIdx = 0;
@@ -3739,20 +3926,65 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
         
         // read per-block pwld only when building merged rsq0.5.pwld (not when keeping existing combined file)
         if (!useExistingCombinedPwld) {
-            ifstream in3(pwldFile.c_str());
-            if (!in3) {
-                cout << "Warning: can not open the file [" + pwldFile + "] to read; skipping pairwise LD for this block." << endl;
-            } else {
-                float ldcor;
-                string snp1ID, snp2ID;
-                getline(in3, header);
-                while (in3 >> snp1ID >> snp2ID >> ldcor) {
-                    out3 << boost::format("%12s %12s %12.6f\n")
-                    % snp1ID
-                    % snp2ID
-                    % ldcor;
+            string pwldGzFile = pwldFile + ".gz";
+            string pwldBinFile = pwldFile + ".bin";
+            if (fileExistsAndNonEmptyLocal(pwldGzFile)) {
+                gzFile in3gz = gzopen(pwldGzFile.c_str(), "rb");
+                if (!in3gz) throw("Error: can not open the file [" + pwldGzFile + "] to read.");
+                string line;
+                readGzLineLocal(in3gz, line);
+                while (readGzLineLocal(in3gz, line)) {
+                    if (line.empty()) continue;
+                    std::istringstream iss(line);
+                    float ldcor;
+                    string snp1ID, snp2ID;
+                    if (!(iss >> snp1ID >> snp2ID >> ldcor)) continue;
+                    map<string, int>::iterator idx1 = snpID2index.find(snp1ID);
+                    map<string, int>::iterator idx2 = snpID2index.find(snp2ID);
+                    if (idx1 == snpID2index.end() || idx2 == snpID2index.end()) continue;
+                    gzprintf(out3gz, "%12s %12s %12.6f\n", snp1ID.c_str(), snp2ID.c_str(), ldcor);
                 }
-                in3.close();
+                gzclose(in3gz);
+            } else if (fileExistsAndNonEmptyLocal(pwldBinFile)) {
+                FILE *in3bin = fopen(pwldBinFile.c_str(), "rb");
+                if (!in3bin) throw("Error: can not open the file [" + pwldBinFile + "] to read.");
+                uint64_t fileNumSnps = 0, fileNumRecords = 0;
+                vector<string> fileSnpIDs;
+                readPwldBinHeaderLocal(in3bin, pwldBinFile, fileNumSnps, fileNumRecords, fileSnpIDs);
+                for (uint64_t r = 0; r < fileNumRecords; ++r) {
+                    PwldBinRecord inrec;
+                    if (fread(&inrec, sizeof(PwldBinRecord), 1, in3bin) != 1) {
+                        fclose(in3bin);
+                        throw("Error: incomplete binary pairwise LD record in [" + pwldBinFile + "].");
+                    }
+                    if (inrec.snp1 >= fileSnpIDs.size() || inrec.snp2 >= fileSnpIDs.size()) {
+                        fclose(in3bin);
+                        throw("Error: SNP index out of range in binary pairwise LD file [" + pwldBinFile + "].");
+                    }
+                    const string &snp1ID = fileSnpIDs[inrec.snp1];
+                    const string &snp2ID = fileSnpIDs[inrec.snp2];
+                    map<string, int>::iterator idx1 = snpID2index.find(snp1ID);
+                    map<string, int>::iterator idx2 = snpID2index.find(snp2ID);
+                    if (idx1 == snpID2index.end() || idx2 == snpID2index.end()) continue;
+                    gzprintf(out3gz, "%12s %12s %12.6f\n", snp1ID.c_str(), snp2ID.c_str(), inrec.ldcor);
+                }
+                fclose(in3bin);
+            } else {
+                ifstream in3(pwldFile.c_str());
+                if (!in3) {
+                    cout << "Warning: can not open the file [" + pwldFile + "] or [" + pwldBinFile + "] to read; skipping pairwise LD for this block." << endl;
+                } else {
+                    float ldcor;
+                    string snp1ID, snp2ID;
+                    getline(in3, header);
+                    while (in3 >> snp1ID >> snp2ID >> ldcor) {
+                        map<string, int>::iterator idx1 = snpID2index.find(snp1ID);
+                        map<string, int>::iterator idx2 = snpID2index.find(snp2ID);
+                        if (idx1 == snpID2index.end() || idx2 == snpID2index.end()) continue;
+                        gzprintf(out3gz, "%12s %12s %12.6f\n", snp1ID.c_str(), snp2ID.c_str(), ldcor);
+                    }
+                    in3.close();
+                }
             }
         }
 
@@ -3762,15 +3994,15 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
     out1.close();
     out2.close();
     if (!useExistingCombinedPwld) {
-        out3.close();
+        gzclose(out3gz);
     }
 
     cout << "Written " << snpIdx << " SNPs info into file [" + outSnpInfoFile + "]." << endl;
     cout << "Written " << ldmIdx << " LDMs info into file [" + outldmInfoFile + "]." << endl;
     if (useExistingCombinedPwld) {
-        cout << "Left pairwise LD file unchanged: [" + outpwldFile + "]." << endl;
+        cout << "Left pairwise LD file unchanged: [" + existingCombinedPwldFile + "]." << endl;
     } else {
-        cout << "Written pairwise LD correlations (rsq>0.5) into file [" + outpwldFile + "]." << endl;
+        cout << "Written pairwise LD correlations (rsq>0.5) into file [" + outpwldGzFile + "]." << endl;
     }
 }
 
@@ -3872,6 +4104,8 @@ void Data::constructPseudoSummaryData(){
     VectorXf n_val(numKeptLDBlocks);
     pseudoGwasNtrnBlock.resize(numKeptLDBlocks);
     b_val.resize(numIncdSnps);
+    VectorXf emptyMask;
+    b_val_mask.swap(emptyMask);
 
     for (unsigned i=0; i<numKeptLDBlocks; ++i) {
         LDBlockInfo* block = keptLdBlockInfoVec[i];
@@ -3885,8 +4119,21 @@ void Data::constructPseudoSummaryData(){
         for (unsigned j=0; j<size; ++j) {
             rnd[j] = Stat::snorm();
         }
-        
-        pseudoGwasEffectTrn[i] = gwasEffectInBlock[i] + sqrt(1.0/n_trn[i] - 1.0/nGWASblock[i]) * eigenVecLdBlock[i] * (eigenValLdBlock[i].array().sqrt().matrix().asDiagonal() * rnd);
+
+        VectorXf noise;
+        if (i < Qblocks.size() && Qblocks[i].size()) {
+            noise = Qblocks[i].transpose() * rnd;
+        } else if (i < quantizedEigenBlocks.size() && quantizedEigenBlocks[i].active()) {
+            MatrixXf Qtmp;
+            quantizedEigenBlocks[i].materializeQ(Qtmp);
+            noise = Qtmp.transpose() * rnd;
+        } else if (i < eigenVecLdBlock.size() && eigenVecLdBlock[i].size()) {
+            noise = eigenVecLdBlock[i] * (eigenValLdBlock[i].array().sqrt().matrix().asDiagonal() * rnd);
+        } else {
+            throw("Error: cannot construct pseudo summary data because neither Q nor eigenvectors are available for LD block " + block->ID + ".");
+        }
+
+        pseudoGwasEffectTrn[i] = gwasEffectInBlock[i] + sqrt(1.0/n_trn[i] - 1.0/nGWASblock[i]) * noise;
 
         pseudoGwasEffectVal[i] = nGWASblock[i]/n_val[i] * gwasEffectInBlock[i] - n_trn[i]/n_val[i] * pseudoGwasEffectTrn[i];
         b_val.segment(block->startSnpIdx, block->numSnpInBlock) = pseudoGwasEffectVal[i];
@@ -4722,7 +4969,7 @@ void Data::resizeBlockLDmatrixAndDoEigenDecomposition(const string &inDirname, c
         
         outputBlockLDmatrixInfo(*blockInfo, outSnpfile, outldmfile);
         
-        outputLDfriends(ldm_resized, blockInfo, outDirname);
+        outputLDfriends(ldm_resized, blockInfo, outDirname, writeLdmTxt);
         
         if(!(i%1)) cout << " computed block " << blockInfo->ID << "\r" << flush;
     }
@@ -4733,7 +4980,7 @@ void Data::resizeBlockLDmatrixAndDoEigenDecomposition(const string &inDirname, c
     if (numKeptLDBlocks == 1) {
         cout << "Written the LD matrix data into file [" << outDirname << "/block" << keptLdBlockInfoVec[0]->ID << ".eigen.bin]." << endl;
         if (writeLdmTxt) cout << "Written the LD matrix data into file [" << outDirname << "/block" << keptLdBlockInfoVec[0]->ID << ".eigen.txt]." << endl;
-        cout << "Written the high pairwise LD correlations (rsq>0.5) into [" << outDirname << "/block" << keptLdBlockInfoVec[0]->ID << ".rsq0.5.pwld]." << endl;
+        cout << "Written the high pairwise LD correlations (rsq>0.5) into [" << outDirname << "/block" << keptLdBlockInfoVec[0]->ID << ".rsq0.5.pwld.gz]." << endl;
     } else {
         cout << "Written the LD matrix data into file [" << outDirname << "/block*.eigen.bin]." << endl;
         if (writeLdmTxt) cout << "Written the LD matrix data into file [" << outDirname << "/block*.eigen.txt]." << endl;
@@ -4744,14 +4991,24 @@ void Data::resizeBlockLDmatrixAndDoEigenDecomposition(const string &inDirname, c
 
 void Data::readBlockLDmatrix(const string &dirname, const string &blockID, const int32_t blockSize, MatrixXf &ldm) {
     string infile = dirname + "/block" + blockID + ".ldm.bin";
+    int quantBits = 0;
 
     // Get file size
     struct stat stat_buf;
     if (stat(infile.c_str(), &stat_buf) != 0) {
-        throw("Error: cannot stat the file [" + infile + "]");
+        string q16file = dirname + "/block" + blockID + ".ldm.q16.bin";
+        string q8file = dirname + "/block" + blockID + ".ldm.q8.bin";
+        if (stat(q16file.c_str(), &stat_buf) == 0) {
+            infile = q16file;
+            quantBits = 16;
+        } else if (stat(q8file.c_str(), &stat_buf) == 0) {
+            infile = q8file;
+            quantBits = 8;
+        } else {
+            throw("Error: cannot stat the file [" + infile + "] or quantized LD files [" + q16file + ", " + q8file + "]");
+        }
     }
     size_t file_bytes = stat_buf.st_size;
-    size_t n_floats = file_bytes / sizeof(float);
 
     // Expected sizes
     size_t n_full = (size_t)blockSize * blockSize;
@@ -4764,31 +5021,79 @@ void Data::readBlockLDmatrix(const string &dirname, const string &blockID, const
 
     ldm.setZero(blockSize, blockSize);
 
-    if (n_floats == n_full) {
-        // Full square matrix
-        if (fread(ldm.data(), sizeof(float), n_full, fp) != n_full) {
-            throw("Error reading full matrix from " + infile);
+    if (quantBits) {
+        const size_t expected_bytes = n_lower_tri * (quantBits == 8 ? sizeof(int8_t) : sizeof(int16_t));
+        if (file_bytes != expected_bytes) {
+            fclose(fp);
+            throw("Unrecognized quantized LD matrix format in " + infile +
+                  ": got " + to_string((long long)file_bytes) + " bytes, but expected " +
+                  to_string((long long)expected_bytes) + ".");
         }
-    } else if (n_floats == n_lower_tri) {
-        // Lower triangular matrix
-        vector<float> buffer(n_lower_tri);
-        if (fread(buffer.data(), sizeof(float), n_lower_tri, fp) != n_lower_tri) {
-            throw("Error reading lower-triangular matrix from " + infile);
-        }
-
-        size_t idx = 0;
-        for (int i = 0; i < blockSize; ++i) {
-            for (int j = 0; j <= i; ++j) {
-                ldm(i, j) = buffer[idx];
-                if (i != j) ldm(j, i) = buffer[idx];
-                ++idx;
+        const float invBound = quantBits == 8 ? (1.0f / 127.0f) : (1.0f / 32767.0f);
+        if (quantBits == 8) {
+            vector<int8_t> buffer(n_lower_tri);
+            if (fread(buffer.data(), sizeof(int8_t), n_lower_tri, fp) != n_lower_tri) {
+                fclose(fp);
+                throw("Error reading quantized LD matrix from " + infile);
+            }
+            size_t idx = 0;
+            for (int i = 0; i < blockSize; ++i) {
+                for (int j = 0; j <= i; ++j) {
+                    float value = float(buffer[idx]) * invBound;
+                    ldm(i, j) = value;
+                    if (i != j) ldm(j, i) = value;
+                    ++idx;
+                }
+            }
+        } else {
+            vector<int16_t> buffer(n_lower_tri);
+            if (fread(buffer.data(), sizeof(int16_t), n_lower_tri, fp) != n_lower_tri) {
+                fclose(fp);
+                throw("Error reading quantized LD matrix from " + infile);
+            }
+            size_t idx = 0;
+            for (int i = 0; i < blockSize; ++i) {
+                for (int j = 0; j <= i; ++j) {
+                    float value = float(buffer[idx]) * invBound;
+                    ldm(i, j) = value;
+                    if (i != j) ldm(j, i) = value;
+                    ++idx;
+                }
             }
         }
     } else {
-        fclose(fp);
-        throw("Unrecognized matrix format in " + infile +
-              ": got " + to_string(n_floats) + " elements, but expected " +
-              to_string(n_full) + " (full) or " + to_string(n_lower_tri) + " (lower-triangular).");
+        if (file_bytes % sizeof(float) != 0) {
+            fclose(fp);
+            throw("Unrecognized matrix format in " + infile + ": file size is not a multiple of float size.");
+        }
+        size_t n_floats = file_bytes / sizeof(float);
+
+        if (n_floats == n_full) {
+        // Full square matrix
+            if (fread(ldm.data(), sizeof(float), n_full, fp) != n_full) {
+                throw("Error reading full matrix from " + infile);
+            }
+        } else if (n_floats == n_lower_tri) {
+            // Lower triangular matrix
+            vector<float> buffer(n_lower_tri);
+            if (fread(buffer.data(), sizeof(float), n_lower_tri, fp) != n_lower_tri) {
+                throw("Error reading lower-triangular matrix from " + infile);
+            }
+
+            size_t idx = 0;
+            for (int i = 0; i < blockSize; ++i) {
+                for (int j = 0; j <= i; ++j) {
+                    ldm(i, j) = buffer[idx];
+                    if (i != j) ldm(j, i) = buffer[idx];
+                    ++idx;
+                }
+            }
+        } else {
+            fclose(fp);
+            throw("Unrecognized matrix format in " + infile +
+                  ": got " + to_string(n_floats) + " elements, but expected " +
+                  to_string(n_full) + " (full) or " + to_string(n_lower_tri) + " (lower-triangular).");
+        }
     }
 
     fclose(fp);
@@ -4851,7 +5156,7 @@ void Data::convertToBlockTriangularMatrix(const string &inDirname, const bool wr
 
         outputBlockLDmatrixInfo(*blockInfo, outSnpfile, outldmfile);
         
-        outputLDfriends(ldm, blockInfo, outDirname);
+        outputLDfriends(ldm, blockInfo, outDirname, writeLdmTxt);
        
         if(!(i%1)) cout << " computed block " << blockInfo->ID << "\r" << flush;
 
@@ -4864,7 +5169,7 @@ void Data::convertToBlockTriangularMatrix(const string &inDirname, const bool wr
 }
 
 
-void Data::outputLDfriends(const MatrixXf &ldm, const LDBlockInfo *blockInfo, const string &outDirname){
+void Data::outputLDfriends(const MatrixXf &ldm, const LDBlockInfo *blockInfo, const string &outDirname, const bool writeText){
     // find LD friends for each SNP with LD rsq > threshold
     float rsqThreshold = 0.5;
     int blockSize = ldm.rows();
@@ -4882,12 +5187,13 @@ void Data::outputLDfriends(const MatrixXf &ldm, const LDBlockInfo *blockInfo, co
     }
     
     string pwldfilename = outDirname + "/block" + blockInfo->ID + ".rsq0.5.pwld";  // pairwise LD file
-    ofstream out(pwldfilename.c_str());
+    string gzPwldFilename = pwldfilename + ".gz";
+    gzFile gzout = gzopen(gzPwldFilename.c_str(), "wb");
+    if (!gzout) throw("Error: cannot open file [" + gzPwldFilename + "] to write.");
+    gzprintf(gzout, "%12s %12s %12s\n", "SNP1", "SNP2", "LDcorrelation");
 
-    out << boost::format("%12s %12s %12s\n")
-    % "SNP1"
-    % "SNP2"
-    % "LDcorrelation";
+    remove(pwldfilename.c_str());
+    remove((pwldfilename + ".bin").c_str());
     
     for (unsigned j=0; j<blockInfo->numSnpInBlock; ++j) {
         unsigned numLDfrd = ldSnpIdxBlk[j].size();
@@ -4896,12 +5202,9 @@ void Data::outputLDfriends(const MatrixXf &ldm, const LDBlockInfo *blockInfo, co
         for (unsigned k=0; k<numLDfrd; ++k) {
             SnpInfo *snpk = blockInfo->snpInfoVec[ldSnpIdxBlk[j][k]];
             
-            out << boost::format("%12s %12s %12.6f\n")
-            % snpj->ID
-            % snpk->ID
-            % ldcorBlk[j][k];
+            gzprintf(gzout, "%12s %12s %12.6f\n", snpj->ID.c_str(), snpk->ID.c_str(), ldcorBlk[j][k]);
         }
     }
-    out.close();
+    gzclose(gzout);
 
 }

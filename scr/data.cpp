@@ -8,7 +8,12 @@
 
 #include "data.hpp"
 #include <algorithm>
+#include <cstring>
+#include <stdint.h>
+#include <sstream>
+#include <unordered_map>
 #include <unordered_set>
+#include <zlib.h>
 
 // most read file methods are adopted from GCTA with modification
 
@@ -32,6 +37,114 @@ static VectorXf makeInvSqrtDiag(const VectorXf &diag, const string &context) {
         invSqrtDiag[i] = 1.0f / sqrt(value);
     }
     return invSqrtDiag;
+}
+
+namespace {
+
+bool endsWithString(const string &value, const string &suffix) {
+    return value.size() >= suffix.size()
+        && value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+class TextLineReader {
+    bool gz;
+    ifstream in;
+    gzFile zin;
+
+public:
+    TextLineReader(const string &filename) : gz(endsWithString(filename, ".gz")), zin(NULL) {
+        if (gz) {
+            zin = gzopen(filename.c_str(), "rb");
+        } else {
+            in.open(filename.c_str());
+        }
+    }
+
+    ~TextLineReader() {
+        if (zin) gzclose(zin);
+    }
+
+    bool good() const {
+        return gz ? zin != NULL : in.good();
+    }
+
+    bool getline(string &line) {
+        line.clear();
+        if (!gz) return static_cast<bool>(std::getline(in, line));
+
+        char buffer[65536];
+        bool got = false;
+        while (gzgets(zin, buffer, sizeof(buffer))) {
+            got = true;
+            line += buffer;
+            if (!line.empty() && line[line.size() - 1] == '\n') break;
+        }
+        if (!got) return false;
+        while (!line.empty() && (line[line.size() - 1] == '\n' || line[line.size() - 1] == '\r')) {
+            line.erase(line.size() - 1);
+        }
+        return true;
+    }
+};
+
+const char PWLD_BIN_MAGIC[8] = {'G','C','T','B','P','W','L','D'};
+const uint32_t PWLD_BIN_VERSION = 2;
+
+struct PwldBinRecord {
+    uint32_t snp1;
+    uint32_t snp2;
+    float ldcor;
+};
+
+void writePwldBinHeader(FILE *out, uint64_t numSnps, uint64_t numRecords, const vector<string> &snpIDs) {
+    if (snpIDs.size() != numSnps) {
+        throw("Error: internal mismatch while writing binary pairwise LD SNP IDs.");
+    }
+    fwrite(PWLD_BIN_MAGIC, sizeof(char), 8, out);
+    fwrite(&PWLD_BIN_VERSION, sizeof(uint32_t), 1, out);
+    fwrite(&numSnps, sizeof(uint64_t), 1, out);
+    fwrite(&numRecords, sizeof(uint64_t), 1, out);
+    for (uint64_t i = 0; i < numSnps; ++i) {
+        const string &id = snpIDs[i];
+        uint32_t len = (uint32_t)id.size();
+        fwrite(&len, sizeof(uint32_t), 1, out);
+        if (len && fwrite(id.data(), sizeof(char), len, out) != len) {
+            throw("Error: failed writing binary pairwise LD SNP ID.");
+        }
+    }
+}
+
+bool readPwldBinHeader(FILE *in, const string &filename, uint64_t &numSnps, uint64_t &numRecords, vector<string> &snpIDs) {
+    char magic[8];
+    uint32_t version = 0;
+    if (fread(magic, sizeof(char), 8, in) != 8) return false;
+    if (memcmp(magic, PWLD_BIN_MAGIC, 8) != 0) {
+        throw("Error: invalid binary pairwise LD file header in [" + filename + "].");
+    }
+    if (fread(&version, sizeof(uint32_t), 1, in) != 1 ||
+        fread(&numSnps, sizeof(uint64_t), 1, in) != 1 ||
+        fread(&numRecords, sizeof(uint64_t), 1, in) != 1) {
+        throw("Error: incomplete binary pairwise LD file header in [" + filename + "].");
+    }
+    if (version != PWLD_BIN_VERSION) {
+        throw("Error: unsupported binary pairwise LD file version in [" + filename + "]. Please regenerate .pwld.bin so SNP IDs are embedded.");
+    }
+    snpIDs.clear();
+    snpIDs.reserve(numSnps);
+    for (uint64_t i = 0; i < numSnps; ++i) {
+        uint32_t len = 0;
+        if (fread(&len, sizeof(uint32_t), 1, in) != 1) {
+            throw("Error: incomplete SNP ID table in binary pairwise LD file [" + filename + "].");
+        }
+        string id(len, '\0');
+        if (len && fread(&id[0], sizeof(char), len, in) != len) {
+            throw("Error: incomplete SNP ID in binary pairwise LD file [" + filename + "].");
+        }
+        snpIDs.push_back(id);
+    }
+    return true;
+}
+
 }
 
 void Data::normaliseDenseCorrelation(MatrixXf &ldm) {
@@ -6978,6 +7091,28 @@ void Data::getLDfromEigenMatrix(const string &eigenMatrixFile, const float rsqTh
     
     string filename = title + ".pwld";  // pairwise LD file
     ofstream out(filename.c_str());
+    string binFilename = filename + ".bin";
+    FILE *bout = fopen(binFilename.c_str(), "wb");
+    if (!bout) throw("Error: cannot open file [" + binFilename + "] to write.");
+
+    unordered_map<const SnpInfo*, uint32_t> snpPtrToRow;
+    snpPtrToRow.reserve(snpInfoVec.size());
+    for (uint32_t s = 0; s < snpInfoVec.size(); ++s) {
+        snpPtrToRow[snpInfoVec[s]] = s;
+    }
+    vector<string> snpIDs(snpInfoVec.size());
+    for (uint32_t s = 0; s < snpInfoVec.size(); ++s) {
+        snpIDs[s] = snpInfoVec[s]->ID;
+    }
+
+    uint64_t numRecords = 0;
+    for (unsigned i=0; i<numLDBlocks; ++i) {
+        LDBlockInfo *block = ldBlockInfoVec[i];
+        for (unsigned j=0; j<block->numSnpInBlock; ++j) {
+            numRecords += ldSnpIdx[i][j].size();
+        }
+    }
+    writePwldBinHeader(bout, (uint64_t)snpInfoVec.size(), numRecords, snpIDs);
 
     out << boost::format("%12s %12s %12s\n")
     % "SNP1"
@@ -6997,18 +7132,114 @@ void Data::getLDfromEigenMatrix(const string &eigenMatrixFile, const float rsqTh
                 % snpj->ID
                 % snpk->ID
                 % ldcor[i][j][k];
+
+                PwldBinRecord rec;
+                rec.snp1 = snpPtrToRow[snpj];
+                rec.snp2 = snpPtrToRow[snpk];
+                rec.ldcor = ldcor[i][j][k];
+                fwrite(&rec, sizeof(PwldBinRecord), 1, bout);
             }
         }
     }
     
     out.close();
+    fclose(bout);
     
     cout << "Output LD information into [" + filename + "]." << endl;
+    cout << "Output binary LD information into [" + binFilename + "]." << endl;
 }
 
 void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold){
-    ifstream in(ldfile.c_str());
-    if (!in) {
+    if (endsWithString(ldfile, ".bin")) {
+        FILE *bin = fopen(ldfile.c_str(), "rb");
+        if (!bin) throw("Error: cannot open file [" + ldfile + "].");
+        cout << "Reading binary pairwise LD correlations from file [" << ldfile << "]..." << endl;
+
+        uint64_t fileNumSnps = 0;
+        uint64_t numRecords = 0;
+        vector<string> fileSnpIDs;
+        readPwldBinHeader(bin, ldfile, fileNumSnps, numRecords, fileSnpIDs);
+
+        vector<SnpInfo*> fileSnps(fileNumSnps, NULL);
+        map<string, SnpInfo*>::iterator end = snpInfoMap.end();
+        for (uint64_t s = 0; s < fileNumSnps; ++s) {
+            map<string, SnpInfo*>::iterator it = snpInfoMap.find(fileSnpIDs[s]);
+            if (it != end) fileSnps[s] = it->second;
+        }
+
+        LDmap.clear();
+        for (uint64_t r = 0; r < numRecords; ++r) {
+            PwldBinRecord rec;
+            if (fread(&rec, sizeof(PwldBinRecord), 1, bin) != 1) {
+                fclose(bin);
+                throw("Error: incomplete binary pairwise LD record in [" + ldfile + "].");
+            }
+            if (rec.snp1 >= fileSnps.size() || rec.snp2 >= fileSnps.size()) continue;
+            if (rsqThreshold < 1.0 && rec.ldcor * rec.ldcor <= rsqThreshold) continue;
+            SnpInfo *snp1 = fileSnps[rec.snp1];
+            SnpInfo *snp2 = fileSnps[rec.snp2];
+            if (!snp1 || !snp2) continue;
+            LDmap[snp1].push_back(snp2);
+            LDmap[snp2].push_back(snp1);
+        }
+        fclose(bin);
+
+        map<SnpInfo*, vector<SnpInfo*> >::iterator itLDmap, endLDmap = LDmap.end();
+        unsigned cnt = 0;
+        unsigned sum = 0;
+        for (itLDmap=LDmap.begin(); itLDmap!=endLDmap; ++itLDmap) {
+            ++cnt;
+            sum += itLDmap->second.size();
+        }
+
+        tgsWorksets.clear();
+        tgsWorksets.reserve(LDmap.size());
+        tgsWorksetsByBlock.clear();
+        tgsWorksetsByBlock.resize(keptLdBlockInfoVec.size());
+        for (itLDmap=LDmap.begin(); itLDmap!=endLDmap; ++itLDmap) {
+            SnpInfo *snp = itLDmap->first;
+            if (!snp || snp->fitAsFixedEffect || snp->index < 0) continue;
+            TgsWorkset ws;
+            ws.focalSnpIdx = (unsigned)snp->index;
+            ws.blockIdx = snp->blockIdx;
+            ws.selectedSnps.reserve(itLDmap->second.size() + 1);
+            ws.selectedSnps.push_back(snp->index);
+            for (unsigned j = 0; j < itLDmap->second.size(); ++j) {
+                SnpInfo *friendSnp = itLDmap->second[j];
+                if (!friendSnp || friendSnp->index < 0) continue;
+                if (friendSnp->blockIdx != snp->blockIdx) continue;
+                ws.selectedSnps.push_back(friendSnp->index);
+            }
+            if (ws.selectedSnps.size() > 1) {
+                sort(ws.selectedSnps.begin() + 1, ws.selectedSnps.end());
+                ws.selectedSnps.erase(unique(ws.selectedSnps.begin(), ws.selectedSnps.end()), ws.selectedSnps.end());
+                tgsWorksets.push_back(ws);
+                if (ws.blockIdx < tgsWorksetsByBlock.size())
+                    tgsWorksetsByBlock[ws.blockIdx].push_back(ws);
+            }
+        }
+        sort(tgsWorksets.begin(), tgsWorksets.end(),
+             [](const TgsWorkset &a, const TgsWorkset &b) {
+                 return a.focalSnpIdx < b.focalSnpIdx;
+             });
+        for (unsigned blk = 0; blk < tgsWorksetsByBlock.size(); ++blk) {
+            sort(tgsWorksetsByBlock[blk].begin(), tgsWorksetsByBlock[blk].end(),
+                 [](const TgsWorkset &a, const TgsWorkset &b) {
+                     return a.focalSnpIdx < b.focalSnpIdx;
+                 });
+        }
+
+        const float avgNumLdFriends = cnt ? float(sum)/float(cnt) : 0.0f;
+        if (rsqThreshold < 1.0) {
+            cout << "Found on average " << avgNumLdFriends << " LD friends for each of " << cnt << " SNPs given the rsq threshold of " << rsqThreshold << "." << endl;
+        } else {
+            cout << "Found on average " << avgNumLdFriends << " LD friends for each of " << cnt << " SNPs." << endl;
+        }
+        return;
+    }
+
+    TextLineReader in(ldfile);
+    if (!in.good()) {
         throw("Error: cannot open file [" + ldfile + "].");
     }
     cout << "Reading pairwise LD correlations from file [" << ldfile << "]..." << endl;
@@ -7024,10 +7255,14 @@ void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold){
     map<string, SnpInfo*>::iterator it1, it2, end = snpInfoMap.end();
 
     string header;
-    getline(in, header);
+    in.getline(header);
     unsigned line = 0;
     
-    while (in >> snp1ID >> snp2ID >> ldcor) {
+    string inputStr;
+    while (in.getline(inputStr)) {
+        if (inputStr.empty()) continue;
+        stringstream ss(inputStr);
+        if (!(ss >> snp1ID >> snp2ID >> ldcor)) continue;
         it1 = snpInfoMap.find(snp1ID);
         it2 = snpInfoMap.find(snp2ID);
         if (it1 == end) {
@@ -7065,6 +7300,8 @@ void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold){
 
     tgsWorksets.clear();
     tgsWorksets.reserve(LDmap.size());
+    tgsWorksetsByBlock.clear();
+    tgsWorksetsByBlock.resize(keptLdBlockInfoVec.size());
     for (itLDmap=LDmap.begin(); itLDmap!=endLDmap; ++itLDmap) {
         SnpInfo *snp = itLDmap->first;
         if (!snp || snp->fitAsFixedEffect || snp->index < 0) continue;
@@ -7083,12 +7320,20 @@ void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold){
             sort(ws.selectedSnps.begin() + 1, ws.selectedSnps.end());
             ws.selectedSnps.erase(unique(ws.selectedSnps.begin(), ws.selectedSnps.end()), ws.selectedSnps.end());
             tgsWorksets.push_back(ws);
+            if (ws.blockIdx < tgsWorksetsByBlock.size())
+                tgsWorksetsByBlock[ws.blockIdx].push_back(ws);
         }
     }
     sort(tgsWorksets.begin(), tgsWorksets.end(),
          [](const TgsWorkset &a, const TgsWorkset &b) {
              return a.focalSnpIdx < b.focalSnpIdx;
          });
+    for (unsigned blk = 0; blk < tgsWorksetsByBlock.size(); ++blk) {
+        sort(tgsWorksetsByBlock[blk].begin(), tgsWorksetsByBlock[blk].end(),
+             [](const TgsWorkset &a, const TgsWorkset &b) {
+                 return a.focalSnpIdx < b.focalSnpIdx;
+             });
+    }
     
 //    SnpInfo *snp = snpInfoVec[0];
 //    map<string, SnpInfo*>::iterator it;
@@ -7112,18 +7357,62 @@ void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold){
 //        out3 << itLDmap->second << " " << itLDmap->second->ID << " " << itLDmap->second->index << endl;
 //    }
 
-    in.close();
+    const float avgNumLdFriends = cnt ? float(sum)/float(cnt) : 0.0f;
     if (rsqThreshold < 1.0) {
-        cout << "Found on average " << sum/cnt << " LD friends for each of " << cnt << " SNPs given the rsq threshold of " << rsqThreshold << "." << endl;
+        cout << "Found on average " << avgNumLdFriends << " LD friends for each of " << cnt << " SNPs given the rsq threshold of " << rsqThreshold << "." << endl;
     } else {
-        cout << "Found on average " << sum/cnt << " LD friends for each of " << cnt << " SNPs." << endl;
+        cout << "Found on average " << avgNumLdFriends << " LD friends for each of " << cnt << " SNPs." << endl;
     }
 
 }
 
+void Data::outputPairwiseLDBinAsText(const string &ldfile, const string &outfile){
+    if (!endsWithString(ldfile, ".bin")) {
+        throw("Error: --print pairwise LD conversion requires a binary .pwld.bin file.");
+    }
+
+    FILE *bin = fopen(ldfile.c_str(), "rb");
+    if (!bin) throw("Error: cannot open file [" + ldfile + "].");
+
+    uint64_t fileNumSnps = 0;
+    uint64_t numRecords = 0;
+    vector<string> fileSnpIDs;
+    readPwldBinHeader(bin, ldfile, fileNumSnps, numRecords, fileSnpIDs);
+
+    ofstream out(outfile.c_str());
+    if (!out) {
+        fclose(bin);
+        throw("Error: cannot open file [" + outfile + "] to write.");
+    }
+    out << boost::format("%12s %12s %12s\n")
+        % "SNP1"
+        % "SNP2"
+        % "LDcorrelation";
+
+    for (uint64_t r = 0; r < numRecords; ++r) {
+        PwldBinRecord rec;
+        if (fread(&rec, sizeof(PwldBinRecord), 1, bin) != 1) {
+            fclose(bin);
+            throw("Error: incomplete binary pairwise LD record in [" + ldfile + "].");
+        }
+        if (rec.snp1 >= fileSnpIDs.size() || rec.snp2 >= fileSnpIDs.size()) {
+            fclose(bin);
+            throw("Error: SNP index out of range in binary pairwise LD file [" + ldfile + "].");
+        }
+        out << boost::format("%12s %12s %12.6f\n")
+            % fileSnpIDs[rec.snp1]
+            % fileSnpIDs[rec.snp2]
+            % rec.ldcor;
+    }
+
+    out.close();
+    fclose(bin);
+    cout << "Written pairwise LD correlations into file [" << outfile << "]." << endl;
+}
+
 void Data::getLDfriends(const string &pairwiseLDfile, const float rsqThreshold, const string &title){
-    ifstream in(pairwiseLDfile.c_str());
-    if (!in) {
+    TextLineReader in(pairwiseLDfile);
+    if (!in.good()) {
         throw("Error: cannot open file [" + pairwiseLDfile + "].");
     }
     cout << "Reading pairwise LD correlations from file [" << pairwiseLDfile << "]..." << endl;
@@ -7135,18 +7424,20 @@ void Data::getLDfriends(const string &pairwiseLDfile, const float rsqThreshold, 
     float ldcor;
 
     string header;
-    getline(in, header);
+    in.getline(header);
     unsigned line = 0;
     
-    while (in >> snp1ID >> snp2ID >> ldcor) {
+    string inputStr;
+    while (in.getline(inputStr)) {
+        if (inputStr.empty()) continue;
+        stringstream ss(inputStr);
+        if (!(ss >> snp1ID >> snp2ID >> ldcor)) continue;
         if (ldcor*ldcor > rsqThreshold) {
             LDfrdMap[snp1ID].push_back(snp2ID);
             LDfrdMap[snp2ID].push_back(snp1ID);
         }
         if (!(++line%10000)) cout << " read " << line << " lines in the file. \r" << flush;
     }
-    
-    in.close();
 
     
     string filename = title + ".ldfrd.txt";
@@ -7169,13 +7460,14 @@ void Data::getLDfriends(const string &pairwiseLDfile, const float rsqThreshold, 
 
     out.close();
 
-    cout << "Found on average " << sum/cnt << " LD friends for each SNP given the rsq threshold of " << rsqThreshold << "." << endl;
+    const float avgNumLdFriends = cnt ? float(sum)/float(cnt) : 0.0f;
+    cout << "Found on average " << avgNumLdFriends << " LD friends for each SNP given the rsq threshold of " << rsqThreshold << "." << endl;
     cout << "Output LD friends for " << cnt << " SNPs into file [" << filename << "]." << endl;
 }
 
 void Data::inputLDfriends(const string &ldfriendFile){
-    ifstream in(ldfriendFile.c_str());
-    if (!in) {
+    TextLineReader in(ldfriendFile);
+    if (!in.good()) {
         throw("Error: cannot open file [" + ldfriendFile + "].");
     }
     cout << "Reading LD friends from file [" << ldfriendFile << "]..." << endl;
@@ -7191,7 +7483,11 @@ void Data::inputLDfriends(const string &ldfriendFile){
     SnpInfo *snp2;
     unsigned line = 0;
 
-    while (in >> snp1ID >> ldfrdID) {
+    string inputStr;
+    while (in.getline(inputStr)) {
+        if (inputStr.empty()) continue;
+        stringstream ss(inputStr);
+        if (!(ss >> snp1ID >> ldfrdID)) continue;
         it1 = snpInfoMap.find(snp1ID);
         if (it1 == end) {
             throw("ERROR: cannot find SNP " + snp1ID + ".");
@@ -7221,8 +7517,8 @@ void Data::inputLDfriends(const string &ldfriendFile){
         sum += itLDmap->second.size();
     }
     
-    in.close();
-    cout << "Found on average " << sum/cnt << " LD friends for each SNP." << endl;
+    const float avgNumLdFriends = cnt ? float(sum)/float(cnt) : 0.0f;
+    cout << "Found on average " << avgNumLdFriends << " LD friends for each SNP." << endl;
 
 }
 

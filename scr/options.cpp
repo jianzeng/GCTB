@@ -14,47 +14,57 @@ void Options::inputOptions(const int argc, const char* argv[]){
     stringstream ss;
 
     bool hasQuantizeEigen = false;
+    bool hasQuantizeLdm = false;
     for (unsigned i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--quantize-eigen")) {
             hasQuantizeEigen = true;
-            break;
+        } else if (!strcmp(argv[i], "--quantize-ldm")) {
+            hasQuantizeLdm = true;
         }
     }
-    if (hasQuantizeEigen) {
-        analysisType = "QuantizeEigen";
+    if (hasQuantizeEigen && hasQuantizeLdm) {
+        throw("\nError: use only one of --quantize-eigen and --quantize-ldm.\n");
+    }
+    if (hasQuantizeEigen || hasQuantizeLdm) {
+        analysisType = hasQuantizeEigen ? "QuantizeEigen" : "QuantizeLdm";
         quantEigenBits = 8;
         quantEigenEntropy = false;
         vector<string> positional;
         for (unsigned i = 1; i < argc; ++i) {
-            if (!strcmp(argv[i], "--quantize-eigen")) {
+            if (!strcmp(argv[i], "--quantize-eigen") || !strcmp(argv[i], "--quantize-ldm")) {
                 continue;
             } else if (!strcmp(argv[i], "--bits")) {
                 if (++i >= (unsigned)argc) throw("\nError: --bits requires a value (8 or 16).\n");
                 quantEigenBits = stoi(argv[i]);
             } else if (!strcmp(argv[i], "--entropy")) {
+                if (hasQuantizeLdm) throw("\nError: --entropy is not supported with --quantize-ldm.\n");
                 quantEigenEntropy = true;
             } else if (!strcmp(argv[i], "--thread")) {
                 if (++i >= (unsigned)argc) throw("\nError: --thread requires a value.\n");
                 numThread = stoi(argv[i]);
             } else if (!strncmp(argv[i], "--", 2)) {
-                throw("\nError: unknown option in --quantize-eigen mode: " + string(argv[i]) + "\n");
+                throw("\nError: unknown option in quantization mode: " + string(argv[i]) + "\n");
             } else {
                 positional.push_back(argv[i]);
             }
         }
         if (positional.size() != 2) {
-            throw("\nError: --quantize-eigen requires exactly two path arguments: <input_folder> <output_folder>\n"
-                  "Example: gctb --quantize-eigen --bits 8 /path/to/eigen_bin /path/to/out\n");
+            string mode = hasQuantizeEigen ? "--quantize-eigen" : "--quantize-ldm";
+            throw("\nError: " + mode + " requires exactly two path arguments: <input_folder> <output_folder>\n"
+                  "Example: gctb " + mode + " --bits 8 /path/to/input /path/to/out\n");
         }
         if (quantEigenBits != 8 && quantEigenBits != 16) {
-            throw("\nError: --bits must be 8 or 16 for --quantize-eigen.\n");
+            throw("\nError: --bits must be 8 or 16 for quantization.\n");
         }
         if (quantEigenEntropy && quantEigenBits != 8) {
             throw("\nError: --entropy is only supported with 8-bit quantization.\n");
         }
         quantEigenInputDir = positional[0];
         quantEigenOutputDir = positional[1];
-        ss << "--quantize-eigen " << quantEigenInputDir << " " << quantEigenOutputDir << "\n";
+        title = quantEigenOutputDir;
+        while (title.size() > 1 && title[title.size() - 1] == '/') title.erase(title.size() - 1);
+        ss << (hasQuantizeEigen ? "--quantize-eigen " : "--quantize-ldm ")
+           << quantEigenInputDir << " " << quantEigenOutputDir << "\n";
         ss << "--bits " << quantEigenBits << "\n";
         if (quantEigenEntropy) ss << "--entropy\n";
         if (numThread != 1) ss << "--thread " << numThread << "\n";
@@ -83,6 +93,8 @@ void Options::inputOptions(const int argc, const char* argv[]){
             analysisType = "GWFM";
             bayesType = argv[++i];
             nDistAuto = true;
+            nDistAutoByPred = false;
+            // GWFM needs posterior SNP-effect samples; keep this as sparse binary output only.
             writeBinPosterior = true;
             algorithm = "TGS_thin";
             pairwiseLDfile = "rsq0.5.pwld";
@@ -340,6 +352,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             eigenCutoffUserSpecified = true;
             ss << "--ldm-eigen-cutoff " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--ldm-eigen-cutoff-pred")) {
+            eigenCutoffByPred = true;
+            ss << "--ldm-eigen-cutoff-pred " << "\n";
+        }
         else if (!strcmp(argv[i], "--ldm-block")) {
             ldmBlockDir = argv[++i];
             ss << "--ldm-block " << argv[i] << "\n";
@@ -486,9 +502,17 @@ void Options::inputOptions(const int argc, const char* argv[]){
             writeBinPosterior = true;
             ss << "--write-mcmc-bin " << "\n";
         }
+        else if (!strcmp(argv[i], "--write-snp-mcmc-bin")) {
+            writeBinPosterior = true;
+            ss << "--write-snp-mcmc-bin " << "\n";
+        }
         else if (!strcmp(argv[i], "--write-mcmc-txt")) {
             writeTxtPosterior = true;
             ss << "--write-mcmc-txt " << "\n";
+        }
+        else if (!strcmp(argv[i], "--write-param-mcmc-txt")) {
+            writeTxtPosterior = true;
+            ss << "--write-param-mcmc-txt " << "\n";
         }
         else if (!strcmp(argv[i], "--write-w-and-Q")) {
             writeWandQ = true;
@@ -595,6 +619,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
         }
         else if (!strcmp(argv[i], "--unscale-genotype")) {
             noscale = true;
+            ss << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--keep-skeptical-snps")) {
+            removeSkepticalSnps = false;
             ss << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--snp")) {
@@ -787,6 +815,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
         }
         else if (!strcmp(argv[i], "--n-dist-auto")) {
             nDistAuto = true;
+            nDistAutoByPred = false;
 //            nDistAutoThreshold = atof(argv[++i]);
             ss << "--n-dist-auto " << "\n";
         }
@@ -794,6 +823,11 @@ void Options::inputOptions(const int argc, const char* argv[]){
             nDistAuto = true;
             nDistAutoByPred = true;
             ss << "--n-dist-auto-pred " << "\n";
+        }
+        else if (!strcmp(argv[i], "--n-dist-auto-hsq")) {
+            nDistAuto = true;
+            nDistAutoByPred = false;
+            ss << "--n-dist-auto-hsq " << "\n";
         }
         else if (!strcmp(argv[i], "--gene-map")) {
             geneMapFile = argv[++i];

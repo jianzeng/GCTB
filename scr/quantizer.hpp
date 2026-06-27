@@ -30,6 +30,10 @@ QuantizationSummary quantize_directory(const string& input_dir,
                                        const string& output_dir,
                                        const QuantizationOptions& options);
 
+QuantizationSummary quantize_ldm_directory(const string& input_dir,
+                                           const string& output_dir,
+                                           int bits);
+
 }  // namespace eigen_quantize
 
 #endif

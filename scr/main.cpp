@@ -32,7 +32,7 @@ double getMaxResidentMemoryMb() {
 void printMaxResidentMemory() {
     const double memMb = getMaxResidentMemoryMb();
     if (memMb >= 0.0)
-        cout << "Max memory usage: " << boost::format("%.2f") % memMb << " MB" << endl;
+        cout << "Max memory usage: " << boost::format("%.2f") % (memMb / 1024.0) << " GB" << endl;
 }
 
 bool folderHasOverlapEigenMetadata(const string &dirname) {
@@ -59,24 +59,52 @@ bool fileExistsAndNonEmpty(const string &filename) {
     return in.is_open() && static_cast<long long>(in.tellg()) > 0;
 }
 
-bool defaultPairwiseLDFileAvailable(const Options &opt) {
+string pairwiseLDPath(const Options &opt) {
     const string filename = opt.pairwiseLDfile.empty() ? "rsq0.5.pwld" : opt.pairwiseLDfile;
-    return fileExistsAndNonEmpty(opt.eigenMatrixFile + "/" + filename);
+    const string path = (filename.find('/') != string::npos || opt.eigenMatrixFile.empty()) ? filename : opt.eigenMatrixFile + "/" + filename;
+    if (path.size() >= 5 && path.substr(path.size() - 5) == ".pwld") {
+        const string binPath = path + ".bin";
+        if (fileExistsAndNonEmpty(binPath)) return binPath;
+    }
+    if (fileExistsAndNonEmpty(path)) return path;
+    if (path.size() < 3 || path.substr(path.size() - 3) != ".gz") {
+        const string gzPath = path + ".gz";
+        if (fileExistsAndNonEmpty(gzPath)) return gzPath;
+    }
+    return path;
 }
 
-void ensureDefaultPairwiseLDFile(Data &data, const Options &opt) {
-    if (opt.pairwiseLDfile != "rsq0.5.pwld") return;
-    const string pwldFile = opt.eigenMatrixFile + "/" + opt.pairwiseLDfile;
-    if (fileExistsAndNonEmpty(pwldFile)) return;
-    if (opt.eigenMatrixQuantBits) {
-        throw("Error: cannot generate [" + pwldFile + "] from quantized eigen data. Please provide --pwld-file generated from the corresponding float eigen LD reference.");
+string pairwiseLDPath(const string &dirname, const string &filenameIn) {
+    const string filename = filenameIn.empty() ? "rsq0.5.pwld" : filenameIn;
+    const string path = filename.find('/') != string::npos ? filename : dirname + "/" + filename;
+    if (path.size() >= 5 && path.substr(path.size() - 5) == ".pwld") {
+        const string binPath = path + ".bin";
+        if (fileExistsAndNonEmpty(binPath)) return binPath;
     }
-    cout << "Pairwise LD file [" << pwldFile << "] not found; generating it from eigen data for TGS..." << endl;
-    data.getLDfromEigenMatrix(opt.eigenMatrixFile, 0.5, opt.eigenMatrixFile + "/rsq0.5");
+    if (fileExistsAndNonEmpty(path)) return path;
+    if (path.size() < 3 || path.substr(path.size() - 3) != ".gz") {
+        const string gzPath = path + ".gz";
+        if (fileExistsAndNonEmpty(gzPath)) return gzPath;
+    }
+    return path;
+}
+
+bool defaultPairwiseLDFileAvailable(const Options &opt) {
+    return fileExistsAndNonEmpty(pairwiseLDPath(opt));
+}
+
+string pairwiseLDPathInDir(const string &dirname) {
+    return pairwiseLDPath(dirname, "rsq0.5.pwld");
+}
+
+void requirePairwiseLDFileForTgs(const Options &opt) {
+    const string pwldFile = pairwiseLDPath(opt);
+    if (fileExistsAndNonEmpty(pwldFile)) return;
+    throw("Error: TGS requires pairwise LD file [" + pwldFile + "]. Generate it with --get-pwld or provide --pwld-file.");
 }
 
 void ensureQuantizedOutputPairwiseLDSource(const Options &opt) {
-    const string pwldFile = opt.quantEigenInputDir + "/rsq0.5.pwld";
+    const string pwldFile = pairwiseLDPathInDir(opt.quantEigenInputDir);
     if (fileExistsAndNonEmpty(pwldFile)) return;
     cout << "Pairwise LD file [" << pwldFile << "] not found; generating it from input float eigen data for quantized TGS..." << endl;
     Data data;
@@ -96,6 +124,7 @@ int main(int argc, const char * argv[]) {
         
         Options opt;
         opt.inputOptions(argc, argv);
+        if (opt.algorithm == "TGS") opt.algorithm = "TGS_thin";
 
         const string logPath = opt.title + ".log";
         LOGGER.open(logPath);
@@ -105,7 +134,7 @@ int main(int argc, const char * argv[]) {
         cout << "* GCTB 2.5.6 beta                                       *\n";
         cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
         cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
-        cout << "* Last updated: 24 May, 2026                            *\n";
+        cout << "* Last updated: 25 June, 2026                           *\n";
         cout << "* MIT License                                           *\n";
         cout << "*********************************************************\n";
 
@@ -115,6 +144,10 @@ int main(int argc, const char * argv[]) {
 
         if (!opt.getOptionsSummary().empty())
             cout << opt.getOptionsSummary() << endl;
+
+        if (opt.analysisType == "SBayes" && opt.bayesType == "R" && !opt.annotationFile.empty()) {
+            throw("Error: --sbayes R does not use annotation data from --annot. Remove --annot for SBayesR, or use --sbayes RC if you intend to fit annotation effects.");
+        }
 
         opt.setThread();
 
@@ -130,6 +163,19 @@ int main(int argc, const char * argv[]) {
             cout << "Completed " << summary.num_files << " eigen block file(s) with q" << qopt.bits;
             if (qopt.entropy_coding) cout << " (entropy-compressed)";
             cout << ".\nTotal bytes: " << summary.total_original_bytes << " -> " << summary.total_quantized_bytes << endl;
+            timer.getTime();
+            cout << "\nAnalysis finished: " << timer.getDate();
+            cout << "Computational time: "  << timer.format(timer.getElapse()) << endl;
+            printMaxResidentMemory();
+            LOGGER.flush();
+            LOGGER.close();
+            return 0;
+        }
+
+        if (opt.analysisType == "QuantizeLdm") {
+            const auto summary = eigen_quantize::quantize_ldm_directory(opt.quantEigenInputDir, opt.quantEigenOutputDir, opt.quantEigenBits);
+            cout << "Completed " << summary.num_files << " LD block file(s) with q" << opt.quantEigenBits << ".";
+            cout << "\nTotal bytes: " << summary.total_original_bytes << " -> " << summary.total_quantized_bytes << endl;
             timer.getTime();
             cout << "\nAnalysis finished: " << timer.getDate();
             cout << "Computational time: "  << timer.format(timer.getElapse()) << endl;
@@ -169,7 +215,7 @@ int main(int argc, const char * argv[]) {
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
             //gctb.saveMcmcSamples(mcmcSampleVec, opt.title);
             gctb.clearGenotypes(data);
-            if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.bayesType, opt.noscale, opt.title);
+            if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.bayesType, opt.noscale, opt.title, opt.removeSkepticalSnps);
         }
         else if (opt.analysisType == "LDmatrix") {
             readGenotypes = false;
@@ -343,7 +389,7 @@ int main(int argc, const char * argv[]) {
                                   opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
                                   opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.keepSumstatIntactFile, opt.includeBlock, opt.skipSnpFile, opt.setZeroGwasForSkip, true);
                 if (opt.analysisType == "GWFM") {
-                    data.inputPairwiseLD(opt.ldmBlockDir + "/" + opt.pairwiseLDfile, 0.95);
+                    data.inputPairwiseLD(pairwiseLDPath(opt.ldmBlockDir, opt.pairwiseLDfile), 0.95);
                 }
                 cout << "Using full block LD matrices (block*.ldm.bin) from [" << opt.ldmBlockDir << "]; eigen low-rank W/Q not built." << endl;
             } else if (!opt.eigenMatrixFile.empty()) {  // low-rank model
@@ -360,7 +406,7 @@ int main(int argc, const char * argv[]) {
                     if (opt.eigenMatrixQuantBits) {
                         throw("Error: phased tiled/overlap eigen LD is not supported with quantized eigen data in v1.");
                     }
-                    if (opt.algorithm == "TGS" || opt.algorithm == "TGS_thin") {
+                    if (opt.algorithm == "TGS_thin") {
                         throw("Error: phased tiled/overlap eigen LD is not supported with tempered Gibbs/GWFM in v1.");
                     }
                 }
@@ -373,7 +419,7 @@ int main(int argc, const char * argv[]) {
                                   opt.afDiff, opt.mafmin, opt.mafmax, opt.pValueThreshold, opt.rsqThreshold,
                                   opt.sampleOverlap, opt.imputeN, opt.noscale, opt.readLdmTxt, opt.imputeSummary, opt.keepSumstatIntactFile, opt.includeBlock, opt.skipSnpFile, opt.setZeroGwasForSkip, false);
                 if (opt.analysisType == "GWFM") {
-                    data.inputPairwiseLD(opt.eigenMatrixFile+"/"+opt.pairwiseLDfile, 0.95);  // for TGS sampling
+                    data.inputPairwiseLD(pairwiseLDPath(opt.eigenMatrixFile, opt.pairwiseLDfile), 0.95);  // for TGS sampling
                 }
                 if (data.overlapLdmEigen) {
                     if (opt.analysisType != "SBayes" || !isSupportedOverlapSbayesType(opt.bayesType)) {
@@ -385,7 +431,7 @@ int main(int argc, const char * argv[]) {
                     if (opt.eigenMatrixQuantBits) {
                         throw("Error: phased tiled/overlap eigen LD is not supported with quantized eigen data in v1.");
                     }
-                    if (opt.algorithm == "TGS" || opt.algorithm == "TGS_thin") {
+                    if (opt.algorithm == "TGS_thin") {
                         throw("Error: phased tiled/overlap eigen LD is not supported with tempered Gibbs/GWFM in v1.");
                     }
                     if (opt.eigenCutoff.size() > 1) {
@@ -402,28 +448,32 @@ int main(int argc, const char * argv[]) {
                     bestEigenCutoff = opt.eigenCutoff[0];
                     cout << "Using eigen cutoff " << bestEigenCutoff << " for bivariate analysis (tuning not yet supported for bivariate)." << endl;
                 } else {
+                    if (opt.eigenCutoff.size() > 1 && !opt.eigenCutoffByPred)
+                        data.constructPseudoSummaryData();
                     bestEigenCutoff = opt.eigenCutoff.size() > 1 ? gctb.tuneEigenCutoff(data, opt) : opt.eigenCutoff[0];
                     // Single cutoff: buildMMEeigen (via inputSnpInfo) already called readEigenMatrixBinaryFileAndMakeWandQ; repeating it would redo all work with no console progress (header messages are suppressed when wcorrBlocks is non-empty).
                     if (opt.eigenCutoff.size() > 1) {
                         data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, bestEigenCutoff, data.gwasEffectInBlock, data.nGWASblock, opt.noscale, false, opt.eigenMatrixQuantBits, opt.eigenMatrixQ8Entropy);
+                        if (opt.nDistAutoByPred && !opt.eigenCutoffByPred)
+                            data.readEigenMatrixBinaryFileAndMakeWandQ(opt.eigenMatrixFile, bestEigenCutoff, data.gwasEffectInBlock, data.nGWASblock, opt.noscale, true, opt.eigenMatrixQuantBits, opt.eigenMatrixQ8Entropy);
                     }
                 }
                 if (opt.analysisType == "SBayes"
                     && (opt.bayesType == "R" || opt.bayesType == "RC" || opt.bayesType == "RD" || opt.bayesType == "RD_indep")
                     && opt.algorithm.empty() && !data.overlapLdmEigen) {
                     if (opt.pairwiseLDfile.empty()) opt.pairwiseLDfile = "rsq0.5.pwld";
-                    if (opt.eigenMatrixQuantBits && !defaultPairwiseLDFileAvailable(opt)) {
-                        cout << "Pairwise LD file [" << opt.eigenMatrixFile + "/" + opt.pairwiseLDfile
+                    if (!defaultPairwiseLDFileAvailable(opt)) {
+                        cout << "Pairwise LD file [" << pairwiseLDPath(opt)
                              << "] not found; using standard Gibbs sampling for SBayes" << opt.bayesType
-                             << " with quantized eigen data." << endl;
+                             << "." << endl;
                     } else {
                         opt.algorithm = "TGS_thin";
                     }
                 }
-                if ((opt.algorithm == "TGS" || opt.algorithm == "TGS_thin") && !data.overlapLdmEigen) {
+                if (opt.algorithm == "TGS_thin" && !data.overlapLdmEigen) {
                     if (opt.pairwiseLDfile.empty()) opt.pairwiseLDfile = "rsq0.5.pwld";
-                    ensureDefaultPairwiseLDFile(data, opt);
-                    data.inputPairwiseLD(opt.eigenMatrixFile + "/" + opt.pairwiseLDfile, 0.95);
+                    requirePairwiseLDFileForTgs(opt);
+                    data.inputPairwiseLD(pairwiseLDPath(opt), 0.95);
                 }
                 if (opt.writeWandQ) data.outputWandQ("w_and_Q");
                 //data.readEigenMatrixBinaryFile(opt.eigenMatrixFile, bestEigenCutoff);
@@ -450,9 +500,9 @@ int main(int argc, const char * argv[]) {
                 else {
                     if (opt.nDistAutoByPred) {
                         if (opt.eigenMatrixFile.empty())
-                            cout << "Note: --n-dist-auto-pred requires --ldm-eigen; using heritability-based --n-dist-auto instead." << endl;
+                            cout << "Note: hold-out component selection requires --ldm-eigen; using heritability-based --n-dist-auto-hsq instead." << endl;
                         else if (isBivariate)
-                            cout << "Note: --n-dist-auto-pred is not supported for bivariate analysis; using heritability-based --n-dist-auto instead." << endl;
+                            cout << "Note: hold-out component selection is not supported for bivariate analysis; using heritability-based --n-dist-auto-hsq instead." << endl;
                     }
                     gctb.findBestFitModel(data, opt);
                 }
@@ -485,12 +535,13 @@ int main(int argc, const char * argv[]) {
                                                                opt.outputFreq, opt.title, opt.writeBinPosterior, opt.writeTxtPosterior);
             }
             
-            if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.bayesType, opt.noscale, opt.title);
+            if (opt.outputResults) gctb.outputResults(data, mcmcSampleVec, opt.bayesType, opt.noscale, opt.title, opt.removeSkepticalSnps);
             
             if (opt.analysisType == "GWFM") {
                 McmcSamples *snpEffects = gctb.inputMcmcSamples(opt.title, "SnpEffects", "bin");
                 data.inputNewSnpResults(opt.title + ".snpRes");
-                data.inputPairwiseLD(opt.eigenMatrixFile+"/"+opt.pairwiseLDfile, opt.rsqThreshold);
+                const string ldRefDir = opt.eigenMatrixFile.empty() ? opt.ldmBlockDir : opt.eigenMatrixFile;
+                data.inputPairwiseLD(pairwiseLDPath(ldRefDir, opt.pairwiseLDfile), opt.rsqThreshold);
                 if (!opt.geneMapFile.empty()) data.readGeneMapFile(opt.geneMapFile, opt.flank, opt.genomeBuild);
                 gctb.calcCredibleSets(data, *snpEffects, opt.pipThreshold, opt.pepThreshold, opt.title);
                 Stat::logRngCheckpoint("GWFM_after_credible_sets");
@@ -587,7 +638,7 @@ int main(int argc, const char * argv[]) {
             if (!opt.pairwiseLDfile.empty()) {
                 McmcSamples *snpEffects = gctb.inputMcmcSamples(opt.mcmcSampleFile, "SnpEffects", "bin");
                 data.inputNewSnpResults(opt.mcmcSampleFile + ".snpRes");
-                data.inputPairwiseLD(opt.eigenMatrixFile+"/"+opt.pairwiseLDfile, opt.rsqThreshold);
+                data.inputPairwiseLD(pairwiseLDPath(opt.eigenMatrixFile, opt.pairwiseLDfile), opt.rsqThreshold);
                 if (!opt.geneMapFile.empty()) data.readGeneMapFile(opt.geneMapFile, opt.flank, opt.genomeBuild);
                 gctb.calcCredibleSets(data, *snpEffects, opt.pipThreshold, opt.pepThreshold, opt.title);
             }
@@ -609,7 +660,13 @@ int main(int argc, const char * argv[]) {
             mcmcSamples->writeMatSpTxt(opt.mcmcSampleFile);
         }
         else if (opt.analysisType == "Print") {
-            if (!opt.eigenMatrixFile.empty()) {
+            if (!opt.pairwiseLDfile.empty()) {
+                if (!opt.eigenMatrixFile.empty()) {
+                    data.readBlockLdmInfoFile(opt.eigenMatrixFile, opt.includeBlock);
+                    data.readBlockLdmSnpInfoFile(opt.eigenMatrixFile, opt.includeBlock);
+                }
+                data.outputPairwiseLDBinAsText(pairwiseLDPath(opt), opt.title + ".pwld");
+            } else if (!opt.eigenMatrixFile.empty()) {
                 if (opt.includeBlock) {
                     data.readBlockLdmInfoFile(opt.eigenMatrixFile, opt.includeBlock);
                     data.readBlockLdmSnpInfoFile(opt.eigenMatrixFile, opt.includeBlock);

@@ -1302,6 +1302,7 @@ public:
         vector<string> snpNames;
         vector<string> badSnpName;
         vector<unsigned> badSnpIdx;
+        vector<char> badSnpReported;
         ofstream out;
         
         bool writeTxt;
@@ -1311,12 +1312,21 @@ public:
             std::sort(abs_b.data(), abs_b.data() + abs_b.size());
             int index8 = 0.8 * (abs_b.size() - 1);
             betaThresh = abs_b[index8];
+            badSnpReported.assign(snpNames.size(), 0);
             //cout << "Set beta cutoff threshold: " << betaThresh << endl;
             //cout << b.head(10) << endl;
             
             string filename = title + ".skepticalSNPs";
             out.open(filename.c_str());
             writeTxt = true;
+        }
+
+        void recordSnp(const unsigned i) {
+            if (i < badSnpReported.size() && badSnpReported[i]) return;
+            if (i < badSnpReported.size()) badSnpReported[i] = 1;
+            badSnpIdx.push_back(i);
+            badSnpName.push_back(snpNames[i]);
+            if (writeTxt) out << i+1 << "\t" << snpNames[i] << endl;
         }
         
         void compute_sparse(VectorXi &badSnps, VectorXf &effects, VectorXf &effectMean, const VectorXf &b, VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const vector<ChromInfo*> &chromInfoVec, const int iter, const Data &data);
@@ -1792,16 +1802,38 @@ public:
                           const bool hsqPercModel, DeltaPi &deltaPi,
                           const vector<SnpInfo*> *incdSnpInfoVec = nullptr);
         
+        void sampleBlockFromFC_eigen(const unsigned blk, const MatrixXf &Q, VectorXf &wcorr, VectorXf &what,
+                                     LDBlockInfo *blockInfo, const float invVareDn,
+                                     const ArrayXf &logPis, const ArrayXf &invWtdSigmaSq, const ArrayXf &logWtdSigmaSq,
+                                     const VectorXf &pis, const VectorXf &gamma, const float varg,
+                                     const bool hsqPercModel, const float sigmaSq, DeltaPi &deltaPi,
+                                     float *valuesPtr, float *pipPtr, const vector<float> &urnd, const vector<float> &nrnd,
+                                     float &ssq, float &wtdssq, float &nnz, vector<vector<unsigned> > &snpsetBlock,
+                                     const vector<vector<TgsWorkset> > *tgsWorksetsByBlock = nullptr);
         void sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                           const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                           const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore, const float varg,
-                          const bool hsqPercModel, DeltaPi &deltaPi, const int activeTilePhase = -1);
+                          const bool hsqPercModel, DeltaPi &deltaPi, const int activeTilePhase = -1,
+                          const vector<vector<TgsWorkset> > *tgsWorksetsByBlock = nullptr);
         void sampleFromFC_quantizedEigen(vector<VectorXf> &wcorrBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks, vector<VectorXf> &whatBlocks,
                           const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                           const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore, const float varg,
-                          const bool hsqPercModel, DeltaPi &deltaPi);
+                          const bool hsqPercModel, DeltaPi &deltaPi,
+                          const vector<vector<TgsWorkset> > *tgsWorksetsByBlock = nullptr);
         
         // tempered Gibbs sampler
+        void sampleFromTGSBlock_eigen(const unsigned blockIdx, const MatrixXf &Q, VectorXf &wcorr, VectorXf &what,
+                                      const LDBlockInfo *blockInfo, const vector<TgsWorkset> &tgsWorksets,
+                                      const float invVareDn, const VectorXf &pis, const VectorXf &gamma,
+                                      const float varg, DeltaPi &deltaPi, const bool hsqPercModel,
+                                      const float sigmaSq, const MatrixXf *snpLogPi = nullptr);
+        void sampleFromTGSBlocks_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
+                                       const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
+                                       const VectorXf &pis, const VectorXf &gamma, const float varg, DeltaPi &deltaPi,
+                                       const bool hsqPercModel, const float sigmaSq,
+                                       const vector<QuantizedEigenBlock> *quantizedEigenBlocks,
+                                       const vector<vector<TgsWorkset> > &tgsWorksetsByBlock,
+                                       const MatrixXf *snpLogPi = nullptr);
         void sampleFromTGS_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                                  const map<SnpInfo*, vector<SnpInfo*> > &LDmap, const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                  const VectorXf &pis, const VectorXf &gamma, const float varg, DeltaPi &deltaPi,
@@ -1812,6 +1844,8 @@ public:
         void recomputeLowRankSummary(vector<VectorXf> &whatBlocks, const vector<MatrixXf> &Qblocks,
                                      const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &gamma,
                                      VectorXf &snpStore, const vector<QuantizedEigenBlock> *quantizedEigenBlocks = nullptr);
+        void recomputeLowRankMixtureSummary(const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &gamma,
+                                            VectorXf &snpStore);
         
 
         // obsoleted
@@ -1874,7 +1908,7 @@ public:
     BayesC::HeritabilityFixedEffects hsqFixed;
     BayesC::HeritabilityRandom hsqRandom;
     
-    enum {gibbs, cg, mh, tgs, tgs_thin} algorithm;
+    enum {gibbs, cg, mh, tgs_thin} algorithm;
     
     vector<vector<int> > highLDsnpSet;
         
@@ -1904,8 +1938,7 @@ public:
 
         if (alg == "cg") algorithm = cg;
         else if (alg == "MH") algorithm = mh;
-        else if (alg == "TGS") algorithm = tgs;
-        else if (alg == "TGS_thin") algorithm = tgs_thin;
+        else if (alg == "TGS" || alg == "TGS_thin") algorithm = tgs_thin;
         else algorithm = gibbs;
 
         quantizedLowRankModel = lowRankModel
@@ -1958,7 +1991,7 @@ public:
             }
             if (robustMode) cout << "Using a more robust parameterisation " << endl;
             if (algorithm == cg) cout << "Conjugate gradient-adjusted Gibbs sampling" << endl;
-            if (algorithm == tgs || algorithm == tgs_thin) cout << "Using tempered Gibbs sampling (TGS)" << endl;
+            if (algorithm == tgs_thin) cout << "Using tempered Gibbs sampling (TGS)" << endl;
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
             if (data.numFixedEffectSnps)
                 cout << "Fitting " << data.numFixedEffectSnps << " SNP(s) as fixed effects (flat prior)." << endl;
@@ -2056,7 +2089,7 @@ public:
             } else {
                 cout << "Fitting model assuming scaled genotypes "  << endl;
             }
-            if (algorithm == tgs || algorithm == tgs_thin) {
+            if (algorithm == tgs_thin) {
                 cout << "Using tempered Gibbs sampling (TGS) algorithm for high-LD SNPs" << endl;
                 if (!data.LDmap.size()) {
                     cout << "\nError: To use tempered GIbbs sampling, you need to give pairwise LD file by --pwld-file " << endl;
@@ -2543,6 +2576,7 @@ public:
     double profileTimeAnnoEffects;
     double profileTimeAnnoCondProb;
     double profileTimeAnnoVar;
+    double profileTimePiUpdate;
     double profileTimeLogPi;
     double profileTimeAnnoJointProb;
     double profileTimeVariance;
@@ -2580,6 +2614,7 @@ public:
     profileTimeAnnoEffects(0.0),
     profileTimeAnnoCondProb(0.0),
     profileTimeAnnoVar(0.0),
+    profileTimePiUpdate(0.0),
     profileTimeLogPi(0.0),
     profileTimeAnnoJointProb(0.0),
     profileTimeVariance(0.0),
@@ -3011,7 +3046,7 @@ public:
             }
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
             if (robustMode) cout << "Using a more robust parameterisation " << endl;
-            if (algorithm == tgs || algorithm == tgs_thin) cout << "Using tempered Gibbs sampling (TGS)" << endl;
+            if (algorithm == tgs_thin) cout << "Using tempered Gibbs sampling (TGS)" << endl;
         }
     }
 
