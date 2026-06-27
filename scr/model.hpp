@@ -2589,8 +2589,16 @@ public:
     double profileTimeBadSnps;
     double profileTimeRounding;
     double profileTimeTotal;
+    bool viInit;
+    unsigned viIter;
+    unsigned viAnnoFreq;
+    float viDampSnp;
+    float viDampAnno;
+    float viDampVar;
             
-    ApproxBayesRC(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool robustMode, const bool estimateRsqEnrich, const string &alg, const bool message = true):
+    ApproxBayesRC(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool robustMode, const bool estimateRsqEnrich, const string &alg, const bool message = true,
+                  const bool viInit = false, const unsigned viIter = 100, const unsigned viAnnoFreq = 2,
+                  const float viDampSnp = 0.5f, const float viDampAnno = 0.2f, const float viDampVar = 0.1f):
     ApproxBayesR(data, lowRank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, alg, false),
     snpEffects(data.snpEffectNames, pis),
     annoEffects(data.annoNames, pis.size(), data.annoMat),
@@ -2626,7 +2634,13 @@ public:
     profileTimeMiscSummary(0.0),
     profileTimeBadSnps(0.0),
     profileTimeRounding(0.0),
-    profileTimeTotal(0.0)
+    profileTimeTotal(0.0),
+    viInit(viInit),
+    viIter(viIter),
+    viAnnoFreq(viAnnoFreq),
+    viDampSnp(viDampSnp),
+    viDampAnno(viDampAnno),
+    viDampVar(viDampVar)
     {
         const char *profileEnv = getenv("GCTB_PROFILE_RC");
         profileTiming = profileEnv && string(profileEnv) != "0";
@@ -2714,9 +2728,18 @@ public:
         }
         
         getSnpAnnoCntInv(data.annoMat, snpAnnoCntInv);
+
+        if (this->viInit) {
+            runViWarmStartLowRank(data, this->viIter, this->viAnnoFreq,
+                                  this->viDampSnp, this->viDampAnno, this->viDampVar);
+        }
     }
 
     void sampleUnknowns(const unsigned iter);
+    void runViWarmStartLowRank(const Data &data, const unsigned nIter, const unsigned annoFreq,
+                               const float dampSnp, const float dampAnno, const float dampVar);
+    void updateAnnoEffectsFromViResponsibilities(const MatrixXf &annoMat, const VectorXf &sigmaSqAnnoValues,
+                                                 const float dampAnno);
 //    void sampleUnknownsTGS(vector<vector<int> > &selectedSnps);
     void computePfromPi(const MatrixXf &snpPi, MatrixXf &snpP);
     void computePiFromP(const MatrixXf &snpP, MatrixXf &snpPi);

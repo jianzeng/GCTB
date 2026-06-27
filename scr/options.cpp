@@ -829,6 +829,30 @@ void Options::inputOptions(const int argc, const char* argv[]){
             nDistAutoByPred = false;
             ss << "--n-dist-auto-hsq " << "\n";
         }
+        else if (!strcmp(argv[i], "--vi-init")) {
+            viInit = true;
+            ss << "--vi-init " << "\n";
+        }
+        else if (!strcmp(argv[i], "--vi-iter")) {
+            viIter = unsigned(stoi(argv[++i]));
+            ss << "--vi-iter " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--vi-anno-freq")) {
+            viAnnoFreq = unsigned(stoi(argv[++i]));
+            ss << "--vi-anno-freq " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--vi-damp-snp")) {
+            viDampSnp = stof(argv[++i]);
+            ss << "--vi-damp-snp " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--vi-damp-anno")) {
+            viDampAnno = stof(argv[++i]);
+            ss << "--vi-damp-anno " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--vi-damp-var")) {
+            viDampVar = stof(argv[++i]);
+            ss << "--vi-damp-var " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--gene-map")) {
             geneMapFile = argv[++i];
             ss << "--gene-map " << argv[i] << "\n";
@@ -974,6 +998,18 @@ void Options::readFile(const string &file){  // input options from file
             tileMb = stof(value);
         } else if (key == "tileGroupSize") {
             tileGroupSize = stoi(value);
+        } else if (key == "viInit") {
+            viInit = (value == "Yes" || value == "yes" || value == "true" || value == "1");
+        } else if (key == "viIter") {
+            viIter = stoi(value);
+        } else if (key == "viAnnoFreq") {
+            viAnnoFreq = stoi(value);
+        } else if (key == "viDampSnp") {
+            viDampSnp = stof(value);
+        } else if (key == "viDampAnno") {
+            viDampAnno = stof(value);
+        } else if (key == "viDampVar") {
+            viDampVar = stof(value);
         } else if (key == "pi") {
             pi = stof(value);
         } else if (key == "heritability") {

@@ -117,6 +117,12 @@ public:
     bool nDistAuto;  // automatically determine the number of mixture distributions
     bool nDistAutoByPred;  // if true with nDistAuto, select K by held-out marginal-effect prediction (else heritability)
     bool eigenCutoffByPred;  // if true, tune eigen cutoff by held-out GWAS effect prediction (else pseudo summary validation)
+    bool viInit;  // deterministic VI warm start before MCMC
+    unsigned viIter;
+    unsigned viAnnoFreq;
+    float viDampSnp;
+    float viDampAnno;
+    float viDampVar;
     bool writeWandQ; // output w and Q in text format
     bool estimateRsqEnrich;  // estimate prediction R2 enrichment
     GwasScalarMode gwasScalarMode;  // --gwas-scalar: effect scaling for summary-data GWAS (see Data::gwasScalarMode)
@@ -294,6 +300,12 @@ public:
         nDistAuto               = false;
         nDistAutoByPred         = false;
         eigenCutoffByPred       = false;
+        viInit                  = false;
+        viIter                  = 100;
+        viAnnoFreq              = 2;
+        viDampSnp               = 0.5f;
+        viDampAnno              = 0.2f;
+        viDampVar               = 0.1f;
         writeWandQ              = false;
         estimateRsqEnrich       = false;
         gwasScalarMode          = GwasScalarMode::LeastSquares;

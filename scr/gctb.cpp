@@ -300,6 +300,14 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
             throw(" Error: --estimate-rsq-enrich is currently implemented for SBayesRC only.");
         }
     }
+    if (opt.viInit) {
+        if (bayesType != "RC") {
+            throw(" Error: --vi-init is currently implemented only for SBayesRC.");
+        }
+        if (opt.numChains > 1) {
+            throw(" Error: --vi-init is currently implemented only for single-chain SBayesRC.");
+        }
+    }
 
     if (opt.numChains > 1) {
         if (bayesType == "R")
@@ -318,7 +326,8 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
             if (bayesType == "S")
                 return new StratApproxBayesS(data, data.lowRankModel, data.varGenotypic, data.varResidual, pi, piAlpha, piBeta, estimatePi, varS, S, algorithm, robustMode, noscale);
             else if (bayesType == "RC")
-                return new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, algorithm);
+                return new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, algorithm,
+                                         true, opt.viInit, opt.viIter, opt.viAnnoFreq, opt.viDampSnp, opt.viDampAnno, opt.viDampVar);
             else if (bayesType == "RD" || bayesType == "RD_indep")
                 return new ApproxBayesRD(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, algorithm, bayesType == "RD_indep");
             else if (bayesType == "APP") {

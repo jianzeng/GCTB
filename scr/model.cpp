@@ -8622,6 +8622,268 @@ void ApproxBayesRC::AnnoEffects::initIntercept_logistic(const VectorXf &pis){
     }
 }
 
+static inline float clampRcViProbability(const float p) {
+    if (p < 1.0e-5f) return 1.0e-5f;
+    if (p > 0.99999f) return 0.99999f;
+    return p;
+}
+
+void ApproxBayesRC::updateAnnoEffectsFromViResponsibilities(const MatrixXf &annoMat, const VectorXf &sigmaSqAnnoValues,
+                                                            const float dampAnno) {
+    const unsigned numSnps = snpEffects.size;
+    const unsigned numDist = snpEffects.ndist;
+    const unsigned numComp = annoEffects.numComp;
+    const unsigned numAnno = annoEffects.numAnno;
+    if (!numSnps || !numComp || numDist < 2) return;
+
+    VectorXf target(numSnps);
+    VectorXf weight(numSnps);
+    VectorXf y(numSnps);
+    Stat::Normal normal;
+
+    for (unsigned c = 0; c < numComp; ++c) {
+        #pragma omp parallel for schedule(static)
+        for (unsigned j = 0; j < numSnps; ++j) {
+            float denom = 1.0f;
+            if (c) {
+                denom = 0.0f;
+                for (unsigned k = c; k < numDist; ++k)
+                    denom += deltaPi[k]->values[j];
+            }
+            float numer = 0.0f;
+            for (unsigned k = c + 1; k < numDist; ++k)
+                numer += deltaPi[k]->values[j];
+
+            if (denom <= 1.0e-6f) {
+                weight[j] = 0.0f;
+                target[j] = 0.5f;
+            } else {
+                weight[j] = denom;
+                target[j] = clampRcViProbability(numer / denom);
+            }
+        }
+
+        #pragma omp parallel for schedule(static)
+        for (unsigned j = 0; j < numSnps; ++j)
+            y[j] = weight[j] > 0.0f ? normal.quantile_01(target[j]) : 0.0f;
+
+        VectorXf &alpha = annoEffects[c]->values;
+        VectorXf eta = annoMat * alpha;
+        VectorXf resid = (y - eta).array() * weight.array();
+        VectorXf grad = annoMat.transpose() * resid;
+        VectorXf hdiag(numAnno);
+
+        #pragma omp parallel for schedule(static)
+        for (unsigned a = 0; a < numAnno; ++a)
+            hdiag[a] = (annoMat.col(a).array().square() * weight.array()).sum();
+
+        float priorPrec = 1.0f / std::max(sigmaSqAnnoValues[c], 1.0e-6f);
+        for (unsigned a = 1; a < numAnno; ++a) {
+            grad[a] -= alpha[a] * priorPrec;
+            hdiag[a] += priorPrec;
+        }
+
+        for (unsigned a = 0; a < numAnno; ++a) {
+            if (hdiag[a] > 1.0e-8f)
+                alpha[a] += dampAnno * grad[a] / hdiag[a];
+        }
+
+        annoEffects.ssq[c] = alpha.squaredNorm() - alpha[0] * alpha[0];
+
+        eta = annoMat * alpha;
+        #pragma omp parallel for schedule(static)
+        for (unsigned j = 0; j < numSnps; ++j)
+            snpP(j, c) = clampRcViProbability(normal.cdf_01(eta[j]));
+    }
+}
+
+void ApproxBayesRC::runViWarmStartLowRank(const Data &data, const unsigned nIter, const unsigned annoFreq,
+                                          const float dampSnp, const float dampAnno, const float dampVar) {
+    if (!lowRankModel)
+        throw(string(" Error: --vi-init for SBayesRC is currently implemented only for low-rank eigen LD data."));
+    if (quantizedLowRankModel)
+        throw(string(" Error: --vi-init for SBayesRC low-rank currently supports float eigen data only; quantized eigen VI warm start is not implemented yet."));
+    if (data.overlapLdmEigen || data.phasedTiledLdmEigen)
+        throw(string(" Error: --vi-init for SBayesRC low-rank currently does not support tiled/overlapping eigen blocks."));
+    if (!nIter) return;
+
+    const unsigned nBlocks = data.keptLdBlockInfoVec.size();
+    if (!nBlocks || data.Qblocks.size() != nBlocks)
+        throw(string(" Error: --vi-init requires loaded low-rank Q matrices."));
+
+    cout << "Running SBayesRC low-rank VI warm start (" << nIter << " iterations)..." << endl;
+    Gadget::Timer timer;
+
+    wcorrBlocks = data.wcorrBlocks;
+    whatBlocks.resize(nBlocks);
+    for (unsigned blk = 0; blk < nBlocks; ++blk)
+        whatBlocks[blk].setZero(wcorrBlocks[blk].size());
+
+    snpEffects.values.setZero(snpEffects.size);
+    snpEffects.fcMean.setZero(snpEffects.size);
+    snpEffects.pip.setZero(snpEffects.size);
+    snpEffects.membership.setZero(snpEffects.size);
+    for (unsigned k = 0; k < snpEffects.ndist; ++k)
+        deltaPi[k]->values.setZero(snpEffects.size);
+    deltaPi[0]->values.setOnes(snpEffects.size);
+
+    VectorXf snpStore(snpEffects.ndist);
+
+    for (unsigned iter = 1; iter <= nIter; ++iter) {
+        ArrayXf wtdSigmaSq(snpEffects.ndist);
+        if (hsqPercModel && vargRandom.value) {
+            wtdSigmaSq = gamma.values * 0.01f * vargRandom.value;
+        } else {
+            wtdSigmaSq = gamma.values * sigmaSq.value;
+        }
+        for (unsigned k = 1; k < snpEffects.ndist; ++k) {
+            if (wtdSigmaSq[k] < 1.0e-12f) wtdSigmaSq[k] = 1.0e-12f;
+        }
+        ArrayXf invWtdSigmaSq = wtdSigmaSq.inverse();
+        ArrayXf logWtdSigmaSq = wtdSigmaSq.log();
+
+        vector<float> ssq(nBlocks, 0.0f);
+        vector<float> wtdssq(nBlocks, 0.0f);
+        vector<float> nnz(nBlocks, 0.0f);
+        vector<float> expWtdssq(nBlocks, 0.0f);
+        vector<float> expNnz(nBlocks, 0.0f);
+        vector<vector<vector<unsigned> > > snpsetBlocks(nBlocks);
+        for (unsigned blk = 0; blk < nBlocks; ++blk)
+            snpsetBlocks[blk].resize(snpEffects.ndist);
+
+        float *valuesPtr = snpEffects.values.data();
+        float *fcMeanPtr = snpEffects.fcMean.data();
+        float *pipPtr = snpEffects.pip.data();
+
+        #pragma omp parallel for schedule(static)
+        for (unsigned blk = 0; blk < nBlocks; ++blk) {
+            Ref<const MatrixXf> Q = data.Qblocks[blk];
+            Ref<VectorXf> wcorr = wcorrBlocks[blk];
+            Ref<VectorXf> what = whatBlocks[blk];
+            what.setZero();
+
+            LDBlockInfo *blockInfo = data.keptLdBlockInfoVec[blk];
+            float invVareDn = data.nGWASblock[blk] / vareBlk.values[blk];
+            ArrayXf invLhs = 1.0f / (invVareDn + invWtdSigmaSq);
+            ArrayXf logInvLhsMsigma = invLhs.log() - logWtdSigmaSq;
+            ArrayXf probDelta(snpEffects.ndist);
+            vector<int> snpIndexVec = blockCoreSnpIndexVec(blockInfo, blk);
+
+            for (unsigned t = 0; t < snpIndexVec.size(); ++t) {
+                unsigned i = snpIndexVec[t];
+                int qcol = eigenQColIndex(blockInfo, i);
+                if (qcol < 0) continue;
+                SnpInfo *snp = blockSnpInfoByIndex(blockInfo, i);
+                if (!snp) continue;
+                if (snp->skip) {
+                    valuesPtr[i] = 0.0f;
+                    fcMeanPtr[i] = 0.0f;
+                    pipPtr[i] = 0.0f;
+                    snpEffects.membership[i] = 0;
+                    for (unsigned k = 0; k < snpEffects.ndist; ++k)
+                        deltaPi[k]->values[i] = (k == 0) ? 1.0f : 0.0f;
+                    continue;
+                }
+                if (snpEffects.badSnps[i] || snp->fitAsFixedEffect)
+                    continue;
+
+                float oldMean = valuesPtr[i];
+                Ref<const VectorXf> Qi = Q.col(qcol);
+                float rhs = (Qi.dot(wcorr) + oldMean) * invVareDn;
+                ArrayXf uhat = invLhs * rhs;
+                ArrayXf logDelta = 0.5f * (logInvLhsMsigma + uhat * rhs) + snpLogPi.row(i).transpose().array();
+                logDelta[0] = snpLogPi(i, 0);
+
+                for (unsigned k = 0; k < snpEffects.ndist; ++k) {
+                    probDelta[k] = 1.0f / (logDelta - logDelta[k]).exp().sum();
+                    if (isnan(probDelta[k])) probDelta[k] = 0.0f;
+                    deltaPi[k]->values[i] = probDelta[k];
+                }
+                pipPtr[i] = 1.0f - probDelta[0];
+
+                unsigned delta = 0;
+                float bestProb = probDelta[0];
+                for (unsigned k = 1; k < snpEffects.ndist; ++k) {
+                    if (probDelta[k] > bestProb) {
+                        bestProb = probDelta[k];
+                        delta = k;
+                    }
+                }
+                snpEffects.membership[i] = delta;
+                snpsetBlocks[blk][delta].push_back(i);
+
+                uhat[0] = 0.0f;
+                float rawMean = (uhat * probDelta).sum();
+                float newMean = oldMean + dampSnp * (rawMean - oldMean);
+                valuesPtr[i] = newMean;
+                fcMeanPtr[i] = rawMean;
+                wcorr += Qi * (oldMean - newMean);
+                what += Qi * newMean;
+
+                ssq[blk] += newMean * newMean;
+                if (delta) {
+                    wtdssq[blk] += newMean * newMean / gamma.values[delta];
+                    nnz[blk] += 1.0f;
+                }
+                expNnz[blk] += pipPtr[i];
+                for (unsigned k = 1; k < snpEffects.ndist; ++k)
+                    expWtdssq[blk] += probDelta[k] * (uhat[k] * uhat[k] + invLhs[k]) / gamma.values[k];
+            }
+        }
+
+        snpEffects.sumSq = 0.0f;
+        snpEffects.wtdSumSq = 0.0f;
+        snpEffects.numNonZeros = 0;
+        snpEffects.nnzPerBlk.setZero(nBlocks);
+        snpEffects.ssqBlocks.setZero(nBlocks);
+        snpEffects.numSnpMix.setZero(snpEffects.ndist);
+        snpEffects.snpset.resize(snpEffects.ndist);
+        for (unsigned k = 0; k < snpEffects.ndist; ++k) snpEffects.snpset[k].resize(0);
+
+        float expectedWtd = 0.0f;
+        float expectedNnz = 0.0f;
+        for (unsigned blk = 0; blk < nBlocks; ++blk) {
+            snpEffects.sumSq += ssq[blk];
+            snpEffects.wtdSumSq += wtdssq[blk];
+            snpEffects.numNonZeros += unsigned(nnz[blk]);
+            snpEffects.nnzPerBlk[blk] = nnz[blk];
+            snpEffects.ssqBlocks[blk] = ssq[blk];
+            expectedWtd += expWtdssq[blk];
+            expectedNnz += expNnz[blk];
+            for (unsigned k = 0; k < snpEffects.ndist; ++k) {
+                for (unsigned j = 0; j < snpsetBlocks[blk][k].size(); ++j) {
+                    snpEffects.snpset[k].push_back(snpsetBlocks[blk][k][j]);
+                    snpEffects.numSnpMix[k] += 1.0f;
+                }
+            }
+        }
+
+        if (!robustMode && expectedNnz > 1.0f) {
+            float viSigmaSq = expectedWtd / expectedNnz;
+            if (viSigmaSq > 0.0f && isfinite(viSigmaSq))
+                sigmaSq.value = (1.0f - dampVar) * sigmaSq.value + dampVar * viSigmaSq;
+        }
+
+        if (estimatePi && annoFreq && !(iter % annoFreq)) {
+            updateAnnoEffectsFromViResponsibilities(data.annoMat, sigmaSqAnno.values, dampAnno);
+            computeLogPiFromP(snpP, snpLogPi);
+        }
+
+        if (iter == nIter || !(iter % 10)) {
+            cout << "  VI iter " << iter << ": nnz=" << snpEffects.numNonZeros
+                 << ", sigmaSq=" << sigmaSq.value << endl;
+        }
+    }
+
+    vargBlk.compute(whatBlocks);
+    vargRandom.value = vargBlk.total;
+    if (estimatePi) {
+        annoCondProb.compute_probit(annoEffects, data.annoInfoVec);
+        annoJointProb.compute(annoCondProb);
+    }
+    cout << "VI warm start completed (time used: " << timer.format(timer.getElapse()) << ")." << endl;
+}
+
 void ApproxBayesRC::AnnoCondProb::compute_probit(const AnnoEffects &annoEffects, const vector<AnnoInfo*> &annoInfoVec){
     for (unsigned i=0; i<annoEffects.numComp; ++i) {
         for (unsigned j=0; j<annoEffects.numAnno; ++j) {
