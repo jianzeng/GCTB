@@ -315,9 +315,35 @@ void Options::inputOptions(const int argc, const char* argv[]){
             tileMb = stof(argv[++i]);
             ss << "--tile-mb " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--tile-snps")) {
+            int value = stoi(argv[++i]);
+            if (value < 1) throw("\nError: --tile-snps must be >= 1.\n");
+            tileSnps = (unsigned)value;
+            ss << "--tile-snps " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--tile-min-snps")) {
+            int value = stoi(argv[++i]);
+            if (value < 0) throw("\nError: --tile-min-snps must be >= 0.\n");
+            tileMinSnps = (unsigned)value;
+            ss << "--tile-min-snps " << argv[i] << "\n";
+        }
         else if (!strcmp(argv[i], "--tile-group-size")) {
             tileGroupSize = stoi(argv[++i]);
             ss << "--tile-group-size " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--core-context-parallel")) {
+            coreContextParallel = true;
+            ss << "--core-context-parallel " << "\n";
+        }
+        else if (!strcmp(argv[i], "--bits")) {
+            quantEigenBits = stoi(argv[++i]);
+            if (quantEigenBits != 8 && quantEigenBits != 16)
+                throw("\nError: --bits must be 8 or 16.\n");
+            ss << "--bits " << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--keep-block-merge-files")) {
+            keepBlockMergeFiles = true;
+            ss << "--keep-block-merge-files " << "\n";
         }
         else if (!strcmp(argv[i], "--ldm-eigen")) {
             eigenMatrixFile = argv[++i];
@@ -996,8 +1022,22 @@ void Options::readFile(const string &file){  // input options from file
             windowWidth = unsigned(stof(value) * Megabase);
         } else if (key == "tileMb") {
             tileMb = stof(value);
+        } else if (key == "tileSnps") {
+            int parsed = stoi(value);
+            if (parsed < 1) throw(" Error: tileSnps in option file must be >= 1.");
+            tileSnps = (unsigned)parsed;
+        } else if (key == "tileMinSnps") {
+            int parsed = stoi(value);
+            if (parsed < 0) throw(" Error: tileMinSnps in option file must be >= 0.");
+            tileMinSnps = (unsigned)parsed;
         } else if (key == "tileGroupSize") {
             tileGroupSize = stoi(value);
+        } else if (key == "bits") {
+            quantEigenBits = stoi(value);
+            if (quantEigenBits != 8 && quantEigenBits != 16)
+                throw(" Error: bits in option file must be 8 or 16.");
+        } else if (key == "coreContextParallel") {
+            coreContextParallel = (value == "Yes" || value == "yes" || value == "true" || value == "1");
         } else if (key == "viInit") {
             viInit = (value == "Yes" || value == "yes" || value == "true" || value == "1");
         } else if (key == "viIter") {

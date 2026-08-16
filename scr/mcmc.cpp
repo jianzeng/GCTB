@@ -80,6 +80,7 @@ void McmcSamples::outputSample(const unsigned chain, ofstream &out){
             fwrite(rc, sizeof(unsigned), 2, bout);
             float val = it.value();
             fwrite(&val, sizeof(float), 1, bout);
+            ++nnz;
             //cout << it.index() << " " << it.value() << endl;
         }
         //cout << MatrixXf(spvec).transpose() << endl;
@@ -215,32 +216,83 @@ void McmcSamples::readDataBin(const string &title){
     
     nrow = xyn[0];
     ncol = xyn[1];
-        
+
     datMatSp.resize(xyn[0], xyn[1]);
-//    vector<Triplet<float>> trips(xyn[2]);
-    vector<Triplet<float> > trips;
-    
-    //for (int i=0; i < trips.size(); ++i){
-    while (!feof(in)) {
-        unsigned rc[2];
-        fread(rc, sizeof(unsigned), 2, in);
-        float v;
-        fread(&v, sizeof(float), 1, in);
-        
-        if(rc[0]>xyn[0] || rc[1]>xyn[1]) continue;
-        
-        //trips[i] = Triplet<float>(rc[0], rc[1], v);
-        trips.push_back(Triplet<float>(rc[0], rc[1], v));
+
+    if (xyn[2]) {
+        typedef SpMat::StorageIndex SparseIndex;
+        vector<SparseIndex> colCounts(ncol, 0);
+        unsigned validNnz = 0;
+
+        for (unsigned i = 0; i < xyn[2]; ++i) {
+            unsigned rc[2];
+            if (fread(rc, sizeof(unsigned), 2, in) != 2) break;
+            float v;
+            if (fread(&v, sizeof(float), 1, in) != 1) break;
+
+            if(rc[0]>=xyn[0] || rc[1]>=xyn[1]) continue;
+
+            ++colCounts[rc[1]];
+            ++validNnz;
+        }
+
+        vector<SparseIndex> outer(ncol + 1, 0);
+        for (unsigned col = 0; col < ncol; ++col)
+            outer[col + 1] = outer[col] + colCounts[col];
+
+        datMatSp.makeCompressed();
+        datMatSp.resizeNonZeros(validNnz);
+        std::copy(outer.begin(), outer.end(), datMatSp.outerIndexPtr());
+
+        vector<SparseIndex> next = outer;
+        fseek(in, sizeof(unsigned) * 3, SEEK_SET);
+        for (unsigned i = 0; i < xyn[2]; ++i) {
+            unsigned rc[2];
+            if (fread(rc, sizeof(unsigned), 2, in) != 2) break;
+            float v;
+            if (fread(&v, sizeof(float), 1, in) != 1) break;
+
+            if(rc[0]>=xyn[0] || rc[1]>=xyn[1]) continue;
+
+            SparseIndex pos = next[rc[1]]++;
+            datMatSp.innerIndexPtr()[pos] = static_cast<SparseIndex>(rc[0]);
+            datMatSp.valuePtr()[pos] = v;
+        }
+        nnz = validNnz;
+    } else {
+        vector<Triplet<float> > trips;
+        while (true) {
+            unsigned rc[2];
+            if (fread(rc, sizeof(unsigned), 2, in) != 2) break;
+            float v;
+            if (fread(&v, sizeof(float), 1, in) != 1) break;
+
+            if(rc[0]>=xyn[0] || rc[1]>=xyn[1]) continue;
+
+            trips.push_back(Triplet<float>(rc[0], rc[1], v));
+        }
+        nnz = trips.size();
+        datMatSp.setFromTriplets(trips.begin(), trips.end());
+        datMatSp.makeCompressed();
     }
     fclose(in);
-    
-    datMatSp.setFromTriplets(trips.begin(), trips.end());
-    datMatSp.makeCompressed();
     
     //cout << "nrow: " << nrow << " ncol: " << ncol << " nonzeros: " << datMatSp.nonZeros() << " " << nnz << endl;
     //cout << MatrixXf(datMatSp) << endl;
     
     storageMode = sparse;
+}
+
+void McmcSamples::closeOutputFile(void){
+    if (outputMode == bin && bout) {
+        unsigned xyn[3] = {nrow, ncol, nnz};
+        fseek(bout, 0, SEEK_SET);
+        fwrite(xyn, sizeof(unsigned), 3, bout);
+        fclose(bout);
+        bout = NULL;
+    } else if (outputMode == txt && tout.is_open()) {
+        tout.close();
+    }
 }
 
 void McmcSamples::readDataTxt(const string &title){
@@ -582,7 +634,6 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
     int savedEigenThreads = Eigen::nbThreads();
 #ifdef _OPENMP
     if (omp_get_max_threads() > 1) {
-        omp_set_max_active_levels(1);
         Eigen::setNbThreads(1);
     }
 #endif
@@ -621,12 +672,15 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
         
         collectSamples(model, mcmcSampleVec, thisIter);
         
-        if (writeSnpMcmcBin || writeParamMcmcTxt) outputSamples(mcmcSampleVec, numChains);
+        if ((writeSnpMcmcBin || writeParamMcmcTxt) && thisIter > burnin && !(thisIter % thin))
+            outputSamples(mcmcSampleVec, numChains);
         if (numChains > 1 && thisIter == chainLength) computeGelmanRubinStat(mcmcSampleVec);
         
         setAction(model);
         if (action != keep_running) {
             cout << "\nMCMC sampling disrupted at iteration " << thisIter << endl;
+            for (unsigned i = 0; i < mcmcSampleVec.size(); ++i)
+                mcmcSampleVec[i]->closeOutputFile();
             Eigen::setNbThreads(savedEigenThreads);
             return mcmcSampleVec;
         }
@@ -652,6 +706,9 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
     }
 
     Stat::logRngCheckpoint("MCMC_run_exit");
+
+    for (unsigned i = 0; i < mcmcSampleVec.size(); ++i)
+        mcmcSampleVec[i]->closeOutputFile();
 
     ///TMP
 //    ofstream tmpOut;

@@ -17,7 +17,9 @@
 #include <algorithm>
 #include <stdint.h>
 #include <unordered_map>
+#include <unordered_set>
 #include <cstring>
+#include <iomanip>
 #include <zlib.h>
 #ifdef _OPENMP
 #include <omp.h>
@@ -30,14 +32,1297 @@ bool fileExistsAndNonEmptyLocal(const string &filename) {
     return in.is_open() && static_cast<long long>(in.tellg()) > 0;
 }
 
+void updateFnv1a(uint64_t &hash, const string &value) {
+    for (unsigned i = 0; i < value.size(); ++i) {
+        hash ^= (unsigned char)value[i];
+        hash *= 1099511628211ULL;
+    }
+}
+
+void updateFnv1aInt(uint64_t &hash, const long long value) {
+    std::ostringstream oss;
+    oss << value;
+    updateFnv1a(hash, oss.str());
+}
+
+bool blockInfoSignatureLocal(const string &dirname, const vector<string> &blockFileIds, uint64_t &signature) {
+    uint64_t hash = 1469598103934665603ULL;
+    for (vector<string>::const_iterator it = blockFileIds.begin(); it != blockFileIds.end(); ++it) {
+        updateFnv1a(hash, *it);
+        const string files[2] = {
+            dirname + "/block" + *it + ".snp.info",
+            dirname + "/block" + *it + ".ldm.info"
+        };
+        for (unsigned f = 0; f < 2; ++f) {
+            struct stat sb;
+            if (stat(files[f].c_str(), &sb) != 0 || !S_ISREG(sb.st_mode)) return false;
+            updateFnv1aInt(hash, (long long)sb.st_size);
+            updateFnv1aInt(hash, (long long)sb.st_mtime);
+        }
+    }
+    signature = hash;
+    return true;
+}
+
+bool combinedMergeOutputsReadyLocal(const string &dirname, const bool requirePairwiseLD) {
+    const string snpInfoFile = dirname + "/snp.info";
+    const string ldmInfoFile = dirname + "/ldm.info";
+    if (!fileExistsAndNonEmptyLocal(snpInfoFile) || !fileExistsAndNonEmptyLocal(ldmInfoFile)) return false;
+
+    ifstream snpIn(snpInfoFile.c_str());
+    ifstream ldmIn(ldmInfoFile.c_str());
+    string header, firstRecord;
+    if (!getline(snpIn, header) || !getline(snpIn, firstRecord) || firstRecord.empty()) return false;
+    if (!getline(ldmIn, header) || !getline(ldmIn, firstRecord) || firstRecord.empty()) return false;
+
+    if (!requirePairwiseLD) return true;
+    return fileExistsAndNonEmptyLocal(dirname + "/rsq0.5.pwld.gz")
+        || fileExistsAndNonEmptyLocal(dirname + "/rsq0.5.pwld.bin")
+        || fileExistsAndNonEmptyLocal(dirname + "/rsq0.5.pwld");
+}
+
+bool readMergeMarkerLocal(const string &filename, unsigned &blockCount, uint64_t &signature, bool &pairwiseLDReady) {
+    ifstream in(filename.c_str());
+    if (!in) return false;
+    string key;
+    blockCount = 0;
+    signature = 0;
+    pairwiseLDReady = false;
+    while (in >> key) {
+        if (key == "BlockInfoCount") in >> blockCount;
+        else if (key == "BlockInfoSignature") in >> signature;
+        else if (key == "PairwiseLDReady") {
+            int ready = 0;
+            in >> ready;
+            pairwiseLDReady = ready != 0;
+        } else {
+            string rest;
+            getline(in, rest);
+        }
+    }
+    return blockCount > 0 && signature != 0;
+}
+
+void writeMergeMarkerLocal(const string &filename, const unsigned blockCount, const uint64_t signature, const bool pairwiseLDReady) {
+    ofstream out(filename.c_str());
+    if (!out) throw("Error: can not write merged LD metadata marker [" + filename + "].");
+    out << "Version 1\n";
+    out << "BlockInfoCount " << blockCount << "\n";
+    out << "BlockInfoSignature " << signature << "\n";
+    out << "PairwiseLDReady " << (pairwiseLDReady ? 1 : 0) << "\n";
+}
+
 const char PWLD_BIN_MAGIC[8] = {'G','C','T','B','P','W','L','D'};
 const uint32_t PWLD_BIN_VERSION = 2;
+const char CORE_CONTEXT_BIN_MAGIC[8] = {'G','C','T','B','R','C','F','1'};
+const uint32_t CORE_CONTEXT_BIN_VERSION = 1;
+const char CORE_CONTEXT_META_MAGIC[8] = {'G','C','T','B','C','T','X','1'};
+const char SOURCE_SPARSE_LD_MAGIC_V1[8] = {'G','C','T','B','S','L','D','1'};
+const uint32_t SOURCE_SPARSE_LD_VERSION_V1 = 1;
+const char SOURCE_SPARSE_LD_MAGIC_V2[8] = {'G','C','T','B','S','L','D','2'};
+const uint32_t SOURCE_SPARSE_LD_VERSION_V2 = 2;
+const char SOURCE_SPARSE_LD_MAGIC_V3[8] = {'G','C','T','B','S','L','D','3'};
+const uint32_t SOURCE_SPARSE_LD_VERSION_V3 = 3;
+const float SOURCE_SPARSE_LD_Q16_SCALE = 32767.0f;
+const uint32_t SOURCE_SPARSE_LD_MISSING_INDEX = 0xffffffffu;
+const char TILED_EIGEN_BUNDLE_MAGIC[8] = {'G','C','T','B','T','E','G','1'};
+const uint32_t TILED_EIGEN_BUNDLE_VERSION = 1;
 
 struct PwldBinRecord {
     uint32_t snp1;
     uint32_t snp2;
     float ldcor;
 };
+
+struct CoreContextBinRecord {
+    uint32_t coreLocal;
+    uint32_t flankGlobal;
+    float ldcor;
+};
+
+struct SparseSourceLdRecord {
+    uint32_t snp1;
+    uint32_t snp2;
+    float ldcor;
+};
+
+void writeBinaryString(FILE *out, const string &value);
+
+void mergeSmallSnpTiles(vector<vector<SnpInfo*> > &tiles, const unsigned minSnps) {
+    if (minSnps <= 1) return;
+    while (tiles.size() > 1) {
+        int smallIdx = -1;
+        for (unsigned t = 0; t < tiles.size(); ++t) {
+            if (tiles[t].size() < minSnps) {
+                smallIdx = (int)t;
+                break;
+            }
+        }
+        if (smallIdx < 0) break;
+
+        if (smallIdx == 0) {
+            tiles[0].insert(tiles[0].end(), tiles[1].begin(), tiles[1].end());
+            tiles.erase(tiles.begin() + 1);
+        } else if (smallIdx == (int)tiles.size() - 1) {
+            tiles[smallIdx - 1].insert(tiles[smallIdx - 1].end(), tiles[smallIdx].begin(), tiles[smallIdx].end());
+            tiles.erase(tiles.begin() + smallIdx);
+        } else if (tiles[smallIdx - 1].size() <= tiles[smallIdx + 1].size()) {
+            tiles[smallIdx - 1].insert(tiles[smallIdx - 1].end(), tiles[smallIdx].begin(), tiles[smallIdx].end());
+            tiles.erase(tiles.begin() + smallIdx);
+        } else {
+            tiles[smallIdx].insert(tiles[smallIdx].end(), tiles[smallIdx + 1].begin(), tiles[smallIdx + 1].end());
+            tiles.erase(tiles.begin() + smallIdx + 1);
+        }
+    }
+}
+
+void assignTileByLocalIndex(const vector<vector<unsigned> > &tileLocalIdx,
+                            const int numSnps, vector<int> &tileByLocalIndex) {
+    tileByLocalIndex.assign(numSnps, -1);
+    for (unsigned t = 0; t < tileLocalIdx.size(); ++t) {
+        for (unsigned j = 0; j < tileLocalIdx[t].size(); ++j)
+            tileByLocalIndex[(int)tileLocalIdx[t][j]] = (int)t;
+    }
+}
+
+vector<vector<unsigned> > makeBalancedSnpCountTiles(const int numSnps,
+                                                    const unsigned maxSnps,
+                                                    const unsigned minSnps) {
+    if (numSnps <= 0) return vector<vector<unsigned> >();
+    if (!maxSnps) throw("Error: --tile-snps must be >= 1.");
+    if (minSnps > maxSnps) throw("Error: --tile-min-snps cannot be greater than --tile-snps.");
+
+    unsigned numTiles = ((unsigned)numSnps + maxSnps - 1) / maxSnps;
+    if (!numTiles) numTiles = 1;
+    while (numTiles > 1) {
+        const unsigned nextNumTiles = numTiles - 1;
+        const unsigned nextMaxSize = ((unsigned)numSnps + nextNumTiles - 1) / nextNumTiles;
+        if (nextMaxSize > maxSnps) break;
+        const unsigned nextMinSize = (unsigned)numSnps / nextNumTiles;
+        if (minSnps && nextMinSize < minSnps) break;
+        numTiles = nextNumTiles;
+    }
+
+    vector<vector<unsigned> > tiles;
+    tiles.reserve(numTiles);
+    const unsigned baseSize = (unsigned)numSnps / numTiles;
+    const unsigned extra = (unsigned)numSnps % numTiles;
+    unsigned idx = 0;
+    for (unsigned t = 0; t < numTiles; ++t) {
+        const unsigned tileSize = baseSize + (t < extra ? 1 : 0);
+        vector<unsigned> tile;
+        tile.reserve(tileSize);
+        for (unsigned j = 0; j < tileSize; ++j) tile.push_back(idx++);
+        tiles.push_back(tile);
+    }
+    return tiles;
+}
+
+vector<uint32_t> makeSparseSourceLocalToGlobal(const vector<SnpInfo*> &sourceSnps,
+                                               const unordered_map<int, int> &newIndexByOldIndex) {
+    vector<uint32_t> localToGlobal(sourceSnps.size(), SOURCE_SPARSE_LD_MISSING_INDEX);
+    for (unsigned j = 0; j < sourceSnps.size(); ++j) {
+        SnpInfo *snp = sourceSnps[j];
+        if (!snp) continue;
+        unordered_map<int, int>::const_iterator idxIt = newIndexByOldIndex.find(snp->index);
+        if (idxIt == newIndexByOldIndex.end() || idxIt->second < 0) continue;
+        localToGlobal[j] = (uint32_t)idxIt->second;
+    }
+    return localToGlobal;
+}
+
+long writeSparseSourceLdHeader(FILE *out, const string &sourceBlockID,
+                               const vector<uint32_t> &localToGlobal,
+                               const bool useUint16Index,
+                               const bool q16Correlation) {
+    if (q16Correlation) {
+        fwrite(SOURCE_SPARSE_LD_MAGIC_V2, sizeof(char), 8, out);
+        fwrite(&SOURCE_SPARSE_LD_VERSION_V2, sizeof(uint32_t), 1, out);
+    } else {
+        fwrite(SOURCE_SPARSE_LD_MAGIC_V3, sizeof(char), 8, out);
+        fwrite(&SOURCE_SPARSE_LD_VERSION_V3, sizeof(uint32_t), 1, out);
+    }
+    writeBinaryString(out, sourceBlockID);
+    uint32_t numSnps = (uint32_t)localToGlobal.size();
+    uint64_t numRecords = 0;
+    uint8_t indexWidth = useUint16Index ? 2 : 4;
+    uint8_t corrWidth = q16Correlation ? 2 : 4;
+    float corrScale = q16Correlation ? SOURCE_SPARSE_LD_Q16_SCALE : 0.0f;
+    fwrite(&numSnps, sizeof(uint32_t), 1, out);
+    const long countPos = ftell(out);
+    fwrite(&numRecords, sizeof(uint64_t), 1, out);
+    fwrite(&indexWidth, sizeof(uint8_t), 1, out);
+    if (!q16Correlation)
+        fwrite(&corrWidth, sizeof(uint8_t), 1, out);
+    fwrite(&corrScale, sizeof(float), 1, out);
+    if (numSnps && fwrite(localToGlobal.data(), sizeof(uint32_t), numSnps, out) != numSnps) {
+        fclose(out);
+        throw("Error: failed writing sparse source LD local-to-global index map.");
+    }
+    return countPos;
+}
+
+int16_t quantizeSparseLdCorrQ16(float r) {
+    if (r > 1.0f) r = 1.0f;
+    else if (r < -1.0f) r = -1.0f;
+    int q = (int)(r >= 0.0f ? r * SOURCE_SPARSE_LD_Q16_SCALE + 0.5f
+                             : r * SOURCE_SPARSE_LD_Q16_SCALE - 0.5f);
+    if (q > 32767) q = 32767;
+    else if (q < -32767) q = -32767;
+    return (int16_t)q;
+}
+
+void writeSparseSourceLdV2Record(FILE *out, const uint32_t snp1, const uint32_t snp2,
+                                 const float r, const bool useUint16Index,
+                                 const bool q16Correlation, uint64_t &numRecords) {
+    float clipped = r;
+    if (clipped > 1.0f) clipped = 1.0f;
+    else if (clipped < -1.0f) clipped = -1.0f;
+    if (useUint16Index) {
+        uint16_t i16 = (uint16_t)snp1;
+        uint16_t j16 = (uint16_t)snp2;
+        fwrite(&i16, sizeof(uint16_t), 1, out);
+        fwrite(&j16, sizeof(uint16_t), 1, out);
+    } else {
+        fwrite(&snp1, sizeof(uint32_t), 1, out);
+        fwrite(&snp2, sizeof(uint32_t), 1, out);
+    }
+    if (q16Correlation) {
+        int16_t q = quantizeSparseLdCorrQ16(clipped);
+        fwrite(&q, sizeof(int16_t), 1, out);
+    } else {
+        fwrite(&clipped, sizeof(float), 1, out);
+    }
+    ++numRecords;
+}
+
+void finishSparseSourceLdV2(FILE *out, const long countPos, const uint64_t numRecords) {
+    fseek(out, countPos, SEEK_SET);
+    fwrite(&numRecords, sizeof(uint64_t), 1, out);
+    fclose(out);
+}
+
+void writeBinaryString(FILE *out, const string &value) {
+    uint32_t len = (uint32_t)value.size();
+    fwrite(&len, sizeof(uint32_t), 1, out);
+    if (len && fwrite(value.data(), sizeof(char), len, out) != len) {
+        throw("Error: failed writing binary string.");
+    }
+}
+
+string readBinaryString(FILE *in, const string &filename) {
+    uint32_t len = 0;
+    if (fread(&len, sizeof(uint32_t), 1, in) != 1) {
+        throw("Error: incomplete binary string length in [" + filename + "].");
+    }
+    string value(len, '\0');
+    if (len && fread(&value[0], sizeof(char), len, in) != len) {
+        throw("Error: incomplete binary string in [" + filename + "].");
+    }
+    return value;
+}
+
+void prepareCleanOutputDirectory(const string &dirname, const string &label) {
+    struct stat sb;
+    if (stat(dirname.c_str(), &sb) != 0 || !S_ISDIR(sb.st_mode)) {
+        if (mkdir(dirname.c_str(), 0755) != 0) {
+            throw("Error: can not create folder [" + dirname + "] to store " + label + ".");
+        }
+        cout << "Created folder [" << dirname << "] to store " << label << "." << endl;
+        return;
+    }
+
+    DIR *existingDir = opendir(dirname.c_str());
+    if (!existingDir) throw("Error: can not open folder [" + dirname + "].");
+    dirent *entry;
+    while ((entry = readdir(existingDir)) != NULL) {
+        string fname = entry->d_name;
+        if (fname == "." || fname == "..") continue;
+        string path = dirname + "/" + fname;
+        struct stat fstat;
+        if (stat(path.c_str(), &fstat) != 0) continue;
+        if (S_ISDIR(fstat.st_mode)) {
+            closedir(existingDir);
+            throw("Error: output folder [" + dirname + "] contains subfolder [" + fname + "]. "
+                  "Please remove it or use a different --out folder.");
+        }
+        if (remove(path.c_str()) != 0) {
+            closedir(existingDir);
+            throw("Error: failed to remove existing file [" + path + "] before rewriting output.");
+        }
+    }
+    closedir(existingDir);
+    cout << "Cleared existing files in folder [" << dirname << "] before writing " << label << "." << endl;
+}
+
+void prepareOutputDirectoryPreserveExisting(const string &dirname, const string &label) {
+    struct stat sb;
+    if (stat(dirname.c_str(), &sb) != 0 || !S_ISDIR(sb.st_mode)) {
+        if (mkdir(dirname.c_str(), 0755) != 0) {
+            throw("Error: can not create folder [" + dirname + "] to store " + label + ".");
+        }
+        cout << "Created folder [" << dirname << "] to store " << label << "." << endl;
+        return;
+    }
+    cout << "Using existing folder [" << dirname << "] and preserving files from other blocks." << endl;
+}
+
+class SourceBlockOutputLock {
+    string lockDir;
+    bool locked;
+public:
+    SourceBlockOutputLock(const string &dirname, const string &sourceBlockID, const bool enabled)
+    : lockDir(dirname + "/block" + sourceBlockID + ".lock"), locked(false) {
+        if (!enabled) return;
+        if (mkdir(lockDir.c_str(), 0755) != 0) {
+            throw("Error: block-specific output lock [" + lockDir + "] already exists. "
+                  "Another job may be writing this block, or a previous job failed. "
+                  "Remove this lock directory only after confirming no job is still running for this block.");
+        }
+        locked = true;
+    }
+
+    ~SourceBlockOutputLock() {
+        if (locked) remove(lockDir.c_str());
+    }
+};
+
+void removeFileIfExistsLocal(const string &filename) {
+    struct stat sb;
+    if (stat(filename.c_str(), &sb) == 0 && S_ISREG(sb.st_mode)) remove(filename.c_str());
+}
+
+bool hasSuffixLocal(const string &value, const string &suffix) {
+    return value.size() >= suffix.size()
+        && value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+bool findBlockOutputLocksLocal(const string &dirname, vector<string> &locks) {
+    locks.clear();
+    DIR *dirp = opendir(dirname.c_str());
+    if (!dirp) throw("Error: can not open folder [" + dirname + "] to check block output locks.");
+    dirent *dp;
+    while ((dp = readdir(dirp)) != NULL) {
+        string fname = dp->d_name;
+        if (fname.find("block") != 0 || !hasSuffixLocal(fname, ".lock")) continue;
+        string path = dirname + "/" + fname;
+        struct stat sb;
+        if (stat(path.c_str(), &sb) == 0 && S_ISDIR(sb.st_mode)) locks.push_back(fname);
+    }
+    closedir(dirp);
+    std::sort(locks.begin(), locks.end());
+    return !locks.empty();
+}
+
+bool isBlockSpecificMergeInputLocal(const string &fname) {
+    if (fname.find("block") != 0) return false;
+    return hasSuffixLocal(fname, ".snp.info")
+        || hasSuffixLocal(fname, ".ldm.info")
+        || hasSuffixLocal(fname, ".rsq0.5.pwld")
+        || hasSuffixLocal(fname, ".rsq0.5.pwld.gz")
+        || hasSuffixLocal(fname, ".rsq0.5.pwld.bin");
+}
+
+unsigned removeBlockSpecificMergeInputsLocal(const string &dirname) {
+    DIR *dirp = opendir(dirname.c_str());
+    if (!dirp) throw("Error: can not open folder [" + dirname + "] to clean block-specific merge inputs.");
+    vector<string> files;
+    dirent *dp;
+    while ((dp = readdir(dirp)) != NULL) {
+        string fname = dp->d_name;
+        if (isBlockSpecificMergeInputLocal(fname)) files.push_back(fname);
+    }
+    closedir(dirp);
+
+    unsigned removed = 0;
+    for (unsigned i = 0; i < files.size(); ++i) {
+        string path = dirname + "/" + files[i];
+        struct stat sb;
+        if (stat(path.c_str(), &sb) == 0 && S_ISREG(sb.st_mode) && remove(path.c_str()) == 0)
+            ++removed;
+    }
+    return removed;
+}
+
+void removeSourceBlockTiledOutputs(const string &dirname, const string &sourceBlockID) {
+    DIR *dirp = opendir(dirname.c_str());
+    if (!dirp) throw("Error: can not open folder [" + dirname + "] before rewriting source block " + sourceBlockID + ".");
+    const string tilePrefix = "block" + sourceBlockID + ".tile";
+    dirent *dp;
+    while ((dp = readdir(dirp)) != NULL) {
+        string fname = dp->d_name;
+        if (fname.find(tilePrefix) != 0) continue;
+        if (fname.size() >= 10 && fname.substr(fname.size() - 10) == ".eigen.bin")
+            remove((dirname + "/" + fname).c_str());
+        else if (fname.size() >= 14 && fname.substr(fname.size() - 14) == ".eigen.q16.bin")
+            remove((dirname + "/" + fname).c_str());
+        else if (fname.size() >= 10 && fname.substr(fname.size() - 10) == ".eigen.txt")
+            remove((dirname + "/" + fname).c_str());
+    }
+    closedir(dirp);
+
+    const string prefix = dirname + "/block" + sourceBlockID;
+    removeFileIfExistsLocal(prefix + ".ldm.info");
+    removeFileIfExistsLocal(prefix + ".snp.info");
+    removeFileIfExistsLocal(prefix + ".sparse.bin");
+    removeFileIfExistsLocal(prefix + ".sparse.q16.bin");
+    removeFileIfExistsLocal(prefix + ".tiles.eigen.bin");
+    removeFileIfExistsLocal(prefix + ".tiles.eigen.q16.bin");
+    removeFileIfExistsLocal(prefix + ".rsq0.5.pwld.gz");
+    removeFileIfExistsLocal(prefix + ".done");
+}
+
+void writeEigenBlockPayload(FILE *outbin, int32_t numSnpInBlock, const VectorXf &eigenVal,
+                            const MatrixXf &eigenVec, float sumPosEigVal, float eigenCutoff) {
+    int32_t numEigenValue = eigenVal.size();
+    fwrite(&numSnpInBlock, sizeof(int32_t), 1, outbin);
+    fwrite(&numEigenValue, sizeof(int32_t), 1, outbin);
+    fwrite(&sumPosEigVal, sizeof(float), 1, outbin);
+    fwrite(&eigenCutoff, sizeof(float), 1, outbin);
+    fwrite(eigenVal.data(), sizeof(float), numEigenValue, outbin);
+    uint64_t nElements = (uint64_t)numSnpInBlock * (uint64_t)numEigenValue;
+    fwrite(eigenVec.data(), sizeof(float), nElements, outbin);
+}
+
+void writeEigenBlockBinary(const string &filename, int32_t numSnpInBlock, const VectorXf &eigenVal,
+                           const MatrixXf &eigenVec, float sumPosEigVal, float eigenCutoff) {
+    FILE *outbin = fopen(filename.c_str(), "wb");
+    if (!outbin) throw("Error: can not open the file [" + filename + "] to write.");
+    writeEigenBlockPayload(outbin, numSnpInBlock, eigenVal, eigenVec, sumPosEigVal, eigenCutoff);
+    fclose(outbin);
+}
+
+void writeEigenBlockPayloadQ16(FILE *outbin, int32_t numSnpInBlock, const VectorXf &eigenVal,
+                               const MatrixXf &eigenVec, float sumPosEigVal, float eigenCutoff) {
+    int32_t numEigenValue = eigenVal.size();
+    fwrite(&numSnpInBlock, sizeof(int32_t), 1, outbin);
+    fwrite(&numEigenValue, sizeof(int32_t), 1, outbin);
+    fwrite(&sumPosEigVal, sizeof(float), 1, outbin);
+    fwrite(&eigenCutoff, sizeof(float), 1, outbin);
+    fwrite(eigenVal.data(), sizeof(float), numEigenValue, outbin);
+
+    VectorXf scales(numEigenValue);
+    for (int col = 0; col < numEigenValue; ++col) {
+        float maxAbs = eigenVec.col(col).cwiseAbs().maxCoeff();
+        if (maxAbs <= 0.0f) maxAbs = 1.0f;
+        scales[col] = maxAbs;
+    }
+    fwrite(scales.data(), sizeof(float), numEigenValue, outbin);
+
+    vector<int16_t> colRaw(numSnpInBlock);
+    for (int col = 0; col < numEigenValue; ++col) {
+        const float invScale = SOURCE_SPARSE_LD_Q16_SCALE / scales[col];
+        for (int row = 0; row < numSnpInBlock; ++row) {
+            int q = (int)lrintf(eigenVec(row, col) * invScale);
+            if (q > 32767) q = 32767;
+            else if (q < -32767) q = -32767;
+            colRaw[row] = (int16_t)q;
+        }
+        fwrite(colRaw.data(), sizeof(int16_t), numSnpInBlock, outbin);
+    }
+}
+
+void writeEigenBlockBinaryQ16(const string &filename, int32_t numSnpInBlock, const VectorXf &eigenVal,
+                              const MatrixXf &eigenVec, float sumPosEigVal, float eigenCutoff) {
+    FILE *outbin = fopen(filename.c_str(), "wb");
+    if (!outbin) throw("Error: can not open the file [" + filename + "] to write.");
+    writeEigenBlockPayloadQ16(outbin, numSnpInBlock, eigenVal, eigenVec, sumPosEigVal, eigenCutoff);
+    fclose(outbin);
+}
+
+string tiledEigenBundleFilename(const string &dirname, const string &sourceBlockID, const int outputQuantBits) {
+    if (outputQuantBits == 0) return dirname + "/block" + sourceBlockID + ".tiles.eigen.bin";
+    if (outputQuantBits == 16) return dirname + "/block" + sourceBlockID + ".tiles.eigen.q16.bin";
+    throw("Error: tiled LD eigen bundles currently support only float or --bits 16.");
+}
+
+string sparseSourceLdFilename(const string &dirname, const string &sourceBlockID, const bool q16Correlation) {
+    return dirname + "/block" + sourceBlockID + (q16Correlation ? ".sparse.q16.bin" : ".sparse.bin");
+}
+
+string existingSparseSourceLdFilename(const string &dirname, const string &sourceBlockID) {
+    string q16File = sparseSourceLdFilename(dirname, sourceBlockID, true);
+    if (fileExistsAndNonEmptyLocal(q16File)) return q16File;
+    string floatFile = sparseSourceLdFilename(dirname, sourceBlockID, false);
+    if (fileExistsAndNonEmptyLocal(floatFile)) return floatFile;
+    return floatFile;
+}
+
+FILE *openTiledEigenBundleForWrite(const string &dirname, const string &sourceBlockID,
+                                   const unsigned numRecords, const int outputQuantBits) {
+    const string filename = tiledEigenBundleFilename(dirname, sourceBlockID, outputQuantBits);
+    FILE *outbin = fopen(filename.c_str(), "wb");
+    if (!outbin) throw("Error: can not open the file [" + filename + "] to write.");
+    fwrite(TILED_EIGEN_BUNDLE_MAGIC, sizeof(char), 8, outbin);
+    fwrite(&TILED_EIGEN_BUNDLE_VERSION, sizeof(uint32_t), 1, outbin);
+    uint32_t bits = (uint32_t)outputQuantBits;
+    uint32_t nrec = (uint32_t)numRecords;
+    fwrite(&bits, sizeof(uint32_t), 1, outbin);
+    fwrite(&nrec, sizeof(uint32_t), 1, outbin);
+    return outbin;
+}
+
+void writeTiledEigenBundleRecord(FILE *outbin, const string &blockID, const int32_t numSnpInBlock,
+                                 const VectorXf &eigenVal, const MatrixXf &eigenVec,
+                                 const float sumPosEigVal, const float eigenCutoff,
+                                 const int outputQuantBits) {
+    writeBinaryString(outbin, blockID);
+    uint64_t payloadBytes = 0;
+    const long payloadSizePos = ftell(outbin);
+    fwrite(&payloadBytes, sizeof(uint64_t), 1, outbin);
+    const long payloadStart = ftell(outbin);
+    if (outputQuantBits == 0)
+        writeEigenBlockPayload(outbin, numSnpInBlock, eigenVal, eigenVec, sumPosEigVal, eigenCutoff);
+    else if (outputQuantBits == 16)
+        writeEigenBlockPayloadQ16(outbin, numSnpInBlock, eigenVal, eigenVec, sumPosEigVal, eigenCutoff);
+    else
+        throw("Error: tiled LD eigen bundles currently support only float or --bits 16.");
+    const long payloadEnd = ftell(outbin);
+    payloadBytes = (uint64_t)(payloadEnd - payloadStart);
+    fseek(outbin, payloadSizePos, SEEK_SET);
+    fwrite(&payloadBytes, sizeof(uint64_t), 1, outbin);
+    fseek(outbin, payloadEnd, SEEK_SET);
+}
+
+void writeTiledEigenBlockBinary(const string &dirname, const string &blockID, const int32_t numSnpInBlock,
+                                const VectorXf &eigenVal, const MatrixXf &eigenVec,
+                                const float sumPosEigVal, const float eigenCutoff,
+                                const int outputQuantBits) {
+    if (outputQuantBits == 0) {
+        writeEigenBlockBinary(dirname + "/block" + blockID + ".eigen.bin",
+                              numSnpInBlock, eigenVal, eigenVec, sumPosEigVal, eigenCutoff);
+    } else if (outputQuantBits == 16) {
+        writeEigenBlockBinaryQ16(dirname + "/block" + blockID + ".eigen.q16.bin",
+                                 numSnpInBlock, eigenVal, eigenVec, sumPosEigVal, eigenCutoff);
+    } else {
+        throw("Error: tiled LD eigen output currently supports only float or --bits 16.");
+    }
+}
+
+void writeCoreContextLdBlockBinary(const string &filename, const CoreContextLdBlock &block) {
+    FILE *outbin = fopen(filename.c_str(), "wb");
+    if (!outbin) throw("Error: can not open the file [" + filename + "] to write.");
+    fwrite(CORE_CONTEXT_BIN_MAGIC, sizeof(char), 8, outbin);
+    fwrite(&CORE_CONTEXT_BIN_VERSION, sizeof(uint32_t), 1, outbin);
+    int32_t numCore = block.numCoreSnps;
+    uint64_t numRecords = block.coreLocalIndex.size();
+    fwrite(&numCore, sizeof(int32_t), 1, outbin);
+    fwrite(&numRecords, sizeof(uint64_t), 1, outbin);
+    for (uint64_t r = 0; r < numRecords; ++r) {
+        CoreContextBinRecord rec;
+        rec.coreLocal = (uint32_t)block.coreLocalIndex[r];
+        rec.flankGlobal = (uint32_t)block.flankGlobalIndex[r];
+        rec.ldcor = block.ldCorr[r];
+        fwrite(&rec, sizeof(CoreContextBinRecord), 1, outbin);
+    }
+    fclose(outbin);
+}
+
+void writeEmptyPwldGz(const string &filename) {
+    gzFile out = gzopen(filename.c_str(), "wb");
+    if (!out) throw("Error: can not open the file [" + filename + "] to write.");
+    gzprintf(out, "%12s %12s %12s\n", "SNP1", "SNP2", "LDcorrelation");
+    gzclose(out);
+}
+
+void writePwldGzFromDense(const string &filename, const vector<SnpInfo*> &sourceSnps,
+                          const MatrixXf &ldm, const float r2Threshold) {
+    gzFile out = gzopen(filename.c_str(), "wb");
+    if (!out) throw("Error: can not open the file [" + filename + "] to write.");
+    gzprintf(out, "%12s %12s %12s\n", "SNP1", "SNP2", "LDcorrelation");
+    const int m = ldm.cols();
+    if (ldm.rows() != m || m != (int)sourceSnps.size()) {
+        gzclose(out);
+        throw("Error: inconsistent dimensions while writing pairwise LD file [" + filename + "].");
+    }
+    const float threshold = std::max(0.0f, r2Threshold);
+    for (int j = 0; j < m; ++j) {
+        for (int i = 0; i < j; ++i) {
+            float r = ldm(i, j);
+            if (r > 1.0f) r = 1.0f;
+            else if (r < -1.0f) r = -1.0f;
+            if (r * r < threshold) continue;
+            gzprintf(out, "%12s %12s %12.6f\n",
+                     sourceSnps[i]->ID.c_str(), sourceSnps[j]->ID.c_str(), r);
+        }
+    }
+    gzclose(out);
+}
+
+bool readCoreContextLdBlockBinary(const string &filename, CoreContextLdBlock &block) {
+    block.clear();
+    FILE *in = fopen(filename.c_str(), "rb");
+    if (!in) return false;
+    char magic[8];
+    uint32_t version = 0;
+    int32_t numCore = 0;
+    uint64_t numRecords = 0;
+    if (fread(magic, sizeof(char), 8, in) != 8 ||
+        memcmp(magic, CORE_CONTEXT_BIN_MAGIC, 8) != 0 ||
+        fread(&version, sizeof(uint32_t), 1, in) != 1 ||
+        fread(&numCore, sizeof(int32_t), 1, in) != 1 ||
+        fread(&numRecords, sizeof(uint64_t), 1, in) != 1) {
+        fclose(in);
+        throw("Error: invalid legacy core-context sparse LD file [" + filename + "].");
+    }
+    if (version != CORE_CONTEXT_BIN_VERSION) {
+        fclose(in);
+        throw("Error: unsupported legacy core-context sparse LD file version in [" + filename + "].");
+    }
+    block.numCoreSnps = numCore;
+    block.coreLocalIndex.reserve(numRecords);
+    block.flankGlobalIndex.reserve(numRecords);
+    block.ldCorr.reserve(numRecords);
+    for (uint64_t r = 0; r < numRecords; ++r) {
+        CoreContextBinRecord rec;
+        if (fread(&rec, sizeof(CoreContextBinRecord), 1, in) != 1) {
+            fclose(in);
+            throw("Error: incomplete core-context LD record in [" + filename + "].");
+        }
+        block.coreLocalIndex.push_back((unsigned)rec.coreLocal);
+        block.flankGlobalIndex.push_back((unsigned)rec.flankGlobal);
+        block.ldCorr.push_back(rec.ldcor);
+    }
+    fclose(in);
+    return true;
+}
+
+void writeCoreContextTileMetaBinary(const string &filename, const string &sourceBlockID) {
+    FILE *out = fopen(filename.c_str(), "wb");
+    if (!out) throw("Error: can not open the file [" + filename + "] to write.");
+    fwrite(CORE_CONTEXT_META_MAGIC, sizeof(char), 8, out);
+    fwrite(&CORE_CONTEXT_BIN_VERSION, sizeof(uint32_t), 1, out);
+    writeBinaryString(out, sourceBlockID);
+    fclose(out);
+}
+
+bool readCoreContextTileMetaBinary(const string &filename, string &sourceBlockID) {
+    FILE *in = fopen(filename.c_str(), "rb");
+    if (!in) return false;
+    char magic[8];
+    uint32_t version = 0;
+    if (fread(magic, sizeof(char), 8, in) != 8 ||
+        memcmp(magic, CORE_CONTEXT_META_MAGIC, 8) != 0 ||
+        fread(&version, sizeof(uint32_t), 1, in) != 1) {
+        fclose(in);
+        throw("Error: invalid core-context tile metadata [" + filename + "].");
+    }
+    if (version != CORE_CONTEXT_BIN_VERSION) {
+        fclose(in);
+        throw("Error: unsupported core-context tile metadata version in [" + filename + "].");
+    }
+    sourceBlockID = readBinaryString(in, filename);
+    fclose(in);
+    return true;
+}
+
+uint64_t writeSparseSourceLdFromQ(const string &filename, const string &sourceBlockID,
+                                  const vector<SnpInfo*> &sourceSnps,
+                                  const unordered_map<int, int> &newIndexByOldIndex,
+                                  const vector<int> &tileByLocalIndex,
+                                  const MatrixXf &Qsource, const VectorXf &qDiag,
+                                  const float r2Threshold, const bool q16Correlation) {
+    FILE *out = fopen(filename.c_str(), "wb");
+    if (!out) throw("Error: can not open the file [" + filename + "] to write.");
+
+    const int m = Qsource.cols();
+    if (m != (int)sourceSnps.size() || qDiag.size() != m || (int)tileByLocalIndex.size() != m) {
+        fclose(out);
+        throw("Error: inconsistent dimensions while writing sparse source LD for block " + sourceBlockID + ".");
+    }
+    vector<uint32_t> localToGlobal = makeSparseSourceLocalToGlobal(sourceSnps, newIndexByOldIndex);
+    const bool useUint16Index = m <= 65536;
+    uint64_t numRecords = 0;
+    const long countPos = writeSparseSourceLdHeader(out, sourceBlockID, localToGlobal, useUint16Index, q16Correlation);
+
+    MatrixXf Qnorm(Qsource.rows(), Qsource.cols());
+    for (int j = 0; j < m; ++j) {
+        const float d = qDiag[j];
+        if (d > 0.0f) Qnorm.col(j) = Qsource.col(j) / sqrtf(d);
+        else Qnorm.col(j).setZero();
+    }
+
+    const int chunk = 256;
+    const float threshold = std::max(0.0f, r2Threshold);
+    for (int c0 = 0; c0 < m; c0 += chunk) {
+        const int width = std::min(chunk, m - c0);
+        MatrixXf R = Qnorm.transpose() * Qnorm.middleCols(c0, width);
+        for (int jj = 0; jj < width; ++jj) {
+            const int j = c0 + jj;
+            if (localToGlobal[j] == SOURCE_SPARSE_LD_MISSING_INDEX) continue;
+            for (int i = 0; i < j; ++i) {
+                if (tileByLocalIndex[i] == tileByLocalIndex[j]) continue;
+                if (localToGlobal[i] == SOURCE_SPARSE_LD_MISSING_INDEX) continue;
+                float r = R(i, jj);
+                if (r > 1.0f) r = 1.0f;
+                else if (r < -1.0f) r = -1.0f;
+                if (r * r < threshold) continue;
+                writeSparseSourceLdV2Record(out, (uint32_t)i, (uint32_t)j, r, useUint16Index, q16Correlation, numRecords);
+            }
+        }
+    }
+
+    finishSparseSourceLdV2(out, countPos, numRecords);
+    return numRecords;
+}
+
+uint64_t writeSparseSourceLdFromDense(const string &filename, const string &sourceBlockID,
+                                      const vector<SnpInfo*> &sourceSnps,
+                                      const unordered_map<int, int> &newIndexByOldIndex,
+                                      const vector<int> &tileByLocalIndex,
+                                      const MatrixXf &ldm,
+                                      const float r2Threshold, const bool q16Correlation) {
+    FILE *out = fopen(filename.c_str(), "wb");
+    if (!out) throw("Error: can not open the file [" + filename + "] to write.");
+
+    const int m = ldm.cols();
+    if (ldm.rows() != m || m != (int)sourceSnps.size() || (int)tileByLocalIndex.size() != m) {
+        fclose(out);
+        throw("Error: inconsistent dimensions while writing sparse source LD for block " + sourceBlockID + ".");
+    }
+    vector<uint32_t> localToGlobal = makeSparseSourceLocalToGlobal(sourceSnps, newIndexByOldIndex);
+    const bool useUint16Index = m <= 65536;
+    uint64_t numRecords = 0;
+    const long countPos = writeSparseSourceLdHeader(out, sourceBlockID, localToGlobal, useUint16Index, q16Correlation);
+
+    const float threshold = std::max(0.0f, r2Threshold);
+    for (int j = 0; j < m; ++j) {
+        if (localToGlobal[j] == SOURCE_SPARSE_LD_MISSING_INDEX) continue;
+        for (int i = 0; i < j; ++i) {
+            if (tileByLocalIndex[i] == tileByLocalIndex[j]) continue;
+            if (localToGlobal[i] == SOURCE_SPARSE_LD_MISSING_INDEX) continue;
+            float r = ldm(i, j);
+            if (r > 1.0f) r = 1.0f;
+            else if (r < -1.0f) r = -1.0f;
+            if (r * r < threshold) continue;
+            writeSparseSourceLdV2Record(out, (uint32_t)i, (uint32_t)j, r, useUint16Index, q16Correlation, numRecords);
+        }
+    }
+
+    finishSparseSourceLdV2(out, countPos, numRecords);
+    return numRecords;
+}
+
+struct BlockLdBinaryInfo {
+    string filename;
+    int quantBits;
+    bool lowerTriangular;
+    bool fullSquare;
+    BlockLdBinaryInfo() : quantBits(0), lowerTriangular(false), fullSquare(false) {}
+};
+
+bool inspectBlockLdBinary(const string &dirname, const string &blockID, const int32_t blockSize,
+                          BlockLdBinaryInfo &info) {
+    const string floatFile = dirname + "/block" + blockID + ".ldm.bin";
+    const string q16File = dirname + "/block" + blockID + ".ldm.q16.bin";
+    const string q8File = dirname + "/block" + blockID + ".ldm.q8.bin";
+
+    struct stat statBuf;
+    if (stat(floatFile.c_str(), &statBuf) == 0) {
+        info.filename = floatFile;
+        info.quantBits = 0;
+    } else if (stat(q16File.c_str(), &statBuf) == 0) {
+        info.filename = q16File;
+        info.quantBits = 16;
+    } else if (stat(q8File.c_str(), &statBuf) == 0) {
+        info.filename = q8File;
+        info.quantBits = 8;
+    } else {
+        return false;
+    }
+
+    const size_t nFull = (size_t)blockSize * (size_t)blockSize;
+    const size_t nLowerTri = (size_t)blockSize * (size_t)(blockSize + 1) / 2;
+    const size_t bytesPerValue = info.quantBits == 0 ? sizeof(float) : (info.quantBits == 8 ? sizeof(int8_t) : sizeof(int16_t));
+    const size_t fileBytes = (size_t)statBuf.st_size;
+    info.lowerTriangular = fileBytes == nLowerTri * bytesPerValue;
+    info.fullSquare = fileBytes == nFull * bytesPerValue;
+    return true;
+}
+
+bool buildCoreTileLdAndSparseFromLowerTriLdStream(const string &ldmDirname,
+                                                  const string &outDirname,
+                                                  const string &sourceBlockID,
+                                                  const int32_t mFull,
+                                                  const vector<unsigned> &sourceLocal,
+                                                  const vector<SnpInfo*> &sourceSnps,
+                                                  const unordered_map<int, int> &newIndexByOldIndex,
+                                                  const vector<vector<unsigned> > &tileLocalIdx,
+                                                  const vector<int> &tileByLocalIndex,
+                                                  const float sparseR2Threshold,
+                                                  const int outputQuantBits,
+                                                  vector<MatrixXf> &tileRcc,
+                                                  uint64_t &sparseRecordsOut) {
+    sparseRecordsOut = 0;
+    BlockLdBinaryInfo info;
+    if (!inspectBlockLdBinary(ldmDirname, sourceBlockID, mFull, info)) {
+        throw("Error: cannot find block LD matrix file for source block " + sourceBlockID + " in [" + ldmDirname + "].");
+    }
+    if (!info.lowerTriangular) return false;
+
+    FILE *in = fopen(info.filename.c_str(), "rb");
+    if (!in) throw("Error: cannot open the file [" + info.filename + "] to read.");
+
+    const int m = (int)sourceSnps.size();
+    vector<int> originalToSource(mFull, -1);
+    for (int s = 0; s < m; ++s) originalToSource[(int)sourceLocal[s]] = s;
+
+    vector<int> sourceToTileLocal(m, -1);
+    for (unsigned t = 0; t < tileLocalIdx.size(); ++t) {
+        for (unsigned a = 0; a < tileLocalIdx[t].size(); ++a)
+            sourceToTileLocal[(int)tileLocalIdx[t][a]] = (int)a;
+    }
+    if ((int)tileByLocalIndex.size() != m) {
+        fclose(in);
+        throw("Error: inconsistent tile assignment while streaming source block " + sourceBlockID + ".");
+    }
+    for (int s = 0; s < m; ++s) {
+        if (tileByLocalIndex[s] < 0 || sourceToTileLocal[s] < 0) {
+            fclose(in);
+            throw("Error: SNPs are not fully assigned to core tiles in source block " + sourceBlockID + ".");
+        }
+    }
+
+    tileRcc.resize(tileLocalIdx.size());
+    for (unsigned t = 0; t < tileLocalIdx.size(); ++t)
+        tileRcc[t].setZero((int)tileLocalIdx[t].size(), (int)tileLocalIdx[t].size());
+
+    const bool q16Sparse = outputQuantBits == 16;
+    vector<uint32_t> localToGlobal = makeSparseSourceLocalToGlobal(sourceSnps, newIndexByOldIndex);
+    const bool useUint16Index = m <= 65536;
+    uint64_t sparseRecords = 0;
+    const string sparseFile = sparseSourceLdFilename(outDirname, sourceBlockID, q16Sparse);
+    FILE *outSparse = fopen(sparseFile.c_str(), "wb");
+    if (!outSparse) {
+        fclose(in);
+        throw("Error: can not open the file [" + sparseFile + "] to write.");
+    }
+    const long sparseCountPos = writeSparseSourceLdHeader(outSparse, sourceBlockID, localToGlobal, useUint16Index, q16Sparse);
+
+    const string pwldFile = outDirname + "/block" + sourceBlockID + ".rsq0.5.pwld.gz";
+    gzFile outPwld = gzopen(pwldFile.c_str(), "wb");
+    if (!outPwld) {
+        fclose(in);
+        fclose(outSparse);
+        throw("Error: can not open the file [" + pwldFile + "] to write.");
+    }
+    gzprintf(outPwld, "%12s %12s %12s\n", "SNP1", "SNP2", "LDcorrelation");
+
+    const float sparseThreshold = std::max(0.0f, sparseR2Threshold);
+    const float pwldThreshold = 0.5f;
+    const float invQ = info.quantBits == 8 ? (1.0f / 127.0f)
+                     : info.quantBits == 16 ? (1.0f / 32767.0f)
+                     : 1.0f;
+
+    vector<float> floatRow;
+    vector<int16_t> q16Row;
+    vector<int8_t> q8Row;
+    for (int row = 0; row < mFull; ++row) {
+        const int rowLen = row + 1;
+        if (info.quantBits == 0) {
+            floatRow.resize(rowLen);
+            if (fread(floatRow.data(), sizeof(float), rowLen, in) != (size_t)rowLen) {
+                gzclose(outPwld);
+                fclose(outSparse);
+                fclose(in);
+                throw("Error: incomplete lower-triangular LD row in [" + info.filename + "].");
+            }
+        } else if (info.quantBits == 16) {
+            q16Row.resize(rowLen);
+            if (fread(q16Row.data(), sizeof(int16_t), rowLen, in) != (size_t)rowLen) {
+                gzclose(outPwld);
+                fclose(outSparse);
+                fclose(in);
+                throw("Error: incomplete q16 lower-triangular LD row in [" + info.filename + "].");
+            }
+        } else {
+            q8Row.resize(rowLen);
+            if (fread(q8Row.data(), sizeof(int8_t), rowLen, in) != (size_t)rowLen) {
+                gzclose(outPwld);
+                fclose(outSparse);
+                fclose(in);
+                throw("Error: incomplete q8 lower-triangular LD row in [" + info.filename + "].");
+            }
+        }
+
+        const int si = originalToSource[row];
+        if (si < 0) continue;
+        const int tileI = tileByLocalIndex[si];
+        const int tileLocalI = sourceToTileLocal[si];
+        for (int col = 0; col <= row; ++col) {
+            const int sj = originalToSource[col];
+            if (sj < 0) continue;
+            float r = 0.0f;
+            if (info.quantBits == 0) r = floatRow[col];
+            else if (info.quantBits == 16) r = (float)q16Row[col] * invQ;
+            else r = (float)q8Row[col] * invQ;
+            if (r > 1.0f) r = 1.0f;
+            else if (r < -1.0f) r = -1.0f;
+
+            const int tileJ = tileByLocalIndex[sj];
+            const int tileLocalJ = sourceToTileLocal[sj];
+            const float r2 = r * r;
+            if (row != col && r2 >= pwldThreshold)
+                gzprintf(outPwld, "%12s %12s %12.6f\n", sourceSnps[sj]->ID.c_str(), sourceSnps[si]->ID.c_str(), r);
+            if (tileI == tileJ) {
+                MatrixXf &Rcc = tileRcc[tileI];
+                Rcc(tileLocalI, tileLocalJ) = r;
+                Rcc(tileLocalJ, tileLocalI) = r;
+                continue;
+            }
+            if (r2 >= sparseThreshold)
+                writeSparseSourceLdV2Record(outSparse, (uint32_t)sj, (uint32_t)si, r, useUint16Index, q16Sparse, sparseRecords);
+        }
+    }
+
+    gzclose(outPwld);
+    sparseRecordsOut = sparseRecords;
+    finishSparseSourceLdV2(outSparse, sparseCountPos, sparseRecords);
+    fclose(in);
+
+    for (unsigned t = 0; t < tileRcc.size(); ++t)
+        Data::normaliseDenseCorrelation(tileRcc[t]);
+
+    return true;
+}
+
+void outputCoreContextSourceInfo(const vector<LDBlockInfo*> &tileBlocks, const string &dirname,
+                                 const string &sourceBlockID, const int numKeptInds) {
+    string outSnpfile = dirname + "/block" + sourceBlockID + ".snp.info";
+    string outldmfile = dirname + "/block" + sourceBlockID + ".ldm.info";
+
+    ofstream out1(outSnpfile.c_str());
+    out1 << boost::format("%6s %15s %10s %10s %15s %6s %6s %12s %10s %15s\n")
+    % "Chrom"
+    % "ID"
+    % "Index"
+    % "GenPos"
+    % "PhysPos"
+    % "A1"
+    % "A2"
+    % "A1Freq"
+    % "N"
+    % "Block";
+    for (unsigned b = 0; b < tileBlocks.size(); ++b) {
+        const LDBlockInfo *block = tileBlocks[b];
+        for (unsigned i = 0; i < block->snpInfoVec.size(); ++i) {
+            SnpInfo *snp = block->snpInfoVec[i];
+            out1 << boost::format("%6s %15s %10s %10s %15s %6s %6s %12f %10s %15s\n")
+            % snp->chrom
+            % snp->ID
+            % snp->index
+            % snp->genPos
+            % snp->physPos
+            % snp->a1
+            % snp->a2
+            % snp->af
+            % numKeptInds
+            % block->ID;
+        }
+    }
+    out1.close();
+
+    ofstream out2(outldmfile.c_str());
+    out2 << boost::format("%15s %6s %15s %15s %15s %15s %12s %15s %10s\n")
+    % "Block" % "Chrom" % "StartSnpIdx" % "StartSnpID" % "EndSnpIdx" % "EndSnpID" % "NumSnps"
+    % "SourceBlockID" % "TileID";
+    for (unsigned b = 0; b < tileBlocks.size(); ++b) {
+        const LDBlockInfo *block = tileBlocks[b];
+        out2 << boost::format("%15s %6s %15s %15s %15s %15s %12s %15s %10s\n")
+        % block->ID
+        % block->chrom
+        % block->startSnpIdx
+        % block->snpInfoVec.front()->ID
+        % block->endSnpIdx
+        % block->snpInfoVec.back()->ID
+        % block->numSnpInBlock
+        % block->sourceBlockID
+        % block->sourceTileID;
+    }
+    out2.close();
+}
+
+bool readSparseSourceLdBinary(const string &filename, vector<SparseSourceLdRecord> &records) {
+    records.clear();
+    FILE *in = fopen(filename.c_str(), "rb");
+    if (!in) return false;
+    char magic[8];
+    uint32_t version = 0;
+    if (fread(magic, sizeof(char), 8, in) != 8 ||
+        fread(&version, sizeof(uint32_t), 1, in) != 1) {
+        fclose(in);
+        throw("Error: invalid sparse source LD file [" + filename + "].");
+    }
+
+    if (memcmp(magic, SOURCE_SPARSE_LD_MAGIC_V1, 8) == 0 && version == SOURCE_SPARSE_LD_VERSION_V1) {
+        (void)readBinaryString(in, filename);
+        uint64_t numRecords = 0;
+        if (fread(&numRecords, sizeof(uint64_t), 1, in) != 1) {
+            fclose(in);
+            throw("Error: incomplete sparse source LD header in [" + filename + "].");
+        }
+        records.resize(numRecords);
+        if (numRecords && fread(records.data(), sizeof(SparseSourceLdRecord), numRecords, in) != numRecords) {
+            fclose(in);
+            throw("Error: incomplete sparse source LD records in [" + filename + "].");
+        }
+        fclose(in);
+        return true;
+    }
+
+    const bool sparseV2Q16 = memcmp(magic, SOURCE_SPARSE_LD_MAGIC_V2, 8) == 0 && version == SOURCE_SPARSE_LD_VERSION_V2;
+    const bool sparseV3 = memcmp(magic, SOURCE_SPARSE_LD_MAGIC_V3, 8) == 0 && version == SOURCE_SPARSE_LD_VERSION_V3;
+    if (!sparseV2Q16 && !sparseV3) {
+        fclose(in);
+        throw("Error: unsupported sparse source LD file version in [" + filename + "].");
+    }
+
+    (void)readBinaryString(in, filename);
+    uint32_t numSnps = 0;
+    uint64_t numRecords = 0;
+    uint8_t indexWidth = 0;
+    uint8_t corrWidth = 2;
+    float corrScale = 0.0f;
+    if (fread(&numSnps, sizeof(uint32_t), 1, in) != 1 ||
+        fread(&numRecords, sizeof(uint64_t), 1, in) != 1 ||
+        fread(&indexWidth, sizeof(uint8_t), 1, in) != 1) {
+        fclose(in);
+        throw("Error: incomplete sparse source LD header in [" + filename + "].");
+    }
+    if (sparseV3 && fread(&corrWidth, sizeof(uint8_t), 1, in) != 1) {
+        fclose(in);
+        throw("Error: incomplete sparse source LD v3 correlation-width header in [" + filename + "].");
+    }
+    if (fread(&corrScale, sizeof(float), 1, in) != 1) {
+        fclose(in);
+        throw("Error: incomplete sparse source LD correlation-scale header in [" + filename + "].");
+    }
+    if ((indexWidth != 2 && indexWidth != 4) || (corrWidth != 2 && corrWidth != 4)
+        || (corrWidth == 2 && corrScale <= 0.0f)) {
+        fclose(in);
+        throw("Error: invalid sparse source LD header in [" + filename + "].");
+    }
+    vector<uint32_t> localToGlobal(numSnps);
+    if (numSnps && fread(localToGlobal.data(), sizeof(uint32_t), numSnps, in) != numSnps) {
+        fclose(in);
+        throw("Error: incomplete sparse source LD v2 local-to-global index map in [" + filename + "].");
+    }
+
+    records.reserve(numRecords);
+    for (uint64_t r = 0; r < numRecords; ++r) {
+        uint32_t snp1 = 0;
+        uint32_t snp2 = 0;
+        if (indexWidth == 2) {
+            uint16_t i16 = 0;
+            uint16_t j16 = 0;
+            if (fread(&i16, sizeof(uint16_t), 1, in) != 1 ||
+                fread(&j16, sizeof(uint16_t), 1, in) != 1) {
+                fclose(in);
+                throw("Error: incomplete sparse source LD v2 record in [" + filename + "].");
+            }
+            snp1 = (uint32_t)i16;
+            snp2 = (uint32_t)j16;
+        } else {
+            if (fread(&snp1, sizeof(uint32_t), 1, in) != 1 ||
+                fread(&snp2, sizeof(uint32_t), 1, in) != 1) {
+                fclose(in);
+                throw("Error: incomplete sparse source LD v2 record in [" + filename + "].");
+            }
+        }
+        float ldcor = 0.0f;
+        if (corrWidth == 2) {
+            int16_t q = 0;
+            if (fread(&q, sizeof(int16_t), 1, in) != 1) {
+                fclose(in);
+                throw("Error: incomplete sparse source LD q16 correlation in [" + filename + "].");
+            }
+            ldcor = ((float)q) / corrScale;
+        } else {
+            if (fread(&ldcor, sizeof(float), 1, in) != 1) {
+                fclose(in);
+                throw("Error: incomplete sparse source LD float correlation in [" + filename + "].");
+            }
+        }
+        if (snp1 >= numSnps || snp2 >= numSnps ||
+            localToGlobal[snp1] == SOURCE_SPARSE_LD_MISSING_INDEX ||
+            localToGlobal[snp2] == SOURCE_SPARSE_LD_MISSING_INDEX) {
+            fclose(in);
+            throw("Error: SNP index out of range in sparse source LD v2 file [" + filename + "].");
+        }
+        SparseSourceLdRecord rec;
+        rec.snp1 = localToGlobal[snp1];
+        rec.snp2 = localToGlobal[snp2];
+        rec.ldcor = ldcor;
+        records.push_back(rec);
+    }
+    fclose(in);
+    return true;
+}
+
+void appendSparseSourceRecordToCoreContexts(
+    const uint32_t snp1,
+    const uint32_t snp2,
+    const float ldcor,
+    const unordered_map<unsigned, pair<unsigned, unsigned> > &coreByGlobal,
+    vector<CoreContextLdBlock> &coreContextLdBlocks) {
+
+    unordered_map<unsigned, pair<unsigned, unsigned> >::const_iterator c1 = coreByGlobal.find(snp1);
+    unordered_map<unsigned, pair<unsigned, unsigned> >::const_iterator c2 = coreByGlobal.find(snp2);
+    if (c1 == coreByGlobal.end() && c2 == coreByGlobal.end()) return;
+    if (c1 != coreByGlobal.end() && c2 != coreByGlobal.end()
+        && c1->second.first == c2->second.first) {
+        return;  // within-core LD is already represented by that tile's Q matrix
+    }
+    if (c1 != coreByGlobal.end()) {
+        CoreContextLdBlock &context = coreContextLdBlocks[c1->second.first];
+        context.coreLocalIndex.push_back(c1->second.second);
+        context.flankGlobalIndex.push_back(snp2);
+        context.ldCorr.push_back(ldcor);
+    }
+    if (c2 != coreByGlobal.end()) {
+        CoreContextLdBlock &context = coreContextLdBlocks[c2->second.first];
+        context.coreLocalIndex.push_back(c2->second.second);
+        context.flankGlobalIndex.push_back(snp1);
+        context.ldCorr.push_back(ldcor);
+    }
+}
+
+bool appendSparseSourceLdBinaryToCoreContexts(
+    const string &filename,
+    const unordered_map<unsigned, pair<unsigned, unsigned> > &coreByGlobal,
+    vector<CoreContextLdBlock> &coreContextLdBlocks,
+    const vector<uint32_t> *sourceCurrentByLocal = NULL) {
+
+    FILE *in = fopen(filename.c_str(), "rb");
+    if (!in) return false;
+    char magic[8];
+    uint32_t version = 0;
+    if (fread(magic, sizeof(char), 8, in) != 8 ||
+        fread(&version, sizeof(uint32_t), 1, in) != 1) {
+        fclose(in);
+        throw("Error: invalid sparse source LD file [" + filename + "].");
+    }
+
+    if (memcmp(magic, SOURCE_SPARSE_LD_MAGIC_V1, 8) == 0 && version == SOURCE_SPARSE_LD_VERSION_V1) {
+        (void)readBinaryString(in, filename);
+        uint64_t numRecords = 0;
+        if (fread(&numRecords, sizeof(uint64_t), 1, in) != 1) {
+            fclose(in);
+            throw("Error: incomplete sparse source LD header in [" + filename + "].");
+        }
+        for (uint64_t r = 0; r < numRecords; ++r) {
+            SparseSourceLdRecord rec;
+            if (fread(&rec, sizeof(SparseSourceLdRecord), 1, in) != 1) {
+                fclose(in);
+                throw("Error: incomplete sparse source LD records in [" + filename + "].");
+            }
+            appendSparseSourceRecordToCoreContexts(rec.snp1, rec.snp2, rec.ldcor, coreByGlobal, coreContextLdBlocks);
+        }
+        fclose(in);
+        return true;
+    }
+
+    const bool sparseV2Q16 = memcmp(magic, SOURCE_SPARSE_LD_MAGIC_V2, 8) == 0 && version == SOURCE_SPARSE_LD_VERSION_V2;
+    const bool sparseV3 = memcmp(magic, SOURCE_SPARSE_LD_MAGIC_V3, 8) == 0 && version == SOURCE_SPARSE_LD_VERSION_V3;
+    if (!sparseV2Q16 && !sparseV3) {
+        fclose(in);
+        throw("Error: unsupported sparse source LD file version in [" + filename + "].");
+    }
+
+    (void)readBinaryString(in, filename);
+    uint32_t numSnps = 0;
+    uint64_t numRecords = 0;
+    uint8_t indexWidth = 0;
+    uint8_t corrWidth = 2;
+    float corrScale = 0.0f;
+    if (fread(&numSnps, sizeof(uint32_t), 1, in) != 1 ||
+        fread(&numRecords, sizeof(uint64_t), 1, in) != 1 ||
+        fread(&indexWidth, sizeof(uint8_t), 1, in) != 1) {
+        fclose(in);
+        throw("Error: incomplete sparse source LD header in [" + filename + "].");
+    }
+    if (sparseV3 && fread(&corrWidth, sizeof(uint8_t), 1, in) != 1) {
+        fclose(in);
+        throw("Error: incomplete sparse source LD v3 correlation-width header in [" + filename + "].");
+    }
+    if (fread(&corrScale, sizeof(float), 1, in) != 1) {
+        fclose(in);
+        throw("Error: incomplete sparse source LD correlation-scale header in [" + filename + "].");
+    }
+    if ((indexWidth != 2 && indexWidth != 4) || (corrWidth != 2 && corrWidth != 4)
+        || (corrWidth == 2 && corrScale <= 0.0f)) {
+        fclose(in);
+        throw("Error: invalid sparse source LD header in [" + filename + "].");
+    }
+    vector<uint32_t> localToGlobal(numSnps);
+    if (numSnps && fread(localToGlobal.data(), sizeof(uint32_t), numSnps, in) != numSnps) {
+        fclose(in);
+        throw("Error: incomplete sparse source LD v2 local-to-global index map in [" + filename + "].");
+    }
+    unordered_map<uint32_t, uint32_t> sidecarIndexToCurrent;
+    if (sourceCurrentByLocal && sourceCurrentByLocal->size() == numSnps) {
+        sidecarIndexToCurrent.reserve(numSnps * 2 + 1);
+        for (uint32_t j = 0; j < numSnps; ++j) {
+            if (localToGlobal[j] == SOURCE_SPARSE_LD_MISSING_INDEX ||
+                (*sourceCurrentByLocal)[j] == SOURCE_SPARSE_LD_MISSING_INDEX) continue;
+            sidecarIndexToCurrent[localToGlobal[j]] = (*sourceCurrentByLocal)[j];
+        }
+    }
+
+    for (uint64_t r = 0; r < numRecords; ++r) {
+        uint32_t snp1 = 0;
+        uint32_t snp2 = 0;
+        if (indexWidth == 2) {
+            uint16_t i16 = 0;
+            uint16_t j16 = 0;
+            if (fread(&i16, sizeof(uint16_t), 1, in) != 1 ||
+                fread(&j16, sizeof(uint16_t), 1, in) != 1) {
+                fclose(in);
+                throw("Error: incomplete sparse source LD v2 record in [" + filename + "].");
+            }
+            snp1 = (uint32_t)i16;
+            snp2 = (uint32_t)j16;
+        } else {
+            if (fread(&snp1, sizeof(uint32_t), 1, in) != 1 ||
+                fread(&snp2, sizeof(uint32_t), 1, in) != 1) {
+                fclose(in);
+                throw("Error: incomplete sparse source LD v2 record in [" + filename + "].");
+            }
+        }
+        float ldcor = 0.0f;
+        if (corrWidth == 2) {
+            int16_t q = 0;
+            if (fread(&q, sizeof(int16_t), 1, in) != 1) {
+                fclose(in);
+                throw("Error: incomplete sparse source LD q16 correlation in [" + filename + "].");
+            }
+            ldcor = ((float)q) / corrScale;
+        } else {
+            if (fread(&ldcor, sizeof(float), 1, in) != 1) {
+                fclose(in);
+                throw("Error: incomplete sparse source LD float correlation in [" + filename + "].");
+            }
+        }
+        if (snp1 >= numSnps || snp2 >= numSnps ||
+            localToGlobal[snp1] == SOURCE_SPARSE_LD_MISSING_INDEX ||
+            localToGlobal[snp2] == SOURCE_SPARSE_LD_MISSING_INDEX) {
+            fclose(in);
+            throw("Error: SNP index out of range in sparse source LD v2 file [" + filename + "].");
+        }
+        uint32_t current1 = localToGlobal[snp1];
+        uint32_t current2 = localToGlobal[snp2];
+        if (!sidecarIndexToCurrent.empty()) {
+            unordered_map<uint32_t, uint32_t>::const_iterator map1 = sidecarIndexToCurrent.find(current1);
+            unordered_map<uint32_t, uint32_t>::const_iterator map2 = sidecarIndexToCurrent.find(current2);
+            if (map1 == sidecarIndexToCurrent.end() || map2 == sidecarIndexToCurrent.end()) continue;
+            current1 = map1->second;
+            current2 = map2->second;
+        }
+        appendSparseSourceRecordToCoreContexts(current1, current2, ldcor, coreByGlobal, coreContextLdBlocks);
+    }
+    fclose(in);
+    return true;
+}
 
 void writePwldBinHeader(FILE *out, uint64_t numSnps, uint64_t numRecords, const vector<string> &snpIDs) {
     if (snpIDs.size() != numSnps) {
@@ -143,6 +1428,77 @@ inline string eigenBlockFilename(const string &dirname, const string &blockID, c
     else if (quantizedBits == 16) suffix = ".eigen.q16.bin";
     else throw std::runtime_error("Error: unsupported quantized eigen bit width " + to_string(quantizedBits) + ". Use 8 or 16.");
     return dirname + "/block" + blockID + suffix;
+}
+
+bool sourceBlockIDFromTileID(const string &blockID, string &sourceBlockID) {
+    const string marker = ".tile";
+    size_t pos = blockID.rfind(marker);
+    if (pos == string::npos || pos == 0) return false;
+    sourceBlockID = blockID.substr(0, pos);
+    return true;
+}
+
+bool openEigenBlockPayloadForRead(const string &dirname, const string &blockID,
+                                  const int quantizedBits, const bool q8Entropy,
+                                  FILE *&fp, string &infile) {
+    fp = NULL;
+    infile = eigenBlockFilename(dirname, blockID, quantizedBits, q8Entropy);
+    fp = fopen(infile.c_str(), "rb");
+    if (fp) return true;
+
+    if (q8Entropy || (quantizedBits != 0 && quantizedBits != 16)) return false;
+    string sourceBlockID;
+    if (!sourceBlockIDFromTileID(blockID, sourceBlockID)) return false;
+
+    infile = tiledEigenBundleFilename(dirname, sourceBlockID, quantizedBits);
+    fp = fopen(infile.c_str(), "rb");
+    if (!fp) return false;
+
+    char magic[8];
+    uint32_t version = 0, bits = 0, nrec = 0;
+    if (fread(magic, sizeof(char), 8, fp) != 8 ||
+        memcmp(magic, TILED_EIGEN_BUNDLE_MAGIC, 8) != 0 ||
+        fread(&version, sizeof(uint32_t), 1, fp) != 1 ||
+        fread(&bits, sizeof(uint32_t), 1, fp) != 1 ||
+        fread(&nrec, sizeof(uint32_t), 1, fp) != 1) {
+        fclose(fp);
+        fp = NULL;
+        throw("Error: invalid tiled eigen bundle [" + infile + "].");
+    }
+    if (version != TILED_EIGEN_BUNDLE_VERSION || (int)bits != quantizedBits) {
+        fclose(fp);
+        fp = NULL;
+        throw("Error: unsupported tiled eigen bundle format [" + infile + "].");
+    }
+
+    for (uint32_t r = 0; r < nrec; ++r) {
+        string recordID = readBinaryString(fp, infile);
+        uint64_t payloadBytes = 0;
+        if (fread(&payloadBytes, sizeof(uint64_t), 1, fp) != 1) {
+            fclose(fp);
+            fp = NULL;
+            throw("Error: incomplete tiled eigen bundle index [" + infile + "].");
+        }
+        const long payloadStart = ftell(fp);
+        if (recordID == blockID) {
+            infile += "::" + blockID;
+            return true;
+        }
+        if (fseek(fp, (long)payloadBytes, SEEK_CUR) != 0) {
+            fclose(fp);
+            fp = NULL;
+            throw("Error: invalid tiled eigen bundle payload size in [" + infile + "].");
+        }
+        if (ftell(fp) < payloadStart) {
+            fclose(fp);
+            fp = NULL;
+            throw("Error: invalid tiled eigen bundle offset in [" + infile + "].");
+        }
+    }
+
+    fclose(fp);
+    fp = NULL;
+    return false;
 }
 
 MatrixXf generateLDmatrixForSnpInfoVecThreadSafe(const string &bedFile, const vector<SnpInfo*> &snps,
@@ -1026,13 +2382,15 @@ void Data::makeBlockLDmatrix(const string &bedFile, const string &LDmatType, con
     }
 }
 
-void Data::makeTiledBlockEigen(const string &bedFile, const string &dirname, const float eigenCutoff, const float tileMb, const unsigned tileGroupSize, const bool writeLdmTxt){
+void Data::makeTiledBlockEigen(const string &bedFile, const string &dirname, const float eigenCutoff, const float tileMb, const unsigned tileGroupSize, const unsigned tileMinSnps, const bool writeLdmTxt){
     if (!(tileMb > 0.0f)) throw("Error: --tile-mb must be > 0.");
     if (!tileGroupSize) throw("Error: --tile-group-size must be >= 1.");
 
     cout << "Making tiled LD eigen matrices with " << tileMb
          << " Mb base tiles and alternating non-overlapping groups of "
          << tileGroupSize << " tile(s)..." << endl;
+    cout << "  Base tiles with fewer than " << tileMinSnps
+         << " SNPs will be merged with a neighboring tile." << endl;
 
     struct stat sb;
     if (stat(dirname.c_str(), &sb) != 0 || !S_ISDIR(sb.st_mode)) {
@@ -1098,6 +2456,7 @@ void Data::makeTiledBlockEigen(const string &bedFile, const string &dirname, con
             tileEnds.push_back(tileEnd);
             tileSnps.push_back(currentTile);
         }
+        mergeSmallSnpTiles(tileSnps, tileMinSnps);
 
         for (unsigned phase = 0; phase < tileGroupSize; ++phase) {
             if (phase >= tileSnps.size()) continue;
@@ -1205,6 +2564,380 @@ void Data::makeTiledBlockEigen(const string &bedFile, const string &dirname, con
     cout << "To explain " << eigenCutoff*100 << "% variance in LD, on average " << int(eigenNumInBlock.mean())
          << " eigenvalues are selected across phased tiled blocks (mean number of SNPs is "
          << int(snpNumInBlock.mean()) << ")." << endl;
+}
+
+void Data::makeCoreContextTiledBlockEigenFromEigen(const string &eigenDirname, const string &dirname, const float eigenCutoff, const unsigned tileSnps, const unsigned tileMinSnps, const float flankR2Threshold, const bool writeLdmTxt, const bool mergeCombinedInfo, const int outputQuantBits){
+    if (!tileSnps) throw("Error: --tile-snps must be >= 1.");
+    if (outputQuantBits != 0 && outputQuantBits != 16)
+        throw("Error: --make-tiled-ldm-eigen currently supports only float or --bits 16 output.");
+    if (!Gadget::directoryExist(eigenDirname)) throw("Error: cannot find the input eigen folder [" + eigenDirname + "].");
+    if (!numLDBlocks) {
+        readBlockLdmInfoFile(eigenDirname);
+        readBlockLdmSnpInfoFile(eigenDirname);
+    }
+    if (overlapLdmEigen || phasedTiledLdmEigen) {
+        throw("Error: --make-tiled-ldm-eigen from --ldm-eigen currently requires ordinary independent LD-block eigen input.");
+    }
+
+    const float r2Threshold = (flankR2Threshold >= 0.0f && flankR2Threshold < 1.0f) ? flankR2Threshold : 0.001f;
+    cout << "Making core-context tiled LD eigen matrices from eigen data in [" << eigenDirname << "]..." << endl;
+    cout << "  Core tile size: up to " << tileSnps
+         << " SNPs; context: all sparse LD-connected SNPs in the original LD block; r^2 threshold: " << r2Threshold << endl;
+    cout << "  Core tiles are balanced by SNP count; target minimum is " << tileMinSnps
+         << " SNPs when compatible with the maximum." << endl;
+    if (outputQuantBits == 16)
+        cout << "  Writing q16 tiled eigen bundles and q16 sparse cross-tile LD files." << endl;
+    if (r2Threshold > 0.001f) {
+        cout << "Warning: sparse flank r^2 threshold > 0.001 can be too sparse for high-N GWAS and may inflate SNP effects. "
+             << "Consider regenerating with --rsq 0.001 or lower." << endl;
+    }
+
+    const bool perSourceBlockOutput = !mergeCombinedInfo;
+    if (perSourceBlockOutput)
+        prepareOutputDirectoryPreserveExisting(dirname, "core-context tiled LD eigen matrices");
+    else
+        prepareCleanOutputDirectory(dirname, "core-context tiled LD eigen matrices");
+
+    vector<float> snpNumInBlock;
+    vector<LDBlockInfo*> tiledBlocks;
+    unordered_map<int, int> newIndexByOldIndex;
+    uint64_t totalSparseCrossTilePairs = 0;
+    int nextSnpIndex = 0;
+    int blockId = 1;
+
+    for (unsigned srcIdx = 0; srcIdx < ldBlockInfoVec.size(); ++srcIdx) {
+        LDBlockInfo *srcBlock = ldBlockInfoVec[srcIdx];
+        const int m = srcBlock->numSnpInBlock;
+        if (m <= 0 || srcBlock->snpInfoVec.empty()) continue;
+        SourceBlockOutputLock outputLock(dirname, srcBlock->ID, perSourceBlockOutput);
+        if (perSourceBlockOutput) removeSourceBlockTiledOutputs(dirname, srcBlock->ID);
+
+        int32_t cur_m = 0, cur_k = 0;
+        float sumPosEigVal = 0.0f, oldEigenCutoff = 0.0f;
+        VectorXf lambda;
+        MatrixXf U;
+        if (!readBlockEigenBinContents(eigenDirname, srcBlock->ID, m, cur_m, cur_k, sumPosEigVal, oldEigenCutoff, lambda, U)) {
+            throw("Error: can not read float eigen data for input LD block " + srcBlock->ID + " from [" + eigenDirname + "].");
+        }
+
+        VectorXf lambdaUse;
+        MatrixXf Uuse;
+        if (eigenCutoff + 1e-6f < oldEigenCutoff) {
+            truncateEigenMatrix(sumPosEigVal, eigenCutoff, lambda, U, lambdaUse, Uuse);
+        } else {
+            lambdaUse = lambda;
+            Uuse = U;
+        }
+        if (!lambdaUse.size()) continue;
+
+        VectorXf sqrtLambda = lambdaUse.array().sqrt();
+        MatrixXf Qsource = sqrtLambda.asDiagonal() * Uuse.transpose();  // rank x original-block SNPs
+        VectorXf qDiag(m);
+        for (int j = 0; j < m; ++j) qDiag[j] = Qsource.col(j).squaredNorm();
+
+        vector<vector<unsigned> > tileLocalIdx = makeBalancedSnpCountTiles(m, tileSnps, tileMinSnps);
+        if (tileLocalIdx.empty()) continue;
+        vector<int> tileByLocalIndex(m, -1);
+        assignTileByLocalIndex(tileLocalIdx, m, tileByLocalIndex);
+
+        for (unsigned t = 0; t < tileLocalIdx.size(); ++t) {
+            for (unsigned a = 0; a < tileLocalIdx[t].size(); ++a) {
+                SnpInfo *snp = srcBlock->snpInfoVec[tileLocalIdx[t][a]];
+                newIndexByOldIndex[snp->index] = nextSnpIndex++;
+            }
+        }
+
+        uint64_t sparseCrossTilePairs = writeSparseSourceLdFromQ(sparseSourceLdFilename(dirname, srcBlock->ID, outputQuantBits == 16),
+                                                                 srcBlock->ID, srcBlock->snpInfoVec, newIndexByOldIndex,
+                                                                 tileByLocalIndex, Qsource, qDiag, r2Threshold, outputQuantBits == 16);
+        totalSparseCrossTilePairs += sparseCrossTilePairs;
+
+        FILE *eigenBundle = openTiledEigenBundleForWrite(dirname, srcBlock->ID, (unsigned)tileLocalIdx.size(), outputQuantBits);
+        vector<LDBlockInfo*> sourceTileBlocks;
+        for (unsigned t = 0; t < tileLocalIdx.size(); ++t) {
+            const vector<unsigned> &coreLocal = tileLocalIdx[t];
+
+            const int coreSize = (int)coreLocal.size();
+            MatrixXf Qcore(Qsource.rows(), coreSize);
+            for (int a = 0; a < coreSize; ++a) Qcore.col(a) = Qsource.col((int)coreLocal[a]);
+            MatrixXf Rcc = Qcore.transpose() * Qcore;
+            normaliseDenseCorrelation(Rcc);
+
+            MatrixXf eigenVec;
+            VectorXf eigenVal;
+            float coreSumPosEigVal = 0.0f;
+            eigenDecomposition(Rcc, eigenCutoff, eigenVal, eigenVec, coreSumPosEigVal);
+
+            vector<SnpInfo*> coreSnps;
+            coreSnps.reserve(coreSize);
+            for (int a = 0; a < coreSize; ++a) {
+                SnpInfo *old = srcBlock->snpInfoVec[coreLocal[a]];
+                int newIdx = newIndexByOldIndex[old->index];
+                SnpInfo *copy = new SnpInfo(newIdx, old->ID, old->a1, old->a2, old->chrom, old->genPos, old->physPos);
+                copy->af = old->af;
+                copy->twopq = old->twopq;
+                copy->ld_n = old->ld_n;
+                coreSnps.push_back(copy);
+            }
+
+            string id = srcBlock->ID + ".tile" + to_string(t + 1);
+            ++blockId;
+            LDBlockInfo *block = new LDBlockInfo((int)tiledBlocks.size(), id, srcBlock->chrom);
+            block->startPos = coreSnps.front()->physPos;
+            block->endPos = coreSnps.back()->physPos;
+            block->startSnpIdx = coreSnps.front()->index;
+            block->endSnpIdx = coreSnps.back()->index;
+            block->numSnpInBlock = coreSize;
+            block->snpInfoVec = coreSnps;
+            block->sumPosEigVal = coreSumPosEigVal;
+            block->sourceBlockID = srcBlock->ID;
+            block->sourceTileID = (int)t + 1;
+            for (unsigned a = 0; a < coreSnps.size(); ++a) block->snpNameVec.push_back(coreSnps[a]->ID);
+            tiledBlocks.push_back(block);
+            sourceTileBlocks.push_back(block);
+
+            writeTiledEigenBundleRecord(eigenBundle, block->ID, coreSize, eigenVal, eigenVec,
+                                        coreSumPosEigVal, eigenCutoff, outputQuantBits);
+
+            if (writeLdmTxt) {
+                string outTxtfile = dirname + "/block" + block->ID + ".eigen.txt";
+                ofstream outtxt(outTxtfile.c_str());
+                outtxt << "Block " << block->ID << endl;
+                outtxt << "NumSnp " << coreSize << endl;
+                outtxt << "NumEigen " << eigenVal.size() << endl;
+                outtxt << "EigenCutoff " << eigenCutoff << endl;
+                outtxt << "Eigenvalues\n" << eigenVal.transpose() << endl;
+                outtxt << "Eigenvectors\n" << eigenVec << endl;
+            }
+
+            snpNumInBlock.push_back((float)coreSize);
+            const float retainedPct = coreSumPosEigVal > 0.0f ? 100.0f * eigenVal.sum() / coreSumPosEigVal : 0.0f;
+            cout << "  Tile " << block->ID << ": " << coreSize << " SNPs, retained "
+                 << eigenVal.size() << " eigenvalues";
+            if (coreSumPosEigVal > 0.0f)
+                cout << " (" << boost::format("%.2f") % retainedPct << "% LD variance)";
+            cout << "." << endl;
+        }
+        fclose(eigenBundle);
+        outputCoreContextSourceInfo(sourceTileBlocks, dirname, srcBlock->ID, numKeptInds);
+        writeEmptyPwldGz(dirname + "/block" + srcBlock->ID + ".rsq0.5.pwld.gz");
+        cout << "  Source block " << srcBlock->ID << ": " << sparseCrossTilePairs
+             << " sparse cross-tile SNP pairs with r^2 >= " << r2Threshold << "." << endl;
+    }
+
+    if (tiledBlocks.empty()) throw("Error: no core-context tiled LD eigen blocks could be generated.");
+
+    if (perSourceBlockOutput) {
+        cout << "\nWritten block-specific tiled LD eigen bundle for source block "
+             << ldBlockInfoVec.front()->ID << " into folder [" << dirname << "]." << endl;
+        cout << "Combined ldm.info/snp.info/pairwise LD files are not merged during --block jobs." << endl;
+    } else {
+        mergeLdmInfo("block", dirname, false);
+    }
+
+    cout << "\nWritten core-context tiled LD eigen bundles into folder [" << dirname
+         << (outputQuantBits == 16 ? "/block*.tiles.eigen.q16.bin]." : "/block*.tiles.eigen.bin].") << endl;
+    cout << "Written " << (outputQuantBits == 16 ? "q16 " : "float ")
+         << "sparse cross-tile LD files into folder ["
+         << dirname << (outputQuantBits == 16 ? "/block*.sparse.q16.bin]." : "/block*.sparse.bin].") << endl;
+    cout << "Written source-block tile metadata into folder [" << dirname << "/block*.ldm.info]." << endl;
+    if (writeLdmTxt) cout << "Written tiled LD eigen text files into folder [" << dirname << "/block*.eigen.txt]." << endl;
+    cout << "Generated " << snpNumInBlock.size() << " core tiles; per-tile retained eigen ranks are reported above." << endl;
+    cout << "Total sparse cross-tile SNP pairs with r^2 >= " << r2Threshold << ": "
+         << totalSparseCrossTilePairs << "." << endl;
+}
+
+void Data::makeCoreContextTiledBlockEigenFromBlockLD(const string &ldmDirname, const string &dirname, const float eigenCutoff, const unsigned tileSnps, const unsigned tileMinSnps, const float flankR2Threshold, const bool writeLdmTxt, const bool mergeCombinedInfo, const int outputQuantBits){
+    if (!tileSnps) throw("Error: --tile-snps must be >= 1.");
+    if (outputQuantBits != 0 && outputQuantBits != 16)
+        throw("Error: --make-tiled-ldm-eigen currently supports only float or --bits 16 output.");
+    if (!Gadget::directoryExist(ldmDirname)) throw("Error: cannot find the input block LD folder [" + ldmDirname + "].");
+    if (!numLDBlocks) {
+        readBlockLdmInfoFile(ldmDirname);
+        readBlockLdmSnpInfoFile(ldmDirname);
+    }
+    if (overlapLdmEigen || phasedTiledLdmEigen || coreContextLdmEigen) {
+        throw("Error: --make-tiled-ldm-eigen from --ldm requires ordinary independent block LD input.");
+    }
+
+    const float r2Threshold = (flankR2Threshold >= 0.0f && flankR2Threshold < 1.0f) ? flankR2Threshold : 0.001f;
+    cout << "Making core-context tiled LD eigen matrices from block LD matrices in [" << ldmDirname << "]..." << endl;
+    cout << "  Core tile size: up to " << tileSnps
+         << " SNPs; context: sparse LD-connected SNPs within each original LD block; r^2 threshold: " << r2Threshold << endl;
+    cout << "  Core tiles are balanced by SNP count; target minimum is " << tileMinSnps
+         << " SNPs when compatible with the maximum." << endl;
+    if (outputQuantBits == 16)
+        cout << "  Writing q16 tiled eigen bundles and q16 sparse cross-tile LD files." << endl;
+
+    const bool perSourceBlockOutput = !mergeCombinedInfo;
+    if (perSourceBlockOutput)
+        prepareOutputDirectoryPreserveExisting(dirname, "core-context tiled LD eigen matrices");
+    else
+        prepareCleanOutputDirectory(dirname, "core-context tiled LD eigen matrices");
+
+    vector<float> snpNumInBlock;
+    vector<LDBlockInfo*> tiledBlocks;
+    unordered_map<int, int> newIndexByOldIndex;
+    uint64_t totalSparseCrossTilePairs = 0;
+    int nextSnpIndex = 0;
+
+    for (unsigned srcIdx = 0; srcIdx < ldBlockInfoVec.size(); ++srcIdx) {
+        LDBlockInfo *srcBlock = ldBlockInfoVec[srcIdx];
+        if (!srcBlock || !srcBlock->kept) continue;
+        const int mFull = srcBlock->numSnpInBlock;
+        if (mFull <= 0 || srcBlock->snpInfoVec.empty()) continue;
+        SourceBlockOutputLock outputLock(dirname, srcBlock->ID, perSourceBlockOutput);
+        if (perSourceBlockOutput) removeSourceBlockTiledOutputs(dirname, srcBlock->ID);
+
+        vector<unsigned> sourceLocal;
+        vector<SnpInfo*> sourceSnps;
+        for (int j = 0; j < mFull; ++j) {
+            SnpInfo *snp = srcBlock->snpInfoVec[j];
+            if (!snp || !snp->included) continue;
+            sourceLocal.push_back((unsigned)j);
+            sourceSnps.push_back(snp);
+        }
+        const int m = (int)sourceSnps.size();
+        if (!m) continue;
+
+        vector<vector<unsigned> > tileLocalIdx = makeBalancedSnpCountTiles(m, tileSnps, tileMinSnps);
+        vector<int> tileByLocalIndex(m, -1);
+        assignTileByLocalIndex(tileLocalIdx, m, tileByLocalIndex);
+        if (tileLocalIdx.empty()) continue;
+
+        for (unsigned t = 0; t < tileLocalIdx.size(); ++t) {
+            for (unsigned a = 0; a < tileLocalIdx[t].size(); ++a) {
+                SnpInfo *snp = sourceSnps[tileLocalIdx[t][a]];
+                newIndexByOldIndex[snp->index] = nextSnpIndex++;
+            }
+        }
+
+        vector<MatrixXf> tileRcc;
+        uint64_t sparseCrossTilePairs = 0;
+        const bool streamedLowerTri = buildCoreTileLdAndSparseFromLowerTriLdStream(
+            ldmDirname, dirname, srcBlock->ID, mFull, sourceLocal, sourceSnps,
+            newIndexByOldIndex, tileLocalIdx, tileByLocalIndex, r2Threshold, outputQuantBits, tileRcc,
+            sparseCrossTilePairs);
+
+        MatrixXf Rsource;
+        if (!streamedLowerTri) {
+            cout << "\nWarning: source block " << srcBlock->ID
+                 << " is not stored as a lower-triangular LD matrix; falling back to dense read." << endl;
+            MatrixXf Rfull;
+            readBlockLDmatrix(ldmDirname, srcBlock->ID, mFull, Rfull);
+            normaliseDenseCorrelation(Rfull);
+            Rsource.setZero(m, m);
+            for (int j = 0; j < m; ++j) {
+                for (int i = 0; i < m; ++i)
+                    Rsource(i, j) = Rfull((int)sourceLocal[i], (int)sourceLocal[j]);
+            }
+            normaliseDenseCorrelation(Rsource);
+
+            sparseCrossTilePairs = writeSparseSourceLdFromDense(sparseSourceLdFilename(dirname, srcBlock->ID, outputQuantBits == 16),
+                                                                srcBlock->ID, sourceSnps, newIndexByOldIndex,
+                                                                tileByLocalIndex, Rsource, r2Threshold, outputQuantBits == 16);
+            writePwldGzFromDense(dirname + "/block" + srcBlock->ID + ".rsq0.5.pwld.gz", sourceSnps, Rsource, 0.5f);
+        }
+        totalSparseCrossTilePairs += sparseCrossTilePairs;
+
+        FILE *eigenBundle = openTiledEigenBundleForWrite(dirname, srcBlock->ID, (unsigned)tileLocalIdx.size(), outputQuantBits);
+        vector<LDBlockInfo*> sourceTileBlocks;
+        for (unsigned t = 0; t < tileLocalIdx.size(); ++t) {
+            const vector<unsigned> &coreLocal = tileLocalIdx[t];
+            const int coreSize = (int)coreLocal.size();
+            MatrixXf Rcc;
+            if (streamedLowerTri) {
+                Rcc.swap(tileRcc[t]);
+            } else {
+                Rcc.setZero(coreSize, coreSize);
+                for (int a = 0; a < coreSize; ++a) {
+                    for (int b = 0; b < coreSize; ++b)
+                        Rcc(a, b) = Rsource((int)coreLocal[a], (int)coreLocal[b]);
+                }
+                normaliseDenseCorrelation(Rcc);
+            }
+
+            MatrixXf eigenVec;
+            VectorXf eigenVal;
+            float coreSumPosEigVal = 0.0f;
+            eigenDecomposition(Rcc, eigenCutoff, eigenVal, eigenVec, coreSumPosEigVal);
+
+            vector<SnpInfo*> coreSnps;
+            coreSnps.reserve(coreSize);
+            for (int a = 0; a < coreSize; ++a) {
+                SnpInfo *old = sourceSnps[coreLocal[a]];
+                int newIdx = newIndexByOldIndex[old->index];
+                SnpInfo *copy = new SnpInfo(newIdx, old->ID, old->a1, old->a2, old->chrom, old->genPos, old->physPos);
+                copy->af = old->af;
+                copy->twopq = old->twopq;
+                copy->ld_n = old->ld_n;
+                coreSnps.push_back(copy);
+            }
+
+            string id = srcBlock->ID + ".tile" + to_string(t + 1);
+            LDBlockInfo *block = new LDBlockInfo((int)tiledBlocks.size(), id, srcBlock->chrom);
+            block->startPos = coreSnps.front()->physPos;
+            block->endPos = coreSnps.back()->physPos;
+            block->startSnpIdx = coreSnps.front()->index;
+            block->endSnpIdx = coreSnps.back()->index;
+            block->numSnpInBlock = coreSize;
+            block->snpInfoVec = coreSnps;
+            block->sumPosEigVal = coreSumPosEigVal;
+            block->sourceBlockID = srcBlock->ID;
+            block->sourceTileID = (int)t + 1;
+            for (unsigned a = 0; a < coreSnps.size(); ++a) block->snpNameVec.push_back(coreSnps[a]->ID);
+            tiledBlocks.push_back(block);
+            sourceTileBlocks.push_back(block);
+
+            writeTiledEigenBundleRecord(eigenBundle, block->ID, coreSize, eigenVal, eigenVec,
+                                        coreSumPosEigVal, eigenCutoff, outputQuantBits);
+
+            if (writeLdmTxt) {
+                string outTxtfile = dirname + "/block" + block->ID + ".eigen.txt";
+                ofstream outtxt(outTxtfile.c_str());
+                outtxt << "Block " << block->ID << endl;
+                outtxt << "NumSnp " << coreSize << endl;
+                outtxt << "NumEigen " << eigenVal.size() << endl;
+                outtxt << "EigenCutoff " << eigenCutoff << endl;
+                outtxt << "Eigenvalues\n" << eigenVal.transpose() << endl;
+                outtxt << "Eigenvectors\n" << eigenVec << endl;
+            }
+
+            snpNumInBlock.push_back((float)coreSize);
+            const float retainedPct = coreSumPosEigVal > 0.0f ? 100.0f * eigenVal.sum() / coreSumPosEigVal : 0.0f;
+            cout << "  Tile " << block->ID << ": " << coreSize << " SNPs, retained "
+                 << eigenVal.size() << " eigenvalues";
+            if (coreSumPosEigVal > 0.0f)
+                cout << " (" << boost::format("%.2f") % retainedPct << "% LD variance)";
+            cout << "." << endl;
+        }
+        fclose(eigenBundle);
+
+        outputCoreContextSourceInfo(sourceTileBlocks, dirname, srcBlock->ID, numKeptInds);
+        cout << "  Source block " << srcBlock->ID << ": " << sparseCrossTilePairs
+             << " sparse cross-tile SNP pairs with r^2 >= " << r2Threshold << "." << endl;
+    }
+
+    if (tiledBlocks.empty()) throw("Error: no core-context tiled LD eigen blocks could be generated from block LD matrices.");
+
+    if (perSourceBlockOutput) {
+        cout << "\nWritten block-specific tiled LD eigen bundle for source block "
+             << ldBlockInfoVec.front()->ID << " into folder [" << dirname << "]." << endl;
+        cout << "Combined ldm.info/snp.info/pairwise LD files are not merged during --block jobs." << endl;
+    } else {
+        mergeLdmInfo("block", dirname, false);
+    }
+
+    cout << "\nWritten core-context tiled LD eigen bundles into folder [" << dirname
+         << (outputQuantBits == 16 ? "/block*.tiles.eigen.q16.bin]." : "/block*.tiles.eigen.bin].") << endl;
+    cout << "Written " << (outputQuantBits == 16 ? "q16 " : "float ")
+         << "exact sparse cross-tile LD files into folder ["
+         << dirname << (outputQuantBits == 16 ? "/block*.sparse.q16.bin]." : "/block*.sparse.bin].") << endl;
+    cout << "Written source-block tile metadata into folder [" << dirname << "/block*.ldm.info]." << endl;
+    if (writeLdmTxt) cout << "Written tiled LD eigen text files into folder [" << dirname << "/block*.eigen.txt]." << endl;
+    cout << "Generated " << snpNumInBlock.size() << " core tiles; per-tile retained eigen ranks are reported above." << endl;
+    cout << "Total sparse cross-tile SNP pairs with r^2 >= " << r2Threshold << ": "
+         << totalSparseCrossTilePairs << "." << endl;
 }
 
 void Data::makeBlockLDmatrixFromEigen(const string &eigenDirname, const float eigenCutoff, const string &LDmatType, const unsigned block, const string &dirname, const bool writeLdmTxt, int ldBlockRegionWind){
@@ -1994,7 +3727,7 @@ void Data::readBlockLdmInfoFile(const string &dirname, const unsigned block){
     ldBlockInfoMap.clear();
         
     string header;
-    int id;
+    string id;
     int chr, blockStart, blockEnd, snpNum;
     int idx = 0;
     int snpCount =  1;
@@ -2002,17 +3735,18 @@ void Data::readBlockLdmInfoFile(const string &dirname, const unsigned block){
     string startSnpID, endSnpID;
     LDBlockInfo *ldblock;
     getline(in, header);
+    const bool sourceTileHeader = header.find("SourceBlockID") != string::npos && header.find("TileID") != string::npos;
+    const bool blockSpecificFile = block && infoFile == dirname + "/block" + to_string(block) + ".ldm.info";
     overlapLdmEigen = false;
     phasedTiledLdmEigen = false;
     tileGroupSize = 1;
+    coreContextLdmEigen = false;
     string line;
     while (getline(in, line)) {
         if (line.empty()) continue;
         std::istringstream iss(line);
         if (!(iss >> id >> chr >> blockStart >> startSnpID >> blockEnd >> endSnpID >> snpNum)) continue;
-        if (block && id != block) continue;
-
-        string idstr = to_string(id);
+        string idstr = id;
         ldblock = new LDBlockInfo(idx++, idstr, chr);
         ldblock->startSnpIdx = blockStart;
         ldblock->endSnpIdx   = blockEnd;
@@ -2020,7 +3754,11 @@ void Data::readBlockLdmInfoFile(const string &dirname, const unsigned block){
         vector<string> extra;
         string token;
         while (iss >> token) extra.push_back(token);
-        if (extra.size() == 2) {
+        if (sourceTileHeader && extra.size() >= 2) {
+            ldblock->sourceBlockID = extra[0];
+            ldblock->sourceTileID = stoi(extra[1]);
+            coreContextLdmEigen = true;
+        } else if (extra.size() == 2) {
             ldblock->tilePhase = stoi(extra[0]);
             ldblock->tileGroupSize = stoi(extra[1]);
             overlapLdmEigen = true;
@@ -2033,6 +3771,15 @@ void Data::readBlockLdmInfoFile(const string &dirname, const unsigned block){
             ldblock->coreEndSnpIdx = stoi(extra[4]);
             overlapLdmEigen = true;
         }
+
+        if (block && !blockSpecificFile) {
+            const string blockStr = to_string(block);
+            if (idstr != blockStr && ldblock->sourceBlockID != blockStr) {
+                delete ldblock;
+                --idx;
+                continue;
+            }
+        }
                 
         ldBlockInfoVec.push_back(ldblock);
         ldBlockInfoMap[idstr] = ldblock;
@@ -2040,15 +3787,18 @@ void Data::readBlockLdmInfoFile(const string &dirname, const unsigned block){
     }
     in.close();
     numLDBlocks = (unsigned) ldBlockInfoVec.size();
+    coreContextLdBlocks.clear();
     cout << numLDBlocks << " LD Blocks to be included from [" + infoFile + "]." << endl;
 }
 
 void Data::readBlockLdmSnpInfoFile(const string &dirname, const unsigned block){
     string snpInfoFile;
+    bool blockSpecificFile = false;
     if (block) {
         snpInfoFile = dirname + "/block" + to_string(block) + ".snp.info";
         ifstream in(snpInfoFile.c_str());
         if (!in) snpInfoFile = dirname + "/snp.info";
+        else blockSpecificFile = true;
     } else {
         snpInfoFile = dirname + "/snp.info";
     }
@@ -2069,15 +3819,22 @@ void Data::readBlockLdmSnpInfoFile(const string &dirname, const unsigned block){
     float genPos;
     float allele1Freq;
     int index;
-    int blockID;
+    string blockID;
     LDBlockInfo *ldblock;
     getline(in, header);
     while (in >> chr >> id >> index >> genPos >> physPos >> allele1 >> allele2 >> allele1Freq >> ld_n >> blockID) {
-        if (block && blockID != block) continue;
+        if (block && !blockSpecificFile) {
+            const string blockStr = to_string(block);
+            if (blockID != blockStr && blockID.find(blockStr + ".tile") != 0) continue;
+        }
         
-        string blockIDstr = to_string(blockID);
+        string blockIDstr = blockID;
 
-        ldblock = ldBlockInfoMap[blockIDstr];
+        map<string, LDBlockInfo*>::iterator blockIt = ldBlockInfoMap.find(blockIDstr);
+        if (blockIt == ldBlockInfoMap.end()) {
+            throw("Error: SNP " + id + " refers to LD block [" + blockIDstr + "] not found in ldm.info.");
+        }
+        ldblock = blockIt->second;
 
         SnpInfo *snp = NULL;
         map<string, SnpInfo*>::iterator snpIt = snpInfoMap.find(id);
@@ -2115,6 +3872,24 @@ void Data::readBlockLdmSnpInfoFile(const string &dirname, const unsigned block){
     }
     in.close();
     numSnps = (unsigned) snpInfoVec.size();
+
+    if (coreContextLdmEigen && !block && numSnps) {
+        vector<char> seenIndex(numSnps, 0);
+        unsigned badIndexCount = 0;
+        for (unsigned i = 0; i < snpInfoVec.size(); ++i) {
+            SnpInfo *snp = snpInfoVec[i];
+            if (!snp || snp->index < 0 || (unsigned)snp->index >= numSnps || seenIndex[(unsigned)snp->index]) {
+                ++badIndexCount;
+                continue;
+            }
+            seenIndex[(unsigned)snp->index] = 1;
+        }
+        if (badIndexCount) {
+            throw("Error: core-context tiled LD SNP indices are not unique and sequential in [" + snpInfoFile + "]. "
+                  "This can happen if block-specific tiled outputs were merged by an older beta version. "
+                  "Please regenerate the tiled LD folder or rebuild merged snp.info/ldm.info with the current version.");
+        }
+    }
     
     for (unsigned i=0; i<numLDBlocks; ++i) {
         LDBlockInfo *b = ldBlockInfoVec[i];
@@ -2485,11 +4260,10 @@ void Data::readEigenMatrixBinaryFile(const string &dirname, const float eigenCut
         float sumPosEigVal = 0;
         float oldEigenCutoff =0;
         
-        string infile = eigenBlockFilename(dirname, block->ID, quantizedBits, q8Entropy);
-        FILE *fp = fopen(infile.c_str(), "rb");
-        if(!fp){
-            throwEigenReadErr("Error: can not open the file [" + infile + "] to read.");
-        }
+        string infile;
+        FILE *fp = NULL;
+        if (!openEigenBlockPayloadForRead(dirname, block->ID, quantizedBits, q8Entropy, fp, infile))
+            throwEigenReadErr("Error: can not open eigen data for block [" + block->ID + "] in [" + dirname + "] to read.");
 
         VectorXf lambda;
         MatrixXf U;
@@ -2548,6 +4322,10 @@ bool Data::blockLdmBinFileExists(const string &dirname, const string &blockID) c
 bool Data::blockEigenBinFileExists(const string &dirname, const string &blockID) const {
     string path = dirname + "/block" + blockID + ".eigen.bin";
     struct stat sb;
+    if (stat(path.c_str(), &sb) == 0 && S_ISREG(sb.st_mode)) return true;
+    string sourceBlockID;
+    if (!sourceBlockIDFromTileID(blockID, sourceBlockID)) return false;
+    path = tiledEigenBundleFilename(dirname, sourceBlockID, 0);
     return stat(path.c_str(), &sb) == 0 && S_ISREG(sb.st_mode);
 }
 
@@ -2562,9 +4340,10 @@ bool Data::readBlockEigenBinContents(
     VectorXf &lambda,
     MatrixXf &U
 ) {
-    string infile = dirname + "/block" + blockID + ".eigen.bin";
-    FILE *fp = fopen(infile.c_str(), "rb");
-    if (!fp) return false;
+    string infile;
+    FILE *fp = NULL;
+    if (!openEigenBlockPayloadForRead(dirname, blockID, 0, false, fp, infile))
+        return false;
     if (fread(&cur_m, sizeof(int32_t), 1, fp) != 1) {
         fclose(fp);
         return false;
@@ -2692,9 +4471,10 @@ bool Data::trySubLdEigenFromFullLdm(
                 return false;
             if (outUsedEigenRecon) *outUsedEigenRecon = true;
         } else if (quantizedBits > 0) {
-            string infile = eigenBlockFilename(dirname, block->ID, quantizedBits, q8Entropy);
-            FILE *fp = fopen(infile.c_str(), "rb");
-            if (!fp) return false;
+            string infile;
+            FILE *fp = NULL;
+            if (!openEigenBlockPayloadForRead(dirname, block->ID, quantizedBits, q8Entropy, fp, infile))
+                return false;
             QuantizedEigenBlock qb;
             try {
                 readEigenHeaderOrThrow(fp, infile, block->ID, m, cur_m, cur_k, sumPosEigVal, oldEigenCutoff, lambda);
@@ -2833,6 +4613,7 @@ bool Data::trySubLdEigenFromFullLdmBivariate(
 
 void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const VectorXf &nGWASblock, const bool noscale, const bool makePseudoSummary, const int quantizedBits, const bool q8Entropy){
     const bool firstEigenRead = !wcorrBlocks.size();
+    Gadget::Timer eigenReadTimer;
     if (firstEigenRead) {  // only print for the first time reading the data
         cout << "Reading eigenvectors from binary file and making W and Q matrices..." << endl;
     }
@@ -2860,9 +4641,10 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
         if (n_skip == 0 || n_skip >= (unsigned)m) continue;
         bool haveQuantEigen = false;
         if (quantizedBits > 0) {
-            struct stat qsb;
-            string qpath = eigenBlockFilename(dirname, block->ID, quantizedBits, q8Entropy);
-            haveQuantEigen = stat(qpath.c_str(), &qsb) == 0 && S_ISREG(qsb.st_mode);
+            string qpath;
+            FILE *qfp = NULL;
+            haveQuantEigen = openEigenBlockPayloadForRead(dirname, block->ID, quantizedBits, q8Entropy, qfp, qpath);
+            if (qfp) fclose(qfp);
         }
         if (blockLdmBinFileExists(dirname, block->ID) || blockEigenBinFileExists(dirname, block->ID) || haveQuantEigen)
             ++subLdPlanned;
@@ -2890,60 +4672,28 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
 
     EigenNbThreadsGuard eigenNbThreadsGuard;
 
-    // Construct masked observed summary statistics for eigen-cutoff validation:
-    // randomly hold out 10% of SNP marginal effects, fit on the remaining 90%,
-    // and validate against the held-out observed marginal effects.
+    VectorXf n_trn(numKeptLDBlocks);
+    VectorXf n_val(numKeptLDBlocks);
     if (makePseudoSummary) {
-        Stat::setMcmcIteration(0);
         pseudoGwasNtrnBlock.resize(numKeptLDBlocks);
         pseudoGwasNValBlock.resize(numKeptLDBlocks);
         for(int i = 0; i < numKeptLDBlocks;i++){
-            pseudoGwasNtrnBlock[i] = nGWASblock[i];
-            pseudoGwasNValBlock[i] = nGWASblock[i];
+            n_trn[i] = 0.9f * nGWASblock[i];
+            n_val[i] = nGWASblock[i] - n_trn[i];
+            pseudoGwasNtrnBlock[i] = n_trn[i];
+            pseudoGwasNValBlock[i] = n_val[i];
         }
 
         pseudoGwasEffectTrn.resize(numKeptLDBlocks);
         pseudoGwasEffectVal.resize(numKeptLDBlocks);
         b_val.setZero(numIncdSnps);
-        b_val_mask.setZero(numIncdSnps);
     }
     
-#pragma omp parallel for schedule(static)
+#pragma omp parallel for schedule(dynamic)
     for(int i = 0; i < numKeptLDBlocks; i++){
-        const unsigned rngSalt = makePseudoSummary ? Stat::pseudoSummaryRngSalt : 0u;
-        Stat::seedEngineForParallelTaskIfNeeded((unsigned)i, rngSalt);
         LDBlockInfo *block = keptLdBlockInfoVec[i];
         block->eigenColRemap.resize(0);
         block->subLdKeptLocalIdx.clear();
-
-        if (makePseudoSummary) {
-            pseudoGwasEffectTrn[i] = GWASeffects[i];
-            pseudoGwasEffectVal[i].setZero(block->numSnpInBlock);
-            unsigned numHeldOut = 0;
-            for (int j = 0; j < block->numSnpInBlock; ++j) {
-                if (Stat::ranf() < 0.10f) {
-                    pseudoGwasEffectTrn[i][j] = 0.0f;
-                    pseudoGwasEffectVal[i][j] = GWASeffects[i][j];
-                    SnpInfo *snp = block->snpInfoVec[j];
-                    if (snp && snp->index >= 0 && (unsigned)snp->index < numIncdSnps) {
-                        b_val[snp->index] = GWASeffects[i][j];
-                        b_val_mask[snp->index] = 1.0f;
-                    }
-                    ++numHeldOut;
-                }
-            }
-            if (!numHeldOut && block->numSnpInBlock > 0) {
-                int j = int(Stat::ranf() * block->numSnpInBlock);
-                if (j >= block->numSnpInBlock) j = block->numSnpInBlock - 1;
-                pseudoGwasEffectTrn[i][j] = 0.0f;
-                pseudoGwasEffectVal[i][j] = GWASeffects[i][j];
-                SnpInfo *snp = block->snpInfoVec[j];
-                if (snp && snp->index >= 0 && (unsigned)snp->index < numIncdSnps) {
-                    b_val[snp->index] = GWASeffects[i][j];
-                    b_val_mask[snp->index] = 1.0f;
-                }
-            }
-        }
 
         VectorXf eigenValSub;
         MatrixXf eigenVecSub;
@@ -2981,6 +4731,17 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
                 numEigenvalBlock[i] = Qblocks[i].rows();
             }
 
+            if (makePseudoSummary && quantizedBits == 0) {
+                VectorXf rnd(eigenValLdBlock[i].size());
+                for (int j = 0; j < rnd.size(); ++j) rnd[j] = Stat::snorm();
+                pseudoGwasEffectTrn[i] = gwasEffectInBlock[i]
+                    + sqrt(1.0f/n_trn[i] - 1.0f/nGWASblock[i]) * eigenVecSub
+                    * (eigenValLdBlock[i].array().sqrt().matrix().asDiagonal() * rnd);
+                pseudoGwasEffectVal[i] = nGWASblock[i]/n_val[i] * gwasEffectInBlock[i]
+                    - n_trn[i]/n_val[i] * pseudoGwasEffectTrn[i];
+                b_val.segment(block->startSnpIdx, block->numSnpInBlock) = pseudoGwasEffectVal[i];
+            }
+
             eigenVecLdBlock[i].resize(0,0);
             continue;
         }
@@ -2990,10 +4751,15 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
         float sumPosEigVal = 0;
         float oldEigenCutoff =0;
         
-        string infile = eigenBlockFilename(dirname, block->ID, quantizedBits, q8Entropy);
-        FILE *fp = fopen(infile.c_str(), "rb");
-        if(!fp){cout << "Error: can not open the file [" + infile + "] to read." << endl;}
-        if(!fp){throw ("Error: can not open the file [" + infile + "] to read.");}
+        string infile;
+        FILE *fp = NULL;
+        if (!openEigenBlockPayloadForRead(dirname, block->ID, quantizedBits, q8Entropy, fp, infile)) {
+#pragma omp critical
+            {
+                cout << "Error: can not open eigen data for block [" + block->ID + "] in [" + dirname + "] to read." << endl;
+            }
+            throw("Error: can not open eigen data for block [" + block->ID + "] in [" + dirname + "] to read.");
+        }
 
         VectorXf lambda;
         MatrixXf U;
@@ -3068,9 +4834,221 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
 
         numSnpsBlock[i] = Qblocks[i].cols();
         numEigenvalBlock[i] = Qblocks[i].rows();
+
+        if (makePseudoSummary) {
+            VectorXf rnd(eigenValLdBlock[i].size());
+            for (int j = 0; j < rnd.size(); ++j) rnd[j] = Stat::snorm();
+            pseudoGwasEffectTrn[i] = gwasEffectInBlock[i]
+                + sqrt(1.0f/n_trn[i] - 1.0f/nGWASblock[i]) * eigenVecLdBlock[i]
+                * (eigenValLdBlock[i].array().sqrt().matrix().asDiagonal() * rnd);
+            pseudoGwasEffectVal[i] = nGWASblock[i]/n_val[i] * gwasEffectInBlock[i]
+                - n_trn[i]/n_val[i] * pseudoGwasEffectTrn[i];
+            b_val.segment(block->startSnpIdx, block->numSnpInBlock) = pseudoGwasEffectVal[i];
+        }
                 
         eigenVecLdBlock[i].resize(0,0);
     }
+
+    if (firstEigenRead) {
+        eigenReadTimer.getTime();
+        cout << "Loaded eigenvectors and constructed W/Q matrices (time used: "
+             << eigenReadTimer.format(eigenReadTimer.getElapse()) << ")." << endl;
+    }
+
+    readCoreContextLdBlocks(dirname);
+}
+
+void Data::readCoreContextLdBlocks(const string &dirname) {
+    coreContextLdBlocks.clear();
+    coreContextLdmEigen = false;
+    if (!keptLdBlockInfoVec.size()) return;
+
+    unsigned foundMeta = 0;
+    uint64_t totalCoreSnps = 0;
+    uint64_t totalFlankLinks = 0;
+    coreContextLdBlocks.resize(keptLdBlockInfoVec.size());
+    bool likelyCoreContext = false;
+    for (unsigned i = 0; i < keptLdBlockInfoVec.size(); ++i) {
+        if (!keptLdBlockInfoVec[i]->sourceBlockID.empty()) {
+            likelyCoreContext = true;
+            break;
+        }
+    }
+    Gadget::Timer sparseSidecarTimer;
+    if (likelyCoreContext)
+        cout << "Loading sparse cross-tile LD files..." << endl;
+
+    if (likelyCoreContext) {
+        map<string, vector<unsigned> > blocksBySource;
+        for (unsigned i = 0; i < keptLdBlockInfoVec.size(); ++i) {
+            LDBlockInfo *block = keptLdBlockInfoVec[i];
+            if (block->sourceBlockID.empty()) {
+                throw("Error: core-context tiled ldm.info is missing SourceBlockID for block " + block->ID + ".");
+            }
+            blocksBySource[block->sourceBlockID].push_back(i);
+        }
+
+        for (map<string, vector<unsigned> >::iterator src = blocksBySource.begin(); src != blocksBySource.end(); ++src) {
+            unordered_map<unsigned, pair<unsigned, unsigned> > coreByGlobal;
+            unsigned totalCoreInSource = 0;
+            vector<unsigned> sourceBlockIdx = src->second;
+            std::sort(sourceBlockIdx.begin(), sourceBlockIdx.end(), [&](const unsigned a, const unsigned b) {
+                LDBlockInfo *ba = keptLdBlockInfoVec[a];
+                LDBlockInfo *bb = keptLdBlockInfoVec[b];
+                if (ba->sourceTileID != bb->sourceTileID) return ba->sourceTileID < bb->sourceTileID;
+                return ba->startSnpIdx < bb->startSnpIdx;
+            });
+            for (unsigned b = 0; b < src->second.size(); ++b) {
+                const unsigned blockIdx = src->second[b];
+                LDBlockInfo *block = keptLdBlockInfoVec[blockIdx];
+                coreContextLdBlocks[blockIdx].numCoreSnps = block->numSnpInBlock;
+                totalCoreInSource += block->snpInfoVec.size();
+            }
+            coreByGlobal.reserve(totalCoreInSource * 2 + 1);
+            vector<uint32_t> sourceCurrentByLocal;
+            sourceCurrentByLocal.reserve(totalCoreInSource);
+            for (unsigned b = 0; b < sourceBlockIdx.size(); ++b) {
+                const unsigned blockIdx = sourceBlockIdx[b];
+                LDBlockInfo *block = keptLdBlockInfoVec[blockIdx];
+                for (unsigned j = 0; j < block->snpInfoVec.size(); ++j) {
+                    SnpInfo *snp = block->snpInfoVec[j];
+                    if (!snp || snp->index < 0) {
+                        sourceCurrentByLocal.push_back(SOURCE_SPARSE_LD_MISSING_INDEX);
+                        continue;
+                    }
+                    coreByGlobal[(unsigned)snp->index] = make_pair(blockIdx, j);
+                    sourceCurrentByLocal.push_back((uint32_t)snp->index);
+                }
+            }
+
+            string sourceFile = existingSparseSourceLdFilename(dirname, src->first);
+            if (!appendSparseSourceLdBinaryToCoreContexts(sourceFile, coreByGlobal, coreContextLdBlocks, &sourceCurrentByLocal)) {
+                sourceFile = dirname + "/sourceblock" + src->first + ".sld.bin";
+                if (!appendSparseSourceLdBinaryToCoreContexts(sourceFile, coreByGlobal, coreContextLdBlocks, &sourceCurrentByLocal)) {
+                    throw("Error: can not open sparse cross-tile LD file for source block [" + src->first + "] in [" + dirname + "].");
+                }
+            }
+        }
+
+        totalCoreSnps = 0;
+        totalFlankLinks = 0;
+        for (unsigned i = 0; i < coreContextLdBlocks.size(); ++i) {
+            totalCoreSnps += (uint64_t)coreContextLdBlocks[i].numCoreSnps;
+            totalFlankLinks += (uint64_t)coreContextLdBlocks[i].ldCorr.size();
+        }
+        coreContextLdmEigen = true;
+        sparseSidecarTimer.getTime();
+        cout << "Loaded sparse cross-tile LD files (time used: "
+             << sparseSidecarTimer.format(sparseSidecarTimer.getElapse()) << ")." << endl;
+        cout << "Using core-context tiled eigen blocks; flank effects will be accounted for by sparse cross-tile LD offsets during SBayesR sampling." << endl;
+        if (totalCoreSnps) {
+            cout << "Sparse cross-tile LD files contain on average "
+                 << double(totalFlankLinks) / double(totalCoreSnps)
+                 << " LD link(s) per core SNP." << endl;
+        }
+        return;
+    }
+
+    map<string, vector<SparseSourceLdRecord> > sourceRecordCache;
+    for (unsigned i = 0; i < keptLdBlockInfoVec.size(); ++i) {
+        LDBlockInfo *block = keptLdBlockInfoVec[i];
+        string sourceBlockID = block->sourceBlockID;
+        if (sourceBlockID.empty()) {
+            string metaFile = dirname + "/block" + block->ID + ".ctx.bin";
+            if (!readCoreContextTileMetaBinary(metaFile, sourceBlockID)) continue;
+        }
+
+        map<string, vector<SparseSourceLdRecord> >::iterator srcIt = sourceRecordCache.find(sourceBlockID);
+        if (srcIt == sourceRecordCache.end()) {
+            vector<SparseSourceLdRecord> records;
+            string sourceFile = existingSparseSourceLdFilename(dirname, sourceBlockID);
+            if (!readSparseSourceLdBinary(sourceFile, records)) {
+                sourceFile = dirname + "/sourceblock" + sourceBlockID + ".sld.bin";
+                if (!readSparseSourceLdBinary(sourceFile, records)) {
+                    throw("Error: can not open sparse cross-tile LD file for source block [" + sourceBlockID + "] in [" + dirname + "] for core-context tiled eigen block " + block->ID + ".");
+                }
+            }
+            srcIt = sourceRecordCache.insert(pair<string, vector<SparseSourceLdRecord> >(sourceBlockID, records)).first;
+        }
+
+        unordered_map<unsigned, unsigned> coreLocalByGlobal;
+        coreLocalByGlobal.reserve(block->snpInfoVec.size() * 2 + 1);
+        for (unsigned j = 0; j < block->snpInfoVec.size(); ++j) {
+            SnpInfo *snp = block->snpInfoVec[j];
+            if (!snp || snp->index < 0) continue;
+            coreLocalByGlobal[(unsigned)snp->index] = j;
+        }
+
+        CoreContextLdBlock context;
+        context.numCoreSnps = block->numSnpInBlock;
+        const vector<SparseSourceLdRecord> &records = srcIt->second;
+        for (unsigned r = 0; r < records.size(); ++r) {
+            const unsigned snp1 = records[r].snp1;
+            const unsigned snp2 = records[r].snp2;
+            unordered_map<unsigned, unsigned>::iterator c1 = coreLocalByGlobal.find(snp1);
+            unordered_map<unsigned, unsigned>::iterator c2 = coreLocalByGlobal.find(snp2);
+            const bool snp1Core = c1 != coreLocalByGlobal.end();
+            const bool snp2Core = c2 != coreLocalByGlobal.end();
+            if (snp1Core == snp2Core) continue;
+            if (snp1Core) {
+                context.coreLocalIndex.push_back(c1->second);
+                context.flankGlobalIndex.push_back(snp2);
+            } else {
+                context.coreLocalIndex.push_back(c2->second);
+                context.flankGlobalIndex.push_back(snp1);
+            }
+            context.ldCorr.push_back(records[r].ldcor);
+        }
+        coreContextLdBlocks[i] = context;
+        totalCoreSnps += (uint64_t)context.numCoreSnps;
+        totalFlankLinks += (uint64_t)context.ldCorr.size();
+        ++foundMeta;
+    }
+
+    if (foundMeta) {
+        if (foundMeta != keptLdBlockInfoVec.size()) {
+            throw("Error: found core-context tile metadata for only " + to_string(foundMeta) + " of "
+                  + to_string(keptLdBlockInfoVec.size()) + " retained LD block(s). Please regenerate the tiled eigen folder.");
+        }
+        coreContextLdmEigen = true;
+        if (likelyCoreContext) {
+            sparseSidecarTimer.getTime();
+            cout << "Loaded sparse cross-tile LD files (time used: "
+                 << sparseSidecarTimer.format(sparseSidecarTimer.getElapse()) << ")." << endl;
+        }
+        cout << "Using core-context tiled eigen blocks; flank effects will be accounted for by sparse cross-tile LD offsets during SBayesR sampling." << endl;
+        if (totalCoreSnps) {
+            cout << "Sparse cross-tile LD files contain on average "
+                 << double(totalFlankLinks) / double(totalCoreSnps)
+                 << " LD link(s) per core SNP." << endl;
+        }
+        return;
+    }
+
+    unsigned foundOldRcf = 0;
+    for (unsigned i = 0; i < keptLdBlockInfoVec.size(); ++i) {
+        LDBlockInfo *block = keptLdBlockInfoVec[i];
+        string filename = dirname + "/block" + block->ID + ".rcf.bin";
+        CoreContextLdBlock sidecar;
+        if (!readCoreContextLdBlockBinary(filename, sidecar)) continue;
+        if (sidecar.numCoreSnps != block->numSnpInBlock) {
+            throw("Error: legacy core-context sparse LD file [" + filename + "] has " + to_string(sidecar.numCoreSnps)
+                  + " core SNPs but ldm.info reports " + to_string(block->numSnpInBlock) + ".");
+        }
+        coreContextLdBlocks[i] = sidecar;
+        ++foundOldRcf;
+    }
+
+    if (!foundOldRcf) {
+        coreContextLdBlocks.clear();
+        return;
+    }
+    if (foundOldRcf != keptLdBlockInfoVec.size()) {
+        throw("Error: found legacy core-context sparse LD files for only " + to_string(foundOldRcf) + " of "
+              + to_string(keptLdBlockInfoVec.size()) + " retained LD block(s). Please regenerate the tiled eigen folder.");
+    }
+    coreContextLdmEigen = true;
+    cout << "Using legacy core-context tiled eigen blocks; flank effects will be accounted for by sparse cross-tile LD offsets during SBayesR sampling." << endl;
 }
 
 void Data::releasePseudoSummaryData(void){
@@ -3224,7 +5202,10 @@ void Data::buildMMEeigen(const string &dirname, const bool sampleOverlap, const 
     ldBlockInfoMap.clear();
 //    snpInfoMap.clear();  // free memory from snpInfoMap which is no longer needed
     
-    readEigenMatrixBinaryFileAndMakeWandQ(dirname, eigenCutoff, gwasEffectInBlock, nGWASblock, noscale, makeHeldoutGwasValidation, quantizedBits, q8Entropy);
+    readEigenMatrixBinaryFileAndMakeWandQ(dirname, eigenCutoff, gwasEffectInBlock, nGWASblock, noscale, true, quantizedBits, q8Entropy);
+    if (coreContextLdmEigen && quantizedBits && quantizedBits != 16) {
+        throw("Error: core-context tiled eigen LD currently supports only float or q16 eigen data.");
+    }
     //if (numIncdSnps!=0) constructWandQ(gwasEffectInBlock, numKeptInds);
     //if (numIncdSnps!=0) constructWandQ(eigenCutoff, noscale);
 
@@ -3359,18 +5340,18 @@ void Data::includeMatchedBlocks(){
     for (unsigned i=0; i<numLDBlocks; ++i){
         ldblock = ldBlockInfoVec[i];
         ldblock->block2GwasSnpVec.clear();
-        if (overlapLdmEigen) {
+        if (overlapLdmEigen || coreContextLdmEigen) {
             for (unsigned j=0; j<ldblock->snpInfoVec.size(); ++j) {
                 snp = ldblock->snpInfoVec[j];
                 if (snp->included && snp->index >= 0) ldblock->block2GwasSnpVec.push_back(snp->index);
             }
             if (ldblock->block2GwasSnpVec.size() == 0) {
                 cout << "Warning: Skipping LD block " << ldblock->ID
-                     << ": no GWAS summary SNPs matched any SNP in this phased tiled/overlap block." << endl;
+                     << ": no GWAS summary SNPs matched any SNP in this tiled/overlap block." << endl;
                 ldblock->kept = false;
             } else {
                 if (ldblock->block2GwasSnpVec.size() != ldblock->snpInfoVec.size()) {
-                    throw("Error: phased tiled/overlap eigen block " + ldblock->ID + " has SNPs removed by analysis filters. V1 requires the analysis SNP set to match the generated eigen reference.");
+                    throw("Error: tiled/overlap eigen block " + ldblock->ID + " has SNPs removed by analysis filters. V1 requires the analysis SNP set to match the generated eigen reference.");
                 }
                 ldblock->startSnpIdx = ldblock->block2GwasSnpVec.front();
                 ldblock->endSnpIdx = ldblock->block2GwasSnpVec.back();
@@ -3378,9 +5359,11 @@ void Data::includeMatchedBlocks(){
             }
         }
     }
-    if (overlapLdmEigen) {
+    if (overlapLdmEigen || coreContextLdmEigen) {
         refreshKeptLdBlockMaps();
-        if (phasedTiledLdmEigen)
+        if (coreContextLdmEigen)
+            cout << numKeptLDBlocks << " core-context tiled LD blocks are included." << endl;
+        else if (phasedTiledLdmEigen)
             cout << numKeptLDBlocks << " phased tiled LD blocks are included across "
                  << tileGroupSize << " phase(s)." << endl;
         else
@@ -3570,11 +5553,16 @@ unsigned Data::pruneLdBlocksWithNoGwasOnAllReferenceSnps(bool bivariate){
 //}
 
 
-void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const bool print) {
+void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const bool print, const bool mergePairwiseLD, const bool cleanupBlockMergeFiles) {
     if (outLDmatType != "block") throw("Error: --merge-ldm-info only works for block LD matrices at the moment!");
     
     string dir_path = dirname; // Replace with your folder path
     string search_str = "snp.info";
+    string outSnpInfoFile = dirname + "/snp.info";
+    string outldmInfoFile = dirname + "/ldm.info";
+    string outpwldFile    = dirname + "/rsq0.5.pwld";
+    string outpwldGzFile  = outpwldFile + ".gz";
+    string mergeMarkerFile = dirname + "/ldm.merge.done";
     DIR* dirp = opendir(dir_path.c_str());
     
     if (dirp == NULL) {
@@ -3604,31 +5592,85 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
     }
     file_list.swap(filtered_list); // replace original with filtered
 
+    vector<string> activeLocks;
+    if (findBlockOutputLocksLocal(dirname, activeLocks)) {
+        string msg = "block-specific output lock(s) still exist in [" + dirname + "]; block jobs may still be running";
+        for (unsigned i = 0; i < activeLocks.size() && i < 20; ++i)
+            msg += " " + activeLocks[i];
+        if (activeLocks.size() > 20) msg += " ...";
+        msg += ". Please wait for all jobs to finish before merging.";
+        if (print) throw("Error: " + msg);
+        else {
+            cout << "Warning: " << msg << endl;
+            return;
+        }
+    }
+
     if (file_list.size() == 0) {
+        if (combinedMergeOutputsReadyLocal(dirname, mergePairwiseLD)) {
+            cout << "Using existing merged LD metadata in [" << dirname << "]." << endl;
+            return;
+        }
         string msg = "there are no block-specific SNP info files (block*.snp.info) in folder [" + dirname + "] to merge.";
         if (print) throw ("Error: " + msg);
         else return;
     }
     if (file_list.size() == 1) {
         if (print) throw ("Error: there is only one block-specific info file in folder [" + dirname + "], so no need to merge.");
-        else return;
     }
 
     
-    set<unsigned> blockIdxSet;
-    blockIdxSet.clear();
+    vector<string> blockFileIds;
+    set<unsigned> numericBlockIdxSet;
 
     for (vector<string>::iterator it = file_list.begin(); it != file_list.end(); ++it) {
         size_t block_pos = it->find(search_str);
-        size_t dot_pos = it->find_first_of(".", block_pos);
-        if (block_pos != string::npos && dot_pos != string::npos) {
-            string block_num_str = it->substr(block_pos + search_str.size(), dot_pos - block_pos - search_str.size());
-            int block_num = atoi(block_num_str.c_str());
-            blockIdxSet.insert(block_num);
+        const string suffix = ".snp.info";
+        size_t suffix_pos = it->rfind(suffix);
+        if (block_pos != string::npos && suffix_pos != string::npos && suffix_pos > block_pos + search_str.size()) {
+            string block_id_str = it->substr(block_pos + search_str.size(), suffix_pos - block_pos - search_str.size());
+            blockFileIds.push_back(block_id_str);
+            bool numeric = !block_id_str.empty();
+            for (unsigned c = 0; c < block_id_str.size(); ++c) {
+                if (!isdigit(block_id_str[c])) {
+                    numeric = false;
+                    break;
+                }
+            }
+            if (numeric) numericBlockIdxSet.insert((unsigned)atoi(block_id_str.c_str()));
         }
     }
-        
-    unsigned nldm = blockIdxSet.size();
+    std::sort(blockFileIds.begin(), blockFileIds.end(), [](const string &a, const string &b) {
+        char *enda = NULL;
+        char *endb = NULL;
+        long na = strtol(a.c_str(), &enda, 10);
+        long nb = strtol(b.c_str(), &endb, 10);
+        bool anum = enda && *enda == '\0';
+        bool bnum = endb && *endb == '\0';
+        if (anum && bnum) return na < nb;
+        if (anum != bnum) return anum;
+        return a < b;
+    });
+
+    bool mergeOverlap = false;
+    bool mergePhase = false;
+    bool mergeSourceTile = false;
+    {
+        string firstLdmInfoFile = dirname + "/block" + blockFileIds.front() + ".ldm.info";
+        ifstream probe(firstLdmInfoFile.c_str());
+        string headerProbe, lineProbe, tokProbe;
+        getline(probe, headerProbe);
+        mergeSourceTile = headerProbe.find("SourceBlockID") != string::npos && headerProbe.find("TileID") != string::npos;
+        if (getline(probe, lineProbe)) {
+            std::istringstream iss(lineProbe);
+            unsigned ntok = 0;
+            while (iss >> tokProbe) ++ntok;
+            mergeOverlap = !mergeSourceTile && ntok >= 13;
+            mergePhase = !mergeSourceTile && ntok == 9;
+        }
+    }
+
+    unsigned nldm = blockFileIds.size();
     if (!nldm) {
         string msg = "no valid block IDs were found in block-specific SNP info files in folder [" + dirname + "].";
         if (print) throw("Error: " + msg);
@@ -3638,33 +5680,53 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
         }
     }
 
-    unsigned firstBlock = *blockIdxSet.begin();
-    unsigned lastBlock = *blockIdxSet.rbegin();
-    vector<unsigned> missingBlocks;
-    for (unsigned blockID = firstBlock; blockID <= lastBlock; ++blockID) {
-        if (!blockIdxSet.count(blockID)) missingBlocks.push_back(blockID);
-    }
-    if (!missingBlocks.empty()) {
-        string msg = "block-specific info files are incomplete in [" + dirname + "]; missing block ID(s)";
-        for (unsigned i = 0; i < missingBlocks.size() && i < 20; ++i)
-            msg += " " + to_string(missingBlocks[i]);
-        if (missingBlocks.size() > 20)
-            msg += " ...";
-        msg += ". Please wait until all per-block jobs finish before merging.";
-        if (print) throw("Error: " + msg);
-        else {
-            cout << "Warning: " << msg << endl;
+    uint64_t blockInfoSignature = 0;
+    bool haveBlockInfoSignature = blockInfoSignatureLocal(dirname, blockFileIds, blockInfoSignature);
+    if (haveBlockInfoSignature && combinedMergeOutputsReadyLocal(dirname, mergePairwiseLD)) {
+        unsigned markerBlockCount = 0;
+        uint64_t markerSignature = 0;
+        bool markerPairwiseReady = false;
+        if (readMergeMarkerLocal(mergeMarkerFile, markerBlockCount, markerSignature, markerPairwiseReady)
+            && markerBlockCount == nldm
+            && markerSignature == blockInfoSignature
+            && (!mergePairwiseLD || markerPairwiseReady)) {
+            cout << "Using cached merged LD metadata in [" << dirname << "]." << endl;
             return;
         }
     }
 
-    for (set<unsigned>::iterator chk = blockIdxSet.begin(); chk != blockIdxSet.end(); ++chk) {
-        string snpInfoFile = dirname + "/block" + to_string(*chk) + ".snp.info";
-        string ldmInfoFile = dirname + "/block" + to_string(*chk) + ".ldm.info";
+    if (!mergeSourceTile && numericBlockIdxSet.size() == blockFileIds.size()) {
+        unsigned firstBlock = *numericBlockIdxSet.begin();
+        unsigned lastBlock = *numericBlockIdxSet.rbegin();
+        vector<unsigned> missingBlocks;
+        for (unsigned blockID = firstBlock; blockID <= lastBlock; ++blockID) {
+            if (!numericBlockIdxSet.count(blockID)) missingBlocks.push_back(blockID);
+        }
+        if (!missingBlocks.empty()) {
+            string msg = "block-specific info files are incomplete in [" + dirname + "]; missing block ID(s)";
+            for (unsigned i = 0; i < missingBlocks.size() && i < 20; ++i)
+                msg += " " + to_string(missingBlocks[i]);
+            if (missingBlocks.size() > 20)
+                msg += " ...";
+            msg += ". Please wait until all per-block jobs finish before merging.";
+            if (print) throw("Error: " + msg);
+            else {
+                cout << "Warning: " << msg << endl;
+                return;
+            }
+        }
+    }
+
+    if (nldm > 100)
+        cout << "Checking completeness of " << nldm << " block-specific info files..." << endl;
+    unsigned checkIdx = 0;
+    for (vector<string>::iterator chk = blockFileIds.begin(); chk != blockFileIds.end(); ++chk, ++checkIdx) {
+        string snpInfoFile = dirname + "/block" + *chk + ".snp.info";
+        string ldmInfoFile = dirname + "/block" + *chk + ".ldm.info";
         ifstream snpIn(snpInfoFile.c_str());
         ifstream ldmIn(ldmInfoFile.c_str());
         if (!snpIn || !ldmIn) {
-            string msg = "missing paired block-specific info file(s) for block " + to_string(*chk)
+            string msg = "missing paired block-specific info file(s) for block " + *chk
                 + " in [" + dirname + "]. Expected both block*.snp.info and block*.ldm.info.";
             if (print) throw("Error: " + msg);
             else {
@@ -3680,7 +5742,7 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
             if (!line.empty()) ++snpLines;
         }
         if (!snpLines) {
-            string msg = "block" + to_string(*chk) + ".snp.info has no SNP records; block job may still be writing.";
+            string msg = "block" + *chk + ".snp.info has no SNP records; block job may still be writing.";
             if (print) throw("Error: " + msg);
             else {
                 cout << "Warning: " << msg << endl;
@@ -3690,8 +5752,10 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
 
         unsigned ldmLines = 0;
         int snpNum = -1;
+        unsigned snpNumSum = 0;
         string header;
         getline(ldmIn, header);
+        bool sourceTileHeader = header.find("SourceBlockID") != string::npos && header.find("TileID") != string::npos;
         while (getline(ldmIn, line)) {
             if (line.empty()) continue;
             ++ldmLines;
@@ -3699,7 +5763,38 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
             string id, startSnpID, endSnpID;
             int chr, blockStart, blockEnd;
             if (!(iss >> id >> chr >> blockStart >> startSnpID >> blockEnd >> endSnpID >> snpNum)) {
-                string msg = "cannot parse ldm info for block " + to_string(*chk) + " in [" + ldmInfoFile + "].";
+                string msg = "cannot parse ldm info for block " + *chk + " in [" + ldmInfoFile + "].";
+                if (print) throw("Error: " + msg);
+                else {
+                    cout << "Warning: " << msg << endl;
+                    return;
+                }
+            }
+            if (sourceTileHeader) {
+                string eigenFile = dirname + "/block" + id + ".eigen.bin";
+                string eigenQ16File = dirname + "/block" + id + ".eigen.q16.bin";
+                string eigenBundleFile = dirname + "/block" + *chk + ".tiles.eigen.bin";
+                string eigenQ16BundleFile = dirname + "/block" + *chk + ".tiles.eigen.q16.bin";
+                if (!fileExistsAndNonEmptyLocal(eigenFile) && !fileExistsAndNonEmptyLocal(eigenQ16File)
+                    && !fileExistsAndNonEmptyLocal(eigenBundleFile) && !fileExistsAndNonEmptyLocal(eigenQ16BundleFile)) {
+                    string msg = "incomplete tiled eigen output for source block " + *chk
+                        + ": ldm.info lists tile [" + id + "] but neither per-tile eigen files nor source-block eigen bundle exists. "
+                        + "Block job may still be running or was interrupted.";
+                    if (print) throw("Error: " + msg);
+                    else {
+                        cout << "Warning: " << msg << endl;
+                        return;
+                    }
+                }
+            }
+            if (snpNum > 0) snpNumSum += (unsigned)snpNum;
+        }
+        if (sourceTileHeader) {
+            string sparseFile = sparseSourceLdFilename(dirname, *chk, false);
+            string sparseQ16File = sparseSourceLdFilename(dirname, *chk, true);
+            if (!fileExistsAndNonEmptyLocal(sparseFile) && !fileExistsAndNonEmptyLocal(sparseQ16File)) {
+                string msg = "incomplete tiled eigen output for source block " + *chk
+                    + ": sparse cross-tile LD file is missing or empty.";
                 if (print) throw("Error: " + msg);
                 else {
                     cout << "Warning: " << msg << endl;
@@ -3707,10 +5802,13 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
                 }
             }
         }
-        if (ldmLines != 1 || snpNum < 0 || (unsigned)snpNum != snpLines) {
-            string msg = "inconsistent block-specific info for block " + to_string(*chk)
+        bool inconsistent = false;
+        if (sourceTileHeader) inconsistent = ldmLines == 0 || snpNumSum != snpLines;
+        else inconsistent = ldmLines != 1 || snpNum < 0 || (unsigned)snpNum != snpLines;
+        if (inconsistent) {
+            string msg = "inconsistent block-specific info for block " + *chk
                 + ": snp.info has " + to_string(snpLines)
-                + " SNP records but ldm.info reports " + to_string((long long)snpNum)
+                + " SNP records but ldm.info reports " + to_string(sourceTileHeader ? (long long)snpNumSum : (long long)snpNum)
                 + ". Block job may still be writing.";
             if (print) throw("Error: " + msg);
             else {
@@ -3722,34 +5820,15 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
     
     cout << "Merging " << nldm << " LD matrices info files" << endl;
     
-    set<unsigned>::iterator it = blockIdxSet.begin();
-    bool mergeOverlap = false;
-    bool mergePhase = false;
-    {
-        string firstLdmInfoFile = dirname + "/block" + to_string(*it) + ".ldm.info";
-        ifstream probe(firstLdmInfoFile.c_str());
-        string headerProbe, lineProbe, tokProbe;
-        getline(probe, headerProbe);
-        if (getline(probe, lineProbe)) {
-            std::istringstream iss(lineProbe);
-            unsigned ntok = 0;
-            while (iss >> tokProbe) ++ntok;
-            mergeOverlap = ntok >= 13;
-            mergePhase = ntok == 9;
-        }
-    }
-    
-    string outSnpInfoFile = dirname + "/snp.info";
-    string outldmInfoFile = dirname + "/ldm.info";
-    string outpwldFile    = dirname + "/rsq0.5.pwld";
-    string outpwldGzFile  = outpwldFile + ".gz";
+    vector<string>::iterator it = blockFileIds.begin();
 
     {
         ifstream existingLdm(outldmInfoFile.c_str());
         if (existingLdm) {
             string line;
             unsigned existingBlockCount = 0;
-            set<unsigned> existingBlockIdxSet;
+            set<string> existingBlockIdxSet;
+            set<string> existingSourceIdxSet;
             getline(existingLdm, line);
             while (getline(existingLdm, line)) {
                 if (line.empty()) continue;
@@ -3757,18 +5836,26 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
                 std::istringstream iss(line);
                 string id;
                 if (iss >> id) {
-                    unsigned blockID = (unsigned)atoi(id.c_str());
-                    if (blockID) existingBlockIdxSet.insert(blockID);
+                    existingBlockIdxSet.insert(id);
+                    string sourceID = id;
+                    size_t tilePos = sourceID.find(".tile");
+                    if (tilePos != string::npos) sourceID = sourceID.substr(0, tilePos);
+                    existingSourceIdxSet.insert(sourceID);
                 }
             }
             bool newCoversExisting = true;
-            for (set<unsigned>::iterator oldIt = existingBlockIdxSet.begin(); oldIt != existingBlockIdxSet.end(); ++oldIt) {
-                if (!blockIdxSet.count(*oldIt)) {
+            set<string> visibleIDs(blockFileIds.begin(), blockFileIds.end());
+            for (set<string>::iterator oldIt = existingBlockIdxSet.begin(); oldIt != existingBlockIdxSet.end(); ++oldIt) {
+                string sourceID = *oldIt;
+                size_t tilePos = sourceID.find(".tile");
+                if (tilePos != string::npos) sourceID = sourceID.substr(0, tilePos);
+                if (!visibleIDs.count(sourceID)) {
                     newCoversExisting = false;
                     break;
                 }
             }
-            if (existingBlockCount > nldm || !newCoversExisting) {
+            unsigned comparableExistingCount = mergeSourceTile ? (unsigned)existingSourceIdxSet.size() : existingBlockCount;
+            if (comparableExistingCount > nldm || !newCoversExisting) {
                 string msg = "existing combined ldm.info has " + to_string(existingBlockCount)
                     + " blocks, but the currently visible block-specific info files cover " + to_string(nldm)
                     + " block(s) and do not contain all existing merged block IDs; keeping the existing combined info to avoid dropping blocks.";
@@ -3786,49 +5873,37 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
     // (do not require block*.rsq0.5.pwld).
     bool useExistingCombinedPwld = false;
     string existingCombinedPwldFile = outpwldFile;
-    if (fileExistsAndNonEmptyLocal(outpwldGzFile)) {
+    if (mergePairwiseLD && fileExistsAndNonEmptyLocal(outpwldGzFile)) {
         useExistingCombinedPwld = true;
         existingCombinedPwldFile = outpwldGzFile;
     }
-    if (useExistingCombinedPwld) {
+    if (mergePairwiseLD && useExistingCombinedPwld) {
         cout << "Found existing combined pairwise LD file [" + existingCombinedPwldFile + "]; merging snp/ldm info only and keeping this pwld file." << endl;
+    }
+    const bool writeCombinedPwld = mergePairwiseLD && !useExistingCombinedPwld;
+    if (!mergePairwiseLD) {
+        cout << "Skipping combined pairwise LD merge for this analysis." << endl;
+    } else if (writeCombinedPwld && nldm > 100) {
+        cout << "Building combined pairwise LD file; this can take a while for large references." << endl;
     }
 
     ofstream out1(outSnpInfoFile.c_str());
-    out1 << boost::format("%6s %15s %10s %10s %15s %6s %6s %12s %10s %10s\n")
-    % "Chrom"
-    % "ID"
-    % "Index"
-    % "GenPos"
-    % "PhysPos"
-    % "A1"
-    % "A2"
-    % "A1Freq"
-    % "N"
-    % "Block";
+    out1 << "Chrom ID Index GenPos PhysPos A1 A2 A1Freq N Block\n";
+    out1 << fixed << setprecision(6);
     
     ofstream out2(outldmInfoFile.c_str());
-    if (mergePhase) {
-        out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s %12s %15s\n")
-        % "Block" % "Chrom" % "StartSnpIdx" % "StartSnpID" % "EndSnpIdx" % "EndSnpID" % "NumSnps"
-        % "TilePhase" % "TileGroupSize";
+    if (mergeSourceTile) {
+        out2 << "Block Chrom StartSnpIdx StartSnpID EndSnpIdx EndSnpID NumSnps SourceBlockID TileID\n";
+    } else if (mergePhase) {
+        out2 << "Block Chrom StartSnpIdx StartSnpID EndSnpIdx EndSnpID NumSnps TilePhase TileGroupSize\n";
     } else if (mergeOverlap) {
-        out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s %15s %15s %15s %15s %15s %15s\n")
-        % "Block" % "Chrom" % "StartSnpIdx" % "StartSnpID" % "EndSnpIdx" % "EndSnpID" % "NumSnps"
-        % "CoreStartPos" % "CoreEndPos" % "CoreStartSnpIdx" % "CoreStartSnpID" % "CoreEndSnpIdx" % "CoreEndSnpID";
+        out2 << "Block Chrom StartSnpIdx StartSnpID EndSnpIdx EndSnpID NumSnps CoreStartPos CoreEndPos CoreStartSnpIdx CoreStartSnpID CoreEndSnpIdx CoreEndSnpID\n";
     } else {
-        out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
-        % "Block"
-        % "Chrom"
-        % "StartSnpIdx"
-        % "StartSnpID"
-        % "EndSnpIdx"
-        % "EndSnpID"
-        % "NumSnps";
+        out2 << "Block Chrom StartSnpIdx StartSnpID EndSnpIdx EndSnpID NumSnps\n";
     }
 
     gzFile out3gz = NULL;
-    if (!useExistingCombinedPwld) {
+    if (writeCombinedPwld) {
         out3gz = gzopen(outpwldGzFile.c_str(), "wb");
         if (!out3gz) throw("Error: cannot open file [" + outpwldGzFile + "] to write.");
         gzprintf(out3gz, "%12s %12s %12s\n", "SNP1", "SNP2", "LDcorrelation");
@@ -3841,9 +5916,9 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
     
     for (unsigned i=0; i<nldm; ++i) {
         
-        string snpInfoFile = dirname + "/block" + to_string(*it) + ".snp.info";
-        string ldmInfoFile = dirname + "/block" + to_string(*it) + ".ldm.info";
-        string pwldFile = dirname + "/block" + to_string(*it) + ".rsq0.5.pwld";
+        string snpInfoFile = dirname + "/block" + *it + ".snp.info";
+        string ldmInfoFile = dirname + "/block" + *it + ".ldm.info";
+        string pwldFile = dirname + "/block" + *it + ".rsq0.5.pwld";
 
         // read snp info file
         ifstream in1(snpInfoFile.c_str());
@@ -3857,21 +5932,12 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
         int idx = 0;
         int index;
         string blockID;
-        map<string, int> snpID2index;
+        unordered_map<string, int> snpID2index;
         getline(in1, header);
         while (in1 >> chr >> id >> index >> genPos >> physPos >> allele1 >> allele2 >> allele1Freq >> ld_n >> blockID) {
             unsigned outIndex = (mergeOverlap || mergePhase) ? (unsigned)index : snpIdx;
-            out1 << boost::format("%6s %15s %10s %10s %15s %6s %6s %12f %10s %10s\n")
-            % chr
-            % id
-            % outIndex
-            % genPos
-            % physPos
-            % allele1
-            % allele2
-            % allele1Freq
-            % ld_n
-            % blockID;
+            out1 << chr << ' ' << id << ' ' << outIndex << ' ' << genPos << ' ' << physPos << ' '
+                 << allele1 << ' ' << allele2 << ' ' << allele1Freq << ' ' << ld_n << ' ' << blockID << '\n';
             snpID2index[id] = outIndex;
             ++snpIdx;
         }
@@ -3891,32 +5957,36 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
             if (ldmLine.empty()) continue;
             std::istringstream iss(ldmLine);
             if (!(iss >> id >> chr >> blockStart >> startSnpID >> blockEnd >> endSnpID >> snpNum)) continue;
-            if (mergePhase) {
+            if (mergeSourceTile) {
+                string sourceBlockID;
+                int tileID;
+                if (!(iss >> sourceBlockID >> tileID)) {
+                    throw("Error: inconsistent core-context tiled ldm.info line in [" + ldmInfoFile + "].");
+                }
+                out2 << id << ' ' << chr << ' ' << snpID2index[startSnpID] << ' ' << startSnpID << ' '
+                     << snpID2index[endSnpID] << ' ' << endSnpID << ' ' << snpNum << ' '
+                     << sourceBlockID << ' ' << tileID << '\n';
+            } else if (mergePhase) {
                 int tilePhase, tileGroupSize;
                 if (!(iss >> tilePhase >> tileGroupSize)) {
                     throw("Error: inconsistent phased tiled ldm.info line in [" + ldmInfoFile + "].");
                 }
-                out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s %12s %15s\n")
-                % id % chr % blockStart % startSnpID % blockEnd % endSnpID % snpNum
-                % tilePhase % tileGroupSize;
+                out2 << id << ' ' << chr << ' ' << blockStart << ' ' << startSnpID << ' '
+                     << blockEnd << ' ' << endSnpID << ' ' << snpNum << ' '
+                     << tilePhase << ' ' << tileGroupSize << '\n';
             } else if (mergeOverlap) {
                 int coreStartPos, coreEndPos, coreStartIdx, coreEndIdx;
                 string coreStartID, coreEndID;
                 if (!(iss >> coreStartPos >> coreEndPos >> coreStartIdx >> coreStartID >> coreEndIdx >> coreEndID)) {
                     throw("Error: inconsistent overlapping ldm.info line in [" + ldmInfoFile + "].");
                 }
-                out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s %15s %15s %15s %15s %15s %15s\n")
-                % id % chr % blockStart % startSnpID % blockEnd % endSnpID % snpNum
-                % coreStartPos % coreEndPos % coreStartIdx % coreStartID % coreEndIdx % coreEndID;
+                out2 << id << ' ' << chr << ' ' << blockStart << ' ' << startSnpID << ' '
+                     << blockEnd << ' ' << endSnpID << ' ' << snpNum << ' '
+                     << coreStartPos << ' ' << coreEndPos << ' ' << coreStartIdx << ' '
+                     << coreStartID << ' ' << coreEndIdx << ' ' << coreEndID << '\n';
             } else {
-                out2 << boost::format("%10s %6s %15s %15s %15s %15s %12s\n")
-                % id
-                % chr
-                % snpID2index[startSnpID]
-                % startSnpID
-                % snpID2index[endSnpID]
-                % endSnpID
-                % snpNum;
+                out2 << id << ' ' << chr << ' ' << snpID2index[startSnpID] << ' ' << startSnpID << ' '
+                     << snpID2index[endSnpID] << ' ' << endSnpID << ' ' << snpNum << '\n';
             }
             
             ++ldmIdx;
@@ -3925,7 +5995,7 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
         
         
         // read per-block pwld only when building merged rsq0.5.pwld (not when keeping existing combined file)
-        if (!useExistingCombinedPwld) {
+        if (writeCombinedPwld) {
             string pwldGzFile = pwldFile + ".gz";
             string pwldBinFile = pwldFile + ".bin";
             if (fileExistsAndNonEmptyLocal(pwldGzFile)) {
@@ -3935,14 +6005,8 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
                 readGzLineLocal(in3gz, line);
                 while (readGzLineLocal(in3gz, line)) {
                     if (line.empty()) continue;
-                    std::istringstream iss(line);
-                    float ldcor;
-                    string snp1ID, snp2ID;
-                    if (!(iss >> snp1ID >> snp2ID >> ldcor)) continue;
-                    map<string, int>::iterator idx1 = snpID2index.find(snp1ID);
-                    map<string, int>::iterator idx2 = snpID2index.find(snp2ID);
-                    if (idx1 == snpID2index.end() || idx2 == snpID2index.end()) continue;
-                    gzprintf(out3gz, "%12s %12s %12.6f\n", snp1ID.c_str(), snp2ID.c_str(), ldcor);
+                    gzputs(out3gz, line.c_str());
+                    gzputc(out3gz, '\n');
                 }
                 gzclose(in3gz);
             } else if (fileExistsAndNonEmptyLocal(pwldBinFile)) {
@@ -3963,8 +6027,8 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
                     }
                     const string &snp1ID = fileSnpIDs[inrec.snp1];
                     const string &snp2ID = fileSnpIDs[inrec.snp2];
-                    map<string, int>::iterator idx1 = snpID2index.find(snp1ID);
-                    map<string, int>::iterator idx2 = snpID2index.find(snp2ID);
+                    unordered_map<string, int>::iterator idx1 = snpID2index.find(snp1ID);
+                    unordered_map<string, int>::iterator idx2 = snpID2index.find(snp2ID);
                     if (idx1 == snpID2index.end() || idx2 == snpID2index.end()) continue;
                     gzprintf(out3gz, "%12s %12s %12.6f\n", snp1ID.c_str(), snp2ID.c_str(), inrec.ldcor);
                 }
@@ -3974,14 +6038,12 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
                 if (!in3) {
                     cout << "Warning: can not open the file [" + pwldFile + "] or [" + pwldBinFile + "] to read; skipping pairwise LD for this block." << endl;
                 } else {
-                    float ldcor;
-                    string snp1ID, snp2ID;
                     getline(in3, header);
-                    while (in3 >> snp1ID >> snp2ID >> ldcor) {
-                        map<string, int>::iterator idx1 = snpID2index.find(snp1ID);
-                        map<string, int>::iterator idx2 = snpID2index.find(snp2ID);
-                        if (idx1 == snpID2index.end() || idx2 == snpID2index.end()) continue;
-                        gzprintf(out3gz, "%12s %12s %12.6f\n", snp1ID.c_str(), snp2ID.c_str(), ldcor);
+                    string line;
+                    while (getline(in3, line)) {
+                        if (line.empty()) continue;
+                        gzputs(out3gz, line.c_str());
+                        gzputc(out3gz, '\n');
                     }
                     in3.close();
                 }
@@ -3993,16 +6055,27 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
     
     out1.close();
     out2.close();
-    if (!useExistingCombinedPwld) {
+    if (writeCombinedPwld) {
         gzclose(out3gz);
     }
 
     cout << "Written " << snpIdx << " SNPs info into file [" + outSnpInfoFile + "]." << endl;
     cout << "Written " << ldmIdx << " LDMs info into file [" + outldmInfoFile + "]." << endl;
-    if (useExistingCombinedPwld) {
+    if (!mergePairwiseLD) {
+        cout << "Pairwise LD merge skipped." << endl;
+    } else if (useExistingCombinedPwld) {
         cout << "Left pairwise LD file unchanged: [" + existingCombinedPwldFile + "]." << endl;
     } else {
         cout << "Written pairwise LD correlations (rsq>0.5) into file [" + outpwldGzFile + "]." << endl;
+    }
+    if (haveBlockInfoSignature)
+        writeMergeMarkerLocal(mergeMarkerFile, nldm, blockInfoSignature, mergePairwiseLD || useExistingCombinedPwld);
+    if (cleanupBlockMergeFiles && mergePairwiseLD && (writeCombinedPwld || useExistingCombinedPwld)) {
+        unsigned removed = removeBlockSpecificMergeInputsLocal(dirname);
+        if (removed)
+            cout << "Removed " << removed << " block-specific info/pairwise LD file(s) after successful merge." << endl;
+    } else if (!cleanupBlockMergeFiles && mergePairwiseLD && (writeCombinedPwld || useExistingCombinedPwld)) {
+        cout << "Kept block-specific info/pairwise LD files as requested." << endl;
     }
 }
 

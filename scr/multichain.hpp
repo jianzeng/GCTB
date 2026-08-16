@@ -179,12 +179,22 @@ public:
     class NumHighPIPs : public Parameter {
     public:
         float threshold;
-        
-        NumHighPIPs(const string &lab = "NumHighPIP"): Parameter(lab){
-            threshold = 0.9;
-        }
-        
-        void getValue(const VectorXf &PIP);
+        unsigned burnin;
+        unsigned thin;
+        unsigned previewThin;
+        unsigned cntSample;
+        bool posteriorPhase;
+        bool excludeSkepticalSnps;
+        VectorXf runningPip;
+
+        NumHighPIPs(const unsigned burnin, const unsigned thin, const unsigned outputFreq,
+                    const float threshold, const bool excludeSkepticalSnps,
+                    const string &lab = "NumHighPIP"):
+        Parameter(lab), threshold(threshold), burnin(burnin), thin(std::max(1u, thin)),
+        previewThin(std::max(1u, std::min(thin, outputFreq))), cntSample(0),
+        posteriorPhase(false), excludeSkepticalSnps(excludeSkepticalSnps) {}
+
+        void getValue(const VectorXf &PIP, const unsigned iter, const set<unsigned> &skepticalSnpIdx);
     };
     
     class SnpHsqPEP : public MultiChainParamSet {
@@ -228,7 +238,7 @@ public:
     numSnpMix(opt.gamma.size(), chainVec),
     vgMix(opt.gamma.size(), chainVec),
     nBadSnps(opt.title, chainVec),
-    nHighPips(),
+    nHighPips(opt.burnin, opt.thin, opt.outputFreq, opt.pipThreshold, opt.removeSkepticalSnps),
     snpHsqPep(data.snpEffectNames, chainVec)
     {
         
@@ -642,7 +652,7 @@ public:
     numSnpMix(opt.gamma.size(), chainVec),
     vgMix(opt.gamma.size(), chainVec),
     nBadSnps(opt.title, chainVec),
-    nHighPips(),
+    nHighPips(opt.burnin, opt.thin, opt.outputFreq, opt.pipThreshold, opt.removeSkepticalSnps),
     annoEffects(data.annoNames, opt.gamma.size()-1, chainVec),
     annoJointProb(data.annoNames, opt.gamma.size(), chainVec),
     annoTotalGenVar(data.annoNames, chainVec),
@@ -1164,12 +1174,22 @@ public:
     class NumHighPIPs : public Parameter {
     public:
         float threshold;
-        
-        NumHighPIPs(const string &lab = "NumHighPIP"): Parameter(lab){
-            threshold = 0.9;
-        }
-        
-        void getValue(const VectorXf &PIP);
+        unsigned burnin;
+        unsigned thin;
+        unsigned previewThin;
+        unsigned cntSample;
+        bool posteriorPhase;
+        bool excludeSkepticalSnps;
+        VectorXf runningPip;
+
+        NumHighPIPs(const unsigned burnin, const unsigned thin, const unsigned outputFreq,
+                    const float threshold, const bool excludeSkepticalSnps,
+                    const string &lab = "NumHighPIP"):
+        Parameter(lab), threshold(threshold), burnin(burnin), thin(std::max(1u, thin)),
+        previewThin(std::max(1u, std::min(thin, outputFreq))), cntSample(0),
+        posteriorPhase(false), excludeSkepticalSnps(excludeSkepticalSnps) {}
+
+        void getValue(const VectorXf &PIP, const unsigned iter, const set<unsigned> &skepticalSnpIdx);
     };
 
     unsigned numChains;
@@ -1206,7 +1226,7 @@ public:
     varg(chainVec),
     vare(chainVec),
     nBadSnps(opt.title, chainVec),
-    nHighPips()
+    nHighPips(opt.burnin, opt.thin, opt.outputFreq, opt.pipThreshold, opt.removeSkepticalSnps)
     {
         
         // for nested OMP

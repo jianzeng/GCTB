@@ -22,8 +22,8 @@ using namespace Eigen;
 
 namespace Stat {
 
-    /// Wraps boost::mt19937 and counts every RNG engine draw (for reproducibility debugging).
-    /// Enable checkpoints with environment variable GCTB_DEBUG_RNG=1.
+    /// Build with GCTB_COUNT_RNG_DRAWS to count engine draws for reproducibility debugging.
+#ifdef GCTB_COUNT_RNG_DRAWS
     class CountedMt19937 {
         boost::mt19937 impl_;
     public:
@@ -37,6 +37,9 @@ namespace Stat {
     };
 
     typedef CountedMt19937 random_engine;
+#else
+    typedef boost::mt19937 random_engine;
+#endif
     typedef boost::uniform_01<> uniform_01;
     typedef boost::normal_distribution<> normal_distribution;
     typedef boost::gamma_distribution<> gamma_distribution;
@@ -47,15 +50,15 @@ namespace Stat {
     typedef boost::variate_generator<random_engine&, normal_distribution> normal_generator;
     typedef boost::variate_generator<random_engine&, gamma_distribution> gamma_generator;
     
-    extern thread_local random_engine engine;
-    extern thread_local uniform01_generator ranf;
-    extern thread_local normal_generator snorm;  // standard normal
+    static thread_local random_engine engine;
+    static thread_local uniform01_generator ranf(engine, uniform_01());
+    static thread_local normal_generator snorm(engine, normal_distribution(0,1));  // standard normal
     
     void seedEngine(const int seed);
     /// Mix master seed with MCMC iteration and parallel task id (e.g. LD block index).
     /// Call at the start of each OpenMP task so multi-thread runs are reproducible.
     void setMcmcIteration(unsigned iter);
-    CountedMt19937::result_type parallelTaskSeed(unsigned taskKey, unsigned salt = 0u);
+    random_engine::result_type parallelTaskSeed(unsigned taskKey, unsigned salt = 0u);
     void seedEngineForParallelTask(unsigned taskKey, unsigned salt = 0u);
     /// No-op when OpenMP uses a single thread (preserves serial RNG stream).
     void seedEngineForParallelTaskIfNeeded(unsigned taskKey, unsigned salt = 0u);

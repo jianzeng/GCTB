@@ -7,6 +7,12 @@
 //
 
 #include "gadgets.hpp"
+#include <boost/format.hpp>
+#if defined(__linux__)
+#include <unistd.h>
+#elif defined(__APPLE__) && defined(__MACH__)
+#include <mach/mach.h>
+#endif
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -100,6 +106,52 @@ bool Gadget::createDirectory(const string& dirname)
         return true;
 }
 
+double Gadget::getCurrentResidentMemoryGb() {
+#if defined(__linux__)
+    FILE *statm = fopen("/proc/self/statm", "r");
+    if (!statm) return -1.0;
+    unsigned long pages = 0;
+    unsigned long resident = 0;
+    int nread = fscanf(statm, "%lu %lu", &pages, &resident);
+    fclose(statm);
+    if (nread != 2) return -1.0;
+    const long pageSize = sysconf(_SC_PAGESIZE);
+    if (pageSize <= 0) return -1.0;
+    return (static_cast<double>(resident) * static_cast<double>(pageSize)) / (1024.0 * 1024.0 * 1024.0);
+#elif defined(__APPLE__) && defined(__MACH__)
+    mach_task_basic_info info;
+    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, reinterpret_cast<task_info_t>(&info), &count) != KERN_SUCCESS)
+        return -1.0;
+    return static_cast<double>(info.resident_size) / (1024.0 * 1024.0 * 1024.0);
+#else
+    return -1.0;
+#endif
+}
+
+double Gadget::getMaxResidentMemoryGb() {
+    struct rusage usage;
+    if (getrusage(RUSAGE_SELF, &usage) != 0) return -1.0;
+#if defined(__APPLE__) && defined(__MACH__)
+    return static_cast<double>(usage.ru_maxrss) / (1024.0 * 1024.0 * 1024.0);
+#else
+    return static_cast<double>(usage.ru_maxrss) / (1024.0 * 1024.0);
+#endif
+}
+
+void Gadget::printMemoryCheckpoint(const string &label) {
+    const double currentGb = getCurrentResidentMemoryGb();
+    const double memGb = getMaxResidentMemoryGb();
+    cout << "Memory checkpoint [" << label << "]: ";
+    if (currentGb >= 0.0)
+        cout << "RSS " << boost::format("%.2f") % currentGb << " GB, ";
+    if (memGb >= 0.0)
+        cout << "max RSS " << boost::format("%.2f") % memGb << " GB";
+    else
+        cout << "max RSS unavailable";
+    cout << endl;
+}
+
 float Gadget::calcMean(const VectorXf &vec){
     VectorXd vec_double = vec.cast<double>();
     return vec_double.mean();
@@ -158,7 +210,9 @@ vector<int> Gadget::shuffle_index(const int start, const int end, const unsigned
 }
 
 void Gadget::shuffle_vector(vector<int> &vec){
-    std::mt19937 rng(static_cast<uint32_t>(Stat::engine()));
+    constexpr int max_integer = std::numeric_limits<int>::max();
+    int random_integer = static_cast<int>(Stat::ranf() * max_integer);
+    thread_local std::mt19937 rng(random_integer);
     std::shuffle(vec.begin(), vec.end(), rng);
 }
 
@@ -170,8 +224,7 @@ void Gadget::shuffle_vector(vector<int> &vec, const unsigned taskKey){
         return;
     }
 #endif
-    std::mt19937 rng(static_cast<uint32_t>(Stat::engine()));
-    std::shuffle(vec.begin(), vec.end(), rng);
+    shuffle_vector(vec);
 }
 
 void Gadget::removeSecondElement(VectorXf &vec){

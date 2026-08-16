@@ -67,6 +67,7 @@ public:
     McmcSamples(const string &label, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin,
                 const unsigned npar, const string &storage_mode, const string &output_mode, const string &title):
     label(label), numChains(numChains), chainLength(chainLength), burnin(burnin), thin(thin) {
+        bout = NULL;
         nrow = (chainLength/thin - burnin/thin)*numChains;
         ncol = npar;
         
@@ -120,7 +121,7 @@ public:
         }
     }
     
-    McmcSamples(const string &label): label(label) {}
+    McmcSamples(const string &label): label(label) { bout = NULL; }
     
     void getParSample(const unsigned iter, const Parameter* par);
     void getParSetSample(const unsigned iter, const ParamSet* parSet);
@@ -139,6 +140,7 @@ public:
     void readDataTxt(const string &filename);
     void readDataTxt(const string &filename, const string &label);
     void writeMatSpTxt(const string &title);
+    void closeOutputFile(void);
 };
 
 class MCMC {

@@ -101,6 +101,7 @@ public:
     vector<Parameter*> paramToPrint;
     vector<ParamSet*> paramSetToPrint;
     
+    virtual ~Model() {}
     virtual void sampleUnknowns(const unsigned iter) = 0;
     virtual void sampleStartVal(void) = 0;
 };
@@ -1814,12 +1815,18 @@ public:
                           const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                           const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore, const float varg,
                           const bool hsqPercModel, DeltaPi &deltaPi, const int activeTilePhase = -1,
-                          const vector<vector<TgsWorkset> > *tgsWorksetsByBlock = nullptr);
+                          const vector<vector<TgsWorkset> > *tgsWorksetsByBlock = nullptr,
+                          const vector<CoreContextLdBlock> *coreContextLdBlocks = nullptr,
+                          const vector<VectorXf> *baseWcorrBlocks = nullptr,
+                          const bool coreContextParallel = false);
         void sampleFromFC_quantizedEigen(vector<VectorXf> &wcorrBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks, vector<VectorXf> &whatBlocks,
                           const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                           const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore, const float varg,
                           const bool hsqPercModel, DeltaPi &deltaPi,
-                          const vector<vector<TgsWorkset> > *tgsWorksetsByBlock = nullptr);
+                          const vector<vector<TgsWorkset> > *tgsWorksetsByBlock = nullptr,
+                          const vector<CoreContextLdBlock> *coreContextLdBlocks = nullptr,
+                          const vector<VectorXf> *baseWcorrBlocks = nullptr,
+                          const bool coreContextParallel = false);
         
         // tempered Gibbs sampler
         void sampleFromTGSBlock_eigen(const unsigned blockIdx, const MatrixXf &Q, VectorXf &wcorr, VectorXf &what,
@@ -1840,7 +1847,8 @@ public:
                                  const bool hsqPercModel, const float sigmaSq,
                                  const vector<QuantizedEigenBlock> *quantizedEigenBlocks = nullptr,
                                  const vector<TgsWorkset> *tgsWorksets = nullptr,
-                                 const MatrixXf *snpLogPi = nullptr);
+                                 const MatrixXf *snpLogPi = nullptr,
+                                 VectorXi *annoMembership = nullptr);
         void recomputeLowRankSummary(vector<VectorXf> &whatBlocks, const vector<MatrixXf> &Qblocks,
                                      const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &gamma,
                                      VectorXf &snpStore, const vector<QuantizedEigenBlock> *quantizedEigenBlocks = nullptr);
@@ -1908,7 +1916,7 @@ public:
     BayesC::HeritabilityFixedEffects hsqFixed;
     BayesC::HeritabilityRandom hsqRandom;
     
-    enum {gibbs, cg, mh, tgs_thin} algorithm;
+    enum {gibbs, cg, mh, tgs, tgs_thin} algorithm;
     
     vector<vector<int> > highLDsnpSet;
         
@@ -1938,8 +1946,16 @@ public:
 
         if (alg == "cg") algorithm = cg;
         else if (alg == "MH") algorithm = mh;
-        else if (alg == "TGS" || alg == "TGS_thin") algorithm = tgs_thin;
+        else if (alg == "TGS") algorithm = tgs;
+        else if (alg == "TGS_thin") algorithm = tgs_thin;
         else algorithm = gibbs;
+
+        if (data.coreContextLdmEigen && (algorithm == tgs || algorithm == tgs_thin))
+            throw("Error: TGS is not supported yet for core-context tiled eigen blocks; rerun without TGS.");
+        if (data.coreContextLdmEigen && data.numFixedEffectSnps)
+            throw("Error: --fixed-effect SNPs are not supported yet for core-context tiled eigen blocks.");
+        if (data.coreContextLdmEigen && data.coreContextParallel && message)
+            cout << "Using approximate parallel core-context tile sampling with frozen flank effects within each iteration." << endl;
 
         quantizedLowRankModel = lowRankModel
             && data.quantizedEigenBlocks.size() == data.keptLdBlockInfoVec.size()
@@ -2319,18 +2335,23 @@ public:
                                 const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                 const MatrixXf &snpLogPi, const VectorXf &gamma, const float varg,
                                 DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq, const vector<SnpInfo*> &incdSnpInfoVec,
-                                const int activeTilePhase = -1);
+                                const int activeTilePhase = -1,
+                                const vector<CoreContextLdBlock> *coreContextLdBlocks = nullptr,
+                                const vector<VectorXf> *baseWcorrBlocks = nullptr);
         void sampleFromFC_quantizedEigen(vector<VectorXf> &wcorrBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks, vector<VectorXf> &whatBlocks,
                                 const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                 const MatrixXf &snpLogPi, const VectorXf &gamma, const float varg,
-                                DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq, const vector<SnpInfo*> &incdSnpInfoVec);
+                                DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq, const vector<SnpInfo*> &incdSnpInfoVec,
+                                const vector<CoreContextLdBlock> *coreContextLdBlocks = nullptr,
+                                const vector<VectorXf> *baseWcorrBlocks = nullptr);
         // tempered Gibbs sampler
         void sampleFromTGS_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                                  const map<SnpInfo*, vector<SnpInfo*> > &LDmap, const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                  const MatrixXf &snpLogPi, const VectorXf &gamma, const float varg,
                                  DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq,
                                  const vector<QuantizedEigenBlock> *quantizedEigenBlocks = nullptr,
-                                 const vector<TgsWorkset> *tgsWorksets = nullptr);
+                                 const vector<TgsWorkset> *tgsWorksets = nullptr,
+                                 VectorXi *annoMembership = nullptr);
         
     };
     
@@ -2651,8 +2672,9 @@ public:
             if (freq > 0) profileTimingFreq = unsigned(freq);
         }
 
-        initSnpPandPi(pis, data.numIncdSnps, snpP, snpLogPi);
-        computeLogPiFromP(snpP, snpLogPi);
+        MatrixXf snpPi;
+        initSnpPandPi(pis, data.numIncdSnps, snpP, snpPi);
+        snpLogPi = snpPi.array().log().matrix();
         
         annoEffects.initIntercept_probit(pis);
 //        if (algorithm == gibbs) annoEffects.initIntercept_probit(pis);

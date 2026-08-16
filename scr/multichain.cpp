@@ -65,12 +65,30 @@ void MultiChainSBayesR::NumBadSnps::output(){
     }
 }
 
-void MultiChainSBayesR::NumHighPIPs::getValue(const VectorXf &PIP){
+void MultiChainSBayesR::NumHighPIPs::getValue(const VectorXf &PIP, const unsigned iter,
+                                               const set<unsigned> &skepticalSnpIdx){
+    const bool isPosterior = iter > burnin;
+    if (isPosterior && !posteriorPhase) {
+        runningPip.setZero(PIP.size());
+        cntSample = 0;
+        value = 0;
+        posteriorPhase = true;
+    }
+
+    const unsigned sampleInterval = isPosterior ? thin : previewThin;
+    if (iter % sampleInterval) return;
+
+    if (runningPip.size() != PIP.size()) {
+        runningPip.setZero(PIP.size());
+        cntSample = 0;
+    }
+    ++cntSample;
+    runningPip.array() += (PIP - runningPip).array()/float(cntSample);
+
     value = 0;
-    unsigned size = PIP.size();
-    for (unsigned i=0; i<size; ++i) {
-        //cout << i << " " << PIP[i] << " " << threshold << endl;
-        if (PIP[i] > threshold) ++value;
+    for (unsigned i=0; i<(unsigned)runningPip.size(); ++i) {
+        if (runningPip[i] <= threshold) continue;
+        if (!excludeSkepticalSnps || !skepticalSnpIdx.count(i)) ++value;
     }
 }
 
@@ -99,8 +117,8 @@ void MultiChainSBayesR::sampleUnknowns(const unsigned iter){
     vgMix.getValues();
     snpHsqPep.getValues();
     
-    nHighPips.getValue(pip.values);
     nBadSnps.output();
+    nHighPips.getValue(pip.values, iter, nBadSnps.badSnpIdxSet);
 }
 
 void MultiChainSBayesRC::NumBadSnps::output(){
@@ -285,8 +303,8 @@ void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
     }
     snpHsqPep.getValues();
 
-    nHighPips.getValue(pip.values);
     nBadSnps.output();
+    nHighPips.getValue(pip.values, iter, nBadSnps.badSnpIdxSet);
     
 //    pip.computeGelmanRubinStat(iter);
 //    pip.selectUnconvergedSnps(keptLdBlockInfoVec);
@@ -373,8 +391,8 @@ void MultiChainSBayesRD::sampleUnknowns(const unsigned iter){
     annoPip.getValues();
     annoPips.getValues();
 
-    nHighPips.getValue(pip.values);
     nBadSnps.output();
+    nHighPips.getValue(pip.values, iter, nBadSnps.badSnpIdxSet);
 }
 
 void MultiChainSBayesS::NumBadSnps::output(){
@@ -407,11 +425,30 @@ void MultiChainSBayesS::NumBadSnps::output(){
     }
 }
 
-void MultiChainSBayesS::NumHighPIPs::getValue(const VectorXf &PIP){
+void MultiChainSBayesS::NumHighPIPs::getValue(const VectorXf &PIP, const unsigned iter,
+                                               const set<unsigned> &skepticalSnpIdx){
+    const bool isPosterior = iter > burnin;
+    if (isPosterior && !posteriorPhase) {
+        runningPip.setZero(PIP.size());
+        cntSample = 0;
+        value = 0;
+        posteriorPhase = true;
+    }
+
+    const unsigned sampleInterval = isPosterior ? thin : previewThin;
+    if (iter % sampleInterval) return;
+
+    if (runningPip.size() != PIP.size()) {
+        runningPip.setZero(PIP.size());
+        cntSample = 0;
+    }
+    ++cntSample;
+    runningPip.array() += (PIP - runningPip).array()/float(cntSample);
+
     value = 0;
-    unsigned size = PIP.size();
-    for (unsigned i=0; i<size; ++i) {
-        if (PIP[i] > threshold) ++value;
+    for (unsigned i=0; i<(unsigned)runningPip.size(); ++i) {
+        if (runningPip[i] <= threshold) continue;
+        if (!excludeSkepticalSnps || !skepticalSnpIdx.count(i)) ++value;
     }
 }
 
@@ -435,6 +472,6 @@ void MultiChainSBayesS::sampleUnknowns(const unsigned iter){
     varg.getValues();
     vare.getValues();
     
-    nHighPips.getValue(pip.values);
     nBadSnps.output();
+    nHighPips.getValue(pip.values, iter, nBadSnps.badSnpIdxSet);
 }

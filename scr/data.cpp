@@ -7149,7 +7149,7 @@ void Data::getLDfromEigenMatrix(const string &eigenMatrixFile, const float rsqTh
     cout << "Output binary LD information into [" + binFilename + "]." << endl;
 }
 
-void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold){
+void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold, const bool buildTgsWorksets){
     if (endsWithString(ldfile, ".bin")) {
         FILE *bin = fopen(ldfile.c_str(), "rb");
         if (!bin) throw("Error: cannot open file [" + ldfile + "].");
@@ -7193,40 +7193,42 @@ void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold){
         }
 
         tgsWorksets.clear();
-        tgsWorksets.reserve(LDmap.size());
         tgsWorksetsByBlock.clear();
-        tgsWorksetsByBlock.resize(keptLdBlockInfoVec.size());
-        for (itLDmap=LDmap.begin(); itLDmap!=endLDmap; ++itLDmap) {
-            SnpInfo *snp = itLDmap->first;
-            if (!snp || snp->fitAsFixedEffect || snp->index < 0) continue;
-            TgsWorkset ws;
-            ws.focalSnpIdx = (unsigned)snp->index;
-            ws.blockIdx = snp->blockIdx;
-            ws.selectedSnps.reserve(itLDmap->second.size() + 1);
-            ws.selectedSnps.push_back(snp->index);
-            for (unsigned j = 0; j < itLDmap->second.size(); ++j) {
-                SnpInfo *friendSnp = itLDmap->second[j];
-                if (!friendSnp || friendSnp->index < 0) continue;
-                if (friendSnp->blockIdx != snp->blockIdx) continue;
-                ws.selectedSnps.push_back(friendSnp->index);
+        if (buildTgsWorksets) {
+            tgsWorksets.reserve(LDmap.size());
+            tgsWorksetsByBlock.resize(keptLdBlockInfoVec.size());
+            for (itLDmap=LDmap.begin(); itLDmap!=endLDmap; ++itLDmap) {
+                SnpInfo *snp = itLDmap->first;
+                if (!snp || snp->fitAsFixedEffect || snp->index < 0) continue;
+                TgsWorkset ws;
+                ws.focalSnpIdx = (unsigned)snp->index;
+                ws.blockIdx = snp->blockIdx;
+                ws.selectedSnps.reserve(itLDmap->second.size() + 1);
+                ws.selectedSnps.push_back(snp->index);
+                for (unsigned j = 0; j < itLDmap->second.size(); ++j) {
+                    SnpInfo *friendSnp = itLDmap->second[j];
+                    if (!friendSnp || friendSnp->index < 0) continue;
+                    if (friendSnp->blockIdx != snp->blockIdx) continue;
+                    ws.selectedSnps.push_back(friendSnp->index);
+                }
+                if (ws.selectedSnps.size() > 1) {
+                    sort(ws.selectedSnps.begin() + 1, ws.selectedSnps.end());
+                    ws.selectedSnps.erase(unique(ws.selectedSnps.begin(), ws.selectedSnps.end()), ws.selectedSnps.end());
+                    tgsWorksets.push_back(ws);
+                    if (ws.blockIdx < tgsWorksetsByBlock.size())
+                        tgsWorksetsByBlock[ws.blockIdx].push_back(ws);
+                }
             }
-            if (ws.selectedSnps.size() > 1) {
-                sort(ws.selectedSnps.begin() + 1, ws.selectedSnps.end());
-                ws.selectedSnps.erase(unique(ws.selectedSnps.begin(), ws.selectedSnps.end()), ws.selectedSnps.end());
-                tgsWorksets.push_back(ws);
-                if (ws.blockIdx < tgsWorksetsByBlock.size())
-                    tgsWorksetsByBlock[ws.blockIdx].push_back(ws);
-            }
-        }
-        sort(tgsWorksets.begin(), tgsWorksets.end(),
-             [](const TgsWorkset &a, const TgsWorkset &b) {
-                 return a.focalSnpIdx < b.focalSnpIdx;
-             });
-        for (unsigned blk = 0; blk < tgsWorksetsByBlock.size(); ++blk) {
-            sort(tgsWorksetsByBlock[blk].begin(), tgsWorksetsByBlock[blk].end(),
+            sort(tgsWorksets.begin(), tgsWorksets.end(),
                  [](const TgsWorkset &a, const TgsWorkset &b) {
                      return a.focalSnpIdx < b.focalSnpIdx;
                  });
+            for (unsigned blk = 0; blk < tgsWorksetsByBlock.size(); ++blk) {
+                sort(tgsWorksetsByBlock[blk].begin(), tgsWorksetsByBlock[blk].end(),
+                     [](const TgsWorkset &a, const TgsWorkset &b) {
+                         return a.focalSnpIdx < b.focalSnpIdx;
+                     });
+            }
         }
 
         const float avgNumLdFriends = cnt ? float(sum)/float(cnt) : 0.0f;
@@ -7299,40 +7301,42 @@ void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold){
     }
 
     tgsWorksets.clear();
-    tgsWorksets.reserve(LDmap.size());
     tgsWorksetsByBlock.clear();
-    tgsWorksetsByBlock.resize(keptLdBlockInfoVec.size());
-    for (itLDmap=LDmap.begin(); itLDmap!=endLDmap; ++itLDmap) {
-        SnpInfo *snp = itLDmap->first;
-        if (!snp || snp->fitAsFixedEffect || snp->index < 0) continue;
-        TgsWorkset ws;
-        ws.focalSnpIdx = (unsigned)snp->index;
-        ws.blockIdx = snp->blockIdx;
-        ws.selectedSnps.reserve(itLDmap->second.size() + 1);
-        ws.selectedSnps.push_back(snp->index);
-        for (unsigned j = 0; j < itLDmap->second.size(); ++j) {
-            SnpInfo *friendSnp = itLDmap->second[j];
-            if (!friendSnp || friendSnp->index < 0) continue;
-            if (friendSnp->blockIdx != snp->blockIdx) continue;
-            ws.selectedSnps.push_back(friendSnp->index);
+    if (buildTgsWorksets) {
+        tgsWorksets.reserve(LDmap.size());
+        tgsWorksetsByBlock.resize(keptLdBlockInfoVec.size());
+        for (itLDmap=LDmap.begin(); itLDmap!=endLDmap; ++itLDmap) {
+            SnpInfo *snp = itLDmap->first;
+            if (!snp || snp->fitAsFixedEffect || snp->index < 0) continue;
+            TgsWorkset ws;
+            ws.focalSnpIdx = (unsigned)snp->index;
+            ws.blockIdx = snp->blockIdx;
+            ws.selectedSnps.reserve(itLDmap->second.size() + 1);
+            ws.selectedSnps.push_back(snp->index);
+            for (unsigned j = 0; j < itLDmap->second.size(); ++j) {
+                SnpInfo *friendSnp = itLDmap->second[j];
+                if (!friendSnp || friendSnp->index < 0) continue;
+                if (friendSnp->blockIdx != snp->blockIdx) continue;
+                ws.selectedSnps.push_back(friendSnp->index);
+            }
+            if (ws.selectedSnps.size() > 1) {
+                sort(ws.selectedSnps.begin() + 1, ws.selectedSnps.end());
+                ws.selectedSnps.erase(unique(ws.selectedSnps.begin(), ws.selectedSnps.end()), ws.selectedSnps.end());
+                tgsWorksets.push_back(ws);
+                if (ws.blockIdx < tgsWorksetsByBlock.size())
+                    tgsWorksetsByBlock[ws.blockIdx].push_back(ws);
+            }
         }
-        if (ws.selectedSnps.size() > 1) {
-            sort(ws.selectedSnps.begin() + 1, ws.selectedSnps.end());
-            ws.selectedSnps.erase(unique(ws.selectedSnps.begin(), ws.selectedSnps.end()), ws.selectedSnps.end());
-            tgsWorksets.push_back(ws);
-            if (ws.blockIdx < tgsWorksetsByBlock.size())
-                tgsWorksetsByBlock[ws.blockIdx].push_back(ws);
-        }
-    }
-    sort(tgsWorksets.begin(), tgsWorksets.end(),
-         [](const TgsWorkset &a, const TgsWorkset &b) {
-             return a.focalSnpIdx < b.focalSnpIdx;
-         });
-    for (unsigned blk = 0; blk < tgsWorksetsByBlock.size(); ++blk) {
-        sort(tgsWorksetsByBlock[blk].begin(), tgsWorksetsByBlock[blk].end(),
+        sort(tgsWorksets.begin(), tgsWorksets.end(),
              [](const TgsWorkset &a, const TgsWorkset &b) {
                  return a.focalSnpIdx < b.focalSnpIdx;
              });
+        for (unsigned blk = 0; blk < tgsWorksetsByBlock.size(); ++blk) {
+            sort(tgsWorksetsByBlock[blk].begin(), tgsWorksetsByBlock[blk].end(),
+                 [](const TgsWorkset &a, const TgsWorkset &b) {
+                     return a.focalSnpIdx < b.focalSnpIdx;
+                 });
+        }
     }
     
 //    SnpInfo *snp = snpInfoVec[0];

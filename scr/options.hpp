@@ -79,7 +79,10 @@ public:
     float pepThreshold;
     float nDistAutoThreshold;
     float tileMb;
+    unsigned tileSnps;
+    unsigned tileMinSnps;
     unsigned tileGroupSize;
+    bool coreContextParallel;  // approximate parallel core-context tile sampling with frozen flank effects
     
     bool estimatePi;
     bool estimateSigmaSq; // variance of SNP effects
@@ -111,6 +114,7 @@ public:
     bool removeSkepticalSnps;  // zero/skip skeptical SNPs detected during SBayes MCMC
     bool perSnpGV;
     bool mergeLdm;
+    bool keepBlockMergeFiles;  // keep block*.snp.info/block*.ldm.info/block*.rsq0.5.pwld* after successful merge
     bool imputeSummary;
     /// Optional SNP ID list (one ID per line; # comments): do not alter b/se/N for these SNPs after GWAS read (outlier-N filter, N imputation, LD imputation).
     string keepSumstatIntactFile;
@@ -247,7 +251,10 @@ public:
         pepThreshold            = 0.7;
         nDistAutoThreshold      = 0.5;
         tileMb                  = 1.0;
+        tileSnps                = 5000;
+        tileMinSnps             = 1000;
         tileGroupSize           = 2;
+        coreContextParallel     = false;
 
         // Bayes R defaults
         numDist                  = 5;
@@ -295,6 +302,7 @@ public:
         removeSkepticalSnps     = true;
         perSnpGV                = false;
         mergeLdm                = false;
+        keepBlockMergeFiles     = false;
         imputeSummary           = false;
         keepSumstatIntactFile   = "";
         nDistAuto               = false;
@@ -311,7 +319,7 @@ public:
         gwasScalarMode          = GwasScalarMode::LeastSquares;
         eigenMatrixQuantBits    = 0;
         eigenMatrixQ8Entropy    = false;
-        quantEigenBits          = 8;
+        quantEigenBits          = 0;
         quantEigenEntropy       = false;
         quantEigenInputDir      = "";
         quantEigenOutputDir     = "";

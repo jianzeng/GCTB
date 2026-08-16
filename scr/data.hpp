@@ -181,6 +181,8 @@ public:
     int coreEndSnpIdx;
     int tilePhase;
     int tileGroupSize;
+    string sourceBlockID;
+    int sourceTileID;
     
     //int idxStart;
     //int idxEnd;
@@ -218,6 +220,8 @@ public:
         coreEndSnpIdx = -999;
         tilePhase = -999;
         tileGroupSize = -999;
+        sourceBlockID = "";
+        sourceTileID = -999;
         //idxStart = -999;
         //idxEnd = -999;
         preBlock = -999;
@@ -233,6 +237,10 @@ public:
 
     bool hasTilePhaseMetadata(void) const {
         return tilePhase >= 0 && tileGroupSize > 0;
+    }
+
+    bool hasCoreContextTileMetadata(void) const {
+        return !sourceBlockID.empty() && sourceTileID > 0;
     }
 };
 
@@ -348,6 +356,34 @@ struct QuantizedEigenBlock {
                 for (int eigIdx = 0; eigIdx < k; ++eigIdx)
                     Q(eigIdx, col) = qScale[eigIdx] * (float)qCol[eigIdx];
             }
+        }
+    }
+};
+
+struct CoreContextLdBlock {
+    int numCoreSnps;
+    vector<unsigned> coreLocalIndex;
+    vector<unsigned> flankGlobalIndex;
+    vector<float> ldCorr;
+
+    CoreContextLdBlock() : numCoreSnps(0) {}
+
+    bool active(void) const { return numCoreSnps > 0; }
+
+    void clear(void) {
+        numCoreSnps = 0;
+        coreLocalIndex.clear();
+        flankGlobalIndex.clear();
+        ldCorr.clear();
+    }
+
+    void multiplyFlankEffects(const VectorXf &effects, VectorXf &offset) const {
+        offset.setZero(numCoreSnps);
+        for (unsigned r = 0; r < coreLocalIndex.size(); ++r) {
+            const unsigned core = coreLocalIndex[r];
+            const unsigned flank = flankGlobalIndex[r];
+            if (core >= (unsigned)offset.size() || flank >= (unsigned)effects.size()) continue;
+            offset[core] += ldCorr[r] * effects[flank];
         }
     }
 };
@@ -653,6 +689,8 @@ public:
     bool lowRankModel;
     bool overlapLdmEigen;
     bool phasedTiledLdmEigen;
+    bool coreContextLdmEigen;
+    bool coreContextParallel;
     bool removeSkepticalSnps;
     unsigned tileGroupSize;
     /// With --skip + --recompute-eigen: rebuild W/Q from LD submatrix of non-skipped SNPs per block
@@ -707,6 +745,7 @@ public:
     vector<VectorXf> wcorrBlocks;
     vector<MatrixXf> Qblocks;
     vector<QuantizedEigenBlock> quantizedEigenBlocks;
+    vector<CoreContextLdBlock> coreContextLdBlocks;
     ///////// ld block end  ////////
     ///
     map<int, vector<int>> ldblock2gwasSnpMap;
@@ -766,6 +805,8 @@ public:
         lowRankModel = false;
         overlapLdmEigen = false;
         phasedTiledLdmEigen = false;
+        coreContextLdmEigen = false;
+        coreContextParallel = false;
         removeSkepticalSnps = true;
         tileGroupSize = 1;
         recomputeEigen = false;
@@ -862,7 +903,7 @@ public:
     void readResidualDiagFile(const string &resDiagFile);
     void makeWindowAnno(const string &annoFile, const float windowWidth);
     
-    void mergeLdmInfo(const string &outLDmatType, const string &dirname, const bool print);
+    void mergeLdmInfo(const string &outLDmatType, const string &dirname, const bool print, const bool mergePairwiseLD = true, const bool cleanupBlockMergeFiles = true);
     void inputNewSnpResults(const string &snpResFile);
     void getOverlapWindows(const unsigned windowWidth, const unsigned stepSize);
     
@@ -885,7 +926,9 @@ public:
     void readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, const unsigned block, const float eigenCutoff, const bool writeLdmTxt);
     
     void getEigenDataForLDBlock(const string &bedFile, const string &ldBlockInfoFile, int ldBlockRegionWind, const string &filename, const float eigenCutoff);
-    void makeTiledBlockEigen(const string &bedFile, const string &dirname, const float eigenCutoff, const float tileMb, const unsigned tileGroupSize, const bool writeLdmTxt);
+    void makeTiledBlockEigen(const string &bedFile, const string &dirname, const float eigenCutoff, const float tileMb, const unsigned tileGroupSize, const unsigned tileMinSnps, const bool writeLdmTxt);
+    void makeCoreContextTiledBlockEigenFromEigen(const string &eigenDirname, const string &dirname, const float eigenCutoff, const unsigned tileSnps, const unsigned tileMinSnps, const float flankR2Threshold, const bool writeLdmTxt, const bool mergeCombinedInfo = true, const int outputQuantBits = 0);
+    void makeCoreContextTiledBlockEigenFromBlockLD(const string &ldmDirname, const string &dirname, const float eigenCutoff, const unsigned tileSnps, const unsigned tileMinSnps, const float flankR2Threshold, const bool writeLdmTxt, const bool mergeCombinedInfo = true, const int outputQuantBits = 0);
     void outputBlockLDmatrixInfo(const LDBlockInfo &block, const string &outSnpfile, const string &outldmfile) const;
 
     void impG(const unsigned block, double diag_mod = 0.1);
@@ -902,6 +945,7 @@ public:
     
     void readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const VectorXf &nGWASblock, const bool noscale, const bool makePseudoSummary, const int quantizedBits = 0, const bool q8Entropy = false);
     void readEigenMatrixBinaryFileAndMakeWandQBivariate(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects1, const vector<VectorXf> &GWASeffects2, const vector<Vector2f> &nGWASblock, const bool noscale);
+    void readCoreContextLdBlocks(const string &dirname);
     void releasePseudoSummaryData(void);
 
     
@@ -940,7 +984,7 @@ public:
     
     void getLDfromEigenMatrix(const string &eigenMatrixFile, const float rsqThreshold, const string &title);
     
-    void inputPairwiseLD(const string &ldfile, const float rsqThreshold);
+    void inputPairwiseLD(const string &ldfile, const float rsqThreshold, const bool buildTgsWorksets = true);
     void outputPairwiseLDBinAsText(const string &ldfile, const string &outfile);
     void inputLDfriends(const string &ldfriendFile);
     void getLDfriends(const string &ldfile, const float rsqThreshold, const string &title);

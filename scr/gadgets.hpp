@@ -10,6 +10,7 @@
 #define toolbox_hpp
 
 #include <sys/time.h>
+#include <sys/resource.h>
 #include <iostream>
 #include <fstream>
 #include <stdio.h>
@@ -78,6 +79,9 @@ string getFileSuffix(const string &file);
 void fileExist(const string &filename);
 bool directoryExist(const string &dirname);
 bool createDirectory(const string& dirname);
+double getCurrentResidentMemoryGb();
+double getMaxResidentMemoryGb();
+void printMemoryCheckpoint(const string &label);
 
 // statistics functions
 float calcMean(const VectorXf &vec);
