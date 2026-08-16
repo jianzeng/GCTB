@@ -2352,6 +2352,8 @@ public:
                                  const vector<QuantizedEigenBlock> *quantizedEigenBlocks = nullptr,
                                  const vector<TgsWorkset> *tgsWorksets = nullptr,
                                  VectorXi *annoMembership = nullptr);
+        void recomputeMixtureSummaryAfterTGS(const vector<LDBlockInfo*> &keptLdBlockInfoVec,
+                                             const VectorXf &gamma);
         
     };
     

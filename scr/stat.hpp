@@ -50,23 +50,57 @@ namespace Stat {
     typedef boost::variate_generator<random_engine&, normal_distribution> normal_generator;
     typedef boost::variate_generator<random_engine&, gamma_distribution> gamma_generator;
     
-    static thread_local random_engine engine;
-    static thread_local uniform01_generator ranf(engine, uniform_01());
-    static thread_local normal_generator snorm(engine, normal_distribution(0,1));  // standard normal
+    extern thread_local random_engine engine;
+    extern thread_local uniform01_generator ranf;
+    extern thread_local normal_generator snorm;  // standard normal
     
     void seedEngine(const int seed);
-    /// Mix master seed with MCMC iteration and parallel task id (e.g. LD block index).
-    /// Call at the start of each OpenMP task so multi-thread runs are reproducible.
+    /// Set the current MCMC context used to derive deterministic parallel streams.
     void setMcmcIteration(unsigned iter);
+    void setMcmcContext(unsigned chain, unsigned iter);
+    unsigned currentMcmcChain();
+    /// Register chain ids for nested OpenMP workers before/after the outer chain loop.
+    void prepareParallelChainRng(unsigned numOuterThreads);
+    void finishParallelChainRng();
+    /// Mix master seed with chain, MCMC iteration, task id, and purpose salt.
     random_engine::result_type parallelTaskSeed(unsigned taskKey, unsigned salt = 0u);
     void seedEngineForParallelTask(unsigned taskKey, unsigned salt = 0u);
     /// No-op when OpenMP uses a single thread (preserves serial RNG stream).
     void seedEngineForParallelTaskIfNeeded(unsigned taskKey, unsigned salt = 0u);
-    /// Salt mixed into parallelTaskSeed for pseudo GWAS construction (eigen data build).
+    /// Purpose salts mixed into deterministic streams.
     static const unsigned pseudoSummaryRngSalt = 0x50534441u;
+    static const unsigned blockShuffleRngSalt = 0x9E3779B9u;
+    static const unsigned tgsBlockRngSalt = 0x54475342u;
 
     extern unsigned masterSeed;
     extern unsigned mcmcIterationForRng;
+    extern unsigned mcmcChainForRng;
+
+    /// Give one model/chain an independent scalar stream for this iteration.
+    class McmcChainRngScope {
+        random_engine savedEngine;
+        normal_distribution savedNormalDistribution;
+        bool savedChainOverrideActive;
+        unsigned savedChainOverride;
+    public:
+        explicit McmcChainRngScope(unsigned chain);
+        ~McmcChainRngScope();
+    private:
+        McmcChainRngScope(const McmcChainRngScope&);
+        McmcChainRngScope& operator=(const McmcChainRngScope&);
+    };
+
+    /// Isolate random draws made by one parallel task from its worker's scalar stream.
+    class ParallelTaskRngScope {
+        random_engine savedEngine;
+        normal_distribution savedNormalDistribution;
+    public:
+        ParallelTaskRngScope(unsigned taskKey, unsigned salt = 0u);
+        ~ParallelTaskRngScope();
+    private:
+        ParallelTaskRngScope(const ParallelTaskRngScope&);
+        ParallelTaskRngScope& operator=(const ParallelTaskRngScope&);
+    };
 
     extern thread_local unsigned long long rngDrawCount;
     void logRngCheckpoint(const char *label);

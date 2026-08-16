@@ -94,6 +94,7 @@ void MultiChainSBayesR::NumHighPIPs::getValue(const VectorXf &PIP, const unsigne
 
 void MultiChainSBayesR::sampleUnknowns(const unsigned iter){
 
+    Stat::prepareParallelChainRng(numThreadLevel1);
 #pragma omp parallel for num_threads(numThreadLevel1)
     for (unsigned i=0; i<numChains; ++i) {
 //        cout << "sampling chain " << i << " in " << numChains << " chains " << endl;
@@ -101,9 +102,11 @@ void MultiChainSBayesR::sampleUnknowns(const unsigned iter){
 
         // Restrict inner parallelism to numThreadLevel2 threads
         omp_set_num_threads(numThreadLevel2);
+        Stat::McmcChainRngScope chainRng(i);
 
         chainVec[i]->sampleUnknowns(iter);
     }
+    Stat::finishParallelChainRng();
     
     snpEffects.getValues();
     pip.getValues();
@@ -270,14 +273,17 @@ void MultiChainSBayesRC::AnnoJointPerSnpRsqEnrichment::compute(const VectorXf &s
 }
 
 void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
-    
+
+    Stat::prepareParallelChainRng(numThreadLevel1);
 #pragma omp parallel for num_threads(numThreadLevel1)
     for (unsigned i=0; i<numChains; ++i) {
 //        cout << "sampling chain " << i << " in " << numChains << " chains " << endl;
         omp_set_num_threads(numThreadLevel2);
+        Stat::McmcChainRngScope chainRng(i);
 
         chainVec[i]->sampleUnknowns(iter);
     }
+    Stat::finishParallelChainRng();
         
     snpEffects.getValues();
     pip.getValues();
@@ -321,6 +327,7 @@ void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
 void MultiModelSBayesR::sampleUnknowns(const unsigned iter){
     omp_set_max_active_levels(2);
 
+    Stat::prepareParallelChainRng(numThreadLevel1);
 #pragma omp parallel for num_threads(numThreadLevel1)
     for (unsigned i=0; i<numModels; ++i) {
         //cout << "sampling chain " << i << " in " << numChains << " chains " << endl;
@@ -328,9 +335,11 @@ void MultiModelSBayesR::sampleUnknowns(const unsigned iter){
 
         // Restrict inner parallelism to numThreadLevel2 threads
         omp_set_num_threads(numThreadLevel2);
+        Stat::McmcChainRngScope chainRng(i);
 
         modelVec[i]->sampleUnknowns(iter);
-    }    
+    }
+    Stat::finishParallelChainRng();
 }
 
 void MultiChainSBayesRD::NumBadSnps::output(){
@@ -365,14 +374,17 @@ void MultiChainSBayesRD::NumBadSnps::output(){
 }
 
 void MultiChainSBayesRD::sampleUnknowns(const unsigned iter){
-    
+
+    Stat::prepareParallelChainRng(numThreadLevel1);
 #pragma omp parallel for num_threads(numThreadLevel1)
     for (unsigned i=0; i<numChains; ++i) {
 //        cout << "sampling chain " << i << " in " << numChains << " chains " << endl;
         omp_set_num_threads(numThreadLevel2);
+        Stat::McmcChainRngScope chainRng(i);
 
         chainVec[i]->sampleUnknowns(iter);
     }
+    Stat::finishParallelChainRng();
         
     snpEffects.getValues();
     pip.getValues();
@@ -454,13 +466,16 @@ void MultiChainSBayesS::NumHighPIPs::getValue(const VectorXf &PIP, const unsigne
 
 void MultiChainSBayesS::sampleUnknowns(const unsigned iter){
 
+    Stat::prepareParallelChainRng(numThreadLevel1);
 #pragma omp parallel for num_threads(numThreadLevel1)
     for (unsigned i=0; i<numChains; ++i) {
         // Restrict inner parallelism to numThreadLevel2 threads
         omp_set_num_threads(numThreadLevel2);
+        Stat::McmcChainRngScope chainRng(i);
 
         chainVec[i]->sampleUnknowns(iter);
     }
+    Stat::finishParallelChainRng();
     
     snpEffects.getValues();
     pip.getValues();

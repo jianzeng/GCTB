@@ -630,7 +630,7 @@ void MCMC::printSnpAnnoMembership(const vector<ParamSet *> &paramSetToPrint, con
 
 vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const bool print,
                                const unsigned outputFreq, const string &title, const bool writeSnpMcmcBin, const bool writeParamMcmcTxt,
-                               const bool printFinalSummary){
+                               const bool printFinalSummary, const unsigned rngChain){
     int savedEigenThreads = Eigen::nbThreads();
 #ifdef _OPENMP
     if (omp_get_max_threads() > 1) {
@@ -660,7 +660,7 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
     
     for (unsigned iteration=0; iteration<chainLength; ++iteration) {
         unsigned thisIter = iteration + 1;
-        Stat::setMcmcIteration(thisIter);
+        Stat::setMcmcContext(rngChain, thisIter);
 
         model.sampleUnknowns(thisIter);
         if (std::getenv("GCTB_DEBUG_RNG") &&

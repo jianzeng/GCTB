@@ -13,10 +13,6 @@
 #elif defined(__APPLE__) && defined(__MACH__)
 #include <mach/mach.h>
 #endif
-#ifdef _OPENMP
-#include <omp.h>
-#endif
-
 void Gadget::Tokenizer::getTokens(const string &str, const string &sep){
     clear();
     string::size_type begidx,endidx;
@@ -217,14 +213,8 @@ void Gadget::shuffle_vector(vector<int> &vec){
 }
 
 void Gadget::shuffle_vector(vector<int> &vec, const unsigned taskKey){
-#ifdef _OPENMP
-    if (omp_get_max_threads() > 1) {
-        std::mt19937 rng(static_cast<uint32_t>(Stat::parallelTaskSeed(taskKey, 0x9E3779B9u)));
-        std::shuffle(vec.begin(), vec.end(), rng);
-        return;
-    }
-#endif
-    shuffle_vector(vec);
+    std::mt19937 rng(static_cast<uint32_t>(Stat::parallelTaskSeed(taskKey, Stat::blockShuffleRngSalt)));
+    std::shuffle(vec.begin(), vec.end(), rng);
 }
 
 void Gadget::removeSecondElement(VectorXf &vec){

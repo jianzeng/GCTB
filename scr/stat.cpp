@@ -8,15 +8,18 @@
 
 #include "stat.hpp"
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <limits>
+#include <vector>
 #ifdef _OPENMP
 #include <omp.h>
 #endif
 
 unsigned Stat::masterSeed = 11415u;
 unsigned Stat::mcmcIterationForRng = 0u;
+unsigned Stat::mcmcChainForRng = 0u;
 
 thread_local unsigned long long Stat::rngDrawCount = 0;
 
@@ -30,6 +33,32 @@ Stat::CountedMt19937::result_type Stat::CountedMt19937::operator()() {
 }
 #endif
 
+thread_local Stat::random_engine Stat::engine;
+thread_local Stat::uniform01_generator Stat::ranf(Stat::engine, Stat::uniform_01());
+thread_local Stat::normal_generator Stat::snorm(Stat::engine, Stat::normal_distribution(0,1));
+
+namespace {
+    std::vector<unsigned> parallelChainByOuterThread;
+    bool parallelChainRngActive = false;
+    thread_local bool chainOverrideActive = false;
+    thread_local unsigned chainOverride = 0u;
+
+    uint64_t mixRngKey(uint64_t value) {
+        value += UINT64_C(0x9E3779B97F4A7C15);
+        value = (value ^ (value >> 30)) * UINT64_C(0xBF58476D1CE4E5B9);
+        value = (value ^ (value >> 27)) * UINT64_C(0x94D049BB133111EB);
+        return value ^ (value >> 31);
+    }
+
+    Stat::random_engine::result_type contextSeed(unsigned chain, unsigned iteration,
+                                                  unsigned taskKey, unsigned salt) {
+        uint64_t key = mixRngKey(Stat::masterSeed);
+        key = mixRngKey(key ^ (uint64_t(chain) << 32) ^ iteration);
+        key = mixRngKey(key ^ (uint64_t(taskKey) << 32) ^ salt);
+        return static_cast<Stat::random_engine::result_type>(key ^ (key >> 32));
+    }
+}
+
 void Stat::seedEngine(const int seed){
     rngDrawCount = 0;
     if (seed) {
@@ -41,22 +70,48 @@ void Stat::seedEngine(const int seed){
         srand((int)masterSeed);
         engine.seed(masterSeed);
     }
+    snorm.distribution() = normal_distribution(0,1);
+    mcmcChainForRng = 0u;
+    mcmcIterationForRng = 0u;
 }
 
 void Stat::setMcmcIteration(unsigned iter) {
     mcmcIterationForRng = iter;
 }
 
+void Stat::setMcmcContext(unsigned chain, unsigned iter) {
+    mcmcChainForRng = chain;
+    mcmcIterationForRng = iter;
+}
+
+unsigned Stat::currentMcmcChain() {
+    if (chainOverrideActive) return chainOverride;
+#ifdef _OPENMP
+    if (parallelChainRngActive && omp_get_level() > 1) {
+        int outerThread = omp_get_ancestor_thread_num(1);
+        if (outerThread >= 0 && (unsigned)outerThread < parallelChainByOuterThread.size())
+            return parallelChainByOuterThread[outerThread];
+    }
+#endif
+    return mcmcChainForRng;
+}
+
+void Stat::prepareParallelChainRng(unsigned numOuterThreads) {
+    parallelChainByOuterThread.assign(numOuterThreads ? numOuterThreads : 1u, mcmcChainForRng);
+    parallelChainRngActive = true;
+}
+
+void Stat::finishParallelChainRng() {
+    parallelChainRngActive = false;
+}
+
 Stat::random_engine::result_type Stat::parallelTaskSeed(unsigned taskKey, unsigned salt) {
-    random_engine::result_type s = masterSeed;
-    s ^= (mcmcIterationForRng + 1u) * 2246822519u;
-    s ^= (taskKey + 1u) * 3266489917u;
-    s ^= (salt + 1u) * 668265263u;
-    return s;
+    return contextSeed(currentMcmcChain(), mcmcIterationForRng, taskKey, salt);
 }
 
 void Stat::seedEngineForParallelTask(unsigned taskKey, unsigned salt) {
     engine.seed(parallelTaskSeed(taskKey, salt));
+    snorm.distribution() = normal_distribution(0,1);
 }
 
 void Stat::seedEngineForParallelTaskIfNeeded(unsigned taskKey, unsigned salt) {
@@ -64,6 +119,42 @@ void Stat::seedEngineForParallelTaskIfNeeded(unsigned taskKey, unsigned salt) {
     if (omp_get_max_threads() <= 1) return;
 #endif
     seedEngineForParallelTask(taskKey, salt);
+}
+
+Stat::McmcChainRngScope::McmcChainRngScope(unsigned chain) :
+    savedEngine(engine),
+    savedNormalDistribution(snorm.distribution()),
+    savedChainOverrideActive(chainOverrideActive),
+    savedChainOverride(chainOverride) {
+    chainOverrideActive = true;
+    chainOverride = chain;
+#ifdef _OPENMP
+    if (parallelChainRngActive && omp_get_level() == 1) {
+        int outerThread = omp_get_thread_num();
+        if (outerThread >= 0 && (unsigned)outerThread < parallelChainByOuterThread.size())
+            parallelChainByOuterThread[outerThread] = chain;
+    }
+#endif
+    engine.seed(contextSeed(chain, mcmcIterationForRng, 0xFFFFFFFFu, 0x43484149u));
+    snorm.distribution() = normal_distribution(0,1);
+}
+
+Stat::McmcChainRngScope::~McmcChainRngScope() {
+    engine = savedEngine;
+    snorm.distribution() = savedNormalDistribution;
+    chainOverrideActive = savedChainOverrideActive;
+    chainOverride = savedChainOverride;
+}
+
+Stat::ParallelTaskRngScope::ParallelTaskRngScope(unsigned taskKey, unsigned salt) :
+    savedEngine(engine),
+    savedNormalDistribution(snorm.distribution()) {
+    seedEngineForParallelTask(taskKey, salt);
+}
+
+Stat::ParallelTaskRngScope::~ParallelTaskRngScope() {
+    engine = savedEngine;
+    snorm.distribution() = savedNormalDistribution;
 }
 
 void Stat::logRngCheckpoint(const char *label) {

@@ -5624,31 +5624,24 @@ void ApproxBayesR::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
     // --------------------------------------------------------------------------------
 
     // Blocks differ substantially in SNP count and eigen rank. Dynamic scheduling
-    // restores load balancing while per-block random streams keep results seeded.
-    Stat::random_engine callerEngine = Stat::engine;
-    Stat::normal_distribution callerNormalDistribution = Stat::snorm.distribution();
-    bool restoreCallerRng = false;
-#ifdef _OPENMP
-    restoreCallerRng = tgsWorksetsByBlock && omp_get_max_threads() > 1;
-#endif
-
+    // restores load balancing while TGS draws use isolated per-block streams.
     #pragma omp parallel for schedule(dynamic)
     for(unsigned blk = 0; blk < nBlocks; blk++){
-        if (tgsWorksetsByBlock) Stat::seedEngineForParallelTaskIfNeeded(blk);
         LDBlockInfo *blockInfo = keptLdBlockInfoVec[blk];
         if (!blockInActiveTilePhase(blockInfo, activeTilePhase)) continue;
         float invVareDn = nGWASblocks[blk] / vareBlocks[blk];
-        sampleBlockFromFC_eigen(blk, Qblocks[blk], wcorrBlocks[blk], whatBlocks[blk], blockInfo, invVareDn,
-                                logPis, invWtdSigmaSq, logWtdSigmaSq, pis, gamma, varg,
-                                hsqPercModel, sigmaSq, deltaPi, valuesPtr, pipPtr, urnd, nrnd,
-                                ssq[blk], wtdssq[blk], nnz[blk], snpsetBlocks[blk], tgsWorksetsByBlock);
-    }
-
-    // A worker may also be the outer-chain thread. Do not let the last block it
-    // happened to execute determine the scalar RNG stream used after this loop.
-    if (restoreCallerRng) {
-        Stat::engine = callerEngine;
-        Stat::snorm.distribution() = callerNormalDistribution;
+        if (tgsWorksetsByBlock) {
+            Stat::ParallelTaskRngScope taskRng(blk, Stat::tgsBlockRngSalt);
+            sampleBlockFromFC_eigen(blk, Qblocks[blk], wcorrBlocks[blk], whatBlocks[blk], blockInfo, invVareDn,
+                                    logPis, invWtdSigmaSq, logWtdSigmaSq, pis, gamma, varg,
+                                    hsqPercModel, sigmaSq, deltaPi, valuesPtr, pipPtr, urnd, nrnd,
+                                    ssq[blk], wtdssq[blk], nnz[blk], snpsetBlocks[blk], tgsWorksetsByBlock);
+        } else {
+            sampleBlockFromFC_eigen(blk, Qblocks[blk], wcorrBlocks[blk], whatBlocks[blk], blockInfo, invVareDn,
+                                    logPis, invWtdSigmaSq, logWtdSigmaSq, pis, gamma, varg,
+                                    hsqPercModel, sigmaSq, deltaPi, valuesPtr, pipPtr, urnd, nrnd,
+                                    ssq[blk], wtdssq[blk], nnz[blk], snpsetBlocks[blk], nullptr);
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -6055,9 +6048,9 @@ void ApproxBayesR::SnpEffects::sampleFromTGSBlocks_eigen(vector<VectorXf> &wcorr
 
 #pragma omp parallel for schedule(static)
     for (unsigned blk = 0; blk < nBlocks; ++blk) {
-        Stat::seedEngineForParallelTaskIfNeeded(blk);
         if (blk >= tgsWorksetsByBlock.size() || tgsWorksetsByBlock[blk].empty()) continue;
         if (blk >= wcorrBlocks.size() || blk >= whatBlocks.size()) continue;
+        Stat::ParallelTaskRngScope taskRng(blk, Stat::tgsBlockRngSalt);
         LDBlockInfo *blockInfo = keptLdBlockInfoVec[blk];
         float invVareDn = nGWASblocks[blk] / vareBlocks[blk];
 
@@ -6283,10 +6276,7 @@ void ApproxBayesR::SnpEffects::sampleFromTGS_eigen(vector<VectorXf> &wcorrBlocks
             unsigned snpIdx = selectedSnps[i];
             membership[snpIdx] = delta[i];
             if (annoMembership) {
-                if (delta[i])
-                    (*annoMembership)[snpIdx] = std::max((*annoMembership)[snpIdx], delta[i]);
-                else
-                    (*annoMembership)[snpIdx] = 0;
+                (*annoMembership)[snpIdx] = delta[i];
             }
             if (weight_sum) {
                 pip[snpIdx] = 1.0 - probDelta_sum(i,0);
@@ -8507,6 +8497,7 @@ void ApproxBayesRC::SnpEffects::sampleFromTGS_eigen(vector<VectorXf> &wcorrBlock
 
         Ref<const MatrixXf> Q = Qblocks[blockIdx];
         Ref<VectorXf> wcorr = wcorrBlocks[blockIdx];
+        Ref<VectorXf> what = whatBlocks[blockIdx];
         unsigned blockStart = keptLdBlockInfoVec[blockIdx]->startSnpIdx;
         float invVareDn = nGWASblocks[blockIdx] / vareBlocks[blockIdx];
         ArrayXf invLhs = 1.0/(invVareDn + invWtdSigmaSq);
@@ -8606,8 +8597,12 @@ void ApproxBayesRC::SnpEffects::sampleFromTGS_eigen(vector<VectorXf> &wcorrBlock
             if (delta[focal_snp]) {
                 values[focal_snp_idx] = normal.sample(uhat_focal[delta[focal_snp]], invLhs[delta[focal_snp]]);
                 wcorr += Q_focal*(old_beta_focal - values[focal_snp_idx]);
+                what += Q_focal*(values[focal_snp_idx] - old_beta_focal);
             } else {
-                if (old_beta_focal) wcorr += Q_focal * old_beta_focal;
+                if (old_beta_focal) {
+                    wcorr += Q_focal * old_beta_focal;
+                    what -= Q_focal * old_beta_focal;
+                }
                 values[focal_snp_idx] = 0.0;
             }
         }
@@ -8622,14 +8617,18 @@ void ApproxBayesRC::SnpEffects::sampleFromTGS_eigen(vector<VectorXf> &wcorrBlock
                 if (weight_sum) deltaPi[k]->values[selectedIdx] = probDelta_sum(i,k);
             }
             if (annoMembership) {
-                if (!delta[i]) {
-                    (*annoMembership)[selectedIdx] = 0;
-                } else if ((*annoMembership)[selectedIdx] < delta[i]) {
-                    (*annoMembership)[selectedIdx] = delta[i];
-                }
+                (*annoMembership)[selectedIdx] = delta[i];
             }
         }
     }
+}
+
+void ApproxBayesRC::SnpEffects::recomputeMixtureSummaryAfterTGS(const vector<LDBlockInfo*> &keptLdBlockInfoVec,
+                                                                const VectorXf &gamma) {
+    VectorXf snpStore;
+    ApproxBayesR::SnpEffects::recomputeLowRankMixtureSummary(keptLdBlockInfoVec, gamma, snpStore);
+    numSnpMix = snpStore.array();
+    snpset = ApproxBayesR::SnpEffects::snpset;
 }
 
 
@@ -10069,15 +10068,20 @@ void ApproxBayesRC::sampleUnknowns(const unsigned iter){
         }
     }
 
+    bool ranTgs = false;
     if (algorithm == tgs || algorithm == tgs_thin) {
         if ((algorithm == tgs || !(iter % 10)) && lowRankModel && !data.overlapLdmEigen && !data.coreContextLdmEigen) {
-            vector<VectorXf> preTgsWhatBlocks = whatBlocks;
-            snpEffects.sampleFromTGS_eigen(wcorrBlocks, data.Qblocks, preTgsWhatBlocks,
+            snpEffects.sampleFromTGS_eigen(wcorrBlocks, data.Qblocks, whatBlocks,
                                            data.LDmap, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
                                            snpLogPi, gamma.values, vargRandom.value, deltaPi, hsqPercModel, sigmaSq.value,
                                            quantizedLowRankModel ? &data.quantizedEigenBlocks : nullptr, nullptr,
                                            &annoMembership);
+            ranTgs = true;
         }
+    }
+    if (ranTgs) {
+        snpEffects.recomputeMixtureSummaryAfterTGS(data.keptLdBlockInfoVec, gamma.values);
+        annoMembership = snpEffects.membership;
     }
     addProfileTime(profileTimeTgs);
 
@@ -11001,9 +11005,7 @@ void ApproxBayesRD::sampleUnknowns(const unsigned iter){
         }
     }
     if (ranTgs && lowRankModel && !data.overlapLdmEigen) {
-        VectorXf tgsSnpStore;
-        snpEffects.recomputeLowRankMixtureSummary(data.keptLdBlockInfoVec, gamma.values, tgsSnpStore);
-        snpEffects.numSnpMix = tgsSnpStore.array();
+        snpEffects.recomputeMixtureSummaryAfterTGS(data.keptLdBlockInfoVec, gamma.values);
     }
     addProfileTime(profileTimeTgs);
 
