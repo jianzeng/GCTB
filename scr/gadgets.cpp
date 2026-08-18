@@ -160,11 +160,19 @@ void Gadget::shuffle_vector(vector<int> &vec){
 }
 
 void Gadget::removeSecondElement(VectorXf &vec){
-    // Erase the second element (index 1)
-    vec.segment(1, vec.size() - 1) = vec.segment(2, vec.size() - 2);
+    const Eigen::Index n = vec.size();
+    if (n < 2)
+        throw(" Error: removeSecondElement requires a vector of length >= 2.");
+    // Erase index 1 by shifting elements [2, n-1] left into [1, n-2]. Both
+    // segments have length n-2; .eval() materialises the source first so the
+    // overlapping left-shift is not corrupted by Eigen's aliasing.
+    // (The original assigned an (n-1)-length destination from an (n-2)-length
+    // source, reading vec[n] one element past the end -- UB under -DNDEBUG.)
+    if (n > 2)
+        vec.segment(1, n - 2) = vec.segment(2, n - 2).eval();
 
     // Resize the vector to one less element
-    vec.conservativeResize(vec.size() - 1);
+    vec.conservativeResize(n - 1);
 }
 
 void Gadget::writeSparseMatrixBinary(const SparseMatrix<float>& mat, const std::string& filename) {

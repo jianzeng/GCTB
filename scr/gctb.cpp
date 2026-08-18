@@ -161,6 +161,14 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
     
     data.initVariances(heritability, propVarRandom);
 
+    // SBayesRC (RC) is annotation-dependent: its models are built from
+    // data.annoNames. The multi-chain dispatch below (used by --gwfm, which
+    // forces numChains=4) has no annotation guard, so RC without --annot would
+    // construct MultiChainSBayesRC over empty annotation data and segfault
+    // (GCTB issue #6). Fail fast with a clear message instead.
+    if (bayesType == "RC" && data.numAnnos == 0)
+        throw(" Error: SBayesRC (RC) requires functional annotations; supply --annot.");
+
     if (opt.numChains > 1) {
         if (bayesType == "R")
             return new MultiChainSBayesR(data, opt);
