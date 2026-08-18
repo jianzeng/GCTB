@@ -2905,13 +2905,21 @@ void Data::resizeBlockLDmatrixAndDoEigenDecomposition(const string &inDirname, c
 
     cout << "Resizing block LD matrices... " << endl;
 
+    // Progress reporting: count blocks as they are handled and print at each new whole
+    // percent. Guarded by a critical section -- one entry per block is negligible beside
+    // the per-block eigendecomposition. Progress is by block COUNT; the eigensolve is
+    // O(n^3) with very unequal block sizes, so the last few large blocks take
+    // disproportionately long. Treat it as a coarse indicator, not a linear ETA.
+    int handledBlocks = 0;
+    int lastReportedPct = -1;
+
 #pragma omp parallel for schedule(dynamic)
     for(int i = 0; i < numLDBlocks; i++){
-        
+
         LDBlockInfo *blockInfo = ldBlockInfoVec[i];
-                
+
         int32_t blockSize = blockInfo->numSnpInBlock;
-        
+
         unsigned newBlockSize = 0;
         for (unsigned j=0; j<blockSize; ++j) {
             SnpInfo *snpj = blockInfo->snpInfoVec[j];
@@ -2922,6 +2930,8 @@ void Data::resizeBlockLDmatrixAndDoEigenDecomposition(const string &inDirname, c
         
         if (!newBlockSize) {
             blockInfo->kept = false;
+#pragma omp critical(makeLdmEigenProgress)
+            ++handledBlocks;  // count empty/skipped blocks toward progress too
             continue;
         } else {
             blockInfo->kept = true;
@@ -3020,7 +3030,16 @@ void Data::resizeBlockLDmatrixAndDoEigenDecomposition(const string &inDirname, c
         
         outputLDfriends(ldm_resized, blockInfo, outDirname);
         
-        if(!(i%1)) cout << " computed block " << blockInfo->ID << "\r" << flush;
+#pragma omp critical(makeLdmEigenProgress)
+        {
+            ++handledBlocks;
+            int pct = (int)(100.0 * handledBlocks / numLDBlocks);
+            if (pct > lastReportedPct) {
+                lastReportedPct = pct;
+                cout << "  make-ldm-eigen: " << handledBlocks << "/" << numLDBlocks
+                     << " blocks (" << pct << "%)" << endl;
+            }
+        }
     }
 
     // Collect kept blocks serially, in block-index order. The parallel loop
