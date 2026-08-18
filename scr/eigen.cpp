@@ -2925,7 +2925,11 @@ void Data::resizeBlockLDmatrixAndDoEigenDecomposition(const string &inDirname, c
             continue;
         } else {
             blockInfo->kept = true;
-            keptLdBlockInfoVec.push_back(blockInfo);
+            // NOTE: keptLdBlockInfoVec is populated serially after this parallel
+            // loop (see below). Pushing here from concurrent threads is a data
+            // race on the shared std::vector (heap corruption / segfault) and
+            // also scrambles block order under dynamic scheduling. Setting the
+            // per-block `kept` flag is a per-block write, so it is race-free.
         }
         
         MatrixXf ldm(blockSize, blockSize);
@@ -3018,8 +3022,15 @@ void Data::resizeBlockLDmatrixAndDoEigenDecomposition(const string &inDirname, c
         
         if(!(i%1)) cout << " computed block " << blockInfo->ID << "\r" << flush;
     }
-    
-    
+
+    // Collect kept blocks serially, in block-index order. The parallel loop
+    // above set each block's `kept` flag (a race-free per-block write); building
+    // the shared keptLdBlockInfoVec here rather than inside the loop avoids a
+    // std::vector data race and keeps block ordering deterministic.
+    for (int i = 0; i < numLDBlocks; i++) {
+        if (ldBlockInfoVec[i]->kept) keptLdBlockInfoVec.push_back(ldBlockInfoVec[i]);
+    }
+
     numKeptLDBlocks = keptLdBlockInfoVec.size();
     
     if (numKeptLDBlocks == 1) {
