@@ -143,6 +143,8 @@ public:
     void closeOutputFile(void);
 };
 
+void deleteMcmcSamples(vector<McmcSamples*> &mcmcSampleVec);
+
 class MCMC {
 public:
     string outfilename;

@@ -10,6 +10,52 @@
 #include <limits>
 #include <vector>
 
+void setDefaultTiledEigenCutoff(Options &opt) {
+    if (opt.eigenCutoffUserSpecified) return;
+    opt.eigenCutoff.resize(1);
+    opt.eigenCutoff[0] = 0.995f;
+}
+
+string pairwiseLDPath(const Options &opt) {
+    const string filename = opt.pairwiseLDfile.empty() ? "rsq0.5.pwld" : opt.pairwiseLDfile;
+    const string path = (filename.find('/') != string::npos || opt.eigenMatrixFile.empty()) ? filename : opt.eigenMatrixFile + "/" + filename;
+    if (path.size() >= 5 && path.substr(path.size() - 5) == ".pwld") {
+        const string binPath = path + ".bin";
+        if (Gadget::fileExistsAndNonEmpty(binPath)) return binPath;
+    }
+    if (Gadget::fileExistsAndNonEmpty(path)) return path;
+    if (path.size() < 3 || path.substr(path.size() - 3) != ".gz") {
+        const string gzPath = path + ".gz";
+        if (Gadget::fileExistsAndNonEmpty(gzPath)) return gzPath;
+    }
+    return path;
+}
+
+string pairwiseLDPath(const string &dirname, const string &filenameIn) {
+    const string filename = filenameIn.empty() ? "rsq0.5.pwld" : filenameIn;
+    const string path = filename.find('/') != string::npos ? filename : dirname + "/" + filename;
+    if (path.size() >= 5 && path.substr(path.size() - 5) == ".pwld") {
+        const string binPath = path + ".bin";
+        if (Gadget::fileExistsAndNonEmpty(binPath)) return binPath;
+    }
+    if (Gadget::fileExistsAndNonEmpty(path)) return path;
+    if (path.size() < 3 || path.substr(path.size() - 3) != ".gz") {
+        const string gzPath = path + ".gz";
+        if (Gadget::fileExistsAndNonEmpty(gzPath)) return gzPath;
+    }
+    return path;
+}
+
+bool defaultPairwiseLDFileAvailable(const Options &opt) {
+    return Gadget::fileExistsAndNonEmpty(pairwiseLDPath(opt));
+}
+
+void requirePairwiseLDFileForTgs(const Options &opt) {
+    const string pwldFile = pairwiseLDPath(opt);
+    if (Gadget::fileExistsAndNonEmpty(pwldFile)) return;
+    throw("Error: TGS requires pairwise LD file [" + pwldFile + "]. Generate it with --get-pwld or provide --pwld-file.");
+}
+
 void Options::inputOptions(const int argc, const char* argv[]){
     stringstream ss;
 
@@ -311,10 +357,6 @@ void Options::inputOptions(const int argc, const char* argv[]){
             analysisType = "TiledLDmatrixEigen";
             ss << "--make-tiled-ldm-eigen " << "\n";
         }
-        else if (!strcmp(argv[i], "--tile-mb")) {
-            tileMb = stof(argv[++i]);
-            ss << "--tile-mb " << argv[i] << "\n";
-        }
         else if (!strcmp(argv[i], "--tile-snps")) {
             int value = stoi(argv[++i]);
             if (value < 1) throw("\nError: --tile-snps must be >= 1.\n");
@@ -327,13 +369,23 @@ void Options::inputOptions(const int argc, const char* argv[]){
             tileMinSnps = (unsigned)value;
             ss << "--tile-min-snps " << argv[i] << "\n";
         }
-        else if (!strcmp(argv[i], "--tile-group-size")) {
-            tileGroupSize = stoi(argv[++i]);
-            ss << "--tile-group-size " << argv[i] << "\n";
-        }
         else if (!strcmp(argv[i], "--core-context-parallel")) {
             coreContextParallel = true;
             ss << "--core-context-parallel " << "\n";
+        }
+        else if (!strcmp(argv[i], "--integrate-out-context")) {
+            integrateOutContext = true;
+            ss << "--integrate-out-context " << "\n";
+        }
+        else if (!strcmp(argv[i], "--estimate-context-var")) {
+            estimateContextVar = true;
+            ss << "--estimate-context-var " << "\n";
+        }
+        else if (!strcmp(argv[i], "--context-marginal-var")) {
+            contextMarginalVar = stof(argv[++i]);
+            if (!(contextMarginalVar > 0.0f))
+                throw("\nError: --context-marginal-var must be greater than zero.\n");
+            ss << "--context-marginal-var " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--bits")) {
             quantEigenBits = stoi(argv[++i]);
@@ -953,6 +1005,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
     }
     if (chainLength < thin) thin = 1;
 
+    if (analysisType == "SBayes" && bayesType == "R" && !annotationFile.empty()) {
+        throw("Error: --sbayes R does not use annotation data from --annot. Remove --annot for SBayesR, or use --sbayes RC if you intend to fit annotation effects.");
+    }
+
     optionsSummary = ss.str();
 }
 
@@ -1020,8 +1076,6 @@ void Options::readFile(const string &file){  // input options from file
             snpResFile = value;
         } else if (key == "windowWidth") {
             windowWidth = unsigned(stof(value) * Megabase);
-        } else if (key == "tileMb") {
-            tileMb = stof(value);
         } else if (key == "tileSnps") {
             int parsed = stoi(value);
             if (parsed < 1) throw(" Error: tileSnps in option file must be >= 1.");
@@ -1030,14 +1084,20 @@ void Options::readFile(const string &file){  // input options from file
             int parsed = stoi(value);
             if (parsed < 0) throw(" Error: tileMinSnps in option file must be >= 0.");
             tileMinSnps = (unsigned)parsed;
-        } else if (key == "tileGroupSize") {
-            tileGroupSize = stoi(value);
         } else if (key == "bits") {
             quantEigenBits = stoi(value);
             if (quantEigenBits != 8 && quantEigenBits != 16)
                 throw(" Error: bits in option file must be 8 or 16.");
         } else if (key == "coreContextParallel") {
             coreContextParallel = (value == "Yes" || value == "yes" || value == "true" || value == "1");
+        } else if (key == "integrateOutContext") {
+            integrateOutContext = (value == "Yes" || value == "yes" || value == "true" || value == "1");
+        } else if (key == "estimateContextVar") {
+            estimateContextVar = (value == "Yes" || value == "yes" || value == "true" || value == "1");
+        } else if (key == "contextMarginalVar") {
+            contextMarginalVar = stof(value);
+            if (!(contextMarginalVar > 0.0f))
+                throw(" Error: contextMarginalVar in option file must be greater than zero.");
         } else if (key == "viInit") {
             viInit = (value == "Yes" || value == "yes" || value == "true" || value == "1");
         } else if (key == "viIter") {
@@ -1163,6 +1223,7 @@ void Options::setThread(void){
             cout << "Multi-threading is available for --make-ldm-eigen. Use --thread [number] to enable multi-threading." << endl;
         } else if (analysisType == "TiledLDmatrixEigen") {
             cout << "Multi-threading is available for --make-tiled-ldm-eigen. Use --thread [number] to enable multi-threading." << endl;
+            cout << "Core-context tiled eigen generation requires ordinary --ldm or --ldm-eigen input." << endl;
         } else if (analysisType == "ImputeSumStats") {
             cout << "Multi-threading is available for --impute-summary. Use --thread [number] to enable multi-threading." << endl;
         } else if (analysisType == "Convert") {

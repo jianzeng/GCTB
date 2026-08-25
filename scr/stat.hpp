@@ -71,6 +71,8 @@ namespace Stat {
     static const unsigned pseudoSummaryRngSalt = 0x50534441u;
     static const unsigned blockShuffleRngSalt = 0x9E3779B9u;
     static const unsigned tgsBlockRngSalt = 0x54475342u;
+    static const unsigned ldSwapRngSalt = 0x4C44534Du;
+    static const unsigned annotationSwapRngSalt = 0x414E5357u;
 
     extern unsigned masterSeed;
     extern unsigned mcmcIterationForRng;

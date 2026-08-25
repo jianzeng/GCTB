@@ -206,70 +206,149 @@ void MultiChainSBayesRC::SnpPIP::selectUnconvergedSnps(const vector<LDBlockInfo*
     }
 }
 
-void MultiChainSBayesRC::AnnoPerSnpRsqEnrichment::compute(const VectorXf &snpCrossChainEffectProduct, const MatrixXf &annoMat, const vector<AnnoInfo*> &annoInfoVec){
-    VectorXf rsqVec;
-    rsqVec.setZero(size);
-    
-    for (unsigned k=0; k<size; ++k) {
-        AnnoInfo *anno = annoInfoVec[k];
-        for (unsigned j=0; j<anno->size; ++j) {
-            SnpInfo *snp = anno->memberSnpVec[j];
-            rsqVec[k] += annoMat(snp->index,k) * snpCrossChainEffectProduct[snp->index];
-        }
-        if (rsqVec[0] == 0.0f) {
-            values[k] = 0.0f;
-        } else if (anno->isBinary) {
-            values[k] = rsqVec[k]/rsqVec[0] / anno->fraction;
+void MultiChainSBayesRC::computePredictionAccuracyEnrichment(){
+    const unsigned numBlocks = keptLdBlockInfoVec.size();
+    const unsigned numSnps = annoMat.rows();
+    const float pairDenom = float(numChains * (numChains - 1));
+
+    vector<int> binaryAnnoSlot(annoInfoVec.size(), -1);
+    vector<unsigned> binaryAnnoIdx;
+    vector<unsigned> quantitativeAnnoIdx;
+    for (unsigned k=0; k<annoInfoVec.size(); ++k) {
+        if (annoInfoVec[k]->isBinary) {
+            if (k) {
+                binaryAnnoSlot[k] = binaryAnnoIdx.size();
+                binaryAnnoIdx.push_back(k);
+            }
         } else {
-            MatrixXf XPX(2,2);
-            XPX(0,0) = size;
-            XPX(0,1) = XPX(1,0) = anno->sum;
-            XPX(1,1) = anno->ssq;
-            VectorXf XPy(2);
-            XPy(0) = rsqVec[0];
-            XPy(1) = rsqVec[k];
-            VectorXf coef = XPX.householderQr().solve(XPy);
-            values[k] = 1.0f + coef(1) / rsqVec[0];
+            quantitativeAnnoIdx.push_back(k);
         }
     }
-}
 
-void MultiChainSBayesRC::AnnoJointPerSnpRsqEnrichment::compute(const VectorXf &snpCrossChainEffectProduct, const MatrixXf &annoMat, const AnnoJointProb &annoJointProb, const VectorXf &gamma, const VectorXf &snpAnnoCntInv){
-    unsigned numAnno = annoMat.cols();
-    unsigned numSnps = annoMat.rows();
-    unsigned numDist = annoJointProb.size();
-    VectorXf rsqAnnoObs;
-    VectorXf rsqAnnoNull;
-    rsqAnnoObs.setZero(numAnno);
-    rsqAnnoNull.setZero(numAnno);
-    
-    float betaSqNull = snpCrossChainEffectProduct.sum()/float(numSnps);
-    VectorXf probAnnoObs(numAnno);
-    for (unsigned j=0; j<numSnps; ++j) {
-        probAnnoObs.setZero(numAnno);
-        for (unsigned i=0; i<numAnno; ++i) {
-            if (annoMat(j,i)) {
-                for (unsigned k=1; k<numDist; ++k) {
-                    probAnnoObs[i] += (*annoJointProb[k]).values[i] * gamma[k];
+    VectorXf blockRsq = VectorXf::Zero(numBlocks);
+    MatrixXf blockAnnoStats = MatrixXf::Zero(numBlocks, annoInfoVec.size());
+
+#pragma omp parallel for schedule(dynamic) num_threads(numThreadTotal)
+    for (unsigned blk=0; blk<numBlocks; ++blk) {
+        LDBlockInfo *blockInfo = keptLdBlockInfoVec[blk];
+        const QuantizedEigenBlock *Qq = quantizedRsqEnrich ? &quantizedEigenBlocks[blk] : nullptr;
+        const MatrixXf *Q = quantizedRsqEnrich ? nullptr : &Qblocks[blk];
+        const int rank = Qq ? Qq->k : Q->rows();
+        const int numQCols = Qq ? Qq->m : Q->cols();
+
+        MatrixXf what(rank, numChains);
+        for (unsigned c=0; c<numChains; ++c)
+            what.col(c) = chainVec[c]->whatBlocks[blk];
+
+        const VectorXf whatSum = what.rowwise().sum();
+        blockRsq[blk] = (whatSum.squaredNorm() - what.squaredNorm()) / pairDenom;
+
+        vector<MatrixXf> binaryWhat(binaryAnnoIdx.size());
+        for (unsigned a=0; a<binaryAnnoIdx.size(); ++a)
+            binaryWhat[a] = MatrixXf::Zero(rank, numChains);
+
+        MatrixXf betaByQCol;
+        if (quantitativeAnnoIdx.size())
+            betaByQCol = MatrixXf::Zero(numQCols, numChains);
+
+        vector<pair<unsigned, int> > mappedSnps;
+        mappedSnps.reserve(blockInfo->snpInfoVec.size());
+        for (unsigned t=0; t<blockInfo->snpInfoVec.size(); ++t) {
+            SnpInfo *snp = blockInfo->snpInfoVec[t];
+            if (!snp || snp->index < 0) continue;
+            const unsigned snpIdx = snp->index;
+            const int qcol = eigenQColIndex(blockInfo, snpIdx);
+            if (qcol < 0 || qcol >= numQCols) continue;
+            mappedSnps.push_back(make_pair(snpIdx, qcol));
+
+            for (unsigned c=0; c<numChains; ++c) {
+                const float beta = chainVec[c]->snpEffects.values[snpIdx];
+                if (quantitativeAnnoIdx.size()) betaByQCol(qcol,c) = beta;
+                if (beta == 0.0f) continue;
+
+                for (unsigned a=0; a<snp->annoVec.size(); ++a) {
+                    const int annoIdx = snp->annoVec[a]->idx;
+                    if (annoIdx < 0 || annoIdx >= (int)binaryAnnoSlot.size()) continue;
+                    const int slot = binaryAnnoSlot[annoIdx];
+                    if (slot < 0) continue;
+                    if (Qq) {
+                        auto target = binaryWhat[slot].col(c);
+                        Qq->addScaledQ(qcol, beta, target);
+                    } else {
+                        binaryWhat[slot].col(c).noalias() += Q->col(qcol) * beta;
+                    }
                 }
             }
         }
-        float probSum = probAnnoObs.sum();
-        if (probSum == 0.0f) continue;
-        probAnnoObs /= probSum;
-        float betajSq = snpCrossChainEffectProduct[j];
-        for (unsigned i=0; i<numAnno; ++i) {
-            if (annoMat(j,i)) {
-                rsqAnnoObs[i]  += probAnnoObs[i]  * betajSq;
-                rsqAnnoNull[i] += snpAnnoCntInv[j] * betaSqNull;
+
+        for (unsigned a=0; a<binaryAnnoIdx.size(); ++a) {
+            const VectorXf annoWhatSum = binaryWhat[a].rowwise().sum();
+            blockAnnoStats(blk, binaryAnnoIdx[a]) =
+                (annoWhatSum.squaredNorm() - binaryWhat[a].squaredNorm()) / pairDenom;
+        }
+
+        if (quantitativeAnnoIdx.size()) {
+            MatrixXf rBetaByQCol(numQCols, numChains);
+            if (Qq) {
+                for (int qcol=0; qcol<numQCols; ++qcol) {
+                    for (unsigned c=0; c<numChains; ++c)
+                        rBetaByQCol(qcol,c) = Qq->dotQ(qcol, chainVec[c]->whatBlocks[blk]);
+                }
+            } else {
+                rBetaByQCol.noalias() = Q->transpose() * what;
+            }
+
+            const VectorXf betaSum = betaByQCol.rowwise().sum();
+            const VectorXf rBetaSum = rBetaByQCol.rowwise().sum();
+            const VectorXf withinChain =
+                (betaByQCol.array() * rBetaByQCol.array()).rowwise().sum().matrix();
+            const VectorXf snpRsq =
+                (betaSum.array() * rBetaSum.array() - withinChain.array()).matrix() / pairDenom;
+
+            for (unsigned t=0; t<mappedSnps.size(); ++t) {
+                const unsigned snpIdx = mappedSnps[t].first;
+                const int qcol = mappedSnps[t].second;
+                const float rsq = snpRsq[qcol];
+                for (unsigned a=0; a<quantitativeAnnoIdx.size(); ++a) {
+                    const unsigned annoIdx = quantitativeAnnoIdx[a];
+                    blockAnnoStats(blk, annoIdx) += annoMat(snpIdx, annoIdx) * rsq;
+                }
             }
         }
     }
-    
-    values.setZero(numAnno);
-    for (unsigned i=0; i<numAnno; ++i) {
-        values[i] = rsqAnnoNull[i] == 0.0f ? 0.0f : rsqAnnoObs[i]/rsqAnnoNull[i];
+
+    const float totalRsq = blockRsq.sum();
+    const VectorXf annoStats = blockAnnoStats.colwise().sum().transpose();
+    annoPerSnpRsqEnrich.values.setZero();
+
+    if (numSnps && totalRsq != 0.0f) {
+        for (unsigned k=0; k<annoInfoVec.size(); ++k) {
+            AnnoInfo *anno = annoInfoVec[k];
+            if (k == 0) {
+                annoPerSnpRsqEnrich.values[k] = 1.0f;
+            } else if (anno->isBinary) {
+                annoPerSnpRsqEnrich.values[k] = anno->fraction == 0.0f
+                    ? 0.0f
+                    : annoStats[k] / totalRsq / anno->fraction;
+            } else if (anno->ssq == 0.0f || anno->sd == 0.0f) {
+                annoPerSnpRsqEnrich.values[k] = 1.0f;
+            } else {
+                Matrix2f XPX;
+                XPX(0,0) = float(numSnps);
+                XPX(0,1) = XPX(1,0) = anno->sum;
+                XPX(1,1) = anno->ssq;
+                const Vector2f XPy(totalRsq, annoStats[k]);
+                const Vector2f coef = XPX.householderQr().solve(XPy);
+                annoPerSnpRsqEnrich.values[k] =
+                    1.0f + coef(1) * anno->sd / (totalRsq / float(numSnps));
+            }
+        }
+    } else if (annoPerSnpRsqEnrich.size) {
+        annoPerSnpRsqEnrich.values[0] = 1.0f;
     }
+
+    for (unsigned c=0; c<numChains; ++c)
+        annoPerSnpRsqEnrich.perChainValues.col(c) = annoPerSnpRsqEnrich.values;
 }
 
 void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
@@ -298,15 +377,9 @@ void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
     annoEffects.getValues();
     annoJointProb.getValues();
     annoTotalGenVar.getValues();
-    annoJointPerSnpHsqEnrich.getValues();
     annoPerSnpHsqEnrich.getValues();
-    if (estimateRsqEnrich) {
-        VectorXf chainSum = snpEffects.perChainValues.rowwise().sum();
-        VectorXf chainSumSq = snpEffects.perChainValues.array().square().rowwise().sum();
-        VectorXf snpCrossChainEffectProduct = (chainSum.array().square() - chainSumSq.array()) / float(numChains * (numChains - 1));
-        annoPerSnpRsqEnrich.compute(snpCrossChainEffectProduct, annoMat, annoInfoVec);
-        annoJointPerSnpRsqEnrich.compute(snpCrossChainEffectProduct, annoMat, annoJointProb, gamma.values, snpAnnoCntInv);
-    }
+    if (estimateRsqEnrich && iter > rsqEnrichBurnin && !(iter % rsqEnrichFreq))
+        computePredictionAccuracyEnrichment();
     snpHsqPep.getValues();
 
     nBadSnps.output();
@@ -396,7 +469,6 @@ void MultiChainSBayesRD::sampleUnknowns(const unsigned iter){
     annoJointProb.getValues();
     annoTotalGenVar.getValues();
     annoPerSnpHsqEnrich.getValues();
-    annoJointPerSnpHsqEnrich.getValues();
     snpHsqPep.getValues();
     piAnno.getValues();
     piAnnos.getValues();

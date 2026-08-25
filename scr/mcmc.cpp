@@ -21,11 +21,18 @@ static inline bool skipPosteriorTextOutput(const string &label) {
            label.find("PIP") != string::npos;
 }
 
+void deleteMcmcSamples(vector<McmcSamples*> &mcmcSampleVec) {
+    for (unsigned i = 0; i < mcmcSampleVec.size(); ++i) {
+        delete mcmcSampleVec[i];
+    }
+    mcmcSampleVec.clear();
+}
+
 void McmcSamples::getParSample(const unsigned iter, const Parameter* par){
     if (iter % thin || iter <= burnin) return;
     ++cntPosteriorSample;
     if (multiChain) {
-        sampleIter = par->perChainValue;
+        sampleIter.row(0) = par->perChainValue.transpose();
         perChainMean.array()    += (par->perChainValue.transpose() - perChainMean).array()/cntPosteriorSample;
         perChainSqrMean.array() += (par->perChainValue.transpose().array().square() - perChainSqrMean.array())/cntPosteriorSample;
         float meanFreq = (par->perChainValue.array() > criticalValue).mean();

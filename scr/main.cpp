@@ -8,11 +8,7 @@
 
 #include <iostream>
 #include <fstream>
-#include <dirent.h>
 #include <omp.h>
-#if defined(__linux__)
-#include <malloc.h>
-#endif
 #include "gctb.hpp"
 #include "quantizer.hpp"
 #include "xci.hpp"
@@ -20,138 +16,6 @@
 #include "Logger.hpp"
 
 using namespace std;
-
-namespace {
-void releaseFreedHeapToOS() {
-#if defined(__linux__)
-    malloc_trim(0);
-#endif
-}
-
-void printMaxResidentMemory() {
-    const double memGb = Gadget::getMaxResidentMemoryGb();
-    if (memGb >= 0.0)
-        cout << "Max memory usage: " << boost::format("%.2f") % memGb << " GB" << endl;
-}
-
-void deleteMcmcSamples(vector<McmcSamples*> &mcmcSampleVec) {
-    for (unsigned i = 0; i < mcmcSampleVec.size(); ++i) {
-        delete mcmcSampleVec[i];
-    }
-    mcmcSampleVec.clear();
-}
-
-bool folderHasOverlapEigenMetadata(const string &dirname) {
-    ifstream in((dirname + "/ldm.info").c_str());
-    if (!in) return false;
-    string header;
-    getline(in, header);
-    return header.find("CoreStartSnpIdx") != string::npos
-        && header.find("CoreEndSnpIdx") != string::npos;
-}
-
-bool folderHasCoreContextEigenMetadata(const string &dirname) {
-    ifstream ldm((dirname + "/ldm.info").c_str());
-    if (ldm.good()) {
-        string header;
-        getline(ldm, header);
-        if (header.find("SourceBlockID") != string::npos && header.find("TileID") != string::npos)
-            return true;
-    }
-    DIR* dirp = opendir(dirname.c_str());
-    if (dirp != NULL) {
-        dirent* dp;
-        while ((dp = readdir(dirp)) != NULL) {
-            string fileName = dp->d_name;
-            if (fileName.find("block") == 0 && fileName.size() > 9
-                && fileName.rfind(".ldm.info") == fileName.size() - 9) {
-                ifstream blockLdm((dirname + "/" + fileName).c_str());
-                string header;
-                getline(blockLdm, header);
-                if (header.find("SourceBlockID") != string::npos && header.find("TileID") != string::npos) {
-                    closedir(dirp);
-                    return true;
-                }
-            }
-        }
-        closedir(dirp);
-    }
-    ifstream ctx((dirname + "/block1.ctx.bin").c_str(), ios::binary);
-    if (ctx.good()) return true;
-    ifstream rcf((dirname + "/block1.rcf.bin").c_str(), ios::binary);
-    return rcf.good();
-}
-
-void setDefaultOverlapEigenCutoff(Options &opt) {
-    if (opt.eigenCutoffUserSpecified) return;
-    opt.eigenCutoff.resize(1);
-    opt.eigenCutoff[0] = 0.995f;
-}
-
-bool isSupportedOverlapSbayesType(const string &bayesType) {
-    return bayesType == "R" || bayesType == "RC" || bayesType == "RD" || bayesType == "RD_indep";
-}
-
-bool fileExistsAndNonEmpty(const string &filename) {
-    ifstream in(filename.c_str(), ios::ate | ios::binary);
-    return in.is_open() && static_cast<long long>(in.tellg()) > 0;
-}
-
-string pairwiseLDPath(const Options &opt) {
-    const string filename = opt.pairwiseLDfile.empty() ? "rsq0.5.pwld" : opt.pairwiseLDfile;
-    const string path = (filename.find('/') != string::npos || opt.eigenMatrixFile.empty()) ? filename : opt.eigenMatrixFile + "/" + filename;
-    if (path.size() >= 5 && path.substr(path.size() - 5) == ".pwld") {
-        const string binPath = path + ".bin";
-        if (fileExistsAndNonEmpty(binPath)) return binPath;
-    }
-    if (fileExistsAndNonEmpty(path)) return path;
-    if (path.size() < 3 || path.substr(path.size() - 3) != ".gz") {
-        const string gzPath = path + ".gz";
-        if (fileExistsAndNonEmpty(gzPath)) return gzPath;
-    }
-    return path;
-}
-
-string pairwiseLDPath(const string &dirname, const string &filenameIn) {
-    const string filename = filenameIn.empty() ? "rsq0.5.pwld" : filenameIn;
-    const string path = filename.find('/') != string::npos ? filename : dirname + "/" + filename;
-    if (path.size() >= 5 && path.substr(path.size() - 5) == ".pwld") {
-        const string binPath = path + ".bin";
-        if (fileExistsAndNonEmpty(binPath)) return binPath;
-    }
-    if (fileExistsAndNonEmpty(path)) return path;
-    if (path.size() < 3 || path.substr(path.size() - 3) != ".gz") {
-        const string gzPath = path + ".gz";
-        if (fileExistsAndNonEmpty(gzPath)) return gzPath;
-    }
-    return path;
-}
-
-bool defaultPairwiseLDFileAvailable(const Options &opt) {
-    return fileExistsAndNonEmpty(pairwiseLDPath(opt));
-}
-
-string pairwiseLDPathInDir(const string &dirname) {
-    return pairwiseLDPath(dirname, "rsq0.5.pwld");
-}
-
-void requirePairwiseLDFileForTgs(const Options &opt) {
-    const string pwldFile = pairwiseLDPath(opt);
-    if (fileExistsAndNonEmpty(pwldFile)) return;
-    throw("Error: TGS requires pairwise LD file [" + pwldFile + "]. Generate it with --get-pwld or provide --pwld-file.");
-}
-
-void ensureQuantizedOutputPairwiseLDSource(const Options &opt) {
-    const string pwldFile = pairwiseLDPathInDir(opt.quantEigenInputDir);
-    if (fileExistsAndNonEmpty(pwldFile)) return;
-    cout << "Pairwise LD file [" << pwldFile << "] not found; generating it from input float eigen data for quantized TGS..." << endl;
-    Data data;
-    data.readBlockLdmInfoFile(opt.quantEigenInputDir);
-    data.readBlockLdmSnpInfoFile(opt.quantEigenInputDir);
-    data.getLDfromEigenMatrix(opt.quantEigenInputDir, 0.5, opt.quantEigenInputDir + "/rsq0.5");
-}
-}
-
 
 int main(int argc, const char * argv[]) {
     
@@ -172,7 +36,7 @@ int main(int argc, const char * argv[]) {
         cout << "* GCTB 2.5.6 beta                                       *\n";
         cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
         cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
-        cout << "* Last updated: 25 June, 2026                           *\n";
+        cout << "* Last updated: 18 August, 2026                         *\n";
         cout << "* MIT License                                           *\n";
         cout << "*********************************************************\n";
 
@@ -182,10 +46,6 @@ int main(int argc, const char * argv[]) {
 
         if (!opt.getOptionsSummary().empty())
             cout << opt.getOptionsSummary() << endl;
-
-        if (opt.analysisType == "SBayes" && opt.bayesType == "R" && !opt.annotationFile.empty()) {
-            throw("Error: --sbayes R does not use annotation data from --annot. Remove --annot for SBayesR, or use --sbayes RC if you intend to fit annotation effects.");
-        }
 
         opt.setThread();
 
@@ -204,7 +64,7 @@ int main(int argc, const char * argv[]) {
             timer.getTime();
             cout << "\nAnalysis finished: " << timer.getDate();
             cout << "Computational time: "  << timer.format(timer.getElapse()) << endl;
-            printMaxResidentMemory();
+            Gadget::printMaxResidentMemory();
             LOGGER.flush();
             LOGGER.close();
             return 0;
@@ -217,7 +77,7 @@ int main(int argc, const char * argv[]) {
             timer.getTime();
             cout << "\nAnalysis finished: " << timer.getDate();
             cout << "Computational time: "  << timer.format(timer.getElapse()) << endl;
-            printMaxResidentMemory();
+            Gadget::printMaxResidentMemory();
             LOGGER.flush();
             LOGGER.close();
             return 0;
@@ -355,7 +215,7 @@ int main(int argc, const char * argv[]) {
         }
         else if (opt.analysisType == "TiledLDmatrixEigen") {
             readGenotypes = false;
-            setDefaultOverlapEigenCutoff(opt);
+            setDefaultTiledEigenCutoff(opt);
             if (opt.quantEigenBits && opt.quantEigenBits != 16)
                 throw("Error: --make-tiled-ldm-eigen supports only --bits 16 for quantized tiled output.");
             if (!opt.eigenMatrixFile.empty()) {
@@ -379,17 +239,7 @@ int main(int argc, const char * argv[]) {
                                                                opt.tileSnps, opt.tileMinSnps, flankR2Threshold, opt.writeLdmTxt,
                                                                opt.includeBlock == 0, opt.quantEigenBits);
             } else {
-                if (opt.quantEigenBits)
-                    throw("Error: --bits 16 with --make-tiled-ldm-eigen is currently supported only with --ldm or --ldm-eigen input.");
-                if (opt.bedFile.empty()) throw("Error: --make-tiled-ldm-eigen requires --bfile, --ldm, or --ldm-eigen.");
-                gctb.inputIndInfo(data, opt.bedFile, opt.bedFile + ".fam", opt.keepIndFile, opt.keepIndMax,
-                                  opt.mphen, opt.covariateFile, opt.randomCovariateFile, opt.residualDiagFile);
-                gctb.inputSnpInfo(data, opt.bedFile, opt.includeSnpFile, opt.excludeSnpFile, opt.excludeRegionFile,
-                                  opt.includeChr, opt.excludeAmbiguousSNP, opt.skeletonSnpFile, opt.geneticMapFile,
-                                  "", opt.includeBlock, opt.annotationFile, opt.transpose, opt.continuousAnnoFile,
-                                  opt.flank, opt.eQTLFile, opt.mafmin, opt.mafmax, opt.noscale, readGenotypes);
-                data.makeTiledBlockEigen(opt.bedFile + ".bed", opt.title, opt.eigenCutoff.maxCoeff(),
-                                         opt.tileMb, opt.tileGroupSize, opt.tileMinSnps, opt.writeLdmTxt);
+                throw("Error: --make-tiled-ldm-eigen requires ordinary --ldm or --ldm-eigen input.");
             }
         }
         else if (opt.analysisType == "sparseLDmatrixEigen") {
@@ -460,23 +310,8 @@ int main(int argc, const char * argv[]) {
                 data.recomputeEigen = opt.recomputeEigen;
                 const bool hasCoreContextEigen = folderHasCoreContextEigenMetadata(opt.eigenMatrixFile);
                 data.mergeLdmInfo("block", opt.eigenMatrixFile, false, true, !opt.keepBlockMergeFiles); // if each block has its own .info file, then merge them
-                if (folderHasOverlapEigenMetadata(opt.eigenMatrixFile)) {
-                    setDefaultOverlapEigenCutoff(opt);
-                    if (opt.analysisType != "SBayes" || !isSupportedOverlapSbayesType(opt.bayesType)) {
-                        throw("Error: phased tiled/overlap eigen LD is supported only for --sbayes R, RC, RD, and RD_indep in v1.");
-                    }
-                    if (isBivariate) {
-                        throw("Error: phased tiled/overlap eigen LD is not supported for bivariate SBayes in v1.");
-                    }
-                    if (opt.eigenMatrixQuantBits) {
-                        throw("Error: phased tiled/overlap eigen LD is not supported with quantized eigen data in v1.");
-                    }
-                    if (opt.algorithm == "TGS_thin") {
-                        throw("Error: phased tiled/overlap eigen LD is not supported with tempered Gibbs/GWFM in v1.");
-                    }
-                }
                 if (hasCoreContextEigen) {
-                    setDefaultOverlapEigenCutoff(opt);
+                    setDefaultTiledEigenCutoff(opt);
                     const bool supportedCoreContextSbayes = opt.analysisType == "SBayes" && (opt.bayesType == "R" || opt.bayesType == "RC");
                     const bool supportedCoreContextGwfm = opt.analysisType == "GWFM" && opt.bayesType == "RC";
                     if (!supportedCoreContextSbayes && !supportedCoreContextGwfm) {
@@ -504,29 +339,8 @@ int main(int argc, const char * argv[]) {
                 if (opt.analysisType == "GWFM" && opt.algorithm == "TGS_thin" && !hasCoreContextEigen) {
                     data.inputPairwiseLD(pairwiseLDPath(opt.eigenMatrixFile, opt.pairwiseLDfile), 0.95);  // for TGS sampling
                 }
-                if (data.overlapLdmEigen) {
-                    if (opt.analysisType != "SBayes" || !isSupportedOverlapSbayesType(opt.bayesType)) {
-                        throw("Error: phased tiled/overlap eigen LD is supported only for --sbayes R, RC, RD, and RD_indep in v1.");
-                    }
-                    if (isBivariate) {
-                        throw("Error: phased tiled/overlap eigen LD is not supported for bivariate SBayes in v1.");
-                    }
-                    if (opt.eigenMatrixQuantBits) {
-                        throw("Error: phased tiled/overlap eigen LD is not supported with quantized eigen data in v1.");
-                    }
-                    if (opt.algorithm == "TGS_thin") {
-                        throw("Error: phased tiled/overlap eigen LD is not supported with tempered Gibbs/GWFM in v1.");
-                    }
-                    if (opt.eigenCutoff.size() > 1) {
-                        cout << "Note: eigen cutoff tuning is not supported for phased tiled/overlap eigen LD in v1; using "
-                             << opt.eigenCutoff[0] << "." << endl;
-                    }
-                    bestEigenCutoff = opt.eigenCutoff[0];
-                }
                 // Check if bivariate (comma-separated GWAS files) - skip tuning for bivariate
-                if (data.overlapLdmEigen) {
-                    // handled above
-                } else if (hasCoreContextEigen) {
+                if (hasCoreContextEigen) {
                     if (opt.eigenCutoff.size() > 1) {
                         cout << "Note: eigen cutoff tuning is not supported for core-context tiled eigen LD in v1; using "
                              << opt.eigenCutoff[0] << "." << endl;
@@ -547,7 +361,7 @@ int main(int argc, const char * argv[]) {
                 }
                 if (opt.analysisType == "SBayes"
                     && (opt.bayesType == "R" || opt.bayesType == "RC" || opt.bayesType == "RD" || opt.bayesType == "RD_indep")
-                    && opt.algorithm.empty() && !data.overlapLdmEigen && !data.coreContextLdmEigen) {
+                    && opt.algorithm.empty() && !data.coreContextLdmEigen) {
                     if (opt.pairwiseLDfile.empty()) opt.pairwiseLDfile = "rsq0.5.pwld";
                     if (!defaultPairwiseLDFileAvailable(opt)) {
                         cout << "Pairwise LD file [" << pairwiseLDPath(opt)
@@ -557,7 +371,7 @@ int main(int argc, const char * argv[]) {
                         opt.algorithm = "TGS_thin";
                     }
                 }
-                if (opt.algorithm == "TGS_thin" && !data.overlapLdmEigen && !data.coreContextLdmEigen) {
+                if (opt.algorithm == "TGS_thin" && !data.coreContextLdmEigen) {
                     if (opt.pairwiseLDfile.empty()) opt.pairwiseLDfile = "rsq0.5.pwld";
                     requirePairwiseLDFileForTgs(opt);
                     if (opt.analysisType != "GWFM")
@@ -634,7 +448,7 @@ int main(int argc, const char * argv[]) {
                 deleteMcmcSamples(mcmcSampleVec);
                 delete model;
                 delete mcmc;
-                releaseFreedHeapToOS();
+                Gadget::releaseFreedHeapToOS();
                 Gadget::printMemoryCheckpoint("GWFM before credible-set readback");
                 McmcSamples *snpEffects = gctb.inputMcmcSamples(opt.title, "SnpEffects", "bin");
                 Gadget::printMemoryCheckpoint("GWFM after SNP-effect sample readback");
@@ -878,7 +692,7 @@ int main(int argc, const char * argv[]) {
     
     cout << "\nAnalysis finished: " << timer.getDate();
     cout << "Computational time: "  << timer.format(timer.getElapse()) << endl;
-    printMaxResidentMemory();
+    Gadget::printMaxResidentMemory();
 
     LOGGER.flush();
     LOGGER.close();

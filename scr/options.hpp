@@ -78,11 +78,12 @@ public:
     float pipThreshold;
     float pepThreshold;
     float nDistAutoThreshold;
-    float tileMb;
     unsigned tileSnps;
     unsigned tileMinSnps;
-    unsigned tileGroupSize;
     bool coreContextParallel;  // approximate parallel core-context tile sampling with frozen flank effects
+    bool integrateOutContext;  // marginalize cross-tile effects as a Gaussian covariance in SBayesRC
+    bool estimateContextVar;   // estimate the global context-to-residual variance ratio
+    float contextMarginalVar;  // initial marginal variance of each omitted SNP effect
     
     bool estimatePi;
     bool estimateSigmaSq; // variance of SNP effects
@@ -250,11 +251,12 @@ public:
         pipThreshold            = 0.9;
         pepThreshold            = 0.7;
         nDistAutoThreshold      = 0.5;
-        tileMb                  = 1.0;
         tileSnps                = 5000;
         tileMinSnps             = 1000;
-        tileGroupSize           = 2;
         coreContextParallel     = false;
+        integrateOutContext     = false;
+        estimateContextVar      = false;
+        contextMarginalVar      = -1.0f;
 
         // Bayes R defaults
         numDist                  = 5;
@@ -381,5 +383,11 @@ private:
     void makeTitle(void);
     void seedEngine(void);
 };
+
+void setDefaultTiledEigenCutoff(Options &opt);
+string pairwiseLDPath(const Options &opt);
+string pairwiseLDPath(const string &dirname, const string &filenameIn);
+bool defaultPairwiseLDFileAvailable(const Options &opt);
+void requirePairwiseLDFileForTgs(const Options &opt);
 
 #endif /* options_hpp */

@@ -1110,8 +1110,7 @@ public:
 
         /** Gibbs sweep over all --fixed-effect SNPs (call before mixture SnpEffects::sampleFromFC_*). */
         void sampleFromFC_eigen(SnpEffects &snpEffects, vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
-            const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks, const unsigned numFixedEffectSnps,
-            const int activeTilePhase = -1);
+            const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks, const unsigned numFixedEffectSnps);
         void sampleFromFC_quantizedEigen(SnpEffects &snpEffects, vector<VectorXf> &wcorrBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks, vector<VectorXf> &whatBlocks,
             const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks, const unsigned numFixedEffectSnps);
         void sampleFromFC_sparse(SnpEffects &snpEffects, VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag,
@@ -1205,6 +1204,7 @@ public:
         }
 
         void compute(const vector<VectorXf> &whatBlocks);
+        void compute(const vector<VectorXf> &whatBlocks, const vector<VectorXf> &originalNormWeights);
     };
     
     class BlockResidualVar : public ParamSet, public Stat::InvChiSq {
@@ -1227,8 +1227,6 @@ public:
         }
 
         void sampleFromFC(vector<VectorXf> &wcorrBlocks, VectorXf &vargBlocks, VectorXf &ssqBlocks, const VectorXf &nGWASblocks, const VectorXf &numEigenvalBlock);
-        void sampleFromFC(vector<VectorXf> &wcorrBlocks, VectorXf &vargBlocks, VectorXf &ssqBlocks, const VectorXf &nGWASblocks, const VectorXf &numEigenvalBlock,
-                          const vector<LDBlockInfo*> &keptLdBlockInfoVec, const int activeTilePhase);
         void sampleFromFC(const vector<VectorXf> &wcorrBlocks, const VectorXf &beta, const VectorXf &b, const VectorXf &nGWASblocks, const vector<LDBlockInfo*> keptLdBlockInfoVec);
     };
 
@@ -1814,7 +1812,7 @@ public:
         void sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                           const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                           const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore, const float varg,
-                          const bool hsqPercModel, DeltaPi &deltaPi, const int activeTilePhase = -1,
+                          const bool hsqPercModel, DeltaPi &deltaPi,
                           const vector<vector<TgsWorkset> > *tgsWorksetsByBlock = nullptr,
                           const vector<CoreContextLdBlock> *coreContextLdBlocks = nullptr,
                           const vector<VectorXf> *baseWcorrBlocks = nullptr,
@@ -1848,12 +1846,12 @@ public:
                                  const vector<QuantizedEigenBlock> *quantizedEigenBlocks = nullptr,
                                  const vector<TgsWorkset> *tgsWorksets = nullptr,
                                  const MatrixXf *snpLogPi = nullptr,
-                                 VectorXi *annoMembership = nullptr);
+                                 const vector<TgsLdMapEntry> *orderedLdMapEntries = nullptr);
         void recomputeLowRankSummary(vector<VectorXf> &whatBlocks, const vector<MatrixXf> &Qblocks,
                                      const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &gamma,
                                      VectorXf &snpStore, const vector<QuantizedEigenBlock> *quantizedEigenBlocks = nullptr);
         void recomputeLowRankMixtureSummary(const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &gamma,
-                                            VectorXf &snpStore);
+                                            ArrayXf &snpStore);
         
 
         // obsoleted
@@ -2334,26 +2332,42 @@ public:
         void sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                                 const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                 const MatrixXf &snpLogPi, const VectorXf &gamma, const float varg,
-                                DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq, const vector<SnpInfo*> &incdSnpInfoVec,
-                                const int activeTilePhase = -1,
-                                const vector<CoreContextLdBlock> *coreContextLdBlocks = nullptr,
-                                const vector<VectorXf> *baseWcorrBlocks = nullptr);
+                                DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq,
+                                const vector<SnpInfo*> &incdSnpInfoVec);
+        void sampleFromFC_coreContextEigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
+                                           const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
+                                           const MatrixXf &snpLogPi, const VectorXf &gamma, const float varg,
+                                           DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq,
+                                           const vector<SnpInfo*> &incdSnpInfoVec,
+                                           const vector<CoreContextLdBlock> &coreContextLdBlocks,
+                                           const vector<VectorXf> &baseWcorrBlocks);
+        void sampleFromFC_marginalizedContextEigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks,
+                                                    const vector<VectorXf> &qDiagBlocks,
+                                                    vector<VectorXf> &whatBlocks,
+                                                    const vector<LDBlockInfo*> &keptLdBlockInfoVec,
+                                                    const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
+                                                    const MatrixXf &snpLogPi, const VectorXf &gamma, const float varg,
+                                                    DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq,
+                                                    const vector<SnpInfo*> &incdSnpInfoVec);
         void sampleFromFC_quantizedEigen(vector<VectorXf> &wcorrBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks, vector<VectorXf> &whatBlocks,
                                 const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                 const MatrixXf &snpLogPi, const VectorXf &gamma, const float varg,
                                 DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq, const vector<SnpInfo*> &incdSnpInfoVec,
                                 const vector<CoreContextLdBlock> *coreContextLdBlocks = nullptr,
                                 const vector<VectorXf> *baseWcorrBlocks = nullptr);
-        // tempered Gibbs sampler
-        void sampleFromTGS_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
-                                 const map<SnpInfo*, vector<SnpInfo*> > &LDmap, const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
-                                 const MatrixXf &snpLogPi, const VectorXf &gamma, const float varg,
-                                 DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq,
-                                 const vector<QuantizedEigenBlock> *quantizedEigenBlocks = nullptr,
-                                 const vector<TgsWorkset> *tgsWorksets = nullptr,
-                                 VectorXi *annoMembership = nullptr);
-        void recomputeMixtureSummaryAfterTGS(const vector<LDBlockInfo*> &keptLdBlockInfoVec,
-                                             const VectorXf &gamma);
+        void sampleFromLDSwapMH_eigen(vector<VectorXf> &wcorrBlocks,
+                                      const vector<MatrixXf> &Qblocks,
+                                      vector<VectorXf> &whatBlocks,
+                                      const vector<LDBlockInfo*> &keptLdBlockInfoVec,
+                                      const VectorXf &nGWASblocks,
+                                      const VectorXf &vareBlocks,
+                                      const MatrixXf &snpLogPi,
+                                      const vector<TgsWorkset> &tgsWorksets,
+                                      const vector<SnpInfo*> &incdSnpInfoVec,
+                                      const bool completeUnitDiagonal,
+                                      unsigned &numProposals,
+                                      unsigned &numAccepted,
+                                      const vector<QuantizedEigenBlock> *quantizedEigenBlocks = nullptr);
         
     };
     
@@ -2409,7 +2423,7 @@ public:
         
 //        void sampleFromFC(MatrixXf &snpP, const MatrixXf &annoMat);
         void sampleFromFC_Gibbs(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
-        void sampleFromFC_Gibbs(MatrixXf &z, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
+        void sampleFromFC_Gibbs(MatrixXf &conditionalMembership, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
         void sampleFromFC_MH(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
         void sampleFromFC_MH(MatrixXf &z, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
         void initIntercept_probit(const VectorXf &pis);
@@ -2542,16 +2556,6 @@ public:
 //        void compute(const VectorXf &snpEffectMeans, const MatrixXf &annoMat, const AnnoEffects &alpha, const vector<AnnoInfo*> &annoInfoVec, const MatrixXf &snpPi);
     };
     
-    class AnnoJointPerSnpRsqEnrichment : public AnnoPerSnpRsqEnrichment, public Stat::Normal {
-    public:
-        
-        AnnoJointPerSnpRsqEnrichment(const vector<string> &header, const vector<AnnoInfo*> &annoVec): AnnoPerSnpRsqEnrichment(header, annoVec, "Joint_Predictability_Enrichment") {}
-        
-//        void compute(const VectorXf &snpEffectMeans, const MatrixXf &annoMat, const AnnoEffects &alpha, const vector<AnnoInfo*> &annoInfoVec);
-        void compute(const VectorXf &snpEffectMeans, const MatrixXf &annoMat, const AnnoCondProb &annoCondProb, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &snpAnnoCntInv);
-        void compute(const VectorXf &snpEffectMeans, const MatrixXf &annoMat, const AnnoJointProb &AnnoJointProb, const vector<AnnoInfo*> &annoInfoVec, const VectorXf &gamma, const VectorXf &snpAnnoCntInv);
-    };
-
     class AnnoDistribution : public vector<ParamSet*> {
     public:
         vector<string> colnames;
@@ -2581,7 +2585,6 @@ public:
     AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
     AnnoPerSnpRsqEnrichment annoPerSnpRsqEnrich;
     AnnoJointPerSnpHsqEnrichment annoJointPerSnpHsqEnrich;
-    AnnoJointPerSnpRsqEnrichment annoJointPerSnpRsqEnrich;
     AnnoDistribution annoDist;
         
     MatrixXf snpP;    // p = Pr(k>i | k>i-1); p2 = pi2+pi3+pi4; p3 = (pi3+pi4)/(pi2+pi3+pi4); p4 = pi4/(pi3+pi4)
@@ -2590,6 +2593,18 @@ public:
     VectorXf snpAnnoCntInv;
     
     bool estimateRsqEnrich;
+    bool integrateOutContext;
+    bool estimateContextVar;
+    Data *contextDataForUpdates;
+    float integratedContextMarginalVar;
+    float contextVarianceRatio;
+    float contextVarianceRatioPriorScale;
+    Parameter contextVarianceRatioE8;
+    Parameter contextVarianceE8;
+    unsigned contextVarianceUpdateFreq;
+    vector<MatrixXf> marginalizedContextQblocks;
+    vector<VectorXf> marginalizedContextQdiagBlocks;
+    vector<VectorXf> marginalizedContextWblocks;
     bool profileTiming;
     unsigned profileTimingFreq;
     unsigned profileTimingCount;
@@ -2607,11 +2622,12 @@ public:
     double profileTimeAnnoGenVar;
     double profileTimeAnnoTotalGenVar;
     double profileTimeAnnoPerSnpHsqEnrich;
-    double profileTimeAnnoJointPerSnpHsqEnrich;
     double profileTimeMiscSummary;
     double profileTimeBadSnps;
     double profileTimeRounding;
     double profileTimeTotal;
+    unsigned long long ldSwapProposals;
+    unsigned long long ldSwapAccepted;
     bool viInit;
     unsigned viIter;
     unsigned viAnnoFreq;
@@ -2621,7 +2637,8 @@ public:
             
     ApproxBayesRC(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool robustMode, const bool estimateRsqEnrich, const string &alg, const bool message = true,
                   const bool viInit = false, const unsigned viIter = 100, const unsigned viAnnoFreq = 2,
-                  const float viDampSnp = 0.5f, const float viDampAnno = 0.2f, const float viDampVar = 0.1f):
+                  const float viDampSnp = 0.5f, const float viDampAnno = 0.2f, const float viDampVar = 0.1f,
+                  const bool estimateContextVar = false, Data *contextDataForUpdates = NULL):
     ApproxBayesR(data, lowRank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, alg, false),
     snpEffects(data.snpEffectNames, pis),
     annoEffects(data.annoNames, pis.size(), data.annoMat),
@@ -2633,9 +2650,18 @@ public:
     annoPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
     annoPerSnpRsqEnrich(data.annoNames, data.annoInfoVec),
     annoJointPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
-    annoJointPerSnpRsqEnrich(data.annoNames, data.annoInfoVec),
     annoDist(data.annoNames, pis.size()),
     estimateRsqEnrich(estimateRsqEnrich),
+    integrateOutContext(data.integrateOutContext),
+    estimateContextVar(estimateContextVar),
+    contextDataForUpdates(contextDataForUpdates),
+    integratedContextMarginalVar(0.0f),
+    contextVarianceRatio(data.contextMarginalVar > 0.0f && data.varPhenotypic > 0.0f
+                         ? data.contextMarginalVar / data.varPhenotypic : 0.0f),
+    contextVarianceRatioPriorScale(contextVarianceRatio),
+    contextVarianceRatioE8("CtxRatioE8"),
+    contextVarianceE8("CtxVarE8"),
+    contextVarianceUpdateFreq(10),
     profileTiming(false),
     profileTimingFreq(10),
     profileTimingCount(0),
@@ -2653,11 +2679,12 @@ public:
     profileTimeAnnoGenVar(0.0),
     profileTimeAnnoTotalGenVar(0.0),
     profileTimeAnnoPerSnpHsqEnrich(0.0),
-    profileTimeAnnoJointPerSnpHsqEnrich(0.0),
     profileTimeMiscSummary(0.0),
     profileTimeBadSnps(0.0),
     profileTimeRounding(0.0),
     profileTimeTotal(0.0),
+    ldSwapProposals(0),
+    ldSwapAccepted(0),
     viInit(viInit),
     viIter(viIter),
     viAnnoFreq(viAnnoFreq),
@@ -2691,10 +2718,8 @@ public:
         paramSetVec.insert(paramSetVec.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetVec.push_back(&annoTotalGenVar);
         paramSetVec.push_back(&annoPerSnpHsqEnrich);
-        paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
         if (estimateRsqEnrich) {
             paramSetVec.push_back(&annoPerSnpRsqEnrich);
-            paramSetVec.push_back(&annoJointPerSnpRsqEnrich);
         }
 
         if (data.numFixedEffectSnps) {
@@ -2712,10 +2737,8 @@ public:
         paramSetToPrint.insert(paramSetToPrint.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
-        paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
         if (estimateRsqEnrich) {
             paramSetToPrint.push_back(&annoPerSnpRsqEnrich);
-            paramSetToPrint.push_back(&annoJointPerSnpRsqEnrich);
         }
 
         if (data.numFixedEffectSnps) {
@@ -2732,6 +2755,20 @@ public:
             paramToPrint.push_back(&nBadSnps);
         }
 
+        if (estimateContextVar) {
+            if (!integrateOutContext || !data.precomputedMarginalizedContext
+                || !contextDataForUpdates || contextDataForUpdates != &data
+                || !(contextVarianceRatio > 0.0f)) {
+                throw("Error: context-variance estimation requires mutable precomputed marginalized-context data.");
+            }
+            contextVarianceRatioE8.value = 1.0e8f * contextVarianceRatio;
+            contextVarianceE8.value = 1.0e8f * data.contextMarginalVar;
+            paramVec.push_back(&contextVarianceRatioE8);
+            paramVec.push_back(&contextVarianceE8);
+            paramToPrint.push_back(&contextVarianceRatioE8);
+            paramToPrint.push_back(&contextVarianceE8);
+        }
+
         if (message) {
             cout << "\nSBayesRC" << endl;
             if (lowRankModel) {
@@ -2746,10 +2783,15 @@ public:
             }
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
             if (robustMode) cout << "Using a more robust parameterisation " << endl;
-            if (algorithm == tgs_thin) cout << "Using tempered Gibbs sampling (TGS)" << endl;
+            if (algorithm == tgs)
+                cout << "Using posterior-corrected LD swap MH sampling" << endl;
+            else if (algorithm == tgs_thin)
+                cout << "Using posterior-corrected LD swap MH sampling every 10 iterations" << endl;
             if (data.numFixedEffectSnps)
                 cout << "Fitting " << data.numFixedEffectSnps << " SNP(s) as fixed effects (flat prior)." << endl;
         }
+
+        if (integrateOutContext) prepareMarginalizedContext(data);
         
         getSnpAnnoCntInv(data.annoMat, snpAnnoCntInv);
 
@@ -2760,6 +2802,12 @@ public:
     }
 
     void sampleUnknowns(const unsigned iter);
+    void prepareMarginalizedContext(const Data &data);
+    void recomputeOriginalContextWhatBlocks(void);
+    double contextVarianceLogPosterior(const double logRatio) const;
+    void sampleContextVarianceRatio(void);
+    void rescaleMarginalizedContext(const float newRatio);
+    void updateContextVarianceOutput(void);
     void runViWarmStartLowRank(const Data &data, const unsigned nIter, const unsigned annoFreq,
                                const float dampSnp, const float dampAnno, const float dampVar);
     void updateAnnoEffectsFromViResponsibilities(const MatrixXf &annoMat, const VectorXf &sigmaSqAnnoValues,
@@ -2805,7 +2853,6 @@ public:
     ApproxBayesRC::AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
     ApproxBayesRC::AnnoPerSnpRsqEnrichment annoPerSnpRsqEnrich;
     ApproxBayesRC::AnnoJointPerSnpHsqEnrichment annoJointPerSnpHsqEnrich;
-    ApproxBayesRC::AnnoJointPerSnpRsqEnrichment annoJointPerSnpRsqEnrich;
 
     MatrixXf snpP;    // p = Pr(k>i | k>i-1); p2 = pi2+pi3+pi4; p3 = (pi3+pi4)/(pi2+pi3+pi4); p4 = pi4/(pi3+pi4)
     MatrixXf snpPi;   // pi1 = 1-p2; pi2 = (1-p3)*p2; pi3 = (1-p4)*p2*p3; pi4 = p2*p3*p4
@@ -2829,7 +2876,6 @@ public:
     annoPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
     annoPerSnpRsqEnrich(data.annoNames, data.annoInfoVec),
     annoJointPerSnpHsqEnrich(data.annoNames, data.annoInfoVec),
-    annoJointPerSnpRsqEnrich(data.annoNames, data.annoInfoVec),
     estimateRsqEnrich(estimateRsqEnrich)
     {
         initSnpPandPi(pis, data.numIncdSnps, snpP, snpPi);
@@ -2850,10 +2896,8 @@ public:
         paramSetVec.insert(paramSetVec.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetVec.push_back(&annoTotalGenVar);
         paramSetVec.push_back(&annoPerSnpHsqEnrich);
-        paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
         if (estimateRsqEnrich) {
             paramSetVec.push_back(&annoPerSnpRsqEnrich);
-            paramSetVec.push_back(&annoJointPerSnpRsqEnrich);
         }
 
         paramVec     = {&nnzSnp, &sigmaSq, &varg, &vare, &hsq};
@@ -2867,10 +2911,8 @@ public:
         paramSetToPrint.insert(paramSetToPrint.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
-        paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
         if (estimateRsqEnrich) {
             paramSetToPrint.push_back(&annoPerSnpRsqEnrich);
-            paramSetToPrint.push_back(&annoJointPerSnpRsqEnrich);
         }
 
         paramToPrint = {&sigmaSq, &varg, &vare, &hsq};
@@ -2920,6 +2962,9 @@ public:
         
         VectorXf pip;
         float nnz;
+        vector<vector<unsigned> > swapNeighbors;
+        unsigned long long swapProposals;
+        unsigned long long swapAccepted;
 
         AnnoEffects(const vector<string> &header, const unsigned ndist, const MatrixXf &annoMat) {
             numComp = ndist - 1;
@@ -2942,10 +2987,22 @@ public:
             numAnnoTotal = (numAnno-1)*numComp;  // leave out the intercept
             values.setZero(numAnno,numComp);
             pip.setZero(numAnno);
+            swapNeighbors.resize(numAnno);
+            swapProposals = 0;
+            swapAccepted = 0;
         }
-        
-        void sampleFromFC_indep(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, const VectorXf &pi, MatrixXf &snpP);
-        void sampleFromFC_joint(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, const float pi, MatrixXf &snpP);
+
+        void initializeSwapNeighbors(const MatrixXf &annoCrossprod);
+        void sampleFromAnnotationSwapMH_indep(VectorXf &alpha, VectorXf &residual,
+                                              const MatrixXf &annoMat, const unsigned component);
+        void sampleFromAnnotationSwapMH_joint(MatrixXf &alpha, vector<VectorXf> &residuals,
+                                              const vector<MatrixXf> &annoMats);
+        void sampleFromFC_indep(const VectorXi &membership, const MatrixXf &annoMat,
+                                const VectorXf &sigmaSq, const VectorXf &pi, MatrixXf &snpP,
+                                const bool runAnnotationSwap);
+        void sampleFromFC_joint(const VectorXi &membership, const MatrixXf &annoMat,
+                                const VectorXf &sigmaSq, const float pi, MatrixXf &snpP,
+                                const bool runAnnotationSwap);
         void initIntercept(const VectorXf &pis);
     };
     
@@ -3012,6 +3069,7 @@ public:
     AnnoPIP annoPip;
     AnnoPIPs annoPips;
     bool sampleAnnoEffectsIndep;
+    bool annotationSwapEnabled;
 
     ApproxBayesRD(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool robustMode, const bool estimateRsqEnrich, const string &alg, const bool sampleAnnoEffectsIndepOpt = false, const bool message = true):
     ApproxBayesRC(data, lowRank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, alg, false),
@@ -3019,10 +3077,16 @@ public:
     annoCondProb(data.annoNames, annoEffects.numComp),
     annoPip(data.annoNames),
     annoPips(data.annoNames, annoEffects.numComp),
-    sampleAnnoEffectsIndep(sampleAnnoEffectsIndepOpt)
+    sampleAnnoEffectsIndep(sampleAnnoEffectsIndepOpt),
+    annotationSwapEnabled(true)
     {
         annoEffects.initIntercept(pis);
+        annoEffects.initializeSwapNeighbors(data.APA);
         piAnno.init(annoEffects.numComp);
+
+        const char *annotationSwapEnv = getenv("GCTB_RD_ANNO_SWAP");
+        if (annotationSwapEnv && string(annotationSwapEnv) == "0")
+            annotationSwapEnabled = false;
         
         paramSetVec = {&snpEffects, &snpPip, &snpHsqPep, &annoPip};
         paramSetVec.insert(paramSetVec.end(), annoPips.begin(), annoPips.end());
@@ -3033,7 +3097,6 @@ public:
         paramSetVec.insert(paramSetVec.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetVec.push_back(&annoTotalGenVar);
         paramSetVec.push_back(&annoPerSnpHsqEnrich);
-        paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
 
         if (data.numFixedEffectSnps) {
             paramVec = {&nnzSnp, &sigmaSq, &hsqFixed, &hsqRandom, &hsq, &vare};
@@ -3054,7 +3117,6 @@ public:
         paramSetToPrint.insert(paramSetToPrint.end(), annoGenVar.begin(), annoGenVar.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
-        paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
         if (sampleAnnoEffectsIndep) {
             paramSetToPrint.insert(paramSetToPrint.end(), annoPips.begin(), annoPips.end());
         } else {
@@ -3093,7 +3155,23 @@ public:
             }
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
             if (robustMode) cout << "Using a more robust parameterisation " << endl;
-            if (algorithm == tgs_thin) cout << "Using tempered Gibbs sampling (TGS)" << endl;
+            if (algorithm == tgs || algorithm == tgs_thin) {
+                cout << "Using posterior-corrected LD swap MH sampling";
+                if (algorithm == tgs_thin) cout << " every 10 iterations";
+                cout << endl;
+                if (estimatePi && annotationSwapEnabled) {
+                    unsigned numEdges = 0;
+                    for (unsigned i=1; i<annoEffects.swapNeighbors.size(); ++i)
+                        numEdges += annoEffects.swapNeighbors[i].size();
+                    if (numEdges) {
+                        cout << "Using posterior-corrected annotation swap MH sampling over "
+                             << numEdges / 2 << " correlated annotation pairs" << endl;
+                    } else {
+                        cout << "No annotation pairs with |r| >= 0.5; annotation swap MH is inactive"
+                             << endl;
+                    }
+                }
+            }
         }
     }
 

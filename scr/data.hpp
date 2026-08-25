@@ -27,6 +27,7 @@
 #include <cstdio>
 #include "gadgets.hpp"
 #include "stat.hpp"
+#include "options.hpp"
 
 using namespace std;
 using namespace Eigen;
@@ -175,12 +176,6 @@ public:
     // the following variables aim to read svd-ld matrix from SBayesRC-Eigen
     int startSnpIdx;
     int endSnpIdx;
-    int coreStartPos;
-    int coreEndPos;
-    int coreStartSnpIdx;
-    int coreEndSnpIdx;
-    int tilePhase;
-    int tileGroupSize;
     string sourceBlockID;
     int sourceTileID;
     
@@ -214,12 +209,6 @@ public:
         // svd'ed ld info
         startSnpIdx = -999;
         endSnpIdx = -999;
-        coreStartPos = -999;
-        coreEndPos = -999;
-        coreStartSnpIdx = -999;
-        coreEndSnpIdx = -999;
-        tilePhase = -999;
-        tileGroupSize = -999;
         sourceBlockID = "";
         sourceTileID = -999;
         //idxStart = -999;
@@ -229,14 +218,6 @@ public:
         numSnpInBlock = 0;
         kept = true;
         sumPosEigVal = 0;
-    }
-
-    bool hasCoreMetadata(void) const {
-        return coreStartSnpIdx >= 0 && coreEndSnpIdx >= coreStartSnpIdx;
-    }
-
-    bool hasTilePhaseMetadata(void) const {
-        return tilePhase >= 0 && tileGroupSize > 0;
     }
 
     bool hasCoreContextTileMetadata(void) const {
@@ -259,19 +240,6 @@ inline int eigenQColIndex(const LDBlockInfo *block, unsigned globalSnpIdx) {
         return block->eigenColRemap[i];
     }
     return -1;
-}
-
-inline bool isCoreSnp(const LDBlockInfo *block, unsigned globalSnpIdx) {
-    if (!block->hasCoreMetadata()) return true;
-    return (int)globalSnpIdx >= block->coreStartSnpIdx && (int)globalSnpIdx <= block->coreEndSnpIdx;
-}
-
-inline unsigned coreStartSnpIdx(const LDBlockInfo *block) {
-    return block->hasCoreMetadata() ? (unsigned)block->coreStartSnpIdx : (unsigned)block->startSnpIdx;
-}
-
-inline unsigned coreEndSnpIdx(const LDBlockInfo *block) {
-    return block->hasCoreMetadata() ? (unsigned)block->coreEndSnpIdx : (unsigned)block->endSnpIdx;
 }
 
 struct QuantizedEigenBlock {
@@ -394,6 +362,15 @@ struct TgsWorkset {
     vector<int> selectedSnps;
 
     TgsWorkset() : focalSnpIdx(0), blockIdx(0) {}
+};
+
+struct TgsLdMapEntry {
+    SnpInfo *focalSnp;
+    const vector<SnpInfo*> *ldFriends;
+
+    TgsLdMapEntry() : focalSnp(NULL), ldFriends(NULL) {}
+    TgsLdMapEntry(SnpInfo *focal, const vector<SnpInfo*> *friends)
+    : focalSnp(focal), ldFriends(friends) {}
 };
 
 class locus_bp {
@@ -687,12 +664,16 @@ public:
     bool weightedRes;
     
     bool lowRankModel;
-    bool overlapLdmEigen;
-    bool phasedTiledLdmEigen;
     bool coreContextLdmEigen;
     bool coreContextParallel;
+    bool integrateOutContext;
+    float contextMarginalVar;
+    bool precomputedMarginalizedContext;
+    bool marginalizedContextPrepared;
+    float marginalizedContextMaxRatio;
+    uint64_t marginalizedContextTotalLinks;
+    uint64_t marginalizedContextTotalFlankSnps;
     bool removeSkepticalSnps;
-    unsigned tileGroupSize;
     /// With --skip + --recompute-eigen: rebuild W/Q from LD submatrix of non-skipped SNPs per block
     bool recomputeEigen;
     /// Copied from Options before buildSparseMME / buildMMEeigen; used in scaleGwasEffects.
@@ -732,6 +713,7 @@ public:
     vector<vector<unsigned> > windowSnpIdxVec;
     
     map<SnpInfo*, vector<SnpInfo*> > LDmap;
+    vector<TgsLdMapEntry> tgsLdMapEntries;
     vector<TgsWorkset> tgsWorksets;
     vector<vector<TgsWorkset> > tgsWorksetsByBlock;
     
@@ -746,6 +728,10 @@ public:
     vector<MatrixXf> Qblocks;
     vector<QuantizedEigenBlock> quantizedEigenBlocks;
     vector<CoreContextLdBlock> coreContextLdBlocks;
+    vector<VectorXf> marginalizedContextEigenvalues;
+    vector<VectorXf> marginalizedContextOriginalNormWeights;
+    vector<uint64_t> marginalizedContextLinkCounts;
+    vector<unsigned> marginalizedContextFlankCounts;
     ///////// ld block end  ////////
     ///
     map<int, vector<int>> ldblock2gwasSnpMap;
@@ -803,12 +789,16 @@ public:
         makeWindows = false;
         weightedRes = false;
         lowRankModel = false;
-        overlapLdmEigen = false;
-        phasedTiledLdmEigen = false;
         coreContextLdmEigen = false;
         coreContextParallel = false;
+        integrateOutContext = false;
+        contextMarginalVar = -1.0f;
+        precomputedMarginalizedContext = false;
+        marginalizedContextPrepared = false;
+        marginalizedContextMaxRatio = 0.0f;
+        marginalizedContextTotalLinks = 0;
+        marginalizedContextTotalFlankSnps = 0;
         removeSkepticalSnps = true;
-        tileGroupSize = 1;
         recomputeEigen = false;
         gwasScalarMode = GwasScalarMode::LeastSquares;
     }
@@ -926,7 +916,6 @@ public:
     void readBlockLdmBinaryAndDoEigenDecomposition(const string &dirname, const unsigned block, const float eigenCutoff, const bool writeLdmTxt);
     
     void getEigenDataForLDBlock(const string &bedFile, const string &ldBlockInfoFile, int ldBlockRegionWind, const string &filename, const float eigenCutoff);
-    void makeTiledBlockEigen(const string &bedFile, const string &dirname, const float eigenCutoff, const float tileMb, const unsigned tileGroupSize, const unsigned tileMinSnps, const bool writeLdmTxt);
     void makeCoreContextTiledBlockEigenFromEigen(const string &eigenDirname, const string &dirname, const float eigenCutoff, const unsigned tileSnps, const unsigned tileMinSnps, const float flankR2Threshold, const bool writeLdmTxt, const bool mergeCombinedInfo = true, const int outputQuantBits = 0);
     void makeCoreContextTiledBlockEigenFromBlockLD(const string &ldmDirname, const string &dirname, const float eigenCutoff, const unsigned tileSnps, const unsigned tileMinSnps, const float flankR2Threshold, const bool writeLdmTxt, const bool mergeCombinedInfo = true, const int outputQuantBits = 0);
     void outputBlockLDmatrixInfo(const LDBlockInfo &block, const string &outSnpfile, const string &outldmfile) const;
@@ -946,6 +935,7 @@ public:
     void readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects, const VectorXf &nGWASblock, const bool noscale, const bool makePseudoSummary, const int quantizedBits = 0, const bool q8Entropy = false);
     void readEigenMatrixBinaryFileAndMakeWandQBivariate(const string &dirname, const float eigenCutoff, const vector<VectorXf> &GWASeffects1, const vector<VectorXf> &GWASeffects2, const vector<Vector2f> &nGWASblock, const bool noscale);
     void readCoreContextLdBlocks(const string &dirname);
+    void preparePrecomputedMarginalizedContext(void);
     void releasePseudoSummaryData(void);
 
     
@@ -1038,5 +1028,8 @@ public:
     void calcJointEnrichmentJackknifeLM(const string &paramStr, const string &title);
 
 };
+
+bool folderHasCoreContextEigenMetadata(const string &dirname);
+void ensureQuantizedOutputPairwiseLDSource(const Options &opt);
 
 #endif /* data_hpp */

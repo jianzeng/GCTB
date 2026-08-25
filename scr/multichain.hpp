@@ -413,7 +413,7 @@ public:
     public:
         ChainVecSBayesRC(const Data &data, const Options &opt){
             for (unsigned i=0; i<opt.numChains; ++i) {
-                this->push_back(new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.estimateRsqEnrich, opt.algorithm, false));
+                this->push_back(new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, false, opt.algorithm, false));
             }
         }
     };
@@ -573,13 +573,8 @@ public:
 
     class AnnoPerSnpRsqEnrichment : public MultiChainParamSet {
     public:
-        AnnoPerSnpRsqEnrichment(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("Marginal_Predictability_Enrichment", header, chains.size()){
-            for (unsigned i=0; i<numChains; ++i) {
-                chainVec.push_back(&chains[i]->annoPerSnpRsqEnrich);
-            }
-        }
-        
-        void compute(const VectorXf &snpCrossChainEffectProduct, const MatrixXf &annoMat, const vector<AnnoInfo*> &annoInfoVec);
+        AnnoPerSnpRsqEnrichment(const vector<string> &header, const ChainVecSBayesRC &chains):
+        MultiChainParamSet("Marginal_Predictability_Enrichment", header, chains.size()) {}
     };
 
     class AnnoJointPerSnpHsqEnrichment : public MultiChainParamSet {
@@ -591,17 +586,6 @@ public:
         }
     };
     
-    class AnnoJointPerSnpRsqEnrichment : public MultiChainParamSet {
-    public:
-        AnnoJointPerSnpRsqEnrichment(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("Joint_Predictability_Enrichment", header, chains.size()){
-            for (unsigned i=0; i<numChains; ++i) {
-                chainVec.push_back(&chains[i]->annoJointPerSnpRsqEnrich);
-            }
-        }
-        
-        void compute(const VectorXf &snpCrossChainEffectProduct, const MatrixXf &annoMat, const AnnoJointProb &annoJointProb, const VectorXf &gamma, const VectorXf &snpAnnoCntInv);
-    };
-
     class SnpHsqPEP : public MultiChainParamSet {
     public:
         SnpHsqPEP(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("PEP", header, chains.size()){
@@ -627,7 +611,6 @@ public:
     AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
     AnnoPerSnpRsqEnrichment annoPerSnpRsqEnrich;
     AnnoJointPerSnpHsqEnrichment annoJointPerSnpHsqEnrich;
-    AnnoJointPerSnpRsqEnrichment annoJointPerSnpRsqEnrich;
     MultiChainSBayesR::NumHighPIPs nHighPips;
     SnpHsqPEP snpHsqPep;
 
@@ -635,11 +618,15 @@ public:
     std::unique_ptr<MultiChainSBayesR::HeritabilityRandom> rcMcHsqRandom;
     
     const vector<LDBlockInfo*> &keptLdBlockInfoVec;
+    const vector<MatrixXf> &Qblocks;
+    const vector<QuantizedEigenBlock> &quantizedEigenBlocks;
     const MatrixXf &annoMat;
     const vector<AnnoInfo*> &annoInfoVec;
-    const VectorXf &snpAnnoCntInv;
-    
+
     bool estimateRsqEnrich;
+    bool quantizedRsqEnrich;
+    unsigned rsqEnrichBurnin;
+    unsigned rsqEnrichFreq;
     
     MultiChainSBayesRC(const Data &data, const Options &opt, const bool message = true):
     MultiChainSBayesR(data, opt, false, true),
@@ -659,15 +646,24 @@ public:
     annoPerSnpHsqEnrich(data.annoNames, chainVec),
     annoPerSnpRsqEnrich(data.annoNames, chainVec),
     annoJointPerSnpHsqEnrich(data.annoNames, chainVec),
-    annoJointPerSnpRsqEnrich(data.annoNames, chainVec),
     snpHsqPep(data.snpEffectNames, chainVec),
     keptLdBlockInfoVec(data.keptLdBlockInfoVec),
+    Qblocks(data.Qblocks),
+    quantizedEigenBlocks(data.quantizedEigenBlocks),
     annoMat(data.annoMat),
     annoInfoVec(data.annoInfoVec),
-    snpAnnoCntInv(chainVec[0]->snpAnnoCntInv),
-    estimateRsqEnrich(opt.estimateRsqEnrich)
+    estimateRsqEnrich(opt.estimateRsqEnrich),
+    quantizedRsqEnrich(chainVec.size() && chainVec[0]->quantizedLowRankModel),
+    rsqEnrichBurnin(opt.burnin),
+    rsqEnrichFreq(opt.thin ? opt.thin : 1)
     {
 
+        if (estimateRsqEnrich && !data.lowRankModel) {
+            throw("Error: --estimate-rsq-enrich requires eigen-decomposed LD data.");
+        }
+        if (estimateRsqEnrich && opt.numChains < 2) {
+            throw("Error: --estimate-rsq-enrich requires at least two MCMC chains.");
+        }
         if (data.numFixedEffectSnps) {
             rcMcHsqFixed.reset(new MultiChainSBayesR::HeritabilityFixed(chainVec));
             rcMcHsqRandom.reset(new MultiChainSBayesR::HeritabilityRandom(chainVec));
@@ -684,9 +680,7 @@ public:
 
         paramSetVec = {&snpEffects, &pip, &snpHsqPep, &annoTotalGenVar, &annoPerSnpHsqEnrich};
         if (estimateRsqEnrich) {
-            paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
             paramSetVec.push_back(&annoPerSnpRsqEnrich);
-            paramSetVec.push_back(&annoJointPerSnpRsqEnrich);
         }
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
         paramSetVec.insert(paramSetVec.end(), annoEffects.begin(), annoEffects.end());
@@ -709,9 +703,7 @@ public:
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
         if (estimateRsqEnrich) {
-            paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
             paramSetToPrint.push_back(&annoPerSnpRsqEnrich);
-            paramSetToPrint.push_back(&annoJointPerSnpRsqEnrich);
         }
 
         if (message) {
@@ -720,6 +712,9 @@ public:
                 cout << "Using the low-rank model" << endl;
             }
             if (opt.algorithm == "TGS_thin") cout << "Using tempered Gibbs sampling (TGS)" << endl;
+            if (estimateRsqEnrich)
+                cout << "Prediction-accuracy enrichment will be evaluated at every retained MCMC sample (every "
+                     << rsqEnrichFreq << " iterations after burn-in)." << endl;
             cout << "Gamma: " << gamma.values.transpose() << endl;
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
             if (numThreadTotal == 1) {
@@ -732,6 +727,7 @@ public:
     }
     
     void sampleUnknowns(const unsigned iter);
+    void computePredictionAccuracyEnrichment(void);
 };
 
 
@@ -1013,7 +1009,6 @@ public:
 
         paramSetVec = {&snpEffects, &pip, &snpHsqPep, &annoTotalGenVar, &annoPerSnpHsqEnrich, &annoPip};
         paramSetVec.insert(paramSetVec.end(), annoPips.begin(), annoPips.end());
-        paramSetVec.push_back(&annoJointPerSnpHsqEnrich);
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
         paramSetVec.insert(paramSetVec.end(), annoEffects.begin(), annoEffects.end());
         paramSetVec.insert(paramSetVec.end(), annoJointProb.begin(), annoJointProb.end());
@@ -1031,7 +1026,6 @@ public:
         paramSetToPrint.insert(paramSetToPrint.end(), annoJointProb.begin(), annoJointProb.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
-        paramSetToPrint.push_back(&annoJointPerSnpHsqEnrich);
         if (sampleAnnoEffectsIndep) {
             paramSetToPrint.insert(paramSetToPrint.end(), annoPips.begin(), annoPips.end());
         } else {

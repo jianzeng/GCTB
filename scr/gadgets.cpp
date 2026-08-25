@@ -10,6 +10,7 @@
 #include <boost/format.hpp>
 #if defined(__linux__)
 #include <unistd.h>
+#include <malloc.h>
 #elif defined(__APPLE__) && defined(__MACH__)
 #include <mach/mach.h>
 #endif
@@ -133,6 +134,23 @@ double Gadget::getMaxResidentMemoryGb() {
 #else
     return static_cast<double>(usage.ru_maxrss) / (1024.0 * 1024.0);
 #endif
+}
+
+void Gadget::releaseFreedHeapToOS() {
+#if defined(__linux__)
+    malloc_trim(0);
+#endif
+}
+
+void Gadget::printMaxResidentMemory() {
+    const double memGb = getMaxResidentMemoryGb();
+    if (memGb >= 0.0)
+        cout << "Max memory usage: " << boost::format("%.2f") % memGb << " GB" << endl;
+}
+
+bool Gadget::fileExistsAndNonEmpty(const string &filename) {
+    ifstream in(filename.c_str(), ios::ate | ios::binary);
+    return in.is_open() && static_cast<long long>(in.tellg()) > 0;
 }
 
 void Gadget::printMemoryCheckpoint(const string &label) {

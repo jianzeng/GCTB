@@ -14,8 +14,51 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <zlib.h>
+#include <dirent.h>
 
 // most read file methods are adopted from GCTA with modification
+
+bool folderHasCoreContextEigenMetadata(const string &dirname) {
+    ifstream ldm((dirname + "/ldm.info").c_str());
+    if (ldm.good()) {
+        string header;
+        getline(ldm, header);
+        if (header.find("SourceBlockID") != string::npos && header.find("TileID") != string::npos)
+            return true;
+    }
+    DIR* dirp = opendir(dirname.c_str());
+    if (dirp != NULL) {
+        dirent* dp;
+        while ((dp = readdir(dirp)) != NULL) {
+            string fileName = dp->d_name;
+            if (fileName.find("block") == 0 && fileName.size() > 9
+                && fileName.rfind(".ldm.info") == fileName.size() - 9) {
+                ifstream blockLdm((dirname + "/" + fileName).c_str());
+                string header;
+                getline(blockLdm, header);
+                if (header.find("SourceBlockID") != string::npos && header.find("TileID") != string::npos) {
+                    closedir(dirp);
+                    return true;
+                }
+            }
+        }
+        closedir(dirp);
+    }
+    ifstream ctx((dirname + "/block1.ctx.bin").c_str(), ios::binary);
+    if (ctx.good()) return true;
+    ifstream rcf((dirname + "/block1.rcf.bin").c_str(), ios::binary);
+    return rcf.good();
+}
+
+void ensureQuantizedOutputPairwiseLDSource(const Options &opt) {
+    const string pwldFile = pairwiseLDPath(opt.quantEigenInputDir, "rsq0.5.pwld");
+    if (Gadget::fileExistsAndNonEmpty(pwldFile)) return;
+    cout << "Pairwise LD file [" << pwldFile << "] not found; generating it from input float eigen data for quantized TGS..." << endl;
+    Data data;
+    data.readBlockLdmInfoFile(opt.quantEigenInputDir);
+    data.readBlockLdmSnpInfoFile(opt.quantEigenInputDir);
+    data.getLDfromEigenMatrix(opt.quantEigenInputDir, 0.5, opt.quantEigenInputDir + "/rsq0.5");
+}
 
 bool SnpInfo::isProximal(const SnpInfo &snp2, const float genWindow) const {
     return chrom == snp2.chrom && fabs(genPos - snp2.genPos) < genWindow;
@@ -7149,6 +7192,18 @@ void Data::getLDfromEigenMatrix(const string &eigenMatrixFile, const float rsqTh
     cout << "Output binary LD information into [" + binFilename + "]." << endl;
 }
 
+static void buildTgsLdMapEntries(const map<SnpInfo*, vector<SnpInfo*> > &LDmap,
+                                 vector<TgsLdMapEntry> &entries) {
+    entries.clear();
+    entries.reserve(LDmap.size());
+    for (map<SnpInfo*, vector<SnpInfo*> >::const_iterator it = LDmap.begin(); it != LDmap.end(); ++it)
+        entries.push_back(TgsLdMapEntry(it->first, &it->second));
+    sort(entries.begin(), entries.end(),
+         [](const TgsLdMapEntry &a, const TgsLdMapEntry &b) {
+             return a.focalSnp->index < b.focalSnp->index;
+         });
+}
+
 void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold, const bool buildTgsWorksets){
     if (endsWithString(ldfile, ".bin")) {
         FILE *bin = fopen(ldfile.c_str(), "rb");
@@ -7194,7 +7249,9 @@ void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold, const
 
         tgsWorksets.clear();
         tgsWorksetsByBlock.clear();
+        tgsLdMapEntries.clear();
         if (buildTgsWorksets) {
+            buildTgsLdMapEntries(LDmap, tgsLdMapEntries);
             tgsWorksets.reserve(LDmap.size());
             tgsWorksetsByBlock.resize(keptLdBlockInfoVec.size());
             for (itLDmap=LDmap.begin(); itLDmap!=endLDmap; ++itLDmap) {
@@ -7302,7 +7359,9 @@ void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold, const
 
     tgsWorksets.clear();
     tgsWorksetsByBlock.clear();
+    tgsLdMapEntries.clear();
     if (buildTgsWorksets) {
+        buildTgsLdMapEntries(LDmap, tgsLdMapEntries);
         tgsWorksets.reserve(LDmap.size());
         tgsWorksetsByBlock.resize(keptLdBlockInfoVec.size());
         for (itLDmap=LDmap.begin(); itLDmap!=endLDmap; ++itLDmap) {
@@ -7477,6 +7536,7 @@ void Data::inputLDfriends(const string &ldfriendFile){
     cout << "Reading LD friends from file [" << ldfriendFile << "]..." << endl;
 
     LDmap.clear();
+    tgsLdMapEntries.clear();
     map<string, SnpInfo*>::iterator it1, it2, end = snpInfoMap.end();
 
     string snp1ID, snp2ID;
@@ -7520,6 +7580,7 @@ void Data::inputLDfriends(const string &ldfriendFile){
         ++cnt;
         sum += itLDmap->second.size();
     }
+    buildTgsLdMapEntries(LDmap, tgsLdMapEntries);
     
     const float avgNumLdFriends = cnt ? float(sum)/float(cnt) : 0.0f;
     cout << "Found on average " << avgNumLdFriends << " LD friends for each SNP." << endl;

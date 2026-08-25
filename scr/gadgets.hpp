@@ -82,6 +82,9 @@ bool createDirectory(const string& dirname);
 double getCurrentResidentMemoryGb();
 double getMaxResidentMemoryGb();
 void printMemoryCheckpoint(const string &label);
+void printMaxResidentMemory();
+void releaseFreedHeapToOS();
+bool fileExistsAndNonEmpty(const string &filename);
 
 // statistics functions
 float calcMean(const VectorXf &vec);
