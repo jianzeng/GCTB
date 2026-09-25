@@ -84,6 +84,7 @@ public:
     bool integrateOutContext;  // marginalize cross-tile effects as a Gaussian covariance in SBayesRC
     bool estimateContextVar;   // estimate the global context-to-residual variance ratio
     float contextMarginalVar;  // initial marginal variance of each omitted SNP effect
+    bool sampleResidualVarUnconditionally;  // always accept low-rank block residual-variance draws
     
     bool estimatePi;
     bool estimateSigmaSq; // variance of SNP effects
@@ -257,6 +258,7 @@ public:
         integrateOutContext     = false;
         estimateContextVar      = false;
         contextMarginalVar      = -1.0f;
+        sampleResidualVarUnconditionally = false;
 
         // Bayes R defaults
         numDist                  = 5;
@@ -301,7 +303,7 @@ public:
         twoStageModel           = false;
         binSnp                  = false;
         robustMode              = false;
-        removeSkepticalSnps     = true;
+        removeSkepticalSnps     = false;
         perSnpGV                = false;
         mergeLdm                = false;
         keepBlockMergeFiles     = false;

@@ -524,9 +524,9 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
             % snp->physPos
             % snp->af
             % snpEffectsMale->posteriorMean[idx]
-            % sqrt(snpEffectsMale->posteriorSqrMean[idx]-snpEffectsMale->posteriorMean[idx]*snpEffectsMale->posteriorMean[idx])
+            % snpEffectsMale->sdAt(idx)
             % snpEffectsFemale->posteriorMean[idx]
-            % sqrt(snpEffectsFemale->posteriorSqrMean[idx]-snpEffectsFemale->posteriorMean[idx]*snpEffectsFemale->posteriorMean[idx])
+            % snpEffectsFemale->sdAt(idx)
             % pip->posteriorMean[idx]
             % deltaNDC->posteriorMean[idx]
             % deltaFDC->posteriorMean[idx]
@@ -592,9 +592,9 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
             % snp->physPos
             % snp->af
             % snpEffectsMale->posteriorMean[idx]
-            % sqrt(snpEffectsMale->posteriorSqrMean[idx]-snpEffectsMale->posteriorMean[idx]*snpEffectsMale->posteriorMean[idx])
+            % snpEffectsMale->sdAt(idx)
             % snpEffectsFemale->posteriorMean[idx]
-            % sqrt(snpEffectsFemale->posteriorSqrMean[idx]-snpEffectsFemale->posteriorMean[idx]*snpEffectsFemale->posteriorMean[idx])
+            % snpEffectsFemale->sdAt(idx)
             % pip->posteriorMean[idx]
             % deltaNDC->posteriorMean[idx]
             % deltaGxS->posteriorMean[idx]
@@ -643,7 +643,7 @@ void XCI::outputResults(const Data &data, const vector<McmcSamples*> &mcmcSample
             % snp->physPos
             % snp->af
             % snpEffects->posteriorMean[idx]
-            % sqrt(snpEffects->posteriorSqrMean[idx]-snpEffects->posteriorMean[idx]*snpEffects->posteriorMean[idx])
+            % snpEffects->sdAt(idx)
             % pip->posteriorMean[idx]
             % deltaNDC->posteriorMean[idx];
             ++idx;

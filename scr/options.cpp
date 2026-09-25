@@ -387,6 +387,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
                 throw("\nError: --context-marginal-var must be greater than zero.\n");
             ss << "--context-marginal-var " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--sample-residual-var-unconditionally")) {
+            sampleResidualVarUnconditionally = true;
+            ss << "--sample-residual-var-unconditionally " << "\n";
+        }
         else if (!strcmp(argv[i], "--bits")) {
             quantEigenBits = stoi(argv[++i]);
             if (quantEigenBits != 8 && quantEigenBits != 16)
@@ -701,6 +705,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
         }
         else if (!strcmp(argv[i], "--keep-skeptical-snps")) {
             removeSkepticalSnps = false;
+            ss << argv[i] << "\n";
+        }
+        else if (!strcmp(argv[i], "--remove-skeptical-snps")) {
+            removeSkepticalSnps = true;
             ss << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--snp")) {
@@ -1098,6 +1106,8 @@ void Options::readFile(const string &file){  // input options from file
             contextMarginalVar = stof(value);
             if (!(contextMarginalVar > 0.0f))
                 throw(" Error: contextMarginalVar in option file must be greater than zero.");
+        } else if (key == "sampleResidualVarUnconditionally") {
+            sampleResidualVarUnconditionally = (value == "Yes" || value == "yes" || value == "true" || value == "1");
         } else if (key == "viInit") {
             viInit = (value == "Yes" || value == "yes" || value == "true" || value == "1");
         } else if (key == "viIter") {
@@ -1161,6 +1171,8 @@ void Options::readFile(const string &file){  // input options from file
             chisqThreshold = stof(value);
         } else if (key == "snpRange") {
             snpRange = value;
+        } else if (key == "removeSkepticalSnps") {
+            removeSkepticalSnps = (value == "Yes" || value == "yes" || value == "true" || value == "1");
         } else if (key == "multiThreadEigen") {
             multiThreadEigen = true;
         } else if (key == "outLDmatType") {

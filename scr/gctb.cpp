@@ -279,6 +279,7 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
                         const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool hsqPercModel, const bool perSnpGV, const bool robustMode, const bool nDistAuto, const bool estimateRsqEnrich){
     
     data.removeSkepticalSnps = opt.removeSkepticalSnps;
+    data.sampleResidualVarUnconditionally = opt.sampleResidualVarUnconditionally;
     data.coreContextParallel = opt.coreContextParallel;
     data.integrateOutContext = opt.integrateOutContext;
     data.contextMarginalVar = opt.contextMarginalVar;
@@ -295,14 +296,12 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
             throw(" Error: --integrate-out-context already samples tiles in parallel; do not combine it with --core-context-parallel.");
         if (opt.viInit)
             throw(" Error: --vi-init is not supported with --integrate-out-context.");
-        if (opt.numChains > 1)
-            throw(" Error: --integrate-out-context is currently implemented for a single SBayesRC chain.");
         if (!(opt.contextMarginalVar > 0.0f))
             throw(" Error: --integrate-out-context requires a positive --context-marginal-var.");
         if (opt.estimateContextVar && !data.precomputedMarginalizedContext)
             throw(" Error: --estimate-context-var requires regenerated tiled LD containing block*.tiles.mctx.bin files.");
-        if (opt.estimateContextVar && opt.analysisType != "SBayes")
-            throw(" Error: --estimate-context-var is currently supported only for a single --sbayes RC model.");
+        if (opt.numChains > 1 && !data.precomputedMarginalizedContext)
+            throw(" Error: multi-chain marginalized-context sampling requires regenerated tiled LD containing block*.tiles.mctx.bin files.");
         data.preparePrecomputedMarginalizedContext();
     } else if (opt.contextMarginalVar > 0.0f) {
         throw(" Error: --context-marginal-var requires --integrate-out-context.");
@@ -351,7 +350,7 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
             else if (bayesType == "RC")
                 return new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, algorithm,
                                          true, opt.viInit, opt.viIter, opt.viAnnoFreq, opt.viDampSnp, opt.viDampAnno, opt.viDampVar,
-                                         opt.estimateContextVar, &data);
+                                         opt.estimateContextVar);
             else if (bayesType == "RD" || bayesType == "RD_indep")
                 return new ApproxBayesRD(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, algorithm, bayesType == "RD_indep");
             else if (bayesType == "APP") {
@@ -462,6 +461,12 @@ void GCTB::findBestFitModel(Data &data, Options &opt){
         throw(" Error: --n-dist-auto-hsq is available only in R, RC, RD, or RD_indep model. Current model is " + opt.bayesType + ".");
     }
     data.initVariances(opt.heritability, opt.propVarRandom);
+    if (data.integrateOutContext) {
+        if (!data.precomputedMarginalizedContext) {
+            throw(" Error: GWFM component selection with --integrate-out-context requires regenerated tiled LD containing block*.tiles.mctx.bin files.");
+        }
+        data.preparePrecomputedMarginalizedContext();
+    }
     Stat::logRngCheckpoint("findBestFitModel_after_initVariances");
 
     Stat::logRngCheckpoint("findBestFitModel_before_MultiModelSBayesR");
@@ -774,9 +779,9 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
         if (snpEff1 && pip1 && snpEff2 && pip2)
             data.outputBivariateSnpResults(snpEff1->posteriorMean, snpEff1->posteriorSqrMean, pip1->posteriorMean,
                                            snpEff2->posteriorMean, snpEff2->posteriorSqrMean, pip2->posteriorMean,
-                                           noscale, filename + ".snpRes");
+                                           noscale, filename + ".snpRes", snpEff1->sd(), snpEff2->sd());
         else if (snpEff1 && pip1)
-            data.outputSnpResults(snpEff1->posteriorMean, snpEff1->posteriorSqrMean, pip1->posteriorMean, noscale, filename + ".snpRes");
+            data.outputSnpResults(snpEff1->posteriorMean, snpEff1->posteriorSqrMean, pip1->posteriorMean, noscale, filename + ".snpRes", false, snpEff1->sd());
         return;
     }
 
@@ -794,7 +799,7 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
             if (pip == NULL) {
                 throw("Error: couldn't find MCMC samples for PIP!\n");
             }
-            data.outputSnpResults(mcmcSamples->posteriorMean, mcmcSamples->posteriorSqrMean, pip->posteriorMean, noscale, filename + ".snpRes");
+            data.outputSnpResults(mcmcSamples->posteriorMean, mcmcSamples->posteriorSqrMean, pip->posteriorMean, noscale, filename + ".snpRes", false, mcmcSamples->sd());
         }
         else if (mcmcSamples->label == "CovEffects") {
 //            if (mcmcSamples->datMat.size()) data.outputFixedEffects(mcmcSamples->datMat, filename + ".covRes");
@@ -843,7 +848,7 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
             % snp->physPos
             % snp->af
             % snpEffects->posteriorMean[i]
-            % sqrt(snpEffects->posteriorSqrMean[i]-snpEffects->posteriorMean[i]*snpEffects->posteriorMean[i])
+            % snpEffects->sdAt(i)
             % (2.0*snp->af*(1.0-snp->af)*snpEffects->posteriorSqrMean[i])
             % pip->posteriorMean[i]
             % delta->posteriorMean[i];
@@ -904,7 +909,7 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
             if (snp->gwas_scalar) sqrt2pq = snp->gwas_scalar;
             float effect = (snp->flipped ? - snpEffects->posteriorMean[idx] : snpEffects->posteriorMean[idx]);
             float varExp = snpEffects->posteriorSqrMean[idx];
-            float se = sqrt(snpEffects->posteriorSqrMean[idx]-snpEffects->posteriorMean[idx]*snpEffects->posteriorMean[idx]);
+            float se = snpEffects->sdAt(idx);
             if (snp->unconverged) {
                 effect = 0.0;
                 varExp = 0.0;
@@ -1089,7 +1094,7 @@ void GCTB::calcCredibleSets(Data &data, const string &snpResFile, McmcSamples &s
     
     string unconvergedSnpFile = title + ".skepticalSNPs";
     ifstream in(unconvergedSnpFile.c_str());
-    if (in) data.readUnconvergedSnplist(unconvergedSnpFile);
+    if (data.removeSkepticalSnps && in) data.readUnconvergedSnplist(unconvergedSnpFile);
     for (unsigned j=0; j<data.numSnps; ++j) {
         SnpInfo *snpj = data.snpInfoVec[j];
         if (snpj->unconverged) snpEffects.datMatSp.col(j) *= 0;
@@ -1410,7 +1415,7 @@ void GCTB::calcCredibleSets(Data &data, McmcSamples &snpEffects, const float pip
     // set the unconverged SNP effects to be zero
     string unconvergedSnpFile = title + ".skepticalSNPs";
     ifstream in(unconvergedSnpFile.c_str());
-    if (in) data.readUnconvergedSnplist(unconvergedSnpFile);
+    if (data.removeSkepticalSnps && in) data.readUnconvergedSnplist(unconvergedSnpFile);
     
     //data.filterSnpByGelmanRubinStat(1.2);
     

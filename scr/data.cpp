@@ -1597,7 +1597,7 @@ void Data::buildSparseMME(const string &bedFile, const unsigned windowWidth){
 //    out.close();
 }
 
-void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const bool noscale, const string &filename, const bool useScalar2) const {
+void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const bool noscale, const string &filename, const bool useScalar2, const VectorXf &posteriorSD) const {
     ofstream out(filename.c_str());
     out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s %8s")
     % "Index"
@@ -1622,7 +1622,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
         if (sc) sqrt2pq = sc;
         float effect = (snp->flipped ? -posteriorMean[idx] : posteriorMean[idx]);
         float varExp = posteriorSqrMean[idx];
-        float se = sqrt(posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]);
+        float se = posteriorSD.size() ? posteriorSD[idx] : sqrt(std::max(0.0f, posteriorSqrMean[idx]-posteriorMean[idx]*posteriorMean[idx]));
         if (snp->unconverged) {
             effect = 0.0;
             varExp = 0.0;
@@ -1649,7 +1649,7 @@ void Data::outputSnpResults(const VectorXf &posteriorMean, const VectorXf &poste
 
 void Data::outputBivariateSnpResults(const VectorXf &posteriorMean1, const VectorXf &posteriorSqrMean1, const VectorXf &pip1,
                                      const VectorXf &posteriorMean2, const VectorXf &posteriorSqrMean2, const VectorXf &pip2,
-                                     const bool noscale, const string &filename) const {
+                                     const bool noscale, const string &filename, const VectorXf &sd1, const VectorXf &sd2) const {
     ofstream out(filename.c_str());
     out << boost::format("%6s %20s %6s %12s %6s %6s %12s %12s %12s %12s %8s %12s %12s %12s %12s %8s")
     % "Index"
@@ -1679,7 +1679,7 @@ void Data::outputBivariateSnpResults(const VectorXf &posteriorMean1, const Vecto
         float sqrt2pq1 = sqrt(2.0 * snp->af * (1.0 - snp->af));
         if (snp->gwas_scalar)  sqrt2pq1 = snp->gwas_scalar;
         float eff1 = snp->flipped ? -posteriorMean1[idx] : posteriorMean1[idx];
-        float se1  = sqrt(posteriorSqrMean1[idx] - posteriorMean1[idx] * posteriorMean1[idx]);
+        float se1  = sd1.size() ? sd1[idx] : sqrt(std::max(0.0f, posteriorSqrMean1[idx] - posteriorMean1[idx] * posteriorMean1[idx]));
         float var1 = posteriorSqrMean1[idx];
         if (snp->unconverged) { eff1 = 0; se1 = 0; var1 = 0; }
 
@@ -1687,7 +1687,7 @@ void Data::outputBivariateSnpResults(const VectorXf &posteriorMean1, const Vecto
         float sqrt2pq2 = sqrt(2.0 * snp->af * (1.0 - snp->af));
         if (snp->gwas_scalar2) sqrt2pq2 = snp->gwas_scalar2;
         float eff2 = snp->flipped ? -posteriorMean2[idx] : posteriorMean2[idx];
-        float se2  = sqrt(posteriorSqrMean2[idx] - posteriorMean2[idx] * posteriorMean2[idx]);
+        float se2  = sd2.size() ? sd2[idx] : sqrt(std::max(0.0f, posteriorSqrMean2[idx] - posteriorMean2[idx] * posteriorMean2[idx]));
         float var2 = posteriorSqrMean2[idx];
         if (snp->unconverged) { eff2 = 0; se2 = 0; var2 = 0; }
 

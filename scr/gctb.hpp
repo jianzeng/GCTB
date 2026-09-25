@@ -60,7 +60,7 @@ public:
                       const float icrsq, const float spouseCorrelation, const bool diagnosticMode, const bool hsqPercModel, const bool perSnpGV, const bool robustMode, const bool nDistAuto, const bool estimateRsqEnrich);
     vector<McmcSamples*> runMcmc(Model &model, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin, const unsigned outputFreq, const string &title, const bool writeBinPosterior, const bool writeTxtPosterior);
     void saveMcmcSamples(const vector<McmcSamples*> &mcmcSampleVec, const string &filename);
-    void outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &bayesType, const bool noscale, const string &filename, const bool removeSkepticalSnps = true);
+    void outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &bayesType, const bool noscale, const string &filename, const bool removeSkepticalSnps = false);
     void findBestFitModel(Data &data, Options &opt);
     void findBestFitModelByPredictionAccuracy(Data &data, Options &opt, const float eigenCutoffUsed);
 

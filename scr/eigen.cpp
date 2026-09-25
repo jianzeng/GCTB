@@ -20,6 +20,7 @@
 #include <unordered_set>
 #include <cstring>
 #include <iomanip>
+#include <limits.h>
 #include <zlib.h>
 #ifdef _OPENMP
 #include <omp.h>
@@ -31,6 +32,8 @@ bool fileExistsAndNonEmptyLocal(const string &filename) {
     ifstream in(filename.c_str(), ios::ate | ios::binary);
     return in.is_open() && static_cast<long long>(in.tellg()) > 0;
 }
+
+bool pairwiseLdHasRecordsLocal(const string &filename);
 
 void updateFnv1a(uint64_t &hash, const string &value) {
     for (unsigned i = 0; i < value.size(); ++i) {
@@ -76,9 +79,9 @@ bool combinedMergeOutputsReadyLocal(const string &dirname, const bool requirePai
     if (!getline(ldmIn, header) || !getline(ldmIn, firstRecord) || firstRecord.empty()) return false;
 
     if (!requirePairwiseLD) return true;
-    return fileExistsAndNonEmptyLocal(dirname + "/rsq0.5.pwld.gz")
-        || fileExistsAndNonEmptyLocal(dirname + "/rsq0.5.pwld.bin")
-        || fileExistsAndNonEmptyLocal(dirname + "/rsq0.5.pwld");
+    return pairwiseLdHasRecordsLocal(dirname + "/rsq0.5.pwld.bin")
+        || pairwiseLdHasRecordsLocal(dirname + "/rsq0.5.pwld")
+        || pairwiseLdHasRecordsLocal(dirname + "/rsq0.5.pwld.gz");
 }
 
 bool readMergeMarkerLocal(const string &filename, unsigned &blockCount, uint64_t &signature, bool &pairwiseLDReady) {
@@ -129,6 +132,23 @@ const char TILED_EIGEN_BUNDLE_MAGIC[8] = {'G','C','T','B','T','E','G','1'};
 const uint32_t TILED_EIGEN_BUNDLE_VERSION = 1;
 const char MARGINAL_CONTEXT_BUNDLE_MAGIC[8] = {'G','C','T','B','M','C','X','1'};
 const uint32_t MARGINAL_CONTEXT_BUNDLE_VERSION = 1;
+
+void cacheRealizedQdiag(LDBlockInfo *block, const MatrixXf &Q) {
+    block->qDiag = Q.colwise().squaredNorm().transpose();
+    for (int j = 0; j < block->qDiag.size(); ++j) {
+        if (!(block->qDiag[j] >= 0.0f) || !isfinite(block->qDiag[j]))
+            throw("Error: invalid realized Q'Q diagonal in LD block " + block->ID + ".");
+    }
+}
+
+void cacheRealizedQdiag(LDBlockInfo *block, const QuantizedEigenBlock &Q) {
+    block->qDiag.resize(Q.m);
+    for (int j = 0; j < Q.m; ++j) {
+        block->qDiag[j] = Q.dotQColumns(j, j);
+        if (!(block->qDiag[j] >= 0.0f) || !isfinite(block->qDiag[j]))
+            throw("Error: invalid realized quantized Q'Q diagonal in LD block " + block->ID + ".");
+    }
+}
 
 struct PwldBinRecord {
     uint32_t snp1;
@@ -394,7 +414,8 @@ bool isBlockSpecificMergeInputLocal(const string &fname) {
         || hasSuffixLocal(fname, ".ldm.info")
         || hasSuffixLocal(fname, ".rsq0.5.pwld")
         || hasSuffixLocal(fname, ".rsq0.5.pwld.gz")
-        || hasSuffixLocal(fname, ".rsq0.5.pwld.bin");
+        || hasSuffixLocal(fname, ".rsq0.5.pwld.bin")
+        || hasSuffixLocal(fname, ".pwld.source");
 }
 
 unsigned removeBlockSpecificMergeInputsLocal(const string &dirname) {
@@ -443,7 +464,10 @@ void removeSourceBlockTiledOutputs(const string &dirname, const string &sourceBl
     removeFileIfExistsLocal(prefix + ".tiles.eigen.bin");
     removeFileIfExistsLocal(prefix + ".tiles.eigen.q16.bin");
     removeFileIfExistsLocal(prefix + ".tiles.mctx.bin");
+    removeFileIfExistsLocal(prefix + ".rsq0.5.pwld");
     removeFileIfExistsLocal(prefix + ".rsq0.5.pwld.gz");
+    removeFileIfExistsLocal(prefix + ".rsq0.5.pwld.bin");
+    removeFileIfExistsLocal(prefix + ".pwld.source");
     removeFileIfExistsLocal(prefix + ".done");
 }
 
@@ -640,13 +664,6 @@ void writeCoreContextLdBlockBinary(const string &filename, const CoreContextLdBl
         fwrite(&rec, sizeof(CoreContextBinRecord), 1, outbin);
     }
     fclose(outbin);
-}
-
-void writeEmptyPwldGz(const string &filename) {
-    gzFile out = gzopen(filename.c_str(), "wb");
-    if (!out) throw("Error: can not open the file [" + filename + "] to write.");
-    gzprintf(out, "%12s %12s %12s\n", "SNP1", "SNP2", "LDcorrelation");
-    gzclose(out);
 }
 
 void writePwldGzFromDense(const string &filename, const vector<SnpInfo*> &sourceSnps,
@@ -1521,6 +1538,133 @@ bool readGzLineLocal(gzFile in, string &line) {
     return true;
 }
 
+bool pairwiseLdHasRecordsLocal(const string &filename) {
+    if (!fileExistsAndNonEmptyLocal(filename)) return false;
+
+    if (hasSuffixLocal(filename, ".bin")) {
+        FILE *in = fopen(filename.c_str(), "rb");
+        if (!in) return false;
+        char magic[8];
+        uint32_t version = 0;
+        uint64_t numSnps = 0;
+        uint64_t numRecords = 0;
+        const bool valid = fread(magic, sizeof(char), 8, in) == 8
+            && fread(&version, sizeof(uint32_t), 1, in) == 1
+            && fread(&numSnps, sizeof(uint64_t), 1, in) == 1
+            && fread(&numRecords, sizeof(uint64_t), 1, in) == 1
+            && memcmp(magic, PWLD_BIN_MAGIC, 8) == 0
+            && version == PWLD_BIN_VERSION;
+        fclose(in);
+        return valid && numRecords > 0;
+    }
+
+    string line;
+    if (hasSuffixLocal(filename, ".gz")) {
+        gzFile in = gzopen(filename.c_str(), "rb");
+        if (!in) return false;
+        readGzLineLocal(in, line);  // header
+        while (readGzLineLocal(in, line)) {
+            if (!line.empty()) {
+                gzclose(in);
+                return true;
+            }
+        }
+        gzclose(in);
+        return false;
+    }
+
+    ifstream in(filename.c_str());
+    getline(in, line);  // header
+    while (getline(in, line)) {
+        if (!line.empty()) return true;
+    }
+    return false;
+}
+
+string findPairwiseLdWithRecordsForBaseLocal(const string &base) {
+    const string candidates[3] = {base + ".bin", base, base + ".gz"};
+    for (unsigned i = 0; i < 3; ++i) {
+        if (pairwiseLdHasRecordsLocal(candidates[i])) return candidates[i];
+    }
+    return "";
+}
+
+string absolutePathLocal(const string &filename) {
+    char resolved[PATH_MAX];
+    if (!realpath(filename.c_str(), resolved))
+        throw("Error: can not resolve pairwise LD file path [" + filename + "].");
+    return string(resolved);
+}
+
+void copyFileBinaryLocal(const string &source, const string &destination) {
+    ifstream in(source.c_str(), ios::binary);
+    if (!in) throw("Error: can not open pairwise LD source [" + source + "] to copy.");
+    const string temporary = destination + ".tmp";
+    ofstream out(temporary.c_str(), ios::binary | ios::trunc);
+    if (!out) throw("Error: can not open pairwise LD destination [" + temporary + "] to write.");
+    out << in.rdbuf();
+    out.close();
+    if (in.bad() || !out)
+        throw("Error: failed while copying pairwise LD file [" + source + "] to [" + destination + "].");
+    if (rename(temporary.c_str(), destination.c_str()) != 0) {
+        remove(temporary.c_str());
+        throw("Error: can not install copied pairwise LD file [" + destination + "].");
+    }
+}
+
+string copyPairwiseLdToBaseLocal(const string &source, const string &destinationBase) {
+    string destination = destinationBase;
+    if (hasSuffixLocal(source, ".bin")) destination += ".bin";
+    else if (hasSuffixLocal(source, ".gz")) destination += ".gz";
+    copyFileBinaryLocal(source, destination);
+    const string variants[3] = {destinationBase, destinationBase + ".gz", destinationBase + ".bin"};
+    for (unsigned i = 0; i < 3; ++i) {
+        if (variants[i] != destination) removeFileIfExistsLocal(variants[i]);
+    }
+    return destination;
+}
+
+void writePwldSourceMarkerLocal(const string &dirname, const string &blockID, const string &source) {
+    const string marker = dirname + "/block" + blockID + ".pwld.source";
+    ofstream out(marker.c_str());
+    if (!out) throw("Error: can not write pairwise LD source marker [" + marker + "].");
+    out << absolutePathLocal(source) << '\n';
+}
+
+string installRecordedPairwiseLdSourceLocal(const string &dirname) {
+    DIR *dirp = opendir(dirname.c_str());
+    if (!dirp) throw("Error: can not open folder [" + dirname + "] to find pairwise LD source markers.");
+    vector<string> markers;
+    dirent *dp;
+    while ((dp = readdir(dirp)) != NULL) {
+        const string fname = dp->d_name;
+        if (fname.find("block") == 0 && hasSuffixLocal(fname, ".pwld.source"))
+            markers.push_back(dirname + "/" + fname);
+    }
+    closedir(dirp);
+    if (markers.empty()) return "";
+
+    string source;
+    for (unsigned i = 0; i < markers.size(); ++i) {
+        ifstream in(markers[i].c_str());
+        string candidate;
+        getline(in, candidate);
+        if (!candidate.empty() && candidate[candidate.size() - 1] == '\r') candidate.erase(candidate.size() - 1);
+        if (candidate.empty() || !pairwiseLdHasRecordsLocal(candidate))
+            throw("Error: pairwise LD source recorded in [" + markers[i] + "] is missing or has no records.");
+        candidate = absolutePathLocal(candidate);
+        if (source.empty()) source = candidate;
+        else if (source != candidate)
+            throw("Error: tiled block jobs recorded different combined pairwise LD sources; cannot choose one safely.");
+    }
+
+    const string existing = findPairwiseLdWithRecordsForBaseLocal(dirname + "/rsq0.5.pwld");
+    if (!existing.empty()) return existing;
+    const string installed = copyPairwiseLdToBaseLocal(source, dirname + "/rsq0.5.pwld");
+    cout << "Copied source pairwise LD file [" << source << "] to [" << installed << "]." << endl;
+    return installed;
+}
+
 struct EigenNbThreadsGuard {
     int saved;
     EigenNbThreadsGuard() : saved(Eigen::nbThreads()) {
@@ -1956,6 +2100,11 @@ void quantizeEigenMatrixToBlock(const MatrixXf &U, const VectorXf &lambda, const
 }
 
 VectorXf makeWcorrFromQuantizedEigen(const QuantizedEigenBlock &qb, const VectorXf &gwasEffects) {
+    if (gwasEffects.size() != qb.m) {
+        throw("Error: quantized eigen/GWAS dimension mismatch: eigen block has "
+              + to_string(qb.m) + " SNPs but the GWAS-effect vector has "
+              + to_string((long long)gwasEffects.size()) + ".");
+    }
     VectorXf wcorr(qb.k);
     wcorr.setZero();
     for (int eigIdx = 0; eigIdx < qb.k; ++eigIdx) {
@@ -2557,6 +2706,8 @@ void Data::makeCoreContextTiledBlockEigenFromEigen(const string &eigenDirname, c
     uint64_t totalContextTileFlankSnps = 0;
     int nextSnpIndex = 0;
     int blockId = 1;
+    const string combinedSourcePwld = findPairwiseLdWithRecordsForBaseLocal(eigenDirname + "/rsq0.5.pwld");
+    bool foundPairwiseLdSource = !combinedSourcePwld.empty();
 
     for (unsigned srcIdx = 0; srcIdx < ldBlockInfoVec.size(); ++srcIdx) {
         LDBlockInfo *srcBlock = ldBlockInfoVec[srcIdx];
@@ -2685,12 +2836,26 @@ void Data::makeCoreContextTiledBlockEigenFromEigen(const string &eigenDirname, c
         totalContextDirectedLinks += sourceContextLinks;
         totalContextTileFlankSnps += sourceContextFlankSnps;
         outputCoreContextSourceInfo(sourceTileBlocks, dirname, srcBlock->ID, numKeptInds);
-        writeEmptyPwldGz(dirname + "/block" + srcBlock->ID + ".rsq0.5.pwld.gz");
+        if (!combinedSourcePwld.empty()) {
+            writePwldSourceMarkerLocal(dirname, srcBlock->ID, combinedSourcePwld);
+        } else {
+            const string sourceBlockBase = eigenDirname + "/block" + srcBlock->ID + ".rsq0.5.pwld";
+            const string sourceBlockPwld = findPairwiseLdWithRecordsForBaseLocal(sourceBlockBase);
+            if (!sourceBlockPwld.empty()) {
+                copyPairwiseLdToBaseLocal(sourceBlockPwld,
+                    dirname + "/block" + srcBlock->ID + ".rsq0.5.pwld");
+                foundPairwiseLdSource = true;
+            }
+        }
         cout << "  Source block " << srcBlock->ID << ": " << sparseCrossTilePairs
              << " sparse cross-tile SNP pairs with r^2 >= " << r2Threshold << "." << endl;
     }
 
     if (tiledBlocks.empty()) throw("Error: no core-context tiled LD eigen blocks could be generated.");
+    if (!foundPairwiseLdSource) {
+        cout << "Warning: no source rsq0.5.pwld file with LD records was found in [" << eigenDirname
+             << "]. The tiled reference cannot provide pairwise LD for local credible sets; use --pwld-file with the original pairwise LD file." << endl;
+    }
 
     if (perSourceBlockOutput) {
         cout << "\nWritten block-specific tiled LD eigen bundle for source block "
@@ -3354,6 +3519,19 @@ void Data::impG(const unsigned block, double diag_mod){
         if (numValidTyp[i] == 0) {
             cout << "  Warning: Block " << (i+1) << " has no anchor SNP (finite beta and SE>0); block skipped." << endl;
             ldblock->kept = false;
+            if (block) {
+                // A header-only file is an explicit completion marker for an
+                // intentionally empty block.  Without it, the merge step
+                // cannot distinguish this case from a failed block job.
+                string outfile = title + ".block" + ldblock->ID + ".imputed.ma";
+                ofstream out(outfile.c_str());
+                if (!out)
+                    throw("Error: can not open the file [" + outfile + "] to write.");
+                out << boost::format("%15s %10s %10s %15s %15s %15s %15s %15s\n")
+                    % "SNP" % "A1" % "A2" % "freq" % "b" % "se" % "p" % "N";
+                out.close();
+                cout << "Created empty completed-block summary file [" << outfile << "]." << endl;
+            }
         }
     }
         
@@ -4565,10 +4743,22 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
     marginalizedContextTotalFlankSnps = 0;
     
     vector<int>numSnpInRegion(numKeptLDBlocks);
+
+    if (GWASeffects.size() != numKeptLDBlocks || nGWASblock.size() != numKeptLDBlocks) {
+        throw("Error: incomplete block-level GWAS data while constructing low-rank W/Q matrices (expected "
+              + to_string(numKeptLDBlocks) + " blocks, found "
+              + to_string(GWASeffects.size()) + " effect vectors and "
+              + to_string((long long)nGWASblock.size()) + " sample-size values).");
+    }
     
     for(int i = 0; i < numKeptLDBlocks;i++){
         LDBlockInfo *block = keptLdBlockInfoVec[i];
         numSnpInRegion[i] = block->numSnpInBlock;
+        if (GWASeffects[i].size() != block->numSnpInBlock) {
+            throw("Error: GWAS-effect vector for LD block " + block->ID + " has "
+                  + to_string((long long)GWASeffects[i].size()) + " entries; expected "
+                  + to_string(block->numSnpInBlock) + ".");
+        }
     }
 
     unsigned subLdPlanned = 0;
@@ -4641,6 +4831,7 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
         LDBlockInfo *block = keptLdBlockInfoVec[i];
         block->eigenColRemap.resize(0);
         block->subLdKeptLocalIdx.clear();
+        block->qDiag.resize(0);
 
         if (precomputedMarginalizedContext) {
             string infile;
@@ -4719,13 +4910,18 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
                 numEigenvalBlock[i] = Qblocks[i].rows();
             }
 
-            if (makePseudoSummary && quantizedBits == 0) {
+            if (makePseudoSummary) {
                 Stat::ParallelTaskRngScope pseudoRng((unsigned)i, Stat::pseudoSummaryRngSalt);
                 VectorXf rnd(eigenValLdBlock[i].size());
                 for (int j = 0; j < rnd.size(); ++j) rnd[j] = Stat::snorm();
+                VectorXf noise;
+                if (quantizedBits > 0)
+                    noise = quantizedEigenBlocks[i].transposeMultiply(rnd);
+                else
+                    noise = eigenVecSub
+                        * (eigenValLdBlock[i].array().sqrt().matrix().asDiagonal() * rnd);
                 pseudoGwasEffectTrn[i] = gwasEffectInBlock[i]
-                    + sqrt(1.0f/n_trn[i] - 1.0f/nGWASblock[i]) * eigenVecSub
-                    * (eigenValLdBlock[i].array().sqrt().matrix().asDiagonal() * rnd);
+                    + sqrt(1.0f/n_trn[i] - 1.0f/nGWASblock[i]) * noise;
                 pseudoGwasEffectVal[i] = nGWASblock[i]/n_val[i] * gwasEffectInBlock[i]
                     - n_trn[i]/n_val[i] * pseudoGwasEffectTrn[i];
                 b_val.segment(block->startSnpIdx, block->numSnpInBlock) = pseudoGwasEffectVal[i];
@@ -4782,6 +4978,18 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
             numSnpsBlock[i] = cur_m;
             numEigenvalBlock[i] = quantizedEigenBlocks[i].k;
 
+            if (makePseudoSummary) {
+                Stat::ParallelTaskRngScope pseudoRng((unsigned)i, Stat::pseudoSummaryRngSalt);
+                VectorXf rnd(eigenValLdBlock[i].size());
+                for (int j = 0; j < rnd.size(); ++j) rnd[j] = Stat::snorm();
+                VectorXf noise = quantizedEigenBlocks[i].transposeMultiply(rnd);
+                pseudoGwasEffectTrn[i] = gwasEffectInBlock[i]
+                    + sqrt(1.0f/n_trn[i] - 1.0f/nGWASblock[i]) * noise;
+                pseudoGwasEffectVal[i] = nGWASblock[i]/n_val[i] * gwasEffectInBlock[i]
+                    - n_trn[i]/n_val[i] * pseudoGwasEffectTrn[i];
+                b_val.segment(block->startSnpIdx, block->numSnpInBlock) = pseudoGwasEffectVal[i];
+            }
+
             continue;
         }
 
@@ -4837,6 +5045,17 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQ(const string &dirname, const fl
         }
                 
         eigenVecLdBlock[i].resize(0,0);
+    }
+
+#pragma omp parallel for schedule(dynamic)
+    for (int i = 0; i < numKeptLDBlocks; ++i) {
+        LDBlockInfo *block = keptLdBlockInfoVec[i];
+        if (Qblocks[i].size())
+            cacheRealizedQdiag(block, Qblocks[i]);
+        else if (quantizedEigenBlocks[i].active())
+            cacheRealizedQdiag(block, quantizedEigenBlocks[i]);
+        else
+            throw("Error: missing Q matrix while caching the realized Q'Q diagonal for LD block " + block->ID + ".");
     }
 
     if (firstEigenRead) {
@@ -5091,6 +5310,7 @@ void Data::preparePrecomputedMarginalizedContext(void) {
             w[row] *= shrink;
             marginalizedContextMaxRatio = std::max(marginalizedContextMaxRatio, rho * d[row]);
         }
+        cacheRealizedQdiag(keptLdBlockInfoVec[blk], Q);
     }
     marginalizedContextPrepared = true;
 }
@@ -5618,6 +5838,8 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
         }
     }
 
+    if (mergePairwiseLD) installRecordedPairwiseLdSourceLocal(dirname);
+
     if (file_list.size() == 0) {
         if (combinedMergeOutputsReadyLocal(dirname, mergePairwiseLD)) {
             cout << "Using existing merged LD metadata in [" << dirname << "]." << endl;
@@ -5875,15 +6097,12 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
         }
     }
 
-    // If a combined rsq0.5.pwld.gz already exists (e.g. built across blocks elsewhere),
+    // If a combined rsq0.5.pwld already exists (e.g. copied from the source reference),
     // merge only snp.info / ldm.info from per-block files and keep the existing pwld source
     // (do not require block*.rsq0.5.pwld).
-    bool useExistingCombinedPwld = false;
-    string existingCombinedPwldFile = outpwldFile;
-    if (mergePairwiseLD && fileExistsAndNonEmptyLocal(outpwldGzFile)) {
-        useExistingCombinedPwld = true;
-        existingCombinedPwldFile = outpwldGzFile;
-    }
+    string existingCombinedPwldFile = mergePairwiseLD
+        ? findPairwiseLdWithRecordsForBaseLocal(outpwldFile) : "";
+    const bool useExistingCombinedPwld = !existingCombinedPwldFile.empty();
     if (mergePairwiseLD && useExistingCombinedPwld) {
         cout << "Found existing combined pairwise LD file [" + existingCombinedPwldFile + "]; merging snp/ldm info only and keeping this pwld file." << endl;
     }
@@ -5983,7 +6202,7 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
         if (writeCombinedPwld) {
             string pwldGzFile = pwldFile + ".gz";
             string pwldBinFile = pwldFile + ".bin";
-            if (fileExistsAndNonEmptyLocal(pwldGzFile)) {
+            if (pairwiseLdHasRecordsLocal(pwldGzFile)) {
                 gzFile in3gz = gzopen(pwldGzFile.c_str(), "rb");
                 if (!in3gz) throw("Error: can not open the file [" + pwldGzFile + "] to read.");
                 string line;
@@ -5994,7 +6213,7 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
                     gzputc(out3gz, '\n');
                 }
                 gzclose(in3gz);
-            } else if (fileExistsAndNonEmptyLocal(pwldBinFile)) {
+            } else if (pairwiseLdHasRecordsLocal(pwldBinFile)) {
                 FILE *in3bin = fopen(pwldBinFile.c_str(), "rb");
                 if (!in3bin) throw("Error: can not open the file [" + pwldBinFile + "] to read.");
                 uint64_t fileNumSnps = 0, fileNumRecords = 0;
@@ -6053,13 +6272,19 @@ void Data::mergeLdmInfo(const string &outLDmatType, const string &dirname, const
     } else {
         cout << "Written pairwise LD correlations (rsq>0.5) into file [" + outpwldGzFile + "]." << endl;
     }
+    const bool pairwiseLDReady = mergePairwiseLD
+        && !findPairwiseLdWithRecordsForBaseLocal(outpwldFile).empty();
+    if (mergePairwiseLD && !pairwiseLDReady) {
+        cout << "Warning: the merged pairwise LD output contains no LD records. "
+             << "Keeping block-specific merge inputs so pairwise LD can be repaired or merged again." << endl;
+    }
     if (haveBlockInfoSignature)
-        writeMergeMarkerLocal(mergeMarkerFile, nldm, blockInfoSignature, mergePairwiseLD || useExistingCombinedPwld);
-    if (cleanupBlockMergeFiles && mergePairwiseLD && (writeCombinedPwld || useExistingCombinedPwld)) {
+        writeMergeMarkerLocal(mergeMarkerFile, nldm, blockInfoSignature, pairwiseLDReady);
+    if (cleanupBlockMergeFiles && pairwiseLDReady) {
         unsigned removed = removeBlockSpecificMergeInputsLocal(dirname);
         if (removed)
             cout << "Removed " << removed << " block-specific info/pairwise LD file(s) after successful merge." << endl;
-    } else if (!cleanupBlockMergeFiles && mergePairwiseLD && (writeCombinedPwld || useExistingCombinedPwld)) {
+    } else if (!cleanupBlockMergeFiles && pairwiseLDReady) {
         cout << "Kept block-specific info/pairwise LD files as requested." << endl;
     }
 }
@@ -6092,16 +6317,48 @@ void Data::mergeBlockGwasSummary(const string &gwasSummaryFile, const string &ti
     
     for (vector<string>::iterator it = file_list.begin(); it != file_list.end(); ++it) {
         size_t block_pos = it->find(search_str1);
-        size_t dot_pos = it->find_first_of(".", block_pos);
-        if (block_pos != string::npos && dot_pos != string::npos) {
-            string block_num_str = it->substr(block_pos + search_str1.size(), dot_pos - block_pos - search_str1.size());
-            int block_num = atoi(block_num_str.c_str());
-            blockIdxMap[block_num] = *it;
+        if (block_pos == string::npos) continue;
+        const size_t number_pos = block_pos + search_str1.size();
+        const size_t dot_pos = it->find('.', number_pos);
+        if (dot_pos == string::npos || dot_pos == number_pos) continue;
+        const string block_num_str = it->substr(number_pos, dot_pos - number_pos);
+        bool numeric = true;
+        for (unsigned c = 0; c < block_num_str.size(); ++c) {
+            if (!isdigit(block_num_str[c])) {
+                numeric = false;
+                break;
+            }
         }
+        if (!numeric) continue;
+        unsigned block_num = (unsigned)strtoul(block_num_str.c_str(), NULL, 10);
+        if (blockIdxMap.count(block_num))
+            throw("Error: multiple block summary files found for block " + block_num_str + ".");
+        blockIdxMap[block_num] = *it;
     }
     
     if (blockIdxMap.size() == 0) {
         throw ("Error: there is no info file to merge in folder [" + dir_path + "].");
+    }
+
+    vector<unsigned> missingBlocks;
+    uint64_t missingBlockCount = 0;
+    unsigned previousBlock = blockIdxMap.begin()->first;
+    map<unsigned, string>::const_iterator blockIt = blockIdxMap.begin();
+    ++blockIt;
+    for (; blockIt != blockIdxMap.end(); ++blockIt) {
+        const uint64_t gap = (uint64_t)blockIt->first - (uint64_t)previousBlock - 1u;
+        missingBlockCount += gap;
+        for (uint64_t offset = 1; offset <= gap && missingBlocks.size() < 20; ++offset)
+            missingBlocks.push_back((unsigned)((uint64_t)previousBlock + offset));
+        previousBlock = blockIt->first;
+    }
+    if (missingBlockCount) {
+        string msg = "block summary files are incomplete; missing block ID(s)";
+        for (unsigned i = 0; i < missingBlocks.size() && i < 20; ++i)
+            msg += " " + to_string(missingBlocks[i]);
+        if (missingBlockCount > missingBlocks.size()) msg += " ...";
+        msg += ". A zero-match block should have a header-only completed-block file; otherwise rerun or wait for the missing block job.";
+        throw("Error: " + msg);
     }
     
     unsigned nBlk = blockIdxMap.size();
@@ -6252,6 +6509,7 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQBivariate(const string &dirname,
         LDBlockInfo *block = keptLdBlockInfoVec[i];
         block->eigenColRemap.resize(0);
         block->subLdKeptLocalIdx.clear();
+        block->qDiag.resize(0);
 
         VectorXf eigenValSub;
         MatrixXf eigenVecSub;
@@ -6358,13 +6616,17 @@ void Data::readEigenMatrixBinaryFileAndMakeWandQBivariate(const string &dirname,
         numSnpsBlock[i] = Qblocks[i].cols();
         numEigenvalBlock[i] = Qblocks[i].rows();
     }
+
+#pragma omp parallel for schedule(dynamic)
+    for (int i = 0; i < numKeptLDBlocks; ++i)
+        cacheRealizedQdiag(keptLdBlockInfoVec[i], Qblocks[i]);
 }
 
 void Data::constructWandQ(const vector<VectorXf> &GWASeffects, const float nGWAS, const bool noscale) {
     wcorrBlocks.resize(numKeptLDBlocks);
     numSnpsBlock.resize(numKeptLDBlocks);
     numEigenvalBlock.resize(numKeptLDBlocks);
-    Qblocks.clear();
+    Qblocks.resize(numKeptLDBlocks);
 
     for (unsigned i = 0; i < numKeptLDBlocks; i++){
         LDBlockInfo *ldblock = keptLdBlockInfoVec[i];
@@ -6395,6 +6657,7 @@ void Data::constructWandQ(const vector<VectorXf> &GWASeffects, const float nGWAS
         
         numSnpsBlock[i] = Qblocks[i].cols();
         numEigenvalBlock[i] = Qblocks[i].rows();
+        cacheRealizedQdiag(ldblock, Qblocks[i]);
         
         eigenVecLdBlock[i].resize(0,0);
     }

@@ -53,10 +53,12 @@ public:
     // for multiple chains
     bool multiChain;
     unsigned numChains;
-    MatrixXf perChainMean;
-    MatrixXf perChainSqrMean;
+    MatrixXd perChainMean;
+    MatrixXd perChainM2;
+    VectorXd thresholdCount;
+    bool jointStatistic = false;
     VectorXf GelmanRubinStat;
-    unsigned cntPosteriorSample;
+    unsigned cntPosteriorSample = 0;
 
     VectorXf probGreaterThanCriticalValue;
     float criticalValue;
@@ -103,10 +105,12 @@ public:
         sampleIter.resize(npar, numChains);
         cntPosteriorSample = 0;
         
+        jointStatistic = label == "Marginal_Predictability_Enrichment";
+        perChainMean.setZero(npar, jointStatistic ? 1 : numChains);
+        perChainM2.setZero(npar, jointStatistic ? 1 : numChains);
+        thresholdCount.setZero(npar);
         if (numChains > 1) {
             multiChain = true;
-            perChainMean.setZero(npar, numChains);
-            perChainSqrMean.setZero(npar, numChains);
             GelmanRubinStat.setZero(npar);
         } else {
             multiChain = false;
@@ -124,6 +128,7 @@ public:
     McmcSamples(const string &label): label(label) { bout = NULL; }
     
     void getParSample(const unsigned iter, const Parameter* par);
+    void accumulateIteration();
     void getParSetSample(const unsigned iter, const ParamSet* parSet);
     void outputSample(const unsigned chain, ofstream &out);
     void computeGelmanRubinStat(void);
@@ -131,6 +136,15 @@ public:
     void writeSampleTxt(const unsigned iter, const float sample, const string &title);
     VectorXf mean(void);
     VectorXf sd(void);
+    float sdAt(unsigned p) const {
+        const double t = cntPosteriorSample;
+        const double count = t * perChainMean.cols();
+        if (jointStatistic || count < 2) return std::numeric_limits<float>::quiet_NaN();
+        const double mu = perChainMean.row(p).mean();
+        const double m2 = perChainM2.row(p).sum()
+            + t * (perChainMean.row(p).array()-mu).square().sum();
+        return sqrt(std::max(0.0, m2)/(count-1));
+    }
     
     void initBinFile(const string &title);
     void initTxtFile(const string &title);

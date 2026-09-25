@@ -21,6 +21,7 @@ int main(int argc, const char * argv[]) {
     
     Gadget::Timer timer;
     timer.setTime();
+    int exitCode = 0;
     
     try {
         
@@ -36,7 +37,7 @@ int main(int argc, const char * argv[]) {
         cout << "* GCTB 2.5.6 beta                                       *\n";
         cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
         cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
-        cout << "* Last updated: 18 August, 2026                         *\n";
+        cout << "* Last updated: 6 September, 2026                       *\n";
         cout << "* MIT License                                           *\n";
         cout << "*********************************************************\n";
 
@@ -92,6 +93,7 @@ int main(int argc, const char * argv[]) {
         Data data;
         data.title = opt.title;
         data.gwasScalarMode = opt.gwasScalarMode;
+        data.removeSkepticalSnps = opt.removeSkepticalSnps;
         bool readGenotypes;
         
         GCTB gctb(opt);
@@ -285,6 +287,10 @@ int main(int argc, const char * argv[]) {
             data.getLDfriends(opt.pairwiseLDfile, opt.rsqThreshold, opt.title);
         }
         else if (opt.analysisType == "SBayes" || opt.analysisType == "GWFM") {
+            // Short GWFM model-selection runs must honor the same sampling controls as the final model.
+            data.removeSkepticalSnps = opt.removeSkepticalSnps;
+            data.sampleResidualVarUnconditionally = opt.sampleResidualVarUnconditionally;
+            data.coreContextParallel = opt.coreContextParallel;
             bool isBivariate = opt.gwasSummaryFile.find(',') != string::npos;
             float bestEigenCutoff = opt.eigenCutoff.size() ? opt.eigenCutoff[0] : 0.995f;
             if (!opt.ldmatrixFile.empty()) {
@@ -398,7 +404,11 @@ int main(int argc, const char * argv[]) {
                 
             
             if (opt.nDistAuto) {
-                if (opt.nDistAutoByPred && !opt.eigenMatrixFile.empty() && !isBivariate && opt.ldmBlockDir.empty())
+                if (opt.nDistAutoByPred && opt.integrateOutContext) {
+                    cout << "Note: held-out component selection is not defined for marginalized-context tiles; "
+                         << "using heritability-based component selection with the fixed initial context variance." << endl;
+                    gctb.findBestFitModel(data, opt);
+                } else if (opt.nDistAutoByPred && !opt.eigenMatrixFile.empty() && !isBivariate && opt.ldmBlockDir.empty())
                     gctb.findBestFitModelByPredictionAccuracy(data, opt, bestEigenCutoff);
                 else {
                     if (opt.nDistAutoByPred) {
@@ -683,9 +693,15 @@ int main(int argc, const char * argv[]) {
     }
     catch (const std::string &err_msg) {
         cerr << "\n" << err_msg << endl;
+        exitCode = 1;
+    }
+    catch (const std::exception &err) {
+        cerr << "\n" << err.what() << endl;
+        exitCode = 1;
     }
     catch (const char *err_msg) {
         cerr << "\n" << err_msg << endl;
+        exitCode = 1;
     }
     
     timer.getTime();
@@ -697,5 +713,5 @@ int main(int argc, const char * argv[]) {
     LOGGER.flush();
     LOGGER.close();
 
-    return 0;
+    return exitCode;
 }

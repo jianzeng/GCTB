@@ -6,6 +6,7 @@
 //
 
 #include "multichain.hpp"
+#include <exception>
 
 
 void MultiChainParameter::getValues(){
@@ -42,7 +43,7 @@ void MultiChainSBayesR::NumBadSnps::output(){
         for (unsigned j=0; j<badSnpNameVec.size(); ++j) {
             if(badSnpSet.insert(badSnpNameVec[j]).second) {
                 badSnpIdxSet.insert(badSnpIdxVec[j]);
-                out << badSnpIdxVec[j] << "\t" << badSnpNameVec[j] << endl;
+                if (enabled) out << badSnpIdxVec[j] << "\t" << badSnpNameVec[j] << endl;
                 ++value;
             }
         }
@@ -95,6 +96,7 @@ void MultiChainSBayesR::NumHighPIPs::getValue(const VectorXf &PIP, const unsigne
 void MultiChainSBayesR::sampleUnknowns(const unsigned iter){
 
     Stat::prepareParallelChainRng(numThreadLevel1);
+    std::exception_ptr firstException;
 #pragma omp parallel for num_threads(numThreadLevel1)
     for (unsigned i=0; i<numChains; ++i) {
 //        cout << "sampling chain " << i << " in " << numChains << " chains " << endl;
@@ -104,9 +106,17 @@ void MultiChainSBayesR::sampleUnknowns(const unsigned iter){
         omp_set_num_threads(numThreadLevel2);
         Stat::McmcChainRngScope chainRng(i);
 
-        chainVec[i]->sampleUnknowns(iter);
+        try {
+            chainVec[i]->sampleUnknowns(iter);
+        } catch (...) {
+#pragma omp critical(gctb_multichain_r_exception)
+            {
+                if (!firstException) firstException = std::current_exception();
+            }
+        }
     }
     Stat::finishParallelChainRng();
+    if (firstException) std::rethrow_exception(firstException);
     
     snpEffects.getValues();
     pip.getValues();
@@ -132,7 +142,7 @@ void MultiChainSBayesRC::NumBadSnps::output(){
         for (unsigned j=0; j<badSnpNameVec.size(); ++j) {
             if(badSnpSet.insert(badSnpNameVec[j]).second) {
                 badSnpIdxSet.insert(badSnpIdxVec[j]);
-                out << badSnpIdxVec[j] << "\t" << badSnpNameVec[j] << endl;
+                if (enabled) out << badSnpIdxVec[j] << "\t" << badSnpNameVec[j] << endl;
                 ++value;
             }
         }
@@ -235,13 +245,22 @@ void MultiChainSBayesRC::computePredictionAccuracyEnrichment(){
         const MatrixXf *Q = quantizedRsqEnrich ? nullptr : &Qblocks[blk];
         const int rank = Qq ? Qq->k : Q->rows();
         const int numQCols = Qq ? Qq->m : Q->cols();
+        const VectorXf *originalNormWeight = nullptr;
+        if (contextOriginalNormWeights.size() == numBlocks
+            && contextOriginalNormWeights[blk].size() == rank) {
+            originalNormWeight = &contextOriginalNormWeights[blk];
+        }
 
         MatrixXf what(rank, numChains);
         for (unsigned c=0; c<numChains; ++c)
             what.col(c) = chainVec[c]->whatBlocks[blk];
 
         const VectorXf whatSum = what.rowwise().sum();
-        blockRsq[blk] = (whatSum.squaredNorm() - what.squaredNorm()) / pairDenom;
+        const ArrayXf crossProductByRow = whatSum.array().square()
+            - what.array().square().rowwise().sum();
+        blockRsq[blk] = (originalNormWeight
+            ? (crossProductByRow * originalNormWeight->array()).sum()
+            : crossProductByRow.sum()) / pairDenom;
 
         vector<MatrixXf> binaryWhat(binaryAnnoIdx.size());
         for (unsigned a=0; a<binaryAnnoIdx.size(); ++a)
@@ -283,8 +302,11 @@ void MultiChainSBayesRC::computePredictionAccuracyEnrichment(){
 
         for (unsigned a=0; a<binaryAnnoIdx.size(); ++a) {
             const VectorXf annoWhatSum = binaryWhat[a].rowwise().sum();
-            blockAnnoStats(blk, binaryAnnoIdx[a]) =
-                (annoWhatSum.squaredNorm() - binaryWhat[a].squaredNorm()) / pairDenom;
+            const ArrayXf annoCrossProductByRow = annoWhatSum.array().square()
+                - binaryWhat[a].array().square().rowwise().sum();
+            blockAnnoStats(blk, binaryAnnoIdx[a]) = (originalNormWeight
+                ? (annoCrossProductByRow * originalNormWeight->array()).sum()
+                : annoCrossProductByRow.sum()) / pairDenom;
         }
 
         if (quantitativeAnnoIdx.size()) {
@@ -295,7 +317,13 @@ void MultiChainSBayesRC::computePredictionAccuracyEnrichment(){
                         rBetaByQCol(qcol,c) = Qq->dotQ(qcol, chainVec[c]->whatBlocks[blk]);
                 }
             } else {
-                rBetaByQCol.noalias() = Q->transpose() * what;
+                if (originalNormWeight) {
+                    const MatrixXf originalScaleWhat =
+                        (what.array().colwise() * originalNormWeight->array()).matrix();
+                    rBetaByQCol.noalias() = Q->transpose() * originalScaleWhat;
+                } else {
+                    rBetaByQCol.noalias() = Q->transpose() * what;
+                }
             }
 
             const VectorXf betaSum = betaByQCol.rowwise().sum();
@@ -354,20 +382,33 @@ void MultiChainSBayesRC::computePredictionAccuracyEnrichment(){
 void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
 
     Stat::prepareParallelChainRng(numThreadLevel1);
+    std::exception_ptr firstException;
 #pragma omp parallel for num_threads(numThreadLevel1)
     for (unsigned i=0; i<numChains; ++i) {
 //        cout << "sampling chain " << i << " in " << numChains << " chains " << endl;
         omp_set_num_threads(numThreadLevel2);
         Stat::McmcChainRngScope chainRng(i);
 
-        chainVec[i]->sampleUnknowns(iter);
+        try {
+            chainVec[i]->sampleUnknowns(iter);
+        } catch (...) {
+#pragma omp critical(gctb_multichain_rc_exception)
+            {
+                if (!firstException) firstException = std::current_exception();
+            }
+        }
     }
     Stat::finishParallelChainRng();
+    if (firstException) std::rethrow_exception(firstException);
         
     snpEffects.getValues();
     pip.getValues();
     deltaPi.getValues();
     hsq.getValues();
+    if (contextVarianceRatioE8) {
+        contextVarianceRatioE8->getValues();
+        contextVarianceE8->getValues();
+    }
     if (rcMcHsqFixed) {
         rcMcHsqFixed->getValues();
         rcMcHsqRandom->getValues();
@@ -378,6 +419,8 @@ void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
     annoJointProb.getValues();
     annoTotalGenVar.getValues();
     annoPerSnpHsqEnrich.getValues();
+    annoConditionalHsqEnrich.getValues();
+    annoConditionalPolygenicityEnrich.getValues();
     if (estimateRsqEnrich && iter > rsqEnrichBurnin && !(iter % rsqEnrichFreq))
         computePredictionAccuracyEnrichment();
     snpHsqPep.getValues();
@@ -401,18 +444,23 @@ void MultiModelSBayesR::sampleUnknowns(const unsigned iter){
     omp_set_max_active_levels(2);
 
     Stat::prepareParallelChainRng(numThreadLevel1);
+    std::exception_ptr firstException;
 #pragma omp parallel for num_threads(numThreadLevel1)
     for (unsigned i=0; i<numModels; ++i) {
-        //cout << "sampling chain " << i << " in " << numChains << " chains " << endl;
-        //printf("Outer: Thread %d of %d\n", omp_get_thread_num(), omp_get_num_threads());
-
-        // Restrict inner parallelism to numThreadLevel2 threads
-        omp_set_num_threads(numThreadLevel2);
-        Stat::McmcChainRngScope chainRng(i);
-
-        modelVec[i]->sampleUnknowns(iter);
+        try {
+            // Restrict inner parallelism to numThreadLevel2 threads
+            omp_set_num_threads(numThreadLevel2);
+            Stat::McmcChainRngScope chainRng(i);
+            modelVec[i]->sampleUnknowns(iter);
+        } catch (...) {
+#pragma omp critical(gctb_multimodel_exception)
+            {
+                if (!firstException) firstException = std::current_exception();
+            }
+        }
     }
     Stat::finishParallelChainRng();
+    if (firstException) std::rethrow_exception(firstException);
 }
 
 void MultiChainSBayesRD::NumBadSnps::output(){
@@ -423,7 +471,7 @@ void MultiChainSBayesRD::NumBadSnps::output(){
         for (unsigned j=0; j<badSnpNameVec.size(); ++j) {
             if(badSnpSet.insert(badSnpNameVec[j]).second) {
                 badSnpIdxSet.insert(badSnpIdxVec[j]);
-                out << badSnpIdxVec[j] << "\t" << badSnpNameVec[j] << endl;
+                if (enabled) out << badSnpIdxVec[j] << "\t" << badSnpNameVec[j] << endl;
                 ++value;
             }
         }
@@ -449,15 +497,24 @@ void MultiChainSBayesRD::NumBadSnps::output(){
 void MultiChainSBayesRD::sampleUnknowns(const unsigned iter){
 
     Stat::prepareParallelChainRng(numThreadLevel1);
+    std::exception_ptr firstException;
 #pragma omp parallel for num_threads(numThreadLevel1)
     for (unsigned i=0; i<numChains; ++i) {
 //        cout << "sampling chain " << i << " in " << numChains << " chains " << endl;
         omp_set_num_threads(numThreadLevel2);
         Stat::McmcChainRngScope chainRng(i);
 
-        chainVec[i]->sampleUnknowns(iter);
+        try {
+            chainVec[i]->sampleUnknowns(iter);
+        } catch (...) {
+#pragma omp critical(gctb_multichain_rd_exception)
+            {
+                if (!firstException) firstException = std::current_exception();
+            }
+        }
     }
     Stat::finishParallelChainRng();
+    if (firstException) std::rethrow_exception(firstException);
         
     snpEffects.getValues();
     pip.getValues();
@@ -469,6 +526,8 @@ void MultiChainSBayesRD::sampleUnknowns(const unsigned iter){
     annoJointProb.getValues();
     annoTotalGenVar.getValues();
     annoPerSnpHsqEnrich.getValues();
+    annoConditionalHsqEnrich.getValues();
+    annoConditionalPolygenicityEnrich.getValues();
     snpHsqPep.getValues();
     piAnno.getValues();
     piAnnos.getValues();
@@ -487,7 +546,7 @@ void MultiChainSBayesS::NumBadSnps::output(){
         for (unsigned j=0; j<badSnpNameVec.size(); ++j) {
             if(badSnpSet.insert(badSnpNameVec[j]).second) {
                 badSnpIdxSet.insert(badSnpIdxVec[j]);
-                out << badSnpIdxVec[j] << "\t" << badSnpNameVec[j] << endl;
+                if (enabled) out << badSnpIdxVec[j] << "\t" << badSnpNameVec[j] << endl;
                 ++value;
             }
         }

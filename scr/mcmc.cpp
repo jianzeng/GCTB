@@ -30,46 +30,44 @@ void deleteMcmcSamples(vector<McmcSamples*> &mcmcSampleVec) {
 
 void McmcSamples::getParSample(const unsigned iter, const Parameter* par){
     if (iter % thin || iter <= burnin) return;
-    ++cntPosteriorSample;
-    if (multiChain) {
-        sampleIter.row(0) = par->perChainValue.transpose();
-        perChainMean.array()    += (par->perChainValue.transpose() - perChainMean).array()/cntPosteriorSample;
-        perChainSqrMean.array() += (par->perChainValue.transpose().array().square() - perChainSqrMean.array())/cntPosteriorSample;
-        float meanFreq = (par->perChainValue.array() > criticalValue).mean();
-        probGreaterThanCriticalValue.array() += (meanFreq - probGreaterThanCriticalValue.array()) / cntPosteriorSample;
-    } else {
-        sampleIter(0,0) = par->value;
-        probGreaterThanCriticalValue.array() += (float(par->value > criticalValue) - probGreaterThanCriticalValue.array()) / cntPosteriorSample;
-    }
-    posteriorMean.array()    += (par->value - posteriorMean.array())/cntPosteriorSample;
-    posteriorSqrMean.array() += (par->value*par->value - posteriorSqrMean.array())/cntPosteriorSample;
-
-    if (storageMode == dense) {
-        datMat(cntPosteriorSample-1, 0) = par->value;
-    }
+    if (multiChain) sampleIter.row(0) = par->perChainValue.transpose();
+    else sampleIter(0,0) = par->value;
+    accumulateIteration();
 }
 
 void McmcSamples::getParSetSample(const unsigned iter, const ParamSet* parSet){
     if (iter % thin || iter <= burnin) return;
-    ++cntPosteriorSample;
-    if (multiChain) {
-        sampleIter = parSet->perChainValues;
-        for (unsigned i=0; i<numChains; ++i) {
-             perChainMean.col(i).array()    += (parSet->perChainValues.col(i) - perChainMean.col(i)).array()/cntPosteriorSample;
-             perChainSqrMean.col(i).array() += (parSet->perChainValues.col(i).array().square() - perChainSqrMean.col(i).array())/cntPosteriorSample;
-         }
-        ArrayXf meanFreq = (parSet->perChainValues.array() > criticalValue).cast<float>().rowwise().mean();
-        probGreaterThanCriticalValue.array() += (meanFreq - probGreaterThanCriticalValue.array()) / cntPosteriorSample;
-    } else {
-        sampleIter.col(0) = parSet->values;
-        probGreaterThanCriticalValue.array() += ((parSet->values.array() > criticalValue).cast<float>() - probGreaterThanCriticalValue.array()) / cntPosteriorSample;
-    }
-    
-    posteriorMean.array()    += (parSet->values - posteriorMean).array()/cntPosteriorSample;
-    posteriorSqrMean.array() += (parSet->values.array().square() - posteriorSqrMean.array())/cntPosteriorSample;
+    if (multiChain) sampleIter = parSet->perChainValues;
+    else sampleIter.col(0) = parSet->values;
+    accumulateIteration();
+}
 
+void McmcSamples::accumulateIteration(){
+    ++cntPosteriorSample;
+    const unsigned chains = jointStatistic ? 1 : numChains;
+    const double t = cntPosteriorSample;
+    const double count = t * chains;
+    for (unsigned c=0; c<chains; ++c) {
+        // Welford's centered moments, retaining chain identity for R-hat.
+        const VectorXd delta = sampleIter.col(c).cast<double>() - perChainMean.col(c);
+        perChainMean.col(c) += delta / t;
+        perChainM2.col(c).array() += delta.array()
+            * (sampleIter.col(c).cast<double>() - perChainMean.col(c)).array();
+        thresholdCount.array() += (sampleIter.col(c).array() > criticalValue).cast<double>();
+    }
+    for (unsigned p=0; p<ncol; ++p) {
+        const double mu = perChainMean.row(p).mean();
+        const double m2 = perChainM2.row(p).sum()
+            + t * (perChainMean.row(p).array() - mu).square().sum();
+        posteriorMean[p] = mu;
+        // Retain E[x^2] for expected squared effects / variance explained.
+        posteriorSqrMean[p] = m2 / count + mu * mu;
+        probGreaterThanCriticalValue[p] = jointStatistic
+            ? std::numeric_limits<float>::quiet_NaN() : thresholdCount[p] / count;
+    }
     if (storageMode == dense) {
-        datMat.row(cntPosteriorSample-1) = parSet->values;
+        for (unsigned c=0; c<numChains; ++c)
+            datMat.row((cntPosteriorSample-1)*numChains+c) = sampleIter.col(c).transpose();
     }
 }
 
@@ -96,39 +94,23 @@ void McmcSamples::outputSample(const unsigned chain, ofstream &out){
 }
 
 void McmcSamples::computeGelmanRubinStat(){
-    if (multiChain) {
-        unsigned numPar = GelmanRubinStat.size();
-        VectorXf meanVarWithinChain(numPar);
-        VectorXf varMeansBetweenChains(numPar);
-        VectorXf posteriorVar(numPar);
-        for (unsigned i=0; i<numPar; ++i) {
-            meanVarWithinChain[i] = (perChainSqrMean.row(i).array() - perChainMean.row(i).array().square()).mean(); // W
-            varMeansBetweenChains[i] = float(cntPosteriorSample)*Gadget::calcVariance(perChainMean.row(i).transpose());                           // B
-            posteriorVar[i] = (cntPosteriorSample-1.0)*meanVarWithinChain[i]/float(cntPosteriorSample) + varMeansBetweenChains[i]/float(cntPosteriorSample);
-            if (meanVarWithinChain[i]) {
-                GelmanRubinStat[i] = sqrt(posteriorVar[i]/meanVarWithinChain[i]);
-            } else {
-                GelmanRubinStat[i] = 1.0;
-            }
-        }
-    }
-    else {
-        float meanVarWithinChain = (perChainSqrMean.array() - perChainMean.array().square()).mean();   // W
-        float varMeansBetweenChains = float(cntPosteriorSample)*Gadget::calcVariance(perChainMean.transpose());                              // B
-        //    cout << "meanVarWithinChain " << meanVarWithinChain << endl;
-        //    cout << "varMeansBetweenChains " << varMeansBetweenChains << endl;
-        float posteriorVar = (cntPosteriorSample-1.0)*meanVarWithinChain/float(cntPosteriorSample) + varMeansBetweenChains/float(cntPosteriorSample);
-        
-        if (meanVarWithinChain) {
-            GelmanRubinStat[0] = sqrt(posteriorVar/meanVarWithinChain);
-        } else {
-            GelmanRubinStat[0] = 1;
-        }
-        //    cout << "GelmanRubinStat " << GelmanRubinStat << endl;
+    if (!multiChain) return;
+    GelmanRubinStat.setConstant(ncol, std::numeric_limits<float>::quiet_NaN());
+    if (jointStatistic || cntPosteriorSample < 2) return;
+    const double t = cntPosteriorSample;
+    for (unsigned p=0; p<ncol; ++p) {
+        const double mu = perChainMean.row(p).mean();
+        const double W = perChainM2.row(p).mean() / (t-1);
+        const double B = t * (perChainMean.row(p).array()-mu).square().sum() / (numChains-1);
+        if (W > 0)
+            GelmanRubinStat[p] = sqrt(((t-1)*W/t + B/t)/W);
+        else
+            GelmanRubinStat[p] = B > 0 ? std::numeric_limits<float>::infinity() : 1.0f;
     }
 }
 
 VectorXf McmcSamples::mean(){
+    if (cntPosteriorSample) return perChainMean.rowwise().mean().cast<float>();
     if (storageMode == dense) {
         return VectorXf::Ones(nrow).transpose()*datMat/nrow;
     } else if (storageMode == sparse) {
@@ -140,6 +122,19 @@ VectorXf McmcSamples::mean(){
 
 VectorXf McmcSamples::sd(){
     VectorXf res(ncol);
+    if (cntPosteriorSample) {
+        const double t = cntPosteriorSample;
+        const double count = t * perChainMean.cols();
+        res.setConstant(std::numeric_limits<float>::quiet_NaN());
+        if (jointStatistic || count < 2) return res;
+        for (unsigned p=0; p<ncol; ++p) {
+            const double mu = perChainMean.row(p).mean();
+            const double m2 = perChainM2.row(p).sum()
+                + t * (perChainMean.row(p).array()-mu).square().sum();
+            res[p] = sqrt(std::max(0.0, m2) / (count-1));
+        }
+        return res;
+    }
     if (storageMode == dense) {
         for (unsigned i=0; i<ncol; ++i) {
             res[i] = std::sqrt(Gadget::calcVariance(datMat.col(i)));
@@ -422,6 +417,9 @@ vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned nu
             }
         }
         mcmcSampleVec.push_back(mcmcSamples);
+        if (mcmcSamples->jointStatistic)
+            cout << "Note: Marginal_Predictability_Enrichment is a joint-chain statistic; "
+                 << "its mean is reported, but posterior SD, probability and R-hat are unavailable (NaN)." << endl;
     }
     for (unsigned i=0; i<model.paramVec.size(); ++i) {
         Parameter *par = model.paramVec[i];
@@ -776,6 +774,9 @@ void MCMC::convergeDiagGelmanRubin(const Model &model, vector<vector<McmcSamples
                 float W = varVec.mean();
                 float posteriorVar = (nsample-1.0)*W/nsample + B/nsample;
                 float R = sqrt(posteriorVar/W);
+                posteriorVar = ((nsample-1)*varVec.sum()
+                    + nsample*(meanVec.array()-posteriorMean).square().sum())
+                    / (nsample*numChains-1);
                 
                 cout << boost::format("%10s %2s %-15.6f %-15.6f %-12.3f\n")
                 % par->label
@@ -811,13 +812,16 @@ void MCMC::convergeDiagGelmanRubin(const Model &model, vector<vector<McmcSamples
                         mcmcSamples = mcmcSampleVecChain[m][j];
                         meanMat.row(m) = mcmcSamples->mean();
                         varMat.row(m)  = mcmcSamples->sd();
-                        varMat.row(m) *= varMat.row(m);
+                        varMat.row(m) = varMat.row(m).array().square().matrix();
                     }
                     VectorXf posteriorMean = meanMat.colwise().mean();
                     VectorXf B = (meanMat.rowwise() - posteriorMean.transpose()).colwise().squaredNorm()*nsample/float(numChains-1);
                     VectorXf W = varMat.colwise().mean();
                     VectorXf posteriorVar = (nsample-1.0)*W/nsample + B/nsample;
                     VectorXf R = sqrt(posteriorVar.array()/W.array());
+                    posteriorVar = ((nsample-1)*varMat.colwise().sum().transpose()
+                        + nsample*(meanMat.rowwise()-posteriorMean.transpose()).colwise().squaredNorm().transpose())
+                        / (nsample*numChains-1);
                     
                     for (unsigned col=0; col<parset->size; ++col) {
                         
@@ -830,16 +834,9 @@ void MCMC::convergeDiagGelmanRubin(const Model &model, vector<vector<McmcSamples
                         Gadget::Tokenizer token;
                         token.getTokens(parset->label, "_");
                         float postprob = 0;
-                        if (token.back() == "Enrichment") {
-                            for (unsigned row=0; row<mcmcSamples->nrow; ++row) {
-                                if (mcmcSamples->datMat(row, col) > 1) ++postprob;
-                            }
-                        } else {
-                            for (unsigned row=0; row<mcmcSamples->nrow; ++row) {
-                                if (mcmcSamples->datMat(row, col) > 0) ++postprob;
-                            }
-                        }
-                        postprob /= float(mcmcSamples->nrow);
+                        for (unsigned c=0; c<numChains; ++c)
+                            postprob += mcmcSampleVecChain[c][j]->probGreaterThanCriticalValue[col];
+                        postprob /= float(numChains);
                         out2 << boost::format("%-15.6f %-12.3f\n") % postprob % R[col];
                     }
                     break;

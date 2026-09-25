@@ -191,6 +191,8 @@ public:
     
     VectorXf eigenvalues;
     float sumPosEigVal; // sum of all positive eigenvalues
+    /** Realized diagonal of Q'Q, indexed by Q column. */
+    VectorXf qDiag;
 
     /** If empty: Q column j corresponds to local SNP j. If set (sub-LD eigen path), eigenColRemap[j] is Q column for local SNP j, or -1 if skipped. */
     VectorXi eigenColRemap;
@@ -279,6 +281,32 @@ struct QuantizedEigenBlock {
             for (int eigIdx = 0; eigIdx < k; ++eigIdx)
                 out += q16Component(localSnpIdx, eigIdx) * x[eigIdx];
         }
+        return out;
+    }
+
+    inline void decodeQColumn(const int localSnpIdx, VectorXf &out) const {
+        if (out.size() != k) out.resize(k);
+        const float *scale = qScale.data();
+        float *decoded = out.data();
+        if (bits == 8) {
+            const int8_t *quantized = &q8[(size_t)localSnpIdx * (size_t)k];
+            for (int eigIdx = 0; eigIdx < k; ++eigIdx)
+                decoded[eigIdx] = scale[eigIdx] * (float)quantized[eigIdx];
+        } else if (bits == 16) {
+            const int16_t *quantized = &q16[(size_t)localSnpIdx * (size_t)k];
+            for (int eigIdx = 0; eigIdx < k; ++eigIdx)
+                decoded[eigIdx] = scale[eigIdx] * (float)quantized[eigIdx];
+        } else {
+            out.setZero();
+        }
+    }
+
+    inline VectorXf transposeMultiply(const VectorXf &x) const {
+        if (x.size() != k)
+            throw std::runtime_error("Quantized eigen matrix/vector dimension mismatch.");
+        VectorXf out(m);
+        for (int localSnpIdx = 0; localSnpIdx < m; ++localSnpIdx)
+            out[localSnpIdx] = dotQ(localSnpIdx, x);
         return out;
     }
 
@@ -674,6 +702,7 @@ public:
     uint64_t marginalizedContextTotalLinks;
     uint64_t marginalizedContextTotalFlankSnps;
     bool removeSkepticalSnps;
+    bool sampleResidualVarUnconditionally;
     /// With --skip + --recompute-eigen: rebuild W/Q from LD submatrix of non-skipped SNPs per block
     bool recomputeEigen;
     /// Copied from Options before buildSparseMME / buildMMEeigen; used in scaleGwasEffects.
@@ -798,7 +827,8 @@ public:
         marginalizedContextMaxRatio = 0.0f;
         marginalizedContextTotalLinks = 0;
         marginalizedContextTotalFlankSnps = 0;
-        removeSkepticalSnps = true;
+        removeSkepticalSnps = false;
+        sampleResidualVarUnconditionally = false;
         recomputeEigen = false;
         gwasScalarMode = GwasScalarMode::LeastSquares;
     }
@@ -851,10 +881,10 @@ public:
     void reindexSnp(vector<SnpInfo*> snpInfoVec);
     void initVariances(const float heritability, const float propVarRandom);
     
-    void outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const bool noscale, const string &filename, const bool useScalar2 = false) const;
+    void outputSnpResults(const VectorXf &posteriorMean, const VectorXf &posteriorSqrMean, const VectorXf &pip, const bool noscale, const string &filename, const bool useScalar2 = false, const VectorXf &posteriorSD = VectorXf()) const;
     void outputBivariateSnpResults(const VectorXf &posteriorMean1, const VectorXf &posteriorSqrMean1, const VectorXf &pip1,
                                    const VectorXf &posteriorMean2, const VectorXf &posteriorSqrMean2, const VectorXf &pip2,
-                                   const bool noscale, const string &filename) const;
+                                   const bool noscale, const string &filename, const VectorXf &sd1 = VectorXf(), const VectorXf &sd2 = VectorXf()) const;
 //    void outputFixedEffects(const MatrixXf &fixedEffects, const string &filename) const;
     void outputFixedEffects(const VectorXf &mean, const VectorXf &sd, const string &filename) const;
 //    void outputRandomEffects(const MatrixXf &randomEffects, const string &filename) const;

@@ -11,6 +11,11 @@
 
 using namespace std;
 
+inline const vector<string> &emptyMultiChainHeader(){
+    static const vector<string> header;
+    return header;
+}
+
 
 class MultiChainParameter : public Parameter {
 public:
@@ -62,15 +67,20 @@ public:
     void getValues(void);
 };
 
-class MultiChainSBayesR : public ApproxBayesR {
+class MultiChainSBayesR : public Model {
 public:
     
     class ChainVecSBayesR : public vector<ApproxBayesR*> {
     public:
-        ChainVecSBayesR(const Data &data, const Options &opt){
+        ChainVecSBayesR(const Data &data, const Options &opt, const bool constructChains = true){
+            if (!constructChains) return;
             for (unsigned i=0; i<opt.numChains; ++i) {
                 this->push_back(new ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.algorithm, false));
             }
+        }
+
+        ~ChainVecSBayesR(){
+            for (unsigned i=0; i<this->size(); ++i) delete (*this)[i];
         }
     };
     
@@ -162,16 +172,20 @@ public:
         set<unsigned> badSnpIdxSet;
 
         ofstream out;
+        bool enabled;
 
-        NumBadSnps(const string &title, const ChainVecSBayesR &chains): MultiChainParameter("NumSkeptSnp", chains.size()){
+        NumBadSnps(const string &title, const ChainVecSBayesR &chains, const bool enabled):
+        MultiChainParameter("NumSkeptSnp", chains.size()), enabled(enabled){
            for (unsigned i=0; i<numChains; ++i) {
                chainVec.push_back(&chains[i]->nBadSnps);
                nBadSnpVec.push_back(&chains[i]->nBadSnps);
                chains[i]->nBadSnps.writeTxt = false;
                chains[i]->nBadSnps.out.close();
             }
-            string filename = title + ".skepticalSNPs";
-            out.open(filename.c_str());
+            if (enabled && numChains) {
+                string filename = title + ".skepticalSNPs";
+                out.open(filename.c_str());
+            }
         }
         void output(void);
     };
@@ -209,6 +223,9 @@ public:
     std::unique_ptr<HeritabilityFixed> mcHsqFixed;
     std::unique_ptr<HeritabilityRandom> mcHsqRandom;
 
+    bool lowRankModel;
+    bool hsqPercModel;
+    VectorXf gammaValues;
     unsigned numChains;
     
     // for nested OMP
@@ -227,20 +244,23 @@ public:
     NumHighPIPs nHighPips;
     SnpHsqPEP snpHsqPep;
     
-    MultiChainSBayesR(const Data &data, const Options &opt, const bool message = true, const bool skipFixedHsqWrappersForDerivedRC = false):
-    ApproxBayesR(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.algorithm, false),
+    MultiChainSBayesR(const Data &data, const Options &opt, const bool message = true, const bool constructChains = true):
+    lowRankModel(data.lowRankModel),
+    hsqPercModel(opt.hsqPercModel),
+    gammaValues(opt.gamma),
     numChains(opt.numChains),
-    chainVec(data, opt),
+    chainVec(data, opt, constructChains),
     hsq(chainVec),
-    pip(data.snpEffectNames, chainVec),
-    snpEffects(data.snpEffectNames, chainVec),
-    deltaPi(data.snpEffectNames, opt.gamma.size(), chainVec),
+    pip(constructChains ? data.snpEffectNames : emptyMultiChainHeader(), chainVec),
+    snpEffects(constructChains ? data.snpEffectNames : emptyMultiChainHeader(), chainVec),
+    deltaPi(constructChains ? data.snpEffectNames : emptyMultiChainHeader(), opt.gamma.size(), chainVec),
     numSnpMix(opt.gamma.size(), chainVec),
     vgMix(opt.gamma.size(), chainVec),
-    nBadSnps(opt.title, chainVec),
+    nBadSnps(opt.title, chainVec, opt.removeSkepticalSnps),
     nHighPips(opt.burnin, opt.thin, opt.outputFreq, opt.pipThreshold, opt.removeSkepticalSnps),
-    snpHsqPep(data.snpEffectNames, chainVec)
+    snpHsqPep(constructChains ? data.snpEffectNames : emptyMultiChainHeader(), chainVec)
     {
+        bayesType = "R";
         
         // for nested OMP
         omp_set_max_active_levels(1);  // reset previous nested parallelism if any
@@ -251,7 +271,7 @@ public:
         
         //cout << "numThreadTotal " << numThreadTotal << " numThreadLevel1 " << numThreadLevel1 << " numThreadLevel2 " << numThreadLevel2 << endl;
 
-        if (data.numFixedEffectSnps && !skipFixedHsqWrappersForDerivedRC) {
+        if (data.numFixedEffectSnps && constructChains) {
             mcHsqFixed.reset(new HeritabilityFixed(chainVec));
             mcHsqRandom.reset(new HeritabilityRandom(chainVec));
         }
@@ -284,7 +304,7 @@ public:
             if (lowRankModel) {
                 cout << "Using the low-rank model" << endl;
             }
-            cout << "Gamma: " << gamma.values.transpose() << endl;
+            cout << "Gamma: " << gammaValues.transpose() << endl;
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
             if (numThreadTotal == 1) {
                 cout << "\nSUGGESTION: Enabling multi-threading is recommended when using multiple chains. You can set this by --thread [any value that is the multiple of the number of chains].\n" << endl;
@@ -296,6 +316,9 @@ public:
     }
     
     void sampleUnknowns(const unsigned iter);
+    void sampleStartVal(void) {
+        for (unsigned i=0; i<chainVec.size(); ++i) chainVec[i]->sampleStartVal();
+    }
 };
 
 
@@ -316,6 +339,10 @@ public:
                 Gadget::removeSecondElement(pis);
                 Gadget::removeSecondElement(piPar);
             }
+        }
+
+        ~ModelVecSBayesR(){
+            for (unsigned i=0; i<this->size(); ++i) delete (*this)[i];
         }
     };
     
@@ -347,7 +374,7 @@ public:
     NumNonZeroSnp nnzSnp;
 
     MultiModelSBayesR(const Data &data, const Options &opt, const bool message = true, const unsigned shortChainLength = 0):
-    MultiChainSBayesR(data, opt, false),
+    MultiChainSBayesR(data, opt, false, false),
     numModels(opt.numDist - 1),
     modelVec(data, opt),
     hsq(modelVec),
@@ -411,10 +438,19 @@ public:
     
     class ChainVecSBayesRC : public vector<ApproxBayesRC*> {
     public:
-        ChainVecSBayesRC(const Data &data, const Options &opt){
+        ChainVecSBayesRC(const Data &data, const Options &opt, const bool constructChains = true){
+            if (!constructChains) return;
             for (unsigned i=0; i<opt.numChains; ++i) {
-                this->push_back(new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, false, opt.algorithm, false));
+                this->push_back(new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual,
+                                                  opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale,
+                                                  opt.hsqPercModel, opt.robustMode, false, opt.algorithm, false,
+                                                  false, 100, 2, 0.5f, 0.2f, 0.1f,
+                                                  opt.estimateContextVar));
             }
+        }
+
+        ~ChainVecSBayesRC(){
+            for (unsigned i=0; i<this->size(); ++i) delete (*this)[i];
         }
     };
     
@@ -505,16 +541,20 @@ public:
         set<unsigned> badSnpIdxSet;
 
         ofstream out;
+        bool enabled;
 
-        NumBadSnps(const string &title, const ChainVecSBayesRC &chains): MultiChainParameter("NumSkeptSnp", chains.size()){
+        NumBadSnps(const string &title, const ChainVecSBayesRC &chains, const bool enabled):
+        MultiChainParameter("NumSkeptSnp", chains.size()), enabled(enabled){
            for (unsigned i=0; i<numChains; ++i) {
                chainVec.push_back(&chains[i]->nBadSnps);
                nBadSnpVec.push_back(&chains[i]->nBadSnps);
                chains[i]->nBadSnps.writeTxt = false;
                chains[i]->nBadSnps.out.close();
             }
-            string filename = title + ".skepticalSNPs";
-            out.open(filename.c_str());
+            if (enabled && numChains) {
+                string filename = title + ".skepticalSNPs";
+                out.open(filename.c_str());
+            }
         }
         void output(void);
     };
@@ -577,11 +617,21 @@ public:
         MultiChainParamSet("Marginal_Predictability_Enrichment", header, chains.size()) {}
     };
 
-    class AnnoJointPerSnpHsqEnrichment : public MultiChainParamSet {
+    class AnnoConditionalHsqEnrichment : public MultiChainParamSet {
     public:
-        AnnoJointPerSnpHsqEnrichment(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("Joint_Heritability_Enrichment", header, chains.size()){
+        AnnoConditionalHsqEnrichment(const vector<string> &header, const ChainVecSBayesRC &chains): MultiChainParamSet("Conditional_Heritability_Enrichment", header, chains.size()){
             for (unsigned i=0; i<numChains; ++i) {
-                chainVec.push_back(&chains[i]->annoJointPerSnpHsqEnrich);
+                chainVec.push_back(&chains[i]->annoConditionalHsqEnrich);
+            }
+        }
+    };
+
+    class AnnoConditionalPolygenicityEnrichment : public MultiChainParamSet {
+    public:
+        AnnoConditionalPolygenicityEnrichment(const vector<string> &header, const ChainVecSBayesRC &chains):
+        MultiChainParamSet("Conditional_Polygenicity_Enrichment", header, chains.size()) {
+            for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->annoConditionalPolygenicityEnrich);
             }
         }
     };
@@ -610,16 +660,20 @@ public:
     AnnoTotalGenVar annoTotalGenVar;
     AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
     AnnoPerSnpRsqEnrichment annoPerSnpRsqEnrich;
-    AnnoJointPerSnpHsqEnrichment annoJointPerSnpHsqEnrich;
+    AnnoConditionalHsqEnrichment annoConditionalHsqEnrich;
+    AnnoConditionalPolygenicityEnrichment annoConditionalPolygenicityEnrich;
     MultiChainSBayesR::NumHighPIPs nHighPips;
     SnpHsqPEP snpHsqPep;
 
     std::unique_ptr<MultiChainSBayesR::HeritabilityFixed> rcMcHsqFixed;
     std::unique_ptr<MultiChainSBayesR::HeritabilityRandom> rcMcHsqRandom;
+    std::unique_ptr<MultiChainParameter> contextVarianceRatioE8;
+    std::unique_ptr<MultiChainParameter> contextVarianceE8;
     
     const vector<LDBlockInfo*> &keptLdBlockInfoVec;
     const vector<MatrixXf> &Qblocks;
     const vector<QuantizedEigenBlock> &quantizedEigenBlocks;
+    const vector<VectorXf> &contextOriginalNormWeights;
     const MatrixXf &annoMat;
     const vector<AnnoInfo*> &annoInfoVec;
 
@@ -628,28 +682,30 @@ public:
     unsigned rsqEnrichBurnin;
     unsigned rsqEnrichFreq;
     
-    MultiChainSBayesRC(const Data &data, const Options &opt, const bool message = true):
-    MultiChainSBayesR(data, opt, false, true),
+    MultiChainSBayesRC(const Data &data, const Options &opt, const bool message = true, const bool constructChains = true):
+    MultiChainSBayesR(data, opt, false, false),
     numChains(opt.numChains),
-    chainVec(data, opt),
+    chainVec(data, opt, constructChains),
     hsq(chainVec),
-    pip(data.snpEffectNames, chainVec),
-    snpEffects(data.snpEffectNames, chainVec),
-    deltaPi(data.snpEffectNames, opt.gamma.size(), chainVec),
+    pip(constructChains ? data.snpEffectNames : emptyMultiChainHeader(), chainVec),
+    snpEffects(constructChains ? data.snpEffectNames : emptyMultiChainHeader(), chainVec),
+    deltaPi(constructChains ? data.snpEffectNames : emptyMultiChainHeader(), opt.gamma.size(), chainVec),
     numSnpMix(opt.gamma.size(), chainVec),
     vgMix(opt.gamma.size(), chainVec),
-    nBadSnps(opt.title, chainVec),
+    nBadSnps(opt.title, chainVec, opt.removeSkepticalSnps),
     nHighPips(opt.burnin, opt.thin, opt.outputFreq, opt.pipThreshold, opt.removeSkepticalSnps),
     annoEffects(data.annoNames, opt.gamma.size()-1, chainVec),
     annoJointProb(data.annoNames, opt.gamma.size(), chainVec),
     annoTotalGenVar(data.annoNames, chainVec),
     annoPerSnpHsqEnrich(data.annoNames, chainVec),
     annoPerSnpRsqEnrich(data.annoNames, chainVec),
-    annoJointPerSnpHsqEnrich(data.annoNames, chainVec),
-    snpHsqPep(data.snpEffectNames, chainVec),
+    annoConditionalHsqEnrich(data.annoNames, chainVec),
+    annoConditionalPolygenicityEnrich(data.annoNames, chainVec),
+    snpHsqPep(constructChains ? data.snpEffectNames : emptyMultiChainHeader(), chainVec),
     keptLdBlockInfoVec(data.keptLdBlockInfoVec),
     Qblocks(data.Qblocks),
     quantizedEigenBlocks(data.quantizedEigenBlocks),
+    contextOriginalNormWeights(data.marginalizedContextOriginalNormWeights),
     annoMat(data.annoMat),
     annoInfoVec(data.annoInfoVec),
     estimateRsqEnrich(opt.estimateRsqEnrich),
@@ -657,6 +713,7 @@ public:
     rsqEnrichBurnin(opt.burnin),
     rsqEnrichFreq(opt.thin ? opt.thin : 1)
     {
+        bayesType = "RC";
 
         if (estimateRsqEnrich && !data.lowRankModel) {
             throw("Error: --estimate-rsq-enrich requires eigen-decomposed LD data.");
@@ -664,9 +721,17 @@ public:
         if (estimateRsqEnrich && opt.numChains < 2) {
             throw("Error: --estimate-rsq-enrich requires at least two MCMC chains.");
         }
-        if (data.numFixedEffectSnps) {
+        if (data.numFixedEffectSnps && constructChains) {
             rcMcHsqFixed.reset(new MultiChainSBayesR::HeritabilityFixed(chainVec));
             rcMcHsqRandom.reset(new MultiChainSBayesR::HeritabilityRandom(chainVec));
+        }
+        if (opt.estimateContextVar && constructChains) {
+            contextVarianceRatioE8.reset(new MultiChainParameter("CtxRatioE8", chainVec.size()));
+            contextVarianceE8.reset(new MultiChainParameter("CtxVarE8", chainVec.size()));
+            for (unsigned i=0; i<chainVec.size(); ++i) {
+                contextVarianceRatioE8->chainVec.push_back(&chainVec[i]->contextVarianceRatioE8);
+                contextVarianceE8->chainVec.push_back(&chainVec[i]->contextVarianceE8);
+            }
         }
 
         paramVec.clear();
@@ -675,10 +740,15 @@ public:
             paramVec.push_back(rcMcHsqRandom.get());
         }
         paramVec.push_back(&hsq);
+        if (contextVarianceRatioE8) {
+            paramVec.push_back(contextVarianceRatioE8.get());
+            paramVec.push_back(contextVarianceE8.get());
+        }
         paramVec.insert(paramVec.end(), numSnpMix.begin(), numSnpMix.end());
         paramVec.insert(paramVec.end(), vgMix.begin(), vgMix.end());
 
-        paramSetVec = {&snpEffects, &pip, &snpHsqPep, &annoTotalGenVar, &annoPerSnpHsqEnrich};
+        paramSetVec = {&snpEffects, &pip, &snpHsqPep, &annoTotalGenVar, &annoPerSnpHsqEnrich,
+                       &annoConditionalHsqEnrich, &annoConditionalPolygenicityEnrich};
         if (estimateRsqEnrich) {
             paramSetVec.push_back(&annoPerSnpRsqEnrich);
         }
@@ -694,6 +764,10 @@ public:
             paramToPrint.push_back(rcMcHsqRandom.get());
         }
         paramToPrint.push_back(&hsq);
+        if (contextVarianceRatioE8) {
+            paramToPrint.push_back(contextVarianceRatioE8.get());
+            paramToPrint.push_back(contextVarianceE8.get());
+        }
         paramToPrint.push_back(&nHighPips);
         paramToPrint.push_back(&nBadSnps);
         
@@ -702,6 +776,8 @@ public:
         paramSetToPrint.insert(paramSetToPrint.end(), annoJointProb.begin(), annoJointProb.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
+        paramSetToPrint.push_back(&annoConditionalHsqEnrich);
+        paramSetToPrint.push_back(&annoConditionalPolygenicityEnrich);
         if (estimateRsqEnrich) {
             paramSetToPrint.push_back(&annoPerSnpRsqEnrich);
         }
@@ -715,7 +791,12 @@ public:
             if (estimateRsqEnrich)
                 cout << "Prediction-accuracy enrichment will be evaluated at every retained MCMC sample (every "
                      << rsqEnrichFreq << " iterations after burn-in)." << endl;
-            cout << "Gamma: " << gamma.values.transpose() << endl;
+            if (data.integrateOutContext) {
+                cout << "Using marginalized-context tiled LD with "
+                     << (opt.estimateContextVar ? "chain-specific estimated" : "fixed")
+                     << " context variance." << endl;
+            }
+            cout << "Gamma: " << gammaValues.transpose() << endl;
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
             if (numThreadTotal == 1) {
                 cout << "\nSUGGESTION: Enabling multi-threading is recommended when using multiple chains. You can set this by --thread [any value that is the multiple of the number of chains].\n" << endl;
@@ -727,6 +808,9 @@ public:
     }
     
     void sampleUnknowns(const unsigned iter);
+    void sampleStartVal(void) {
+        for (unsigned i=0; i<chainVec.size(); ++i) chainVec[i]->sampleStartVal();
+    }
     void computePredictionAccuracyEnrichment(void);
 };
 
@@ -743,6 +827,10 @@ public:
             for (unsigned i=0; i<opt.numChains; ++i) {
                 this->push_back(new ApproxBayesRD(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.estimateRsqEnrich, opt.algorithm, sampleAnnoEffectsIndep, false));
             }
+        }
+
+        ~ChainVecSBayesRD(){
+            for (unsigned i=0; i<this->size(); ++i) delete (*this)[i];
         }
     };
     
@@ -816,16 +904,20 @@ public:
         set<unsigned> badSnpIdxSet;
         
         ofstream out;
+        bool enabled;
 
-        NumBadSnps(const string &title, const ChainVecSBayesRD &chains): MultiChainParameter("NumSkeptSnp", chains.size()){
+        NumBadSnps(const string &title, const ChainVecSBayesRD &chains, const bool enabled):
+        MultiChainParameter("NumSkeptSnp", chains.size()), enabled(enabled){
            for (unsigned i=0; i<numChains; ++i) {
                chainVec.push_back(&chains[i]->nBadSnps);
                nBadSnpVec.push_back(&chains[i]->nBadSnps);
                chains[i]->nBadSnps.writeTxt = false;
                chains[i]->nBadSnps.out.close();
             }
-            string filename = title + ".skepticalSNPs";
-            out.open(filename.c_str());
+            if (enabled && numChains) {
+                string filename = title + ".skepticalSNPs";
+                out.open(filename.c_str());
+            }
         }
         void output(void);
     };
@@ -882,11 +974,21 @@ public:
         }
     };
 
-    class AnnoJointPerSnpHsqEnrichment : public MultiChainParamSet {
+    class AnnoConditionalHsqEnrichment : public MultiChainParamSet {
     public:
-        AnnoJointPerSnpHsqEnrichment(const vector<string> &header, const ChainVecSBayesRD &chains): MultiChainParamSet("Joint_Heritability_Enrichment", header, chains.size()){
+        AnnoConditionalHsqEnrichment(const vector<string> &header, const ChainVecSBayesRD &chains): MultiChainParamSet("Conditional_Heritability_Enrichment", header, chains.size()){
             for (unsigned i=0; i<numChains; ++i) {
-                chainVec.push_back(&chains[i]->annoJointPerSnpHsqEnrich);
+                chainVec.push_back(&chains[i]->annoConditionalHsqEnrich);
+            }
+        }
+    };
+
+    class AnnoConditionalPolygenicityEnrichment : public MultiChainParamSet {
+    public:
+        AnnoConditionalPolygenicityEnrichment(const vector<string> &header, const ChainVecSBayesRD &chains):
+        MultiChainParamSet("Conditional_Polygenicity_Enrichment", header, chains.size()) {
+            for (unsigned i=0; i<numChains; ++i) {
+                chainVec.push_back(&chains[i]->annoConditionalPolygenicityEnrich);
             }
         }
     };
@@ -965,7 +1067,8 @@ public:
     AnnoJointProb annoJointProb;
     AnnoTotalGenVar annoTotalGenVar;
     AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
-    AnnoJointPerSnpHsqEnrichment annoJointPerSnpHsqEnrich;
+    AnnoConditionalHsqEnrichment annoConditionalHsqEnrich;
+    AnnoConditionalPolygenicityEnrichment annoConditionalPolygenicityEnrich;
     SnpHsqPEP snpHsqPep;
     AnnoPi piAnno;
     AnnoPis piAnnos;
@@ -976,7 +1079,7 @@ public:
     bool sampleAnnoEffectsIndep;
     
     MultiChainSBayesRD(const Data &data, const Options &opt, const bool message = true):
-    MultiChainSBayesRC(data, opt, false),
+    MultiChainSBayesRC(data, opt, false, false),
     chainVec(data, opt),
     hsq(chainVec),
     pip(data.snpEffectNames, chainVec),
@@ -984,12 +1087,13 @@ public:
     deltaPi(data.snpEffectNames, opt.gamma.size(), chainVec),
     numSnpMix(opt.gamma.size(), chainVec),
     vgMix(opt.gamma.size(), chainVec),
-    nBadSnps(opt.title, chainVec),
+    nBadSnps(opt.title, chainVec, opt.removeSkepticalSnps),
     annoEffects(data.annoNames, opt.gamma.size()-1, chainVec),
     annoJointProb(data.annoNames, opt.gamma.size(), chainVec),
     annoTotalGenVar(data.annoNames, chainVec),
     annoPerSnpHsqEnrich(data.annoNames, chainVec),
-    annoJointPerSnpHsqEnrich(data.annoNames, chainVec),
+    annoConditionalHsqEnrich(data.annoNames, chainVec),
+    annoConditionalPolygenicityEnrich(data.annoNames, chainVec),
     snpHsqPep(data.snpEffectNames, chainVec),
     piAnno(chainVec),
     piAnnos(opt.gamma.size()-1, chainVec),
@@ -998,6 +1102,7 @@ public:
     estimateRsqEnrich(opt.estimateRsqEnrich),
     sampleAnnoEffectsIndep(opt.bayesType == "RD_indep")
     {
+        bayesType = opt.bayesType;
         
         paramVec    = {&hsq};
         if (sampleAnnoEffectsIndep)
@@ -1007,13 +1112,15 @@ public:
         paramVec.insert(paramVec.end(), numSnpMix.begin(), numSnpMix.end());
         paramVec.insert(paramVec.end(), vgMix.begin(), vgMix.end());
 
-        paramSetVec = {&snpEffects, &pip, &snpHsqPep, &annoTotalGenVar, &annoPerSnpHsqEnrich, &annoPip};
+        paramSetVec = {&snpEffects, &pip, &snpHsqPep, &annoTotalGenVar, &annoPerSnpHsqEnrich,
+                       &annoConditionalHsqEnrich, &annoConditionalPolygenicityEnrich, &annoPip};
         paramSetVec.insert(paramSetVec.end(), annoPips.begin(), annoPips.end());
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
         paramSetVec.insert(paramSetVec.end(), annoEffects.begin(), annoEffects.end());
         paramSetVec.insert(paramSetVec.end(), annoJointProb.begin(), annoJointProb.end());
 
-        paramToPrint = {&hsq, &nHighPips, &nBadSnps};
+        paramToPrint = {&hsq, &nHighPips};
+        paramToPrint.push_back(&nBadSnps);
         if (sampleAnnoEffectsIndep)
             paramToPrint.insert(paramToPrint.end(), piAnnos.begin(), piAnnos.end());
         else
@@ -1026,6 +1133,8 @@ public:
         paramSetToPrint.insert(paramSetToPrint.end(), annoJointProb.begin(), annoJointProb.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
         paramSetToPrint.push_back(&annoPerSnpHsqEnrich);
+        paramSetToPrint.push_back(&annoConditionalHsqEnrich);
+        paramSetToPrint.push_back(&annoConditionalPolygenicityEnrich);
         if (sampleAnnoEffectsIndep) {
             paramSetToPrint.insert(paramSetToPrint.end(), annoPips.begin(), annoPips.end());
         } else {
@@ -1037,7 +1146,7 @@ public:
             if (lowRankModel) {
                 cout << "Using the low-rank model" << endl;
             }
-            cout << "Gamma: " << gamma.values.transpose() << endl;
+            cout << "Gamma: " << gammaValues.transpose() << endl;
             if (!hsqPercModel) cout << "The SNP effect prior is a mixture distribution with an unknown variance variable." << endl;
             if (numThreadTotal == 1) {
                 cout << "\nSUGGESTION: Enabling multi-threading is recommended when using multiple chains. You can set this by --thread [any value that is the multiple of the number of chains].\n" << endl;
@@ -1049,6 +1158,9 @@ public:
     }
     
     void sampleUnknowns(const unsigned iter);
+    void sampleStartVal(void) {
+        for (unsigned i=0; i<chainVec.size(); ++i) chainVec[i]->sampleStartVal();
+    }
 };
 
 class MultiChainSBayesS : public ApproxBayesS {
@@ -1151,16 +1263,20 @@ public:
         set<unsigned> badSnpIdxSet;
 
         ofstream out;
+        bool enabled;
 
-        NumBadSnps(const string &title, const ChainVecSBayesS &chains): MultiChainParameter("NumSkeptSnp", chains.size()){
+        NumBadSnps(const string &title, const ChainVecSBayesS &chains, const bool enabled):
+        MultiChainParameter("NumSkeptSnp", chains.size()), enabled(enabled){
            for (unsigned i=0; i<numChains; ++i) {
                chainVec.push_back(&chains[i]->nBadSnps);
                nBadSnpVec.push_back(&chains[i]->nBadSnps);
                chains[i]->nBadSnps.writeTxt = false;
                chains[i]->nBadSnps.out.close();
             }
-            string filename = title + ".skepticalSNPs";
-            out.open(filename.c_str());
+            if (enabled && numChains) {
+                string filename = title + ".skepticalSNPs";
+                out.open(filename.c_str());
+            }
         }
         void output(void);
     };
@@ -1219,7 +1335,7 @@ public:
     sigmaSq(chainVec),
     varg(chainVec),
     vare(chainVec),
-    nBadSnps(opt.title, chainVec),
+    nBadSnps(opt.title, chainVec, opt.removeSkepticalSnps),
     nHighPips(opt.burnin, opt.thin, opt.outputFreq, opt.pipThreshold, opt.removeSkepticalSnps)
     {
         
@@ -1233,7 +1349,8 @@ public:
         paramVec    = {&pi, &nnzSnp, &sigmaSq, &S, &varg, &vare, &hsq};
         paramSetVec = {&snpEffects, &pip};
         
-        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &varg, &vare, &hsq, &nHighPips, &nBadSnps};
+        paramToPrint = {&pi, &nnzSnp, &sigmaSq, &S, &varg, &vare, &hsq, &nHighPips};
+        paramToPrint.push_back(&nBadSnps);
 
         if (message) {
             cout << "\nMulti-chain SBayesS (" << numChains << " chains)" << endl;
