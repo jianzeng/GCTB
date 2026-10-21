@@ -5501,12 +5501,22 @@ void Data::setAnnoInfoVec() {
             anno->ssq = anno->size;
         } else { // quantitative annotation
             anno->isBinary = 0;
-            annoMat.col(i).array() -= annoMat.col(i).mean();  // column-center the quantitative annotation
+            // Fit continuous annotations on a common scale for the shared slab prior.
+            VectorXd centered = annoMat.col(i).cast<double>();
+            centered.array() -= centered.mean();
+            const double sd = sqrt(centered.squaredNorm() / centered.size());
+            if (!std::isfinite(sd))
+                throw(string("Error: non-finite continuous annotation: ") + anno->label);
+            if (sd > 0.0) {
+                annoMat.col(i) = (centered / sd).cast<float>();
+                anno->sd = 1.0f;
+            } else {
+                annoMat.col(i).setZero();
+                anno->sd = 0.0f;
+            }
             anno->mean = 0.0;
-            anno->sd = sqrt(Gadget::calcVariance(annoMat.col(i)));
             anno->sum = annoMat.col(i).sum();
             anno->ssq = annoMat.col(i).squaredNorm();
-//            annoMat.col(i).array() /= anno->sd;  // standardize the quantitative annotation
         }
     }
         

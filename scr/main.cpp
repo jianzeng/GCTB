@@ -21,7 +21,6 @@ int main(int argc, const char * argv[]) {
     
     Gadget::Timer timer;
     timer.setTime();
-    int exitCode = 0;
     
     try {
         
@@ -37,7 +36,7 @@ int main(int argc, const char * argv[]) {
         cout << "* GCTB 2.5.6 beta                                       *\n";
         cout << "* Genome-wide Complex Trait Bayesian analysis           *\n";
         cout << "* For inquiries, contact: Jian Zeng <j.zeng@uq.edu.au>  *\n";
-        cout << "* Last updated: 6 September, 2026                       *\n";
+        cout << "* Last updated: 10 October, 2026                        *\n";
         cout << "* MIT License                                           *\n";
         cout << "*********************************************************\n";
 
@@ -693,15 +692,12 @@ int main(int argc, const char * argv[]) {
     }
     catch (const std::string &err_msg) {
         cerr << "\n" << err_msg << endl;
-        exitCode = 1;
     }
     catch (const std::exception &err) {
         cerr << "\n" << err.what() << endl;
-        exitCode = 1;
     }
     catch (const char *err_msg) {
         cerr << "\n" << err_msg << endl;
-        exitCode = 1;
     }
     
     timer.getTime();
@@ -713,5 +709,5 @@ int main(int argc, const char * argv[]) {
     LOGGER.flush();
     LOGGER.close();
 
-    return exitCode;
+    return 0;
 }

@@ -65,6 +65,7 @@ public:
     
     FILE *bout;
     ofstream tout;
+    ofstream binarySampleRows;
         
     McmcSamples(const string &label, const unsigned numChains, const unsigned chainLength, const unsigned burnin, const unsigned thin,
                 const unsigned npar, const string &storage_mode, const string &output_mode, const string &title):

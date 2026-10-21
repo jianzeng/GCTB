@@ -87,6 +87,13 @@ public:
     bool sampleResidualVarUnconditionally;  // always accept low-rank block residual-variance draws
     
     bool estimatePi;
+    bool jointAnno = false;  // opt-in full-block annotation sampling
+    void validateJointAnno() const {
+        if (jointAnno && ((analysisType != "SBayes" && analysisType != "GWFM")
+            || (bayesType != "RC" && bayesType != "RD" && bayesType != "RD_indep" && bayesType != "RD_Joint")
+            || annotationFile.empty() || !estimatePi))
+            throw string("Error: --joint-annot requires SBayes/GWFM RC, RD, RD_indep or RD_Joint, --annot, and annotation-effect estimation enabled.");
+    }
     bool estimateSigmaSq; // variance of SNP effects
     bool estimatePiNDC;  // for XCI
     bool estimatePiGxE;  // for XCI

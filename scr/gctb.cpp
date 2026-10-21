@@ -336,7 +336,7 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
             return new MultiChainSBayesR(data, opt);
         else if (bayesType == "RC")
             return new MultiChainSBayesRC(data, opt);
-        else if (bayesType == "RD" || bayesType == "RD_indep")
+        else if (bayesType == "RD" || bayesType == "RD_indep" || bayesType == "RD_Joint")
             return new MultiChainSBayesRD(data, opt);
         else if (bayesType == "S")
             return new MultiChainSBayesS(data, opt);
@@ -350,9 +350,9 @@ Model* GCTB::buildModel(Data &data, const Options &opt, const string &bedFile, c
             else if (bayesType == "RC")
                 return new ApproxBayesRC(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, algorithm,
                                          true, opt.viInit, opt.viIter, opt.viAnnoFreq, opt.viDampSnp, opt.viDampAnno, opt.viDampVar,
-                                         opt.estimateContextVar);
-            else if (bayesType == "RD" || bayesType == "RD_indep")
-                return new ApproxBayesRD(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, algorithm, bayesType == "RD_indep");
+                                         opt.estimateContextVar, opt.jointAnno);
+            else if (bayesType == "RD" || bayesType == "RD_indep" || bayesType == "RD_Joint")
+                return new ApproxBayesRD(data, data.lowRankModel, data.varGenotypic, data.varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, algorithm, bayesType != "RD_Joint", true, opt.jointAnno);
             else if (bayesType == "APP") {
                 VectorXf nLociAnno(data.numAnnos);
                 for(unsigned i=0; i<data.numAnnos; ++i) nLociAnno[i] = data.numSnpAnnoVec[i];
@@ -457,7 +457,7 @@ vector<McmcSamples*> GCTB::runMcmc(Model &model, const unsigned numChains, const
 
 void GCTB::findBestFitModel(Data &data, Options &opt){
     cout << "\nComparing models with different number of components ..." << endl;
-    if (opt.bayesType != "R" && opt.bayesType != "RC" && opt.bayesType != "RD" && opt.bayesType != "RD_indep") {
+    if (opt.bayesType != "R" && opt.bayesType != "RC" && opt.bayesType != "RD" && opt.bayesType != "RD_indep" && opt.bayesType != "RD_Joint") {
         throw(" Error: --n-dist-auto-hsq is available only in R, RC, RD, or RD_indep model. Current model is " + opt.bayesType + ".");
     }
     data.initVariances(opt.heritability, opt.propVarRandom);
@@ -526,7 +526,7 @@ void GCTB::findBestFitModelByPredictionAccuracy(Data &data, Options &opt, const 
     
     cout << "\nSelecting the number of mixture components ..." << endl;
     cout << "Criterion: retain a model only if held-out prediction r improves by at least 5% over the next simpler model." << endl;
-    if (opt.bayesType != "R" && opt.bayesType != "RC" && opt.bayesType != "RD" && opt.bayesType != "RD_indep") {
+    if (opt.bayesType != "R" && opt.bayesType != "RC" && opt.bayesType != "RD" && opt.bayesType != "RD_indep" && opt.bayesType != "RD_Joint") {
         throw(" Error: --n-dist-auto is available only in R, RC, RD, or RD_indep model. Current model is " + opt.bayesType + ".");
     }
     if (!data.lowRankModel || opt.eigenMatrixFile.empty()) {
@@ -855,7 +855,7 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
         }
         out.close();
     }
-    else if (bayesType == "RC" || bayesType == "R" || bayesType == "RD" || bayesType == "RD_indep") {
+    else if (bayesType == "RC" || bayesType == "R" || bayesType == "RD" || bayesType == "RD_indep" || bayesType == "RD_Joint") {
         McmcSamples *snpEffects = NULL;
         McmcSamples *pip = NULL;
         McmcSamples *pep = NULL;

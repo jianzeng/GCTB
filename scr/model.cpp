@@ -8585,25 +8585,31 @@ void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(MatrixXf &conditionalMembers
 
             y -= mean;
 
-            float oldSample = alphai[0];
-            float rhs = y.sum() + annoDiagi[0]*oldSample;
-            float invLhs = 1.0/annoDiagi[0];
-            float ahat = invLhs*rhs;
-            alphai[0] = Normal::sample(ahat, invLhs);
-            y.array() += oldSample - alphai[0];
+            if (blockedGaussian) {
+                AnnotationSampler::gaussian(annoMati,y,alphai,sigmaSq[i],
+                                             i == 0 ? &gaussianGramCache : NULL);
+                ssq[i] = alphai.tail(numAnno-1).squaredNorm();
+            } else {
+                float oldSample = alphai[0];
+                float rhs = y.sum() + annoDiagi[0]*oldSample;
+                float invLhs = 1.0/annoDiagi[0];
+                float ahat = invLhs*rhs;
+                alphai[0] = Normal::sample(ahat, invLhs);
+                y.array() += oldSample - alphai[0];
 
-            vector<int> shuffled_index = Gadget::shuffle_index(1, numAnno-1);
+                vector<int> shuffled_index = Gadget::shuffle_index(1, numAnno-1);
 
-            ssq[i] = 0;
-            for (unsigned t=0; t<shuffled_index.size(); ++t) {
-                unsigned k = shuffled_index[t];
-                oldSample = alphai[k];
-                rhs = annoMati.col(k).dot(y) + annoDiagi[k]*oldSample;
-                invLhs = 1.0/(annoDiagi[k] + 1.0/sigmaSq[i]);
-                ahat = invLhs*rhs;
-                alphai[k] = Normal::sample(ahat, invLhs);
-                y += annoMati.col(k) * (oldSample - alphai[k]);
-                ssq[i] += alphai[k] * alphai[k];
+                ssq[i] = 0;
+                for (unsigned t=0; t<shuffled_index.size(); ++t) {
+                    unsigned k = shuffled_index[t];
+                    oldSample = alphai[k];
+                    rhs = annoMati.col(k).dot(y) + annoDiagi[k]*oldSample;
+                    invLhs = 1.0/(annoDiagi[k] + 1.0/sigmaSq[i]);
+                    ahat = invLhs*rhs;
+                    alphai[k] = Normal::sample(ahat, invLhs);
+                    y += annoMati.col(k) * (oldSample - alphai[k]);
+                    ssq[i] += alphai[k] * alphai[k];
+                }
             }
         }
 
@@ -10523,9 +10529,53 @@ void ApproxBayesRD::AnnoEffects::sampleFromAnnotationSwapMH_joint(
     }
 }
 
+// Integrated Gaussian likelihood ratios relative to the exact-zero component.
+VectorXf ApproxBayesRD::AnnoEffects::mixtureProbabilities(
+        const VectorXf &diag, const VectorXf &rhs, const VectorXf &weights) {
+    const double variances[5] = {0.0, 0.0001, 0.001, 0.01, 0.1};
+    Eigen::Matrix<double, 5, 1> logp;
+    for (unsigned g=0; g<5; ++g) {
+        logp[g] = log(double(weights[g]));
+        if (g) for (int c=0; c<diag.size(); ++c) {
+            double v = variances[g];
+            logp[g] += 0.5 * (-log1p(double(diag[c])*v)
+                + double(rhs[c])*rhs[c]/(double(diag[c])+1.0/v));
+        }
+    }
+    Eigen::Matrix<double, 5, 1> probabilities = (logp.array()-logp.maxCoeff()).exp();
+    return (probabilities/probabilities.sum()).cast<float>();
+}
+
+unsigned ApproxBayesRD::AnnoEffects::drawMixture(
+        const VectorXf &diag, const VectorXf &rhs, const unsigned level,
+        VectorXf &draw, float &inclusion) {
+    const float variances[5] = {0.0f, 0.0001f, 0.001f, 0.01f, 0.1f};
+    VectorXf probabilities = mixtureProbabilities(diag,rhs,mixtureWeights[level]->values);
+    inclusion = 1.0f-probabilities[0];
+    unsigned group = (*this)[level]->bernoulli.sample(probabilities);
+    ++mixtureCounts(level,group);
+    draw.setZero(diag.size());
+    if (group) for (int c=0; c<diag.size(); ++c) {
+        float variance = 1.0f/(diag[c]+1.0f/variances[group]);
+        draw[c] = Normal::sample(variance*rhs[c],variance);
+    }
+    return group;
+}
+
+void ApproxBayesRD::AnnoEffects::updateMixtureWeights(bool independent) {
+    for (unsigned c=0; c<(independent ? numComp : 1); ++c) {
+        VectorXf posterior = mixtureCounts.row(c).transpose();
+        posterior.array() += 1.0f; // proper uniform Dirichlet hyperprior
+        mixtureWeights[c]->values = Stat::Dirichlet().sample(mixtureNames.size(),posterior);
+    }
+}
+
 void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(
         const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq,
-        const VectorXf &pi, MatrixXf &snpP, const bool runAnnotationSwap){
+        const VectorXf &pi, MatrixXf &snpP, bool runAnnotationSwap,
+        bool runAnnotationTgs){
+    if (bayesR) { runAnnotationSwap = false; runAnnotationTgs = false; }
+    mixtureCounts.setZero();
     VectorXf numOnes(numComp);
     #pragma omp parallel for schedule(static)
     for (unsigned i=0; i<numComp; ++i) {
@@ -10560,6 +10610,16 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(
             alphai.setZero();
             alphai[0] = -10.0;
             ssq[i] = 0;
+            if (bayesR) for (unsigned k=1; k<numAnno; ++k) {
+                VectorXf draw;
+                float inclusion;
+                unsigned group = drawMixture(VectorXf::Zero(1),VectorXf::Zero(1),i,draw,inclusion);
+                alphai[k] = draw[0];
+                deltas[i]->values[k] = group != 0;
+                pip[k] = inclusion;
+                ssq[i] += draw.squaredNorm();
+                numNonZeros[i] += group != 0;
+            }
         }else{
             y.setZero(numDP);
             zi.setZero(numDP);
@@ -10630,6 +10690,17 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(
             if (runAnnotationSwap)
                 sampleFromAnnotationSwapMH_indep(alphai, y, annoMati, i);
 
+            if (runAnnotationTgs) {
+                Stat::ParallelTaskRngScope rngScope(i, 0x41544753u);
+                vector<const MatrixXf*> designs(1,&annoMati);
+                vector<VectorXf*> residuals(1,&y);
+                MatrixXf alpha = alphai;
+                AnnotationSampler::correctedTgs(designs,residuals,alpha,
+                    VectorXf::Constant(1,sigmaSq[i]),pi[i],
+                    i == 0 ? &tgsGramCache : NULL,&tgsProposals,&tgsAccepted);
+                alphai = alpha.col(0);
+            }
+
             // annotations are fitted with a BayesC-type mixture prior
             // shuffle the annotations
             vector<int> shuffled_index = Gadget::shuffle_index(1, numAnno-1);
@@ -10639,6 +10710,19 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(
                 unsigned k = shuffled_index[t];
                 oldSample = alphai[k];
                 rhs = annoMati.col(k).dot(y) + annoDiagi[k]*oldSample;
+                if (bayesR) {
+                    VectorXf draw;
+                    float inclusion;
+                    unsigned group = drawMixture(VectorXf::Constant(1,annoDiagi[k]),
+                        VectorXf::Constant(1,rhs),i,draw,inclusion);
+                    alphai[k] = draw[0];
+                    deltas[i]->values[k] = group != 0;
+                    pip[k] = inclusion;
+                    y += annoMati.col(k)*(oldSample-alphai[k]);
+                    ssq[i] += draw.squaredNorm();
+                    numNonZeros[i] += group != 0;
+                    continue;
+                }
                 invLhs = 1.0/(annoDiagi[k] + 1.0/sigmaSq[i]);
                 ahat = invLhs*rhs;
                 logDelta1 = 0.5*(logf(invLhs) - logSigmaSq + ahat*rhs) + logPi;
@@ -10844,7 +10928,10 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(
 
 void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
         const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq,
-        const float pi, MatrixXf &snpP, const bool runAnnotationSwap){
+        const float pi, MatrixXf &snpP, bool runAnnotationSwap,
+        bool runAnnotationTgs){
+    if (bayesR) { runAnnotationSwap = false; runAnnotationTgs = false; }
+    mixtureCounts.setZero();
     VectorXf numOnes(numComp);
 #pragma omp parallel for schedule(static)
     for (unsigned i=0; i<numComp; ++i) {
@@ -10877,6 +10964,7 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
         }
     }
 
+    if (bayesR) numNZComp = numComp;
     vector<VectorXf> Y(numNZComp);
     vector<MatrixXf> Amat(numNZComp);
     MatrixXf Alpha(numAnno, numNZComp);
@@ -10886,6 +10974,13 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
 
     for (unsigned i=0; i<numNZComp; ++i) {
         VectorXf &alphai = (*this)[i]->values;
+        if (bayesR && numDP[i] == 0) {
+            Y[i].resize(0);
+            Amat[i].resize(0,numAnno);
+            APAdiag.col(i).setZero();
+            Alpha.col(i) = alphai;
+            continue;
+        }
         VectorXf y, zi;
         y.setZero(numDP[i]);
         zi.setZero(numDP[i]);
@@ -10964,6 +11059,18 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
     if (runAnnotationSwap)
         sampleFromAnnotationSwapMH_joint(Alpha, Y, Amat);
 
+    if (runAnnotationTgs && numNZComp) {
+        Stat::ParallelTaskRngScope rngScope(0, 0x41544753u);
+        vector<const MatrixXf*> designs(numNZComp);
+        vector<VectorXf*> residuals(numNZComp);
+        for (unsigned i=0; i<numNZComp; ++i) {
+            designs[i] = &Amat[i];
+            residuals[i] = &Y[i];
+        }
+        AnnotationSampler::correctedTgs(designs,residuals,Alpha,sigmaSq,pi,
+                                       &tgsGramCache,&tgsProposals,&tgsAccepted);
+    }
+
     // annotations are fitted with a BayesC-type mixture prior
     float logPi = log(pi);
     float logPiComp = log(1.0-pi);
@@ -10980,6 +11087,19 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
         VectorXf rhs(numNZComp);
         for (unsigned i=0; i<numNZComp; ++i) {
             rhs[i] = Amat[i].col(k).dot(Y[i]) + APAdiag(k,i)*oldSample[i];
+        }
+        if (bayesR) {
+            VectorXf draw;
+            unsigned group = drawMixture(APAdiag.row(k).transpose(),rhs,0,draw,pip[k]);
+            deltas[0]->values[k] = group != 0;
+            for (unsigned i=0; i<numNZComp; ++i) {
+                Alpha(k,i) = draw[i];
+                Y[i] += Amat[i].col(k)*(oldSample[i]-draw[i]);
+                ssq[i] += draw[i]*draw[i];
+                numNonZeros[i] += group != 0;
+            }
+            nnz += group != 0;
+            continue;
         }
         VectorXf invLhs = (APAdiag.row(k).transpose() + invSigmaSq).array().inverse();
         VectorXf ahat = invLhs.cwiseProduct(rhs);
@@ -11106,18 +11226,25 @@ void ApproxBayesRD::sampleUnknowns(const unsigned iter){
         if (sampleAnnoEffectsIndep)
             annoEffects.sampleFromFC_indep(snpEffects.membership, data.annoMat,
                                            sigmaSqAnno.values, piAnno.values, snpP,
-                                           annotationSwapEnabled && ldSwapIteration);
+                                           annotationSwapEnabled && ldSwapIteration,
+                                           annotationTgsEnabled);
         else
             annoEffects.sampleFromFC_joint(snpEffects.membership, data.annoMat,
                                            sigmaSqAnno.values, piAnno.value, snpP,
-                                           annotationSwapEnabled && ldSwapIteration);
+                                           annotationSwapEnabled && ldSwapIteration,
+                                           annotationTgsEnabled);
         addProfileTime(profileTimeAnnoEffects);
-        sigmaSqAnno.sampleFromFC(annoEffects.ssq, annoEffects.numNonZeros);
-        addProfileTime(profileTimeAnnoVar);
-        if (sampleAnnoEffectsIndep)
-            piAnno.sampleFromFC(annoEffects.numAnno - 1, annoEffects.numNonZeros);
-        else
-            piAnno.sampleFromFC(annoEffects.numAnnoTotal, annoEffects.nnz);
+        annoEffects.updateMixtureWeights(sampleAnnoEffectsIndep);
+        // Retain inclusion-probability outputs as the total nonzero mixture mass.
+        if (sampleAnnoEffectsIndep) {
+            for (unsigned c=0; c<annoEffects.numComp; ++c) {
+                piAnno.values[c] = 1.0f-annoEffects.mixtureWeights[c]->values[0];
+                piAnno[c]->value = piAnno.values[c];
+            }
+            piAnno.value = piAnno.values.mean();
+        } else {
+            piAnno.value = 1.0f-annoEffects.mixtureWeights[0]->values[0];
+        }
         addProfileTime(profileTimePiUpdate);
         computeLogPiFromP(snpP, snpLogPi);
         addProfileTime(profileTimeLogPi);

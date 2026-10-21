@@ -12,11 +12,172 @@
 #include <iostream>
 #include <math.h>
 #include <cstdlib>
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <string>
+#include <vector>
 #include "stat.hpp"
 #include "data.hpp"
 
 using namespace std;
 
+// Conditional annotation kernels. Residuals are latent responses minus A*alpha.
+// Never materialize an N-SNP by block-size double-precision design matrix.
+namespace AnnotationSampler {
+typedef std::vector<Eigen::MatrixXd> GramCache;
+
+inline Eigen::MatrixXd gram(const Eigen::MatrixXf &a, int first, int count) {
+    Eigen::MatrixXd g(count, count);
+    for (int j=0; j<count; ++j)
+        for (int k=0; k<=j; ++k)
+            g(j,k) = g(k,j) = a.col(first+j).cast<double>().dot(a.col(first+k).cast<double>());
+    return g;
+}
+
+inline void checkVariance(double variance) {
+    if (!(variance > 0.0) || !std::isfinite(variance))
+        throw std::string("Error: annotation prior variance must be finite and positive.");
+}
+
+// A zero blockSize draws ALL coefficients jointly, including the flat-prior
+// intercept. Explicit smaller sizes are retained for kernel regression tests.
+inline void gaussian(const Eigen::MatrixXf &a, Eigen::VectorXf &residual,
+                     Eigen::VectorXf &alpha, double variance,
+                     GramCache *cache = NULL, int blockSize = 0) {
+    checkVariance(variance);
+    if (!alpha.size()) return;
+    if (blockSize == 0) blockSize = alpha.size();
+    if (blockSize < 1) throw std::string("Error: invalid annotation block size.");
+    for (int first=0, block=0; first<alpha.size(); first+=blockSize, ++block) {
+        const int count = std::min(blockSize, int(alpha.size())-first);
+        Eigen::MatrixXd local;
+        if (cache) {
+            if (block == int(cache->size())) cache->push_back(gram(a,first,count));
+        } else local = gram(a,first,count);
+        const Eigen::MatrixXd &g = cache ? (*cache)[block] : local;
+        Eigen::MatrixXd precision = g;
+        for (int k=0; k<count; ++k)
+            if (first+k != 0) precision(k,k) += 1.0/variance;
+        Eigen::LLT<Eigen::MatrixXd> chol(precision);
+        if (chol.info() != Eigen::Success)
+            throw std::string("Error: annotation Gaussian block precision is not positive definite.");
+        const Eigen::VectorXd old = alpha.segment(first,count).cast<double>();
+        Eigen::VectorXd rhs = g*old, z(count);
+        for (int k=0; k<count; ++k) {
+            rhs[k] += a.col(first+k).cast<double>().dot(residual.cast<double>());
+            z[k] = Stat::snorm();
+        }
+        // H=L L'; L'^(-1) z has covariance H^(-1), not L^(-1) z.
+        const Eigen::VectorXd draw = chol.solve(rhs) + chol.matrixU().solve(z);
+        if (!draw.allFinite()) throw std::string("Error: nonfinite annotation Gaussian draw.");
+        alpha.segment(first,count) = draw.cast<float>();
+        for (int k=0; k<count; ++k)
+            residual.noalias() += a.col(first+k) * float(old[k]-alpha[first+k]);
+    }
+}
+
+inline double softplus(double x) {
+    return std::max(x,0.0) + std::log1p(std::exp(-std::abs(x)));
+}
+inline double logProbability(double logOdds, bool included) {
+    return -softplus(included ? -logOdds : logOdds);
+}
+inline double logSumExp(const Eigen::VectorXd &x) {
+    const double maximum = x.maxCoeff();
+    return maximum + std::log((x.array()-maximum).exp().sum());
+}
+
+// g differs from the exact conditional p only in its inclusion odds (sqrt
+// odds); its conditional slab density is unchanged. Select j with weight
+// w_j=g_j(alpha_j|alpha_-j)/p_j(alpha_j|alpha_-j), then draw from g_j.
+// Detailed balance for the ORIGINAL posterior requires min(1,Z(old)/Z(new)),
+// Z=sum_j w_j. No tempered state or importance weight escapes this kernel.
+// A coordinate is a shared inclusion indicator plus ALL component effects.
+inline void correctedTgs(const std::vector<const Eigen::MatrixXf*> &designs,
+                         const std::vector<Eigen::VectorXf*> &residuals,
+                         Eigen::MatrixXf &alpha, const Eigen::VectorXf &variances,
+                         double pi, GramCache *firstComponentCache = NULL,
+                         unsigned long long *proposals = NULL,
+                         unsigned long long *accepted = NULL) {
+    const int components = alpha.cols(), annotations = alpha.rows();
+    if (!components || annotations <= 1 || pi == 0.0 || pi == 1.0) return;
+    if (!(pi > 0.0 && pi < 1.0)) throw std::string("Error: invalid annotation inclusion probability.");
+    for (int c=0; c<components; ++c) checkVariance(variances[c]);
+    const double priorOdds = std::log(pi)-std::log1p(-pi);
+    const int blockSize = annotations-1;  // one selection block, all non-intercept annotations
+    for (int first=1, block=0; first<annotations; first+=blockSize, ++block) {
+        const int count = std::min(blockSize,annotations-first);
+        std::vector<Eigen::MatrixXd> grams(components);
+        Eigen::MatrixXd scores(count,components), variance(count,components);
+        for (int c=0; c<components; ++c) {
+            if (c == 0 && firstComponentCache) {
+                if (block == int(firstComponentCache->size()))
+                    firstComponentCache->push_back(gram(*designs[c],first,count));
+                grams[c] = (*firstComponentCache)[block];
+            } else grams[c] = gram(*designs[c],first,count);
+            for (int j=0; j<count; ++j) {
+                scores(j,c) = designs[c]->col(first+j).cast<double>().dot(residuals[c]->cast<double>());
+                variance(j,c) = 1.0/(grams[c](j,j)+1.0/variances[c]);
+            }
+        }
+        Eigen::MatrixXd state = alpha.middleRows(first,count).cast<double>();
+        auto conditionals = [&](const Eigen::MatrixXd &x, const Eigen::MatrixXd &s,
+                                Eigen::VectorXd &odds, Eigen::VectorXd &weights,
+                                Eigen::MatrixXd &means) {
+            odds.setConstant(count,priorOdds);
+            means.resize(count,components);
+            weights.resize(count);
+            for (int j=0; j<count; ++j) {
+                for (int c=0; c<components; ++c) {
+                    const double rhs = s(j,c)+grams[c](j,j)*x(j,c);
+                    means(j,c) = variance(j,c)*rhs;
+                    odds[j] += 0.5*(std::log(variance(j,c)/variances[c])+means(j,c)*rhs);
+                }
+                const bool included = (x.row(j).array()!=0.0).any();
+                weights[j] = logProbability(0.5*odds[j],included)-logProbability(odds[j],included);
+            }
+        };
+        Eigen::VectorXd odds, weights;
+        Eigen::MatrixXd means;
+        conditionals(state,scores,odds,weights,means);
+        for (int attempt=0; attempt<count; ++attempt) {
+            if (proposals) ++*proposals;
+            const double logZ = logSumExp(weights);
+            double u = Stat::ranf();
+            int selected = count-1;
+            for (int j=0; j<count; ++j) {
+                u -= std::exp(weights[j]-logZ);
+                if (u <= 0.0) { selected=j; break; }
+            }
+            Eigen::MatrixXd candidate=state, candidateScores=scores;
+            const bool include = Stat::ranf() < std::exp(logProbability(0.5*odds[selected],true));
+            for (int c=0; c<components; ++c) {
+                candidate(selected,c) = include
+                    ? means(selected,c)+std::sqrt(variance(selected,c))*Stat::snorm() : 0.0;
+                candidateScores.col(c) += grams[c].col(selected)*(state(selected,c)-candidate(selected,c));
+            }
+            Eigen::VectorXd nextOdds, nextWeights;
+            Eigen::MatrixXd nextMeans;
+            conditionals(candidate,candidateScores,nextOdds,nextWeights,nextMeans);
+            const double logAcceptance = logZ-logSumExp(nextWeights);
+            if (std::log(std::max(double(Stat::ranf()),std::numeric_limits<double>::min()))
+                < std::min(0.0,logAcceptance)) {
+                state.swap(candidate); scores.swap(candidateScores);
+                odds.swap(nextOdds); weights.swap(nextWeights); means.swap(nextMeans);
+                if (accepted) ++*accepted;
+            }
+        }
+        for (int j=0; j<count; ++j) {
+            for (int c=0; c<components; ++c) {
+                const float next = float(state(j,c));
+                residuals[c]->noalias() += designs[c]->col(first+j)*(alpha(first+j,c)-next);
+                alpha(first+j,c) = next;
+            }
+        }
+    }
+}
+} // namespace AnnotationSampler
 
 class Parameter {
     // base class for a single parameter
@@ -2389,6 +2550,10 @@ public:
         VectorXf ssq;
         vector<string> colnames;
 
+        // Only component zero uses a fixed set of SNP rows.
+        vector<MatrixXd> gaussianGramCache;
+        bool blockedGaussian;
+
         VectorXf varProp;
         vector<BayesS::AcceptanceRate*> ar;
         bool profileTiming;
@@ -2399,7 +2564,8 @@ public:
         double profileTimeAlpha;
         double profileTimeSnpP;
 
-        AnnoEffects(const vector<string> &header, const unsigned ndist, const MatrixXf &annoMat) {
+        AnnoEffects(const vector<string> &header, const unsigned ndist, const MatrixXf &annoMat,
+                    const bool jointAnno = false): blockedGaussian(jointAnno) {
             numComp = ndist - 1;
             colnames.resize(numComp);
             ar.resize(numComp);
@@ -2657,10 +2823,10 @@ public:
     ApproxBayesRC(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool robustMode, const bool estimateRsqEnrich, const string &alg, const bool message = true,
                   const bool viInit = false, const unsigned viIter = 100, const unsigned viAnnoFreq = 2,
                   const float viDampSnp = 0.5f, const float viDampAnno = 0.2f, const float viDampVar = 0.1f,
-                  const bool estimateContextVar = false):
+                  const bool estimateContextVar = false, const bool jointAnno = false):
     ApproxBayesR(data, lowRank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, alg, false),
     snpEffects(data.snpEffectNames, pis),
-    annoEffects(data.annoNames, pis.size(), data.annoMat),
+    annoEffects(data.annoNames, pis.size(), data.annoMat, jointAnno),
     sigmaSqAnno(annoEffects.colnames, annoEffects.numAnno),
     annoCondProb(data.annoNames, annoEffects.numComp),
     annoJointProb(data.annoNames, pis.size()),
@@ -2793,6 +2959,10 @@ public:
 
         if (message) {
             cout << "\nSBayesRC" << endl;
+            if (estimatePi)
+                cout << (annoEffects.blockedGaussian
+                    ? "Using full-block joint Gaussian annotation updates"
+                    : "Using scalar Gibbs annotation updates") << endl;
             if (lowRankModel) {
                 cout << "Using the low-rank model" << endl;
             }
@@ -2988,11 +3158,26 @@ public:
         VectorXf numNonZeros;
         vector<string> colnames;
         
+        // Fixed probit-scale slab variances; component 0 is an exact zero.
+        bool bayesR = true;
+        vector<string> mixtureNames = {"zero", "var0.0001", "var0.001", "var0.01", "var0.1"};
+        vector<ParamSet*> mixtureWeights;
+        vector<ParamSet*> deltas; // sampled inclusion, not conditional PIP
+        MatrixXf mixtureCounts;
+        static VectorXf mixtureProbabilities(const VectorXf &diag, const VectorXf &rhs,
+                                             const VectorXf &weights);
+        unsigned drawMixture(const VectorXf &diag, const VectorXf &rhs,
+                             const unsigned level, VectorXf &draw, float &inclusion);
+        void updateMixtureWeights(bool independent);
+
         VectorXf pip;
         float nnz;
         vector<vector<unsigned> > swapNeighbors;
         unsigned long long swapProposals;
         unsigned long long swapAccepted;
+        vector<MatrixXd> tgsGramCache;
+        unsigned long long tgsProposals = 0;
+        unsigned long long tgsAccepted = 0;
 
         AnnoEffects(const vector<string> &header, const unsigned ndist, const MatrixXf &annoMat) {
             numComp = ndist - 1;
@@ -3008,6 +3193,13 @@ public:
             annoDiag[0] = numSnps;  // first annotation is intercept
             for (unsigned j=1; j<numAnno; ++j) {
                 annoDiag[j] = annoMat.col(j).squaredNorm();
+            }
+            mixtureCounts.setZero(numComp, mixtureNames.size());
+            for (unsigned i=0; i<numComp; ++i) {
+                mixtureWeights.push_back(new ParamSet("AnnoMix_p" + to_string(i+2), mixtureNames));
+                mixtureWeights.back()->values << 0.9f, 0.025f, 0.025f, 0.025f, 0.025f;
+                deltas.push_back(new ParamSet("AnnoDelta_p" + to_string(i+2),header));
+                deltas.back()->values[0] = 1.0f; // intercept always fitted
             }
             nnz = 0;
             ssq.setZero(numComp);
@@ -3027,10 +3219,10 @@ public:
                                               const vector<MatrixXf> &annoMats);
         void sampleFromFC_indep(const VectorXi &membership, const MatrixXf &annoMat,
                                 const VectorXf &sigmaSq, const VectorXf &pi, MatrixXf &snpP,
-                                const bool runAnnotationSwap);
+                                const bool runAnnotationSwap, const bool runAnnotationTgs = false);
         void sampleFromFC_joint(const VectorXi &membership, const MatrixXf &annoMat,
                                 const VectorXf &sigmaSq, const float pi, MatrixXf &snpP,
-                                const bool runAnnotationSwap);
+                                const bool runAnnotationSwap, const bool runAnnotationTgs = false);
         void initIntercept(const VectorXf &pis);
     };
     
@@ -3098,26 +3290,41 @@ public:
     AnnoPIPs annoPips;
     bool sampleAnnoEffectsIndep;
     bool annotationSwapEnabled;
+    bool annotationTgsEnabled;
 
-    ApproxBayesRD(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool robustMode, const bool estimateRsqEnrich, const string &alg, const bool sampleAnnoEffectsIndepOpt = false, const bool message = true):
+    ApproxBayesRD(const Data &data, const bool lowRank, const float varGenotypic, const float varResidual, const VectorXf pis, const VectorXf &piPar, const VectorXf gamma, const bool estimatePi, const bool noscale, const bool hsqPercModel, const bool robustMode, const bool estimateRsqEnrich, const string &alg, const bool sampleAnnoEffectsIndepOpt = true, const bool message = true, const bool jointAnno = false):
     ApproxBayesRC(data, lowRank, varGenotypic, varResidual, pis, piPar, gamma, estimatePi, noscale, hsqPercModel, robustMode, estimateRsqEnrich, alg, false),
     annoEffects(data.annoNames, pis.size(), data.annoMat),
     annoCondProb(data.annoNames, annoEffects.numComp),
     annoPip(data.annoNames),
     annoPips(data.annoNames, annoEffects.numComp),
     sampleAnnoEffectsIndep(sampleAnnoEffectsIndepOpt),
-    annotationSwapEnabled(true)
+    annotationSwapEnabled(false),
+    annotationTgsEnabled(false)
     {
         annoEffects.initIntercept(pis);
-        annoEffects.initializeSwapNeighbors(data.APA);
+        if (annotationSwapEnabled) annoEffects.initializeSwapNeighbors(data.APA);
         piAnno.init(annoEffects.numComp);
 
         const char *annotationSwapEnv = getenv("GCTB_RD_ANNO_SWAP");
         if (annotationSwapEnv && string(annotationSwapEnv) == "0")
             annotationSwapEnabled = false;
         
-        paramSetVec = {&snpEffects, &snpPip, &snpHsqPep, &annoPip};
-        paramSetVec.insert(paramSetVec.end(), annoPips.begin(), annoPips.end());
+        if (sampleAnnoEffectsIndep) {
+            paramSetVec = annoEffects.mixtureWeights;
+        } else {
+            annoEffects.mixtureWeights[0]->label = "AnnoMix";
+            paramSetVec = {annoEffects.mixtureWeights[0]};
+        }
+        if (sampleAnnoEffectsIndep)
+            paramSetVec.insert(paramSetVec.end(), annoEffects.deltas.begin(), annoEffects.deltas.end());
+        else {
+            annoEffects.deltas[0]->label = "AnnoDelta";
+            paramSetVec.push_back(annoEffects.deltas[0]);
+        }
+        paramSetVec.insert(paramSetVec.end(), {&snpEffects, &snpPip, &snpHsqPep, &annoPip});
+        if (sampleAnnoEffectsIndep)
+            paramSetVec.insert(paramSetVec.end(), annoPips.begin(), annoPips.end());
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
         paramSetVec.insert(paramSetVec.end(), annoEffects.begin(), annoEffects.end());
         paramSetVec.insert(paramSetVec.end(), annoCondProb.begin(), annoCondProb.end());
@@ -3140,7 +3347,8 @@ public:
         paramVec.insert(paramVec.end(), numSnps.begin(), numSnps.end());
         paramVec.insert(paramVec.end(), Vgs.begin(), Vgs.end());
         
-        paramSetToPrint.resize(0);
+        paramSetToPrint = sampleAnnoEffectsIndep ? annoEffects.mixtureWeights
+            : vector<ParamSet*>{annoEffects.mixtureWeights[0]};
         paramSetToPrint.insert(paramSetToPrint.end(), annoEffects.begin(), annoEffects.end());
         paramSetToPrint.insert(paramSetToPrint.end(), annoCondProb.begin(), annoCondProb.end());
         paramSetToPrint.insert(paramSetToPrint.end(), annoJointProb.begin(), annoJointProb.end());
@@ -3175,6 +3383,16 @@ public:
 
         if (message) {
             cout << "\nSBayesRD" << endl;
+            cout << "Annotation BayesR prior: variances 0, 0.0001, 0.001, 0.01, 0.1; Dirichlet(1,1,1,1,1) weights" << endl;
+            if (jointAnno && estimatePi)
+                cout << "BayesR annotation prior uses single-site Gibbs; annotation TGS and swaps are disabled" << endl;
+            cout << (sampleAnnoEffectsIndep
+                ? "Using independent annotation inclusion indicators across conditional probability levels"
+                : "Using shared annotation inclusion indicators across conditional probability levels") << endl;
+            if (estimatePi)
+                cout << (annotationTgsEnabled
+                    ? "Using full-block MH-corrected annotation TGS every iteration (coordinate proposals)"
+                    : "Using single-site Gibbs annotation updates") << endl;
             if (lowRankModel) {
                 cout << "Using the low-rank model" << endl;
             }

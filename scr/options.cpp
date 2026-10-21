@@ -248,6 +248,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
             algorithm = argv[++i];
             ss << "--alg " << argv[i] << "\n";
         }
+        else if (!strcmp(argv[i], "--joint-annot")) {
+            jointAnno = true;
+            ss << "--joint-annot\n";
+        }
         else if (!strcmp(argv[i], "--predict")) {
             analysisType = "Predict";
             ss << "--predict " << "\n";
@@ -1017,6 +1021,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
         throw("Error: --sbayes R does not use annotation data from --annot. Remove --annot for SBayesR, or use --sbayes RC if you intend to fit annotation effects.");
     }
 
+    validateJointAnno();
     optionsSummary = ss.str();
 }
 
@@ -1054,6 +1059,10 @@ void Options::readFile(const string &file){  // input options from file
             bayesType = value;
         } else if (key == "algorithm") {
             algorithm = value;
+        } else if (key == "jointAnno") {
+            if (value != "Yes" && value != "No")
+                throw string("Error: jointAnno must be Yes or No.");
+            jointAnno = value == "Yes";
         } else if (key == "keepIndFile") {
             keepIndFile = value;
         } else if (key == "keepIndMax") {
@@ -1205,6 +1214,7 @@ void Options::readFile(const string &file){  // input options from file
     }
     in.close();
     
+    validateJointAnno();
     optionsSummary = ss.str();
 }
 

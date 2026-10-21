@@ -445,7 +445,7 @@ public:
                                                   opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale,
                                                   opt.hsqPercModel, opt.robustMode, false, opt.algorithm, false,
                                                   false, 100, 2, 0.5f, 0.2f, 0.1f,
-                                                  opt.estimateContextVar));
+                                                  opt.estimateContextVar, opt.jointAnno));
             }
         }
 
@@ -784,6 +784,10 @@ public:
 
         if (message) {
             cout << "\nMulti-chain SBayesRC (" << numChains << " chains)" << endl;
+            if (opt.estimatePi && !chainVec.empty())
+                cout << (chainVec[0]->annoEffects.blockedGaussian
+                    ? "Using full-block joint Gaussian annotation updates"
+                    : "Using scalar Gibbs annotation updates") << endl;
             if (lowRankModel) {
                 cout << "Using the low-rank model" << endl;
             }
@@ -823,9 +827,10 @@ public:
     class ChainVecSBayesRD : public vector<ApproxBayesRD*> {
     public:
         ChainVecSBayesRD(const Data &data, const Options &opt){
-            bool sampleAnnoEffectsIndep = opt.bayesType == "RD_indep";
+            // RD and RD_indep use independent assignments; RD_Joint shares one.
+            const bool sampleAnnoEffectsIndep = opt.bayesType != "RD_Joint";
             for (unsigned i=0; i<opt.numChains; ++i) {
-                this->push_back(new ApproxBayesRD(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.estimateRsqEnrich, opt.algorithm, sampleAnnoEffectsIndep, false));
+                this->push_back(new ApproxBayesRD(data, data.lowRankModel, data.varGenotypic, data.varResidual, opt.pis, opt.piPar, opt.gamma, opt.estimatePi, opt.noscale, opt.hsqPercModel, opt.robustMode, opt.estimateRsqEnrich, opt.algorithm, sampleAnnoEffectsIndep, false, opt.jointAnno));
             }
         }
 
@@ -939,6 +944,36 @@ public:
         }
     };
         
+    class AnnoMixtureWeights : public vector<MultiChainParamSet*> {
+    public:
+        AnnoMixtureWeights(const ChainVecSBayesRD &chains) {
+            for (unsigned c=0; c<(chains[0]->sampleAnnoEffectsIndep ? chains[0]->annoEffects.numComp : 1); ++c) {
+                ParamSet *source = chains[0]->annoEffects.mixtureWeights[c];
+                this->push_back(new MultiChainParamSet(source->label,source->header,chains.size()));
+                for (unsigned j=0; j<chains.size(); ++j)
+                    (*this)[c]->chainVec.push_back(chains[j]->annoEffects.mixtureWeights[c]);
+            }
+        }
+        void getValues() {
+            for (auto weights : *this) weights->getValues();
+        }
+    };
+
+    class AnnoDeltas : public vector<MultiChainParamSet*> {
+    public:
+        AnnoDeltas(const ChainVecSBayesRD &chains) {
+            for (unsigned c=0; c<(chains[0]->sampleAnnoEffectsIndep ? chains[0]->annoEffects.numComp : 1); ++c) {
+                ParamSet *source = chains[0]->annoEffects.deltas[c];
+                this->push_back(new MultiChainParamSet(source->label,source->header,chains.size()));
+                for (unsigned j=0; j<chains.size(); ++j)
+                    (*this)[c]->chainVec.push_back(chains[j]->annoEffects.deltas[c]);
+            }
+        }
+        void getValues() {
+            for (auto delta : *this) delta->getValues();
+        }
+    };
+
     class AnnoJointProb : public vector<MultiChainParamSet*> {
     public:
         AnnoJointProb(const vector<string> &header, const unsigned numDist, const ChainVecSBayesRD &chains):
@@ -1064,6 +1099,7 @@ public:
     VgMixComps vgMix;
     NumBadSnps nBadSnps;
     AnnoEffects annoEffects;
+    AnnoMixtureWeights annoMixtureWeights;
     AnnoJointProb annoJointProb;
     AnnoTotalGenVar annoTotalGenVar;
     AnnoPerSnpHsqEnrichment annoPerSnpHsqEnrich;
@@ -1074,6 +1110,7 @@ public:
     AnnoPis piAnnos;
     AnnoPIP annoPip;
     AnnoPIPs annoPips;
+    AnnoDeltas annoDeltas;
     
     bool estimateRsqEnrich;
     bool sampleAnnoEffectsIndep;
@@ -1089,6 +1126,7 @@ public:
     vgMix(opt.gamma.size(), chainVec),
     nBadSnps(opt.title, chainVec, opt.removeSkepticalSnps),
     annoEffects(data.annoNames, opt.gamma.size()-1, chainVec),
+    annoMixtureWeights(chainVec),
     annoJointProb(data.annoNames, opt.gamma.size(), chainVec),
     annoTotalGenVar(data.annoNames, chainVec),
     annoPerSnpHsqEnrich(data.annoNames, chainVec),
@@ -1099,8 +1137,9 @@ public:
     piAnnos(opt.gamma.size()-1, chainVec),
     annoPip(data.annoNames, chainVec),
     annoPips(data.annoNames, opt.gamma.size()-1, chainVec),
+    annoDeltas(chainVec),
     estimateRsqEnrich(opt.estimateRsqEnrich),
-    sampleAnnoEffectsIndep(opt.bayesType == "RD_indep")
+    sampleAnnoEffectsIndep(opt.bayesType != "RD_Joint")
     {
         bayesType = opt.bayesType;
         
@@ -1114,7 +1153,10 @@ public:
 
         paramSetVec = {&snpEffects, &pip, &snpHsqPep, &annoTotalGenVar, &annoPerSnpHsqEnrich,
                        &annoConditionalHsqEnrich, &annoConditionalPolygenicityEnrich, &annoPip};
-        paramSetVec.insert(paramSetVec.end(), annoPips.begin(), annoPips.end());
+        paramSetVec.insert(paramSetVec.end(), annoMixtureWeights.begin(), annoMixtureWeights.end());
+        paramSetVec.insert(paramSetVec.end(), annoDeltas.begin(), annoDeltas.end());
+        if (sampleAnnoEffectsIndep)
+            paramSetVec.insert(paramSetVec.end(), annoPips.begin(), annoPips.end());
         paramSetVec.insert(paramSetVec.end(), deltaPi.begin(), deltaPi.end());
         paramSetVec.insert(paramSetVec.end(), annoEffects.begin(), annoEffects.end());
         paramSetVec.insert(paramSetVec.end(), annoJointProb.begin(), annoJointProb.end());
@@ -1128,7 +1170,7 @@ public:
         paramToPrint.insert(paramToPrint.begin(), vgMix.begin(), vgMix.end());
         paramToPrint.insert(paramToPrint.begin(), numSnpMix.begin(), numSnpMix.end());
         
-        paramSetToPrint.resize(0);
+        paramSetToPrint.assign(annoMixtureWeights.begin(), annoMixtureWeights.end());
         paramSetToPrint.insert(paramSetToPrint.end(), annoEffects.begin(), annoEffects.end());
         paramSetToPrint.insert(paramSetToPrint.end(), annoJointProb.begin(), annoJointProb.end());
         paramSetToPrint.push_back(&annoTotalGenVar);
@@ -1143,6 +1185,16 @@ public:
 
         if (message) {
             cout << "\nMulti-chain SBayesRD (" << numChains << " chains)" << endl;
+            cout << "Annotation BayesR prior: variances 0, 0.0001, 0.001, 0.01, 0.1; Dirichlet(1,1,1,1,1) weights" << endl;
+            if (opt.jointAnno && opt.estimatePi)
+                cout << "BayesR annotation prior uses single-site Gibbs; annotation TGS and swaps are disabled" << endl;
+            cout << (sampleAnnoEffectsIndep
+                ? "Using independent annotation inclusion indicators across conditional probability levels"
+                : "Using shared annotation inclusion indicators across conditional probability levels") << endl;
+            if (opt.estimatePi && !chainVec.empty())
+                cout << (chainVec[0]->annotationTgsEnabled
+                    ? "Using full-block MH-corrected annotation TGS every iteration (coordinate proposals)"
+                    : "Using single-site Gibbs annotation updates") << endl;
             if (lowRankModel) {
                 cout << "Using the low-rank model" << endl;
             }

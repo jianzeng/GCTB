@@ -16,7 +16,7 @@
 #endif
 
 static inline bool skipPosteriorTextOutput(const string &label) {
-    return label.find("Delta") != string::npos ||
+    return (label.find("Delta") != string::npos && label.find("AnnoDelta") != 0) ||
            label.find("PEP") != string::npos ||
            label.find("PIP") != string::npos;
 }
@@ -73,12 +73,17 @@ void McmcSamples::accumulateIteration(){
 
 void McmcSamples::outputSample(const unsigned chain, ofstream &out){
     if (outputMode == txt) {
-        tout << sampleIter.col(chain).transpose() << endl;
+        tout << (burnin/thin + cntPosteriorSample)*thin << "\t" << chain+1;
+        for (unsigned j=0; j<ncol; ++j) tout << "\t" << sampleIter(j,chain);
+        tout << endl;
     }
     else if (outputMode == txt_combine_others) {
-        out << boost::format("%12s ") %sampleIter.col(chain).transpose();
+        out << "\t" << sampleIter.col(chain).transpose();
     }
     else if (outputMode == bin) {
+        if (binarySampleRows.is_open())
+            binarySampleRows << (cntPosteriorSample-1)*numChains + chain+1 << "\t"
+                             << (burnin/thin + cntPosteriorSample)*thin << "\t" << chain+1 << endl;
         SparseVector<float> spvec = sampleIter.col(chain).sparseView();
         for (SparseVector<float>::InnerIterator it(spvec); it; ++it) {
             unsigned rc[2] = {(cntPosteriorSample-1)*numChains + chain, (unsigned)it.index()};
@@ -389,10 +394,11 @@ void MCMC::initTxtFile(const vector<Parameter*> &paramVec, const string &title){
     if (!out) {
         throw("Error: cannot open file " + outfilename);
     }
+    out << "Iteration\tChain";
     for (unsigned i=0; i<paramVec.size(); ++i) {
         Parameter *par = paramVec[i];
         if (skipPosteriorTextOutput(par->label)) continue;
-        out << boost::format("%12s ") %par->label;
+        out << "\t" << par->label;
     }
     out << endl;
 }
@@ -415,6 +421,22 @@ vector<McmcSamples*> MCMC::initMcmcSamples(const Model &model, const unsigned nu
             } else {
                 mcmcSamples = new McmcSamples(parSet->label, numChains, chainLength, burnin, thin, parSet->size, "do_not_store", "no_output", title);
             }
+        }
+        if (mcmcSamples->outputMode == McmcSamples::txt) {
+            mcmcSamples->tout << "Iteration\tChain";
+            for (const auto &name : parSet->header) mcmcSamples->tout << "\t" << name;
+            mcmcSamples->tout << endl;
+        }
+        if (mcmcSamples->outputMode == McmcSamples::bin) {
+            ofstream columns(mcmcSamples->filename + ".columns.txt");
+            if (!columns) throw string("Error: cannot write binary sample column names.");
+            columns << "Column\tName" << endl;
+            for (unsigned j=0; j<parSet->header.size(); ++j)
+                columns << j+1 << "\t" << parSet->header[j] << endl;
+            mcmcSamples->binarySampleRows.open(mcmcSamples->filename + ".rows.txt");
+            if (!mcmcSamples->binarySampleRows)
+                throw string("Error: cannot write binary sample row names.");
+            mcmcSamples->binarySampleRows << "Row\tIteration\tChain" << endl;
         }
         mcmcSampleVec.push_back(mcmcSamples);
         if (mcmcSamples->jointStatistic)
@@ -447,15 +469,18 @@ void MCMC::collectSamples(const Model &model, vector<McmcSamples*> &mcmcSampleVe
 
 void MCMC::outputSamples(vector<McmcSamples*> &mcmcSampleVec, const unsigned numChains){
     for (unsigned chain=0; chain<numChains; ++chain) {
+        if (out.is_open() && !mcmcSampleVec.empty()) {
+            const McmcSamples *sample = mcmcSampleVec.front();
+            out << (sample->burnin/sample->thin + sample->cntPosteriorSample)*sample->thin
+                << "\t" << chain+1;
+        }
         for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
             McmcSamples *mcmcSamples = mcmcSampleVec[i];
-            if (mcmcSamples->label.find("Delta") != string::npos ||
-                mcmcSamples->label.find("PEP") != string::npos ||
-                mcmcSamples->label.find("PIP") != string::npos) continue;
+            if (skipPosteriorTextOutput(mcmcSamples->label)) continue;
             mcmcSamples->outputSample(chain, out);
         }
+        if (out.is_open()) out << endl;
     }
-    out << endl;
 }
 
 void MCMC::computeGelmanRubinStat(vector<McmcSamples*> &mcmcSampleVec){

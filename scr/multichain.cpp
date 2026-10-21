@@ -523,6 +523,8 @@ void MultiChainSBayesRD::sampleUnknowns(const unsigned iter){
     numSnpMix.getValues();
     vgMix.getValues();
     annoEffects.getValues();
+    annoMixtureWeights.getValues();
+    annoDeltas.getValues();
     annoJointProb.getValues();
     annoTotalGenVar.getValues();
     annoPerSnpHsqEnrich.getValues();
