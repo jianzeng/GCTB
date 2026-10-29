@@ -8511,6 +8511,146 @@ void ApproxBayesRC::SnpEffects::sampleFromLDSwapMH_eigen(
     }
 }
 
+namespace {
+// Helpers for the probit annotation samplers of SBayesRC (also used by BayesRC) and SBayesRD.
+
+// SNP rows are processed in blocks of annotationRowBlockSize, a multiple of 96 to match the row
+// grouping of Eigen's current product kernels.
+const unsigned annotationRowBlockSize = 96 * 256;
+
+// Row blocks for the latent and probability products; a tail under 96 rows joins the last block.
+unsigned annotationRowBlocks(const unsigned rows) {
+    const unsigned tail = rows % annotationRowBlockSize;
+    return (rows + annotationRowBlockSize - 1) / annotationRowBlockSize
+         - (rows > annotationRowBlockSize && tail > 0 && tail < 96);
+}
+
+unsigned annotationRowBlockRows(const unsigned block, const unsigned numBlocks, const unsigned rows) {
+    return block + 1 == numBlocks ? rows - block * annotationRowBlockSize : annotationRowBlockSize;
+}
+
+// Float dot product accumulated in double, as four partial sums combined in a fixed order.
+double annotationDot(const float *a, const float *b, int rows) {
+    double s0=0, s1=0, s2=0, s3=0;
+    int j=0;
+    for (; j+4<=rows; j+=4) {
+        s0 += double(a[j]) * b[j];
+        s1 += double(a[j+1]) * b[j+1];
+        s2 += double(a[j+2]) * b[j+2];
+        s3 += double(a[j+3]) * b[j+3];
+    }
+    for (; j<rows; ++j) s0 += double(a[j]) * b[j];
+    return (s0+s1)+(s2+s3);
+}
+
+MatrixXd annotationGram(const MatrixXf &a) {
+    const int blockSize=annotationRowBlockSize, rows=a.rows(), cols=a.cols();
+    const int blocks=(rows+blockSize-1)/blockSize;
+    vector<MatrixXd> partial(blocks, MatrixXd::Zero(cols,cols));
+    #pragma omp parallel for schedule(static)
+    for (int b=0; b<blocks; ++b) {
+        const int first=b*blockSize, count=std::min(blockSize,rows-first);
+        for (int j=0; j<cols; ++j)
+            for (int k=0; k<=j; ++k)
+                partial[b](j,k)=annotationDot(a.col(j).data()+first,a.col(k).data()+first,count);
+    }
+    // Sum the blocks in order, so the result does not depend on thread scheduling.
+    MatrixXd lower=MatrixXd::Zero(cols,cols);
+    for (int b=0; b<blocks; ++b) lower += partial[b];
+    return lower.selfadjointView<Eigen::Lower>();
+}
+
+// Rows `active` of annoMat, in that order.
+MatrixXf annotationRows(const MatrixXf &annoMat, const vector<unsigned> &active) {
+    const unsigned rows = active.size(), cols = annoMat.cols();
+    MatrixXf out(rows, cols);
+    #pragma omp parallel for schedule(static) if(rows > annotationRowBlockSize)
+    for (unsigned k=0; k<cols; ++k)
+        for (unsigned j=0; j<rows; ++j)
+            out(j,k) = annoMat(active[j],k);
+    return out;
+}
+
+// Diagonal of A'A: the eligible SNP count for the intercept, column sums of squares otherwise.
+VectorXf annotationDiag(const MatrixXf &annoMat, const float numRows) {
+    VectorXf diag(annoMat.cols());
+    diag[0] = numRows;
+    #pragma omp parallel for schedule(dynamic)
+    for (unsigned k=1; k<annoMat.cols(); ++k)
+        diag[k] = annoMat.col(k).squaredNorm();
+    return diag;
+}
+
+// Probit latents minus their means for one boundary: y_j ~ N(a_j'alpha, 1), truncated to y_j > 0
+// if z_j and to y_j < 0 otherwise. Each SNP row block has its own RNG stream (keyed by block and
+// boundary), so the draws do not depend on the thread count.
+VectorXf annotationLatentResiduals(Stat::TruncatedNormal &dist, const MatrixXf &annoMat,
+                                   const VectorXf &alpha, const VectorXf &z, const unsigned boundary) {
+    const unsigned rows = annoMat.rows(), numBlocks = annotationRowBlocks(rows);
+    const unsigned latentRngSalt = 0x414c4154u; // "ALAT": annotation latents
+    VectorXf mean(rows), y(rows);
+    #pragma omp parallel for schedule(static) if(numBlocks > 1)
+    for (unsigned block=0; block<numBlocks; ++block) {
+        Stat::ParallelTaskRngScope latentRng(block, latentRngSalt + boundary);
+        const unsigned first = block * annotationRowBlockSize;
+        const unsigned count = annotationRowBlockRows(block, numBlocks, rows);
+        mean.segment(first, count).noalias() = annoMat.middleRows(first, count) * alpha;
+        for (unsigned j=first; j<first+count; ++j) {
+            if (z[j]) y[j] = dist.sample_lower_truncated(mean[j], 1.0, 0.0);
+            else y[j] = dist.sample_upper_truncated(mean[j], 1.0, 0.0);
+        }
+    }
+    y -= mean;
+    return y;
+}
+
+// a_k'y for the single-site coefficient updates of one boundary. Without a Gram matrix the
+// residual y is updated; with G = A'A (first boundary, whose SNP set is fixed), scores = A'y is
+// computed from y once per iteration and updated as scores += G.col(k)*change, leaving y unchanged.
+class AnnotationScores {
+public:
+    AnnotationScores(const MatrixXf &annoMat, VectorXf &y, const MatrixXd *gram)
+    : annoMat(annoMat), y(y), gram(gram) {
+        if (!gram) return;
+        scores.resize(annoMat.cols());
+        #pragma omp parallel for schedule(static) if(annoMat.rows() > annotationRowBlockSize)
+        for (unsigned k=0; k<annoMat.cols(); ++k)
+            scores[k] = annotationDot(annoMat.col(k).data(), y.data(), annoMat.rows());
+    }
+    // a_k'y; column 0 is the intercept, all ones.
+    float dot(const unsigned k) const {
+        if (gram) return float(scores[k]);
+        return k ? annoMat.col(k).dot(y) : y.sum();
+    }
+    // y += a_k*change, with change = old - new coefficient k; with a Gram matrix, scores only.
+    void add(const unsigned k, const float change) {
+        if (gram) scores += gram->col(k)*double(change);
+        else if (k) y += annoMat.col(k)*change;
+        else y.array() += change;
+    }
+private:
+    const MatrixXf &annoMat;
+    VectorXf &y;
+    const MatrixXd *gram;
+    VectorXd scores;
+};
+
+// snpP = Phi(annoMat*alpha) for all SNPs and boundaries, one product per SNP row block.
+void annotationProbabilities(Stat::Normal &dist, const MatrixXf &annoMat, const MatrixXf &alpha,
+                             MatrixXf &snpP) {
+    const unsigned rows = annoMat.rows(), numBlocks = annotationRowBlocks(rows);
+    #pragma omp parallel for schedule(static) if(numBlocks > 1)
+    for (unsigned block=0; block<numBlocks; ++block) {
+        const unsigned first = block * annotationRowBlockSize;
+        const unsigned count = annotationRowBlockRows(block, numBlocks, rows);
+        snpP.middleRows(first, count).noalias() = annoMat.middleRows(first, count) * alpha;
+        for (unsigned i=0; i<alpha.cols(); ++i)
+            for (unsigned j=first; j<first+count; ++j)
+                snpP(j,i) = dist.cdf_01(snpP(j,i));
+    }
+}
+} // namespace
+
 void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(const VectorXi &membership, const MatrixXf &annoMat,
                                                     const VectorXf &sigmaSq, MatrixXf &snpP) {
     MatrixXf conditionalMembership = MatrixXf::Zero(membership.size(), numComp);
@@ -8536,7 +8676,6 @@ void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(MatrixXf &conditionalMembers
     unsigned numSnps = conditionalMembership.rows();
     for (unsigned i=0; i<numComp; ++i) {
         VectorXf &alphai = (*this)[i]->values;
-        VectorXf y, zi;
         unsigned numDP;
         if (i==0) numDP = numSnps;
         else numDP = numOnes[i-1];
@@ -8546,56 +8685,40 @@ void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(MatrixXf &conditionalMembers
             alphai[0] = -10.0;
             ssq[i] = 0;
         }else{
-            y.setZero(numDP);
-            zi.setZero(numDP);
-            const MatrixXf *annotMatP;
+            VectorXf zi(numDP);
             MatrixXf annoMatPO;
             if (i==0) {
-                annotMatP = &annoMat;
                 zi = conditionalMembership.col(i);
             } else {
-                annoMatPO.setZero(numDP, numAnno);
+                vector<unsigned> active(numDP);
                 for (unsigned j=0, idx=0; j<numSnps; ++j) {
                     if (conditionalMembership(j,i-1)) {
-                        annoMatPO.row(idx) = annoMat.row(j);
+                        active[idx] = j;
                         zi[idx] = conditionalMembership(j,i);
                         ++idx;
                     }
                 }
-                annotMatP = &annoMatPO;
+                annoMatPO = annotationRows(annoMat, active);
             }
-            const MatrixXf &annoMati = (*annotMatP);
+            const MatrixXf &annoMati = i==0 ? annoMat : annoMatPO;
+            const VectorXf annoDiagi = i==0 ? annoDiag : annotationDiag(annoMati, numOnes[i-1]);
 
-            VectorXf annoDiagi(numAnno);
-            if (i==0) {
-                annoDiagi = annoDiag;
-            } else {
-                annoDiagi[0] = numOnes[i-1];
-                #pragma omp parallel for schedule(dynamic)
-                for (unsigned k=1; k<numAnno; ++k) {
-                    annoDiagi[k] = annoMati.col(k).squaredNorm();
-                }
-            }
-
-            VectorXf mean = annoMati * alphai;
-            for (unsigned j=0; j<numDP; ++j) {
-                if (zi[j]) y[j] = TruncatedNormal::sample_lower_truncated(mean[j], 1.0, 0.0);
-                else y[j] = TruncatedNormal::sample_upper_truncated(mean[j], 1.0, 0.0);
-            }
-
-            y -= mean;
+            VectorXf y = annotationLatentResiduals(*this, annoMati, alphai, zi, i);
 
             if (blockedGaussian) {
                 AnnotationSampler::gaussian(annoMati,y,alphai,sigmaSq[i],
                                              i == 0 ? &gaussianGramCache : NULL);
                 ssq[i] = alphai.tail(numAnno-1).squaredNorm();
             } else {
+                if (i==0 && !coordinateGram.size()) coordinateGram = annotationGram(annoMati);
+                AnnotationScores scores(annoMati, y, i==0 ? &coordinateGram : NULL);
+
                 float oldSample = alphai[0];
-                float rhs = y.sum() + annoDiagi[0]*oldSample;
+                float rhs = scores.dot(0) + annoDiagi[0]*oldSample;
                 float invLhs = 1.0/annoDiagi[0];
                 float ahat = invLhs*rhs;
                 alphai[0] = Normal::sample(ahat, invLhs);
-                y.array() += oldSample - alphai[0];
+                scores.add(0, oldSample - alphai[0]);
 
                 vector<int> shuffled_index = Gadget::shuffle_index(1, numAnno-1);
 
@@ -8603,21 +8726,22 @@ void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(MatrixXf &conditionalMembers
                 for (unsigned t=0; t<shuffled_index.size(); ++t) {
                     unsigned k = shuffled_index[t];
                     oldSample = alphai[k];
-                    rhs = annoMati.col(k).dot(y) + annoDiagi[k]*oldSample;
+                    rhs = scores.dot(k) + annoDiagi[k]*oldSample;
                     invLhs = 1.0/(annoDiagi[k] + 1.0/sigmaSq[i]);
                     ahat = invLhs*rhs;
                     alphai[k] = Normal::sample(ahat, invLhs);
-                    y += annoMati.col(k) * (oldSample - alphai[k]);
+                    scores.add(k, oldSample - alphai[k]);
                     ssq[i] += alphai[k] * alphai[k];
                 }
             }
         }
 
-        #pragma omp parallel for schedule(dynamic)
-        for (unsigned j=0; j<numSnps; ++j) {
-            snpP(j,i) = Normal::cdf_01(annoMat.row(j).dot(alphai));
-        }
     }
+
+    // snpP is not read above, so it is computed for all boundaries after sampling.
+    MatrixXf alpha(numAnno, numComp);
+    for (unsigned i=0; i<numComp; ++i) alpha.col(i) = (*this)[i]->values;
+    annotationProbabilities(*this, annoMat, alpha, snpP);
 }
 
 void ApproxBayesRC::AnnoEffects::sampleFromFC_MH(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP) {
@@ -9910,9 +10034,9 @@ void ApproxBayesRC::sampleUnknowns(const unsigned iter){
         sigmaSqAnno.sampleFromFC(annoEffects.ssq, VectorXf::Constant(annoEffects.numComp, annoEffects.numAnno - 1));
         addProfileTime(profileTimeAnnoVar);
 
-        MatrixXf snpPi = MatrixXf::Zero(snpP.rows(), snpP.cols() + 1);
-        computePiFromP(snpP, snpPi);
-        snpLogPi = snpPi.array().log().matrix();
+        // computePiFromP overwrites every entry, so it can write into snpLogPi directly.
+        computePiFromP(snpP, snpLogPi);
+        snpLogPi = snpLogPi.array().log().matrix();
         addProfileTime(profileTimeLogPi);
         annoJointProb.compute(annoCondProb);
         addProfileTime(profileTimeAnnoJointProb);
@@ -9959,18 +10083,20 @@ void ApproxBayesRC::sampleUnknowns(const unsigned iter){
     }
     addProfileTime(profileTimeVariance);
 
-    // Update annotation and mixture summaries.
-    annoGenVar.compute(snpEffects.values, snpEffects.snpset, data.annoMat);
-    profileTimeAnnoSummary += addProfileTime(profileTimeAnnoGenVar);
-    annoTotalGenVar.compute(annoGenVar);
-    profileTimeAnnoSummary += addProfileTime(profileTimeAnnoTotalGenVar);
-    annoPerSnpHsqEnrich.compute(annoTotalGenVar.values, data.annoInfoVec);
-    profileTimeAnnoSummary += addProfileTime(profileTimeAnnoPerSnpHsqEnrich);
-    annoConditionalHsqEnrich.compute(annoJointProb, gamma.values);
-    annoConditionalPolygenicityEnrich.compute(annoJointProb);
-    if (estimateRsqEnrich) {
-        annoPerSnpRsqEnrich.compute(snpEffects.fcMean, data.annoMat, data.annoInfoVec);
+    // Report-only annotation and mixture summaries: needed for kept samples and the last iteration (MCMC::run).
+    if (summaryRequired) {
+        annoGenVar.compute(snpEffects.values, snpEffects.snpset, data.annoMat);
+        profileTimeAnnoSummary += addProfileTime(profileTimeAnnoGenVar);
+        annoTotalGenVar.compute(annoGenVar);
+        profileTimeAnnoSummary += addProfileTime(profileTimeAnnoTotalGenVar);
+        annoPerSnpHsqEnrich.compute(annoTotalGenVar.values, data.annoInfoVec);
         profileTimeAnnoSummary += addProfileTime(profileTimeAnnoPerSnpHsqEnrich);
+        annoConditionalHsqEnrich.compute(annoJointProb, gamma.values);
+        annoConditionalPolygenicityEnrich.compute(annoJointProb);
+        if (estimateRsqEnrich) {
+            annoPerSnpRsqEnrich.compute(snpEffects.fcMean, data.annoMat, data.annoInfoVec);
+            profileTimeAnnoSummary += addProfileTime(profileTimeAnnoPerSnpHsqEnrich);
+        }
     }
 
     Vgs.compute(snpEffects.values, snpEffects.snpset);
@@ -10408,7 +10534,7 @@ void ApproxBayesRD::AnnoEffects::sampleFromAnnotationSwapMH_indep(
 
 void ApproxBayesRD::AnnoEffects::sampleFromAnnotationSwapMH_joint(
         MatrixXf &alpha, vector<VectorXf> &residuals,
-        const vector<MatrixXf> &annoMats) {
+        const vector<const MatrixXf*> &annoMats) {
     if (residuals.empty()) return;
 
     vector<unsigned> activeAnnotations;
@@ -10450,7 +10576,7 @@ void ApproxBayesRD::AnnoEffects::sampleFromAnnotationSwapMH_joint(
         double residualNormChange = 0.0;
         bool valid = true;
         for (int component=0; component<alpha.cols(); ++component) {
-            const MatrixXf &componentAnnoMat = annoMats[component];
+            const MatrixXf &componentAnnoMat = *annoMats[component];
             const VectorXf &componentResidual = residuals[component];
             double cross = 0.0;
             double sourceNormSq = 0.0;
@@ -10514,9 +10640,9 @@ void ApproxBayesRD::AnnoEffects::sampleFromAnnotationSwapMH_joint(
 
         for (int component=0; component<alpha.cols(); ++component) {
             residuals[component].array() += alpha(source, component)
-                * (annoMats[component].col(source).array() - sourceMeans[component]
+                * (annoMats[component]->col(source).array() - sourceMeans[component]
                    - directions[component]
-                     * (annoMats[component].col(destination).array()
+                     * (annoMats[component]->col(destination).array()
                         - destinationMeans[component]));
             alpha(0, component) += alpha(source, component) * sourceMeans[component]
                 - directions[component] * alpha(source, component)
@@ -10621,62 +10747,27 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(
                 numNonZeros[i] += group != 0;
             }
         }else{
-            y.setZero(numDP);
             zi.setZero(numDP);
-            const MatrixXf *annotMatP;
             MatrixXf annoMatPO;
             // get annotation coefficient matrix for component i
             if (i==0) {
-                annotMatP = &annoMat;
                 for (unsigned j=0; j<numSnps; ++j) zi[j] = membership[j] > 0;
             } else {
-                annoMatPO.setZero(numDP, numAnno);
+                vector<unsigned> active(numDP);
                 for (unsigned j=0, idx=0; j<numSnps; ++j) {
                     if (membership[j] > int(i-1)) {
-                        annoMatPO.row(idx) = annoMat.row(j);
+                        active[idx] = j;
                         zi[idx] = membership[j] > int(i);
                         ++idx;
                     }
                 }
-                annotMatP = &annoMatPO;
+                annoMatPO = annotationRows(annoMat, active);
             }
-            const MatrixXf &annoMati = (*annotMatP);
+            const MatrixXf &annoMati = i==0 ? annoMat : annoMatPO;
+            const VectorXf annoDiagi = i==0 ? annoDiag : annotationDiag(annoMati, numOnes[i-1]);
 
-
-            VectorXf annoDiagi(numAnno);
-            if (i==0) {
-                annoDiagi = annoDiag;
-            } else {
-                annoDiagi[0] = numOnes[i-1];
-                #pragma omp parallel for schedule(static)
-                for (unsigned k=1; k<numAnno; ++k) {
-                    annoDiagi[k] = annoMati.col(k).squaredNorm();
-                }
-            }
-
-            // compute the mean of truncated normal distribution
-            VectorXf mean = annoMati * alphai;
-
-            // sample latent variables
-#ifdef _OPENMP
-            #pragma omp parallel
-            {
-                Stat::seedEngineForParallelTaskIfNeeded(unsigned(i) * 1000003u + unsigned(omp_get_thread_num()), 8111u);
-                #pragma omp for schedule(static)
-                for (unsigned j=0; j<numDP; ++j) {
-                    if (zi[j]) y[j] = TruncatedNormal::sample_lower_truncated(mean[j], 1.0, 0.0);
-                    else y[j] = TruncatedNormal::sample_upper_truncated(mean[j], 1.0, 0.0);
-                }
-            }
-#else
-            for (unsigned j=0; j<numDP; ++j) {
-                if (zi[j]) y[j] = TruncatedNormal::sample_lower_truncated(mean[j], 1.0, 0.0);
-                else y[j] = TruncatedNormal::sample_upper_truncated(mean[j], 1.0, 0.0);
-            }
-#endif
-
-            // adjust the latent variable by all annotation effects;
-            y -= mean;
+            // latent variables adjusted by all annotation effects
+            y = annotationLatentResiduals(*this, annoMati, alphai, zi, i);
 
             // intercept is fitted with a flat prior
             float oldSample = alphai[0];
@@ -10705,11 +10796,14 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(
             // shuffle the annotations
             vector<int> shuffled_index = Gadget::shuffle_index(1, numAnno-1);
 
+            if (i==0 && !coordinateGram.size()) coordinateGram = annotationGram(annoMati);
+            AnnotationScores scores(annoMati, y, i==0 ? &coordinateGram : NULL);
+
             ssq[i] = 0;
             for (unsigned t=0; t<shuffled_index.size(); ++t) {
                 unsigned k = shuffled_index[t];
                 oldSample = alphai[k];
-                rhs = annoMati.col(k).dot(y) + annoDiagi[k]*oldSample;
+                rhs = scores.dot(k) + annoDiagi[k]*oldSample;
                 if (bayesR) {
                     VectorXf draw;
                     float inclusion;
@@ -10718,7 +10812,7 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(
                     alphai[k] = draw[0];
                     deltas[i]->values[k] = group != 0;
                     pip[k] = inclusion;
-                    y += annoMati.col(k)*(oldSample-alphai[k]);
+                    scores.add(k, oldSample-alphai[k]);
                     ssq[i] += draw.squaredNorm();
                     numNonZeros[i] += group != 0;
                     continue;
@@ -10734,12 +10828,12 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(
 
                 if (included) {
                     alphai[k] = Normal::sample(ahat, invLhs);
-                    y += annoMati.col(k) * (oldSample - alphai[k]);
+                    scores.add(k, oldSample - alphai[k]);
                     ssq[i] += alphai[k] * alphai[k];
                     ++numNonZeros[i];
                     //            cout << i << " " << k << " " << alphai[k] << " " << ahat << " " << invLhs << " " << annoDiagi[k] << " " << sigmaSq[i] << endl;
                 } else {
-                    if (oldSample) y += annoMati.col(k) * oldSample;
+                    if (oldSample) scores.add(k, oldSample);
                     alphai[k] = 0.0;
                 }
             }
@@ -10747,13 +10841,10 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(
         //cout << i << " " << alphai.transpose() << endl;
 
         values.col(i) = alphai;
-
-        VectorXf eta = annoMat * alphai;
-        #pragma omp parallel for schedule(static)
-        for (unsigned j=0; j<numSnps; ++j) {
-            snpP(j,i) = Normal::cdf_01(eta[j]);
-        }
     }
+
+    // snpP is not read above, so it is computed for all boundaries after sampling.
+    annotationProbabilities(*this, annoMat, values, snpP);
 
     nnz = numNonZeros.sum();
     numAnnoTotal = (numAnno - 1) * numComp;
@@ -10966,7 +11057,8 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
 
     if (bayesR) numNZComp = numComp;
     vector<VectorXf> Y(numNZComp);
-    vector<MatrixXf> Amat(numNZComp);
+    vector<MatrixXf> subsets(numNZComp);       // eligible rows for boundaries after the first
+    vector<const MatrixXf*> Amat(numNZComp);
     MatrixXf Alpha(numAnno, numNZComp);
     MatrixXf APAdiag(numAnno, numNZComp);
 
@@ -10976,68 +11068,34 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
         VectorXf &alphai = (*this)[i]->values;
         if (bayesR && numDP[i] == 0) {
             Y[i].resize(0);
-            Amat[i].resize(0,numAnno);
+            subsets[i].resize(0,numAnno);
+            Amat[i] = &subsets[i];
             APAdiag.col(i).setZero();
             Alpha.col(i) = alphai;
             continue;
         }
-        VectorXf y, zi;
-        y.setZero(numDP[i]);
-        zi.setZero(numDP[i]);
-        const MatrixXf *annotMatP;
-        MatrixXf annoMatPO;
+        VectorXf zi(numDP[i]);
         // get annotation coefficient matrix for component i
         if (i==0) {
-            annotMatP = &annoMat;
+            Amat[i] = &annoMat;
             for (unsigned j=0; j<numSnps; ++j) zi[j] = membership[j] > 0;
         } else {
-            annoMatPO.setZero(numDP[i], numAnno);
+            vector<unsigned> active(numDP[i]);
             for (unsigned j=0, idx=0; j<numSnps; ++j) {
                 if (membership[j] > int(i-1)) {
-                    annoMatPO.row(idx) = annoMat.row(j);
+                    active[idx] = j;
                     zi[idx] = membership[j] > int(i);
                     ++idx;
                 }
             }
-            annotMatP = &annoMatPO;
+            subsets[i] = annotationRows(annoMat, active);
+            Amat[i] = &subsets[i];
         }
-        const MatrixXf &annoMati = (*annotMatP);
+        const MatrixXf &annoMati = *Amat[i];
+        const VectorXf annoDiagi = i==0 ? annoDiag : annotationDiag(annoMati, numOnes[i-1]);
 
-
-        VectorXf annoDiagi(numAnno);
-        if (i==0) {
-            annoDiagi = annoDiag;
-        } else {
-            annoDiagi[0] = numOnes[i-1];
-#pragma omp parallel for schedule(static)
-            for (unsigned k=1; k<numAnno; ++k) {
-                annoDiagi[k] = annoMati.col(k).squaredNorm();
-            }
-        }
-
-        // compute the mean of truncated normal distribution
-        VectorXf mean = annoMati * alphai;
-
-        // sample latent variables
-#ifdef _OPENMP
-        #pragma omp parallel
-        {
-            Stat::seedEngineForParallelTaskIfNeeded(unsigned(i) * 1000003u + unsigned(omp_get_thread_num()), 8311u);
-            #pragma omp for schedule(static)
-            for (unsigned j=0; j<(unsigned)numDP[i]; ++j) {
-                if (zi[j]) y[j] = TruncatedNormal::sample_lower_truncated(mean[j], 1.0, 0.0);
-                else y[j] = TruncatedNormal::sample_upper_truncated(mean[j], 1.0, 0.0);
-            }
-        }
-#else
-        for (unsigned j=0; j<numDP[i]; ++j) {
-            if (zi[j]) y[j] = TruncatedNormal::sample_lower_truncated(mean[j], 1.0, 0.0);
-            else y[j] = TruncatedNormal::sample_upper_truncated(mean[j], 1.0, 0.0);
-        }
-#endif
-
-        // adjust the latent variable by all annotation effects;
-        y -= mean;
+        // latent variables adjusted by all annotation effects
+        VectorXf y = annotationLatentResiduals(*this, annoMati, alphai, zi, i);
 
         // intercept is fitted with a flat prior
         float oldSample = alphai[0];
@@ -11048,8 +11106,7 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
         alphai[0] = Normal::sample(ahat, invLhs);
         y.array() += oldSample - alphai[0];
 
-        Y[i] = y;
-        Amat[i] = annoMati;
+        Y[i].swap(y);
         APAdiag.col(i) = annoDiagi;
 
         ssq[i] = 0;
@@ -11061,13 +11118,11 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
 
     if (runAnnotationTgs && numNZComp) {
         Stat::ParallelTaskRngScope rngScope(0, 0x41544753u);
-        vector<const MatrixXf*> designs(numNZComp);
         vector<VectorXf*> residuals(numNZComp);
         for (unsigned i=0; i<numNZComp; ++i) {
-            designs[i] = &Amat[i];
             residuals[i] = &Y[i];
         }
-        AnnotationSampler::correctedTgs(designs,residuals,Alpha,sigmaSq,pi,
+        AnnotationSampler::correctedTgs(Amat,residuals,Alpha,sigmaSq,pi,
                                        &tgsGramCache,&tgsProposals,&tgsAccepted);
     }
 
@@ -11081,12 +11136,17 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
 
     // shuffle the annotations
     vector<int> shuffled_index = Gadget::shuffle_index(1, numAnno-1);
+    if (numNZComp && !coordinateGram.size()) coordinateGram = annotationGram(annoMat);
+    vector<AnnotationScores> scores;
+    scores.reserve(numNZComp);
+    for (unsigned i=0; i<numNZComp; ++i)
+        scores.emplace_back(*Amat[i], Y[i], i==0 ? &coordinateGram : NULL);
     for (unsigned t=0; t<shuffled_index.size(); ++t) {
         unsigned k = shuffled_index[t];
         VectorXf oldSample = Alpha.row(k);
         VectorXf rhs(numNZComp);
         for (unsigned i=0; i<numNZComp; ++i) {
-            rhs[i] = Amat[i].col(k).dot(Y[i]) + APAdiag(k,i)*oldSample[i];
+            rhs[i] = scores[i].dot(k) + APAdiag(k,i)*oldSample[i];
         }
         if (bayesR) {
             VectorXf draw;
@@ -11094,7 +11154,7 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
             deltas[0]->values[k] = group != 0;
             for (unsigned i=0; i<numNZComp; ++i) {
                 Alpha(k,i) = draw[i];
-                Y[i] += Amat[i].col(k)*(oldSample[i]-draw[i]);
+                scores[i].add(k, oldSample[i]-draw[i]);
                 ssq[i] += draw[i]*draw[i];
                 numNonZeros[i] += group != 0;
             }
@@ -11113,14 +11173,14 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
         if (bernoulli.sample(probDelta1)) {
             for (unsigned i=0; i<numNZComp; ++i) {
                 Alpha(k,i) = Normal::sample(ahat[i], invLhs[i]);
-                Y[i] += Amat[i].col(k) * (oldSample[i] - Alpha(k,i));
+                scores[i].add(k, oldSample[i] - Alpha(k,i));
                 ssq[i] += Alpha(k,i) * Alpha(k,i);
                 ++numNonZeros[i];
             }
             ++nnz;
         } else {
             for (unsigned i=0; i<numNZComp; ++i) {
-                if (oldSample[i]) Y[i] += Amat[i].col(k) * oldSample[i];
+                if (oldSample[i]) scores[i].add(k, oldSample[i]);
                 Alpha(k,i) = 0.0;
             }
         }
@@ -11132,15 +11192,8 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
         (*this)[i]->values = Alpha.col(i);
     }
 
-#pragma omp parallel for schedule(static)
-    for (unsigned i=0; i<numComp; ++i) {
-        VectorXf &alphai = (*this)[i]->values;
-        values.col(i) = alphai;
-        VectorXf eta = annoMat * alphai;
-        for (unsigned j=0; j<numSnps; ++j) {
-            snpP(j,i) = Normal::cdf_01(eta[j]);
-        }
-    }
+    for (unsigned i=0; i<numComp; ++i) values.col(i) = (*this)[i]->values;
+    annotationProbabilities(*this, annoMat, values, snpP);
 
     numAnnoTotal = numAnno - 1;
 }
@@ -11287,14 +11340,17 @@ void ApproxBayesRD::sampleUnknowns(const unsigned iter){
     }
     addProfileTime(profileTimeVariance);
 
-    annoGenVar.compute(snpEffects.values, snpEffects.snpset, data.annoMat);
-    profileTimeAnnoSummary += addProfileTime(profileTimeAnnoGenVar);
-    annoTotalGenVar.compute(annoGenVar);
-    profileTimeAnnoSummary += addProfileTime(profileTimeAnnoTotalGenVar);
-    annoPerSnpHsqEnrich.compute(annoTotalGenVar.values, data.annoInfoVec);
-    profileTimeAnnoSummary += addProfileTime(profileTimeAnnoPerSnpHsqEnrich);
-    annoConditionalHsqEnrich.compute(annoJointProb, gamma.values);
-    annoConditionalPolygenicityEnrich.compute(annoJointProb);
+    // Report-only annotation summaries: needed for kept samples and the last iteration (MCMC::run).
+    if (summaryRequired) {
+        annoGenVar.compute(snpEffects.values, snpEffects.snpset, data.annoMat);
+        profileTimeAnnoSummary += addProfileTime(profileTimeAnnoGenVar);
+        annoTotalGenVar.compute(annoGenVar);
+        profileTimeAnnoSummary += addProfileTime(profileTimeAnnoTotalGenVar);
+        annoPerSnpHsqEnrich.compute(annoTotalGenVar.values, data.annoInfoVec);
+        profileTimeAnnoSummary += addProfileTime(profileTimeAnnoPerSnpHsqEnrich);
+        annoConditionalHsqEnrich.compute(annoJointProb, gamma.values);
+        annoConditionalPolygenicityEnrich.compute(annoJointProb);
+    }
 
     Vgs.compute(snpEffects.values, snpEffects.snpset);
 

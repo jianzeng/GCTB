@@ -692,6 +692,9 @@ vector<McmcSamples*> MCMC::run(Model &model, const unsigned numChains, const uns
         unsigned thisIter = iteration + 1;
         Stat::setMcmcContext(rngChain, thisIter);
 
+        // Summaries are needed for kept samples (getParSetSample's rule) and the last iteration.
+        model.summaryRequired = (thisIter > burnin && !(thisIter % thin))
+                                || thisIter == chainLength;
         model.sampleUnknowns(thisIter);
         if (std::getenv("GCTB_DEBUG_RNG") &&
             (thisIter <= 5u || (thisIter % 10u) == 0u || thisIter == chainLength)) {
