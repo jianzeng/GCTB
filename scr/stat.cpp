@@ -299,7 +299,9 @@ float Stat::TruncatedNormal::sample_tail_01_rejection(const float a){  // a < x 
         float u = ranf();
         w = b - log(u);
         v = ranf();
-    } while (v > w/b);
+        // Marsaglia (1964): accept x = sqrt(2w) with probability a/x, i.e. v*v <= b/w.
+        // The previous test, v > w/b, never rejected because w >= b.
+    } while (v * v > b / w);
     return sqrt(2.0 * w);
 }
 
@@ -312,8 +314,13 @@ float Stat::TruncatedNormal::sample_lower_truncated(const float mean, const floa
         return mean + sd * sample_tail_01_rejection((a - mean)/sd);
     } else {
         float alpha = (a - mean)/sd;
-        float alpha_cdf = cdf_01(alpha);
-        double u = ranf();
+        // double: in float, a CDF near 1 can round below Phi(alpha), which allowed draws below a.
+        double alpha_cdf = cdf_01(alpha);
+        double u;
+        // Exclude u = 0: if alpha_cdf underflows to 0, x = 0 would give quantile_01(0) = -inf.
+        do {
+            u = ranf();
+        } while (!u);
         double x = alpha_cdf + (1.0 - alpha_cdf) * u;  // x ~ Uniform(alpha_cdf, 1)
         if (x <= 0 || x >= 1) std::cout << "alpha " << alpha << " alpha_cdf " << alpha_cdf << " u " << u << " x " << x << std::endl;
         return mean + sd * quantile_01(x);
@@ -329,7 +336,8 @@ float Stat::TruncatedNormal::sample_upper_truncated(const float mean, const floa
         return mean - sd * sample_tail_01_rejection((mean - b)/sd);
     } else{
         float beta = (b - mean)/sd;
-        float beta_cdf = cdf_01(beta);
+        // Keep the CDF in double so rounding near 1 does not allow draws above b.
+        double beta_cdf = cdf_01(beta);
         double u;
         do {
             u = ranf();
