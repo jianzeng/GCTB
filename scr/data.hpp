@@ -20,6 +20,9 @@
 #include <bitset>
 #include <iomanip>     
 #include <stdint.h>
+#ifdef __SSE2__
+#include <emmintrin.h>
+#endif
 #include <Eigen/Eigen>
 #include <Eigen/Sparse>
 #include <boost/format.hpp>
@@ -244,6 +247,44 @@ inline int eigenQColIndex(const LDBlockInfo *block, unsigned globalSnpIdx) {
     return -1;
 }
 
+#ifdef __SSE2__
+/** Sign-extends eight int8 or int16 codes to two vectors of four int32. */
+inline void widenCodes8(const int8_t *codes, __m128i &lo, __m128i &hi) {
+    const __m128i bytes = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(codes));
+    const __m128i words = _mm_unpacklo_epi8(bytes, bytes);
+    lo = _mm_srai_epi32(_mm_unpacklo_epi16(words, words), 24);
+    hi = _mm_srai_epi32(_mm_unpackhi_epi16(words, words), 24);
+}
+
+inline void widenCodes8(const int16_t *codes, __m128i &lo, __m128i &hi) {
+    const __m128i words = _mm_loadu_si128(reinterpret_cast<const __m128i*>(codes));
+    lo = _mm_srai_epi32(_mm_unpacklo_epi16(words, words), 16);
+    hi = _mm_srai_epi32(_mm_unpackhi_epi16(words, words), 16);
+}
+#endif
+
+/** Returns sum_i scale[i]*codes[i]*x[i]; with SSE2, eight codes are decoded per step into two four-lane sums. */
+template <typename Code>
+inline float quantizedDot(const Code *codes, const float *scale, const float *x, const int k) {
+    int i = 0;
+    float out = 0.0f;
+#ifdef __SSE2__
+    __m128 acc0 = _mm_setzero_ps(), acc1 = _mm_setzero_ps();
+    for (; i + 8 <= k; i += 8) {
+        __m128i lo, hi;
+        widenCodes8(codes + i, lo, hi);
+        acc0 = _mm_add_ps(acc0, _mm_mul_ps(_mm_mul_ps(_mm_loadu_ps(scale + i), _mm_cvtepi32_ps(lo)), _mm_loadu_ps(x + i)));
+        acc1 = _mm_add_ps(acc1, _mm_mul_ps(_mm_mul_ps(_mm_loadu_ps(scale + i + 4), _mm_cvtepi32_ps(hi)), _mm_loadu_ps(x + i + 4)));
+    }
+    float lanes[4];
+    _mm_storeu_ps(lanes, _mm_add_ps(acc0, acc1));
+    out = (lanes[0] + lanes[1]) + (lanes[2] + lanes[3]);
+#endif
+    for (; i < k; ++i)
+        out += scale[i] * (float)codes[i] * x[i];
+    return out;
+}
+
 struct QuantizedEigenBlock {
     int bits;
     int m;
@@ -272,16 +313,11 @@ struct QuantizedEigenBlock {
         return 0.0f;
     }
 
-    inline float dotQ(const int localSnpIdx, const VectorXf &x) const {
-        float out = 0.0f;
-        if (bits == 8) {
-            for (int eigIdx = 0; eigIdx < k; ++eigIdx)
-                out += q8Component(localSnpIdx, eigIdx) * x[eigIdx];
-        } else if (bits == 16) {
-            for (int eigIdx = 0; eigIdx < k; ++eigIdx)
-                out += q16Component(localSnpIdx, eigIdx) * x[eigIdx];
-        }
-        return out;
+    inline float dotQ(const int localSnpIdx, const float *x) const {
+        const size_t offset = (size_t)localSnpIdx * (size_t)k;
+        if (bits == 8) return quantizedDot(q8.data() + offset, qScale.data(), x, k);
+        if (bits == 16) return quantizedDot(q16.data() + offset, qScale.data(), x, k);
+        return 0.0f;
     }
 
     inline void decodeQColumn(const int localSnpIdx, VectorXf &out) const {
@@ -306,7 +342,7 @@ struct QuantizedEigenBlock {
             throw std::runtime_error("Quantized eigen matrix/vector dimension mismatch.");
         VectorXf out(m);
         for (int localSnpIdx = 0; localSnpIdx < m; ++localSnpIdx)
-            out[localSnpIdx] = dotQ(localSnpIdx, x);
+            out[localSnpIdx] = dotQ(localSnpIdx, x.data());
         return out;
     }
 

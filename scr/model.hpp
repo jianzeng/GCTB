@@ -2504,7 +2504,7 @@ public:
                                 const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                 const MatrixXf &snpLogPi, const VectorXf &gamma, const float varg,
                                 DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq,
-                                const vector<SnpInfo*> &incdSnpInfoVec);
+                                const vector<SnpInfo*> &incdSnpInfoVec, const unsigned numFixedEffectSnps);
         void sampleFromFC_coreContextEigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                                            const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                            const MatrixXf &snpLogPi, const VectorXf &gamma, const float varg,
@@ -2525,6 +2525,7 @@ public:
                                 const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                 const MatrixXf &snpLogPi, const VectorXf &gamma, const float varg,
                                 DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq, const vector<SnpInfo*> &incdSnpInfoVec,
+                                const unsigned numFixedEffectSnps,
                                 const vector<CoreContextLdBlock> *coreContextLdBlocks = nullptr,
                                 const vector<VectorXf> *baseWcorrBlocks = nullptr);
         void sampleFromLDSwapMH_eigen(vector<VectorXf> &wcorrBlocks,

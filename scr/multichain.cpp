@@ -314,7 +314,7 @@ void MultiChainSBayesRC::computePredictionAccuracyEnrichment(){
             if (Qq) {
                 for (int qcol=0; qcol<numQCols; ++qcol) {
                     for (unsigned c=0; c<numChains; ++c)
-                        rBetaByQCol(qcol,c) = Qq->dotQ(qcol, chainVec[c]->whatBlocks[blk]);
+                        rBetaByQCol(qcol,c) = Qq->dotQ(qcol, chainVec[c]->whatBlocks[blk].data());
                 }
             } else {
                 if (originalNormWeight) {
