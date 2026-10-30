@@ -314,7 +314,7 @@ void MultiChainSBayesRC::computePredictionAccuracyEnrichment(){
             if (Qq) {
                 for (int qcol=0; qcol<numQCols; ++qcol) {
                     for (unsigned c=0; c<numChains; ++c)
-                        rBetaByQCol(qcol,c) = Qq->dotQ(qcol, chainVec[c]->whatBlocks[blk]);
+                        rBetaByQCol(qcol,c) = Qq->dotQ(qcol, chainVec[c]->whatBlocks[blk].data());
                 }
             } else {
                 if (originalNormWeight) {
@@ -388,6 +388,7 @@ void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
 //        cout << "sampling chain " << i << " in " << numChains << " chains " << endl;
         omp_set_num_threads(numThreadLevel2);
         Stat::McmcChainRngScope chainRng(i);
+        chainVec[i]->summaryRequired = summaryRequired;  // set by MCMC::run for this wrapper
 
         try {
             chainVec[i]->sampleUnknowns(iter);
@@ -503,6 +504,7 @@ void MultiChainSBayesRD::sampleUnknowns(const unsigned iter){
 //        cout << "sampling chain " << i << " in " << numChains << " chains " << endl;
         omp_set_num_threads(numThreadLevel2);
         Stat::McmcChainRngScope chainRng(i);
+        chainVec[i]->summaryRequired = summaryRequired;  // set by MCMC::run for this wrapper
 
         try {
             chainVec[i]->sampleUnknowns(iter);

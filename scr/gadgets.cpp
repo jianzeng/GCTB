@@ -226,7 +226,9 @@ vector<int> Gadget::shuffle_index(const int start, const int end, const unsigned
 void Gadget::shuffle_vector(vector<int> &vec){
     constexpr int max_integer = std::numeric_limits<int>::max();
     int random_integer = static_cast<int>(Stat::ranf() * max_integer);
-    thread_local std::mt19937 rng(random_integer);
+    // Seeded on every call from Stat's engine. A persistent thread_local generator ignored the
+    // chain and task RNG scopes, so shuffles depended on the thread layout and on earlier runs.
+    std::mt19937 rng(random_integer);
     std::shuffle(vec.begin(), vec.end(), rng);
 }
 

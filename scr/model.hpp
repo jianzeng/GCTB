@@ -261,6 +261,8 @@ public:
     vector<Parameter*> paramVec;
     vector<Parameter*> paramToPrint;
     vector<ParamSet*> paramSetToPrint;
+    // Set by MCMC::run each iteration: true when report-only summaries are needed.
+    bool summaryRequired = true;
     
     virtual ~Model() {}
     virtual void sampleUnknowns(const unsigned iter) = 0;
@@ -2502,7 +2504,7 @@ public:
                                 const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                 const MatrixXf &snpLogPi, const VectorXf &gamma, const float varg,
                                 DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq,
-                                const vector<SnpInfo*> &incdSnpInfoVec);
+                                const vector<SnpInfo*> &incdSnpInfoVec, const unsigned numFixedEffectSnps);
         void sampleFromFC_coreContextEigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                                            const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                            const MatrixXf &snpLogPi, const VectorXf &gamma, const float varg,
@@ -2523,6 +2525,7 @@ public:
                                 const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                                 const MatrixXf &snpLogPi, const VectorXf &gamma, const float varg,
                                 DeltaPi &deltaPi, const bool hsqPercModel, const float sigmaSq, const vector<SnpInfo*> &incdSnpInfoVec,
+                                const unsigned numFixedEffectSnps,
                                 const vector<CoreContextLdBlock> *coreContextLdBlocks = nullptr,
                                 const vector<VectorXf> *baseWcorrBlocks = nullptr);
         void sampleFromLDSwapMH_eigen(vector<VectorXf> &wcorrBlocks,
@@ -2544,7 +2547,6 @@ public:
     public:
         unsigned numComp;  // number of components = number of mixture components - 1
         unsigned numAnno;  // number of annotations
-        MatrixXf wcorr;
         //VectorXf varwcorr;
         VectorXf annoDiag;
         VectorXf ssq;
@@ -2552,6 +2554,7 @@ public:
 
         // Only component zero uses a fixed set of SNP rows.
         vector<MatrixXd> gaussianGramCache;
+        MatrixXd coordinateGram; // A'A for the first boundary's scalar Gibbs updates
         bool blockedGaussian;
 
         VectorXf varProp;
@@ -2585,7 +2588,6 @@ public:
                 ar[i] = new BayesS::AcceptanceRate;
                 varProp[i] = 0.01;
             }
-            wcorr.setZero(numSnps, numComp);
             //varwcorr.setZero(numComp);
             annoDiag.setZero(numAnno);
             annoDiag[0] = numSnps;  // first annotation is intercept
@@ -3152,8 +3154,8 @@ public:
         unsigned numAnnoTotal;
         
         MatrixXf values;
-        MatrixXf wcorr;
         VectorXf annoDiag;
+        MatrixXd coordinateGram; // A'A for the first boundary's scalar Gibbs updates
         VectorXf ssq;
         VectorXf numNonZeros;
         vector<string> colnames;
@@ -3188,7 +3190,6 @@ public:
                 colnames[i] = "AnnoEffects_p" + to_string(static_cast<long long>(i + 2));
                 this->push_back(new BayesC::SnpEffects(header, "Gibbs", colnames[i]));
             }
-            wcorr.setZero(numSnps, numComp);
             annoDiag.setZero(numAnno);
             annoDiag[0] = numSnps;  // first annotation is intercept
             for (unsigned j=1; j<numAnno; ++j) {
@@ -3216,7 +3217,7 @@ public:
         void sampleFromAnnotationSwapMH_indep(VectorXf &alpha, VectorXf &residual,
                                               const MatrixXf &annoMat, const unsigned component);
         void sampleFromAnnotationSwapMH_joint(MatrixXf &alpha, vector<VectorXf> &residuals,
-                                              const vector<MatrixXf> &annoMats);
+                                              const vector<const MatrixXf*> &annoMats);
         void sampleFromFC_indep(const VectorXi &membership, const MatrixXf &annoMat,
                                 const VectorXf &sigmaSq, const VectorXf &pi, MatrixXf &snpP,
                                 const bool runAnnotationSwap, const bool runAnnotationTgs = false);
