@@ -2486,6 +2486,8 @@ public:
     public:
         unsigned ndist;
         ArrayXf numSnpMix;
+        // SNP indices per component. The float32 and q16/q8 eigen samplers leave snpset[0]
+        // empty (nothing reads it); use numSnpMix[0] for the zero-component count.
         vector<vector<unsigned> > snpset;
         VectorXf fcMean;
         
@@ -2555,6 +2557,7 @@ public:
         // Only component zero uses a fixed set of SNP rows.
         vector<MatrixXd> gaussianGramCache;
         MatrixXd coordinateGram; // A'A for the first boundary's scalar Gibbs updates
+        MatrixXf predictorMeans; // A*alpha: computed by the first Gibbs update, then refreshed after each update
         bool blockedGaussian;
 
         VectorXf varProp;
@@ -2599,7 +2602,6 @@ public:
         
 //        void sampleFromFC(MatrixXf &snpP, const MatrixXf &annoMat);
         void sampleFromFC_Gibbs(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
-        void sampleFromFC_Gibbs(MatrixXf &conditionalMembership, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
         void sampleFromFC_MH(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
         void sampleFromFC_MH(MatrixXf &z, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
         void initIntercept_probit(const VectorXf &pis);
@@ -3156,6 +3158,7 @@ public:
         MatrixXf values;
         VectorXf annoDiag;
         MatrixXd coordinateGram; // A'A for the first boundary's scalar Gibbs updates
+        MatrixXf predictorMeans; // A*alpha: computed by the first Gibbs update, then refreshed after each update
         VectorXf ssq;
         VectorXf numNonZeros;
         vector<string> colnames;

@@ -17,6 +17,21 @@ void MultiChainParameter::getValues(){
 }
 
 void MultiChainParamSet::getValues(){
+    // The per-SNP sets (millions of rows) in parallel over row ranges, with the same arithmetic per row.
+    const long rows = perChainValues.rows(), rangeRows = 1 << 16;
+    bool sizesMatch = rows > rangeRows;
+    for (unsigned i=0; i<numChains && sizesMatch; ++i) sizesMatch = chainVec[i]->values.size() == rows;
+    if (sizesMatch) {
+        values.resize(rows);
+        #pragma omp parallel for schedule(static)
+        for (long first = 0; first < rows; first += rangeRows) {
+            const long n = std::min(rangeRows, rows - first);
+            for (unsigned i=0; i<numChains; ++i)
+                perChainValues.col(i).segment(first, n) = chainVec[i]->values.segment(first, n);
+            values.segment(first, n) = perChainValues.middleRows(first, n).rowwise().mean();
+        }
+        return;
+    }
     for (unsigned i=0; i<numChains; ++i) {
         perChainValues.col(i) = chainVec[i]->values;
     }
