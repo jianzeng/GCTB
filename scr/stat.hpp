@@ -123,6 +123,10 @@ namespace Stat {
         double cdf_01(const double value);
         double quantile_01(const double value);
         double pdf_01(const double value);
+        // The same for n values, evaluated across SIMD lanes (stat.cpp); used by the annotation samplers.
+        void cdf_01(const float *x, float *p, const unsigned n);
+        void cdf_01(const float *x, double *p, const unsigned n);
+        void quantile_01(const double *p, double *q, const unsigned n);
     };
     
     class Flat : public Normal {
@@ -177,6 +181,8 @@ namespace Stat {
         float sample_tail_01_rejection(const float a);
         float sample_lower_truncated(const float mean, const float sd, const float a);  // a < x < inf
         float sample_upper_truncated(const float mean, const float sd, const float b);  // -inf < x < b
+        // y[j] = sample_lower_truncated(mean[j], 1, 0) where above[j] is nonzero, else sample_upper_truncated(mean[j], 1, 0)
+        void sample_truncated_at_zero(const float *mean, const float *above, float *y, const unsigned n);
     };
 }
 

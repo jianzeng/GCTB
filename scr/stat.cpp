@@ -7,6 +7,7 @@
 //
 
 #include "stat.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -184,15 +185,19 @@ double Stat::Normal::cdf_01(const double value){
 }
 
 namespace {
+    // AS 241's central branch, |q| <= 0.425 for q = p - 0.5. A template so that the scalar quantile and the SIMD lanes
+    // (Eigen arrays) do the same arithmetic.
+    template<typename T> T normalQuantileCentral(const T &q) {
+        const T r=0.180625-q*q;
+        return q*(((((((r*2509.0809287301226727+33430.575583588128105)*r+67265.770927008700853)*r+45921.953931549871457)*r+13731.693765509461125)*r+1971.5909503065514427)*r+133.14166789178437745)*r+3.387132872796366608)
+               /(((((((r*5226.495278852545925+28729.085735721942674)*r+39307.89580009271061)*r+21213.794301586595867)*r+5394.1960214247511077)*r+687.1870074920579083)*r+42.313330701600911252)*r+1.0);
+    }
+
     // Inverse standard normal CDF for 0 < p < 1: Wichura (1988), Algorithm AS 241 (PPND16),
     // Applied Statistics 37:477-484; accurate to about 16 significant digits.
     double normalQuantileAS241(const double p) {
         const double q=p-0.5;
-        if (fabs(q)<=0.425) {
-            const double r=0.180625-q*q;
-            return q*(((((((r*2509.0809287301226727+33430.575583588128105)*r+67265.770927008700853)*r+45921.953931549871457)*r+13731.693765509461125)*r+1971.5909503065514427)*r+133.14166789178437745)*r+3.387132872796366608)
-                   /(((((((r*5226.495278852545925+28729.085735721942674)*r+39307.89580009271061)*r+21213.794301586595867)*r+5394.1960214247511077)*r+687.1870074920579083)*r+42.313330701600911252)*r+1.0);
-        }
+        if (fabs(q)<=0.425) return normalQuantileCentral(q);
         double r=sqrt(-log(q<0 ? p : 1.0-p)), quantileResult;
         if (r<=5.0) {
             r-=1.6;
@@ -212,6 +217,45 @@ double Stat::Normal::quantile_01(const double value){
     if (clamped_value == 0.0) return -std::numeric_limits<float>::infinity();
     if (clamped_value == 1.0) return std::numeric_limits<float>::infinity();
     return normalQuantileAS241(clamped_value);
+}
+
+// Batch versions. Rows are taken in chunks small enough for the buffers to stay in cache; Eigen evaluates each array
+// expression across SIMD lanes (exp included), and the branches are applied per row afterwards.
+namespace {
+    const unsigned laneChunk = 256;
+    typedef Eigen::Array<double, Eigen::Dynamic, 1, Eigen::ColMajor, laneChunk, 1> LaneArray;
+
+    // Phi(x) for |x| < 7.07: Hart (1968) as given by West (2005), Phi(-|x|) = exp(-x^2/2) times a rational function;
+    // beyond, and for NaN, cdf_01.
+    template<typename Out> void normalCdfLanes(Stat::Normal &normal, const float *x, Out *p, const unsigned n) {
+        for (unsigned s=0; s<n; s+=laneChunk) {
+            const unsigned m = std::min(laneChunk, n - s);
+            LaneArray a(m), t(m);
+            for (unsigned j=0; j<m; ++j) a[j] = std::fabs(double(x[s+j]));
+            t = (-0.5*a.square()).exp()
+              * ((((((a*3.52624965998911e-02+0.700383064443688)*a+6.37396220353165)*a+33.912866078383)*a
+                    +112.079291497871)*a+221.213596169931)*a+220.206867912376)
+              / (((((((a*8.83883476483184e-02+1.75566716318264)*a+16.064177579207)*a+86.7807322029461)*a
+                     +296.564248779674)*a+637.333633378831)*a+793.826512519948)*a+440.413735824752);
+            for (unsigned j=0; j<m; ++j)
+                p[s+j] = a[j] < 7.07106781186547 ? Out(x[s+j] > 0 ? 1.0 - t[j] : t[j]) : Out(normal.cdf_01(x[s+j]));
+        }
+    }
+}
+
+void Stat::Normal::cdf_01(const float *x, float *p, const unsigned n) { normalCdfLanes(*this, x, p, n); }
+
+void Stat::Normal::cdf_01(const float *x, double *p, const unsigned n) { normalCdfLanes(*this, x, p, n); }
+
+// AS 241's central branch across lanes, with the same arithmetic as quantile_01; other values by quantile_01.
+void Stat::Normal::quantile_01(const double *p, double *q, const unsigned n) {
+    for (unsigned s=0; s<n; s+=laneChunk) {
+        const unsigned m = std::min(laneChunk, n - s);
+        LaneArray c(m);
+        for (unsigned j=0; j<m; ++j) c[j] = p[s+j] - 0.5;
+        const LaneArray central = normalQuantileCentral(c);
+        for (unsigned j=0; j<m; ++j) q[s+j] = std::fabs(c[j]) <= 0.425 ? central[j] : quantile_01(p[s+j]);
+    }
 }
 
 double Stat::Normal::pdf_01(const double value) {
@@ -345,5 +389,38 @@ float Stat::TruncatedNormal::sample_upper_truncated(const float mean, const floa
         double x = beta_cdf * u;  // x ~ Uniform(0, beta_cdf);
         if (x <= 0 || x >= 1) std::cout << "beta " << beta << " beta_cdf " << beta_cdf << " u " << u << " x " << x << std::endl;
         return mean + sd * quantile_01(x);
+    }
+}
+
+// The draws of sample_lower_truncated / sample_upper_truncated with sd 1 and bound 0, with the same random numbers in
+// the same order: Phi of the bounds across lanes, the uniforms row by row, then the quantiles across lanes. Rows more
+// than 5 sd beyond the bound use those samplers (rejection).
+void Stat::TruncatedNormal::sample_truncated_at_zero(const float *mean, const float *above, float *y, const unsigned n) {
+    for (unsigned s=0; s<n; s+=laneChunk) {
+        const unsigned m = std::min(laneChunk, n - s);
+        float bound[laneChunk];
+        double cdf[laneChunk], x[laneChunk], q[laneChunk];
+        bool tail[laneChunk];
+        for (unsigned j=0; j<m; ++j) bound[j] = (0.0f - mean[s+j])/1.0f;  // alpha or beta
+        cdf_01(bound, cdf, m);
+        for (unsigned j=0; j<m; ++j) {
+            const float mu = mean[s+j];
+            const bool lower = above[s+j];
+            tail[j] = lower ? 0.0f - mu > 5*1.0f : mu - 0.0f > 5*1.0f;
+            if (tail[j]) {
+                y[s+j] = lower ? sample_lower_truncated(mu, 1.0f, 0.0f) : sample_upper_truncated(mu, 1.0f, 0.0f);
+                x[j] = 0.5;
+                continue;
+            }
+            double u;
+            do {
+                u = ranf();
+            } while (!u);
+            x[j] = lower ? cdf[j] + (1.0 - cdf[j]) * u : cdf[j] * u;
+            if (x[j] <= 0 || x[j] >= 1) std::cout << (lower ? "alpha " : "beta ") << bound[j] << (lower ? " alpha_cdf " : " beta_cdf ")
+                                                  << cdf[j] << " u " << u << " x " << x[j] << std::endl;
+        }
+        quantile_01(x, q, m);
+        for (unsigned j=0; j<m; ++j) if (!tail[j]) y[s+j] = mean[s+j] + 1.0f * q[j];
     }
 }

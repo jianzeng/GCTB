@@ -11,6 +11,25 @@
 
 using namespace std;
 
+// Work shared by the chains of a multi-chain run (namespace multichain, multichain.cpp).
+//
+// SBayesRC's annotation sampler reads the annotation matrix twice per iteration, for its first boundary's scores
+// a_k'y and for snpP (annotationScores and annotationProbabilities, model.hpp). With several chains both passes are
+// done once for all chains: MultiChainSBayesRC runs each chain's iteration in two stages around its sampler
+// (ApproxBayesRC::annoPassStage), with annoFirstScores after stage 1 and annoProbabilities after stage 2. Each
+// chain's arithmetic and random draws are those of its own sampler, so the results do not change.
+namespace multichain {
+
+// Whether the shared annotation passes apply: several chains, pi estimated, scalar Gibbs annotation updates.
+bool sharedAnnoPasses(const vector<ApproxBayesRC*> &chains);
+// After stage 1: every chain's first-boundary scores from its annoFirstLatents, into annoFirstScores.
+void annoFirstScores(const vector<ApproxBayesRC*> &chains);
+// After stage 2: every chain's predictors and snpP, as at the end of its own annotation update (MultiChainSBayesRC
+// then refreshes each chain's snpLogPi with logPiFromP).
+void annoProbabilities(const vector<ApproxBayesRC*> &chains);
+
+}
+
 inline const vector<string> &emptyMultiChainHeader(){
     static const vector<string> header;
     return header;

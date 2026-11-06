@@ -20,6 +20,16 @@
 #include "stat.hpp"
 #include "data.hpp"
 
+// Wall-clock seconds, for the timing profiles (GCTB_PROFILE_RC).
+inline double gctbWallTime()
+{
+#ifdef _OPENMP
+    return omp_get_wtime();
+#else
+    return double(clock()) / double(CLOCKS_PER_SEC);
+#endif
+}
+
 using namespace std;
 
 // Conditional annotation kernels. Residuals are latent responses minus A*alpha.
@@ -2601,7 +2611,12 @@ public:
         }
         
 //        void sampleFromFC(MatrixXf &snpP, const MatrixXf &annoMat);
-        void sampleFromFC_Gibbs(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
+        // firstScores (multi-chain shared passes, multichain.hpp): the first boundary's scores a_k'y, computed for
+        // all chains from firstBoundaryLatents; snpP and the predictors are then also left to the shared passes.
+        void sampleFromFC_Gibbs(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP,
+                                const VectorXd *firstScores = NULL);
+        void initPredictors(const MatrixXf &annoMat, MatrixXf &snpP);
+        VectorXf firstBoundaryLatents(const VectorXi &membership, const MatrixXf &annoMat, MatrixXf &snpP);
         void sampleFromFC_MH(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
         void sampleFromFC_MH(MatrixXf &z, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
         void initIntercept_probit(const VectorXf &pis);
@@ -2997,7 +3012,18 @@ public:
         }
     }
 
+    // Multi-chain shared annotation passes (MultiChainSBayesRC, multichain.hpp): 0 = the whole iteration; 1 = stop
+    // before the annotation sampler, after drawing annoFirstLatents; 2 = resume there with annoFirstScores, leaving
+    // snpP and log pi to the shared passes.
+    int annoPassStage = 0;
+    VectorXf annoFirstLatents;
+    VectorXd annoFirstScores;
+
     void sampleUnknowns(const unsigned iter);
+    // GCTB_PROFILE_RC: the wall time of work MultiChainSBayesRC does for all chains, added to a bucket of this chain's
+    // profile and to its total (each chain waits for it); and the end of an iteration's profile (count, report).
+    void addSharedProfileTime(double &bucket, const double seconds);
+    void reportProfile(const unsigned iter);
     void prepareMarginalizedContext(const Data &data, const bool message = true);
     void recomputeOriginalContextWhatBlocks(void);
     double contextVarianceLogPosterior(const double logRatio) const;
@@ -3010,11 +3036,27 @@ public:
                                                  const float dampAnno);
 //    void sampleUnknownsTGS(vector<vector<int> > &selectedSnps);
     void computePfromPi(const MatrixXf &snpPi, MatrixXf &snpP);
-    void computePiFromP(const MatrixXf &snpP, MatrixXf &snpPi);
+    // snpLogPi = log pi from snpP after each annotation update: pi_k = (1 - p_k) p_0 ... p_{k-1} (the last component
+    // without the 1 - p factor), then the log; in parallel. (computeLogPiFromP sums logs of p instead.)
+    static void logPiFromP(const MatrixXf &snpP, MatrixXf &snpLogPi);
     void computeLogPiFromP(const MatrixXf &snpP, MatrixXf &snpLogPi);
     void initSnpPandPi(const VectorXf &pis, const unsigned numSnps, MatrixXf &snpP, MatrixXf &snpPi);
     void getSnpAnnoCntInv(const MatrixXf &annoMat, VectorXf &snpAnnoCntInv);
 };
+
+// The annotation samplers process SNP rows in blocks of annotationRowBlockSize, a multiple of 96 to match the row
+// grouping of Eigen's current product kernels; a tail under 96 rows joins the last block.
+const unsigned annotationRowBlockSize = 96 * 256;
+unsigned annotationRowBlocks(const unsigned rows);
+unsigned annotationRowBlockRows(const unsigned block, const unsigned numBlocks, const unsigned rows);
+// The annotation samplers' two passes over annoMat (SBayesRC, BayesRC, SBayesRD), for one chain or for several at once:
+// MultiChainSBayesRC's shared passes (multichain.hpp) read annoMat once for all chains. Each chain's results are those
+// of a call for that chain alone.
+// scores[c][k] = a_k'y[c], each sum accumulated in the order of annotationDot (model.cpp).
+void annotationScores(const MatrixXf &annoMat, const vector<const VectorXf*> &y, const vector<VectorXd*> &scores);
+// predictorMeans[c] = annoMat*alpha[c] and snpP[c] = Phi(predictorMeans[c]).
+void annotationProbabilities(Stat::Normal &dist, const MatrixXf &annoMat, const vector<const MatrixXf*> &alpha,
+                             const vector<MatrixXf*> &predictorMeans, const vector<MatrixXf*> &snpP);
 
 
 class BayesRC : public BayesR {
