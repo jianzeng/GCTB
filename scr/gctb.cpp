@@ -11,6 +11,8 @@
 #include "stat.hpp"
 #include <Eigen/Core>
 #include <cmath>
+#include <cstdarg>
+#include <cstdio>
 #include <memory>
 
 namespace {
@@ -761,6 +763,28 @@ void GCTB::saveMcmcSamples(const vector<McmcSamples*> &mcmcSampleVec, const stri
     }
 }
 
+namespace {
+// printf-style formatting appended to buf.
+void appendf(string &buf, const char *fmt, ...) {
+    char tmp[256];
+    va_list ap;
+    va_start(ap, fmt);
+    const int n = vsnprintf(tmp, sizeof tmp, fmt, ap);
+    va_end(ap);
+    if (n < 0) return;
+    if (n < (int)sizeof tmp) {
+        buf.append(tmp, n);
+        return;
+    }
+    const size_t at = buf.size();
+    buf.resize(at + n + 1);
+    va_start(ap, fmt);
+    vsnprintf(&buf[at], n + 1, fmt, ap);
+    va_end(ap);
+    buf.resize(at + n);
+}
+}
+
 void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, const string &bayesType, const bool noscale, const string &filename, const bool removeSkepticalSnps){
     
     string unconvergedSnpFile = filename + ".skepticalSNPs";
@@ -785,6 +809,9 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
         return;
     }
 
+    // These analyses write their own .snpRes below, so the generic one is not written first.
+    const bool ownSnpRes = bayesType == "SMix" || bayesType == "RC" || bayesType == "R" || bayesType == "RD"
+        || bayesType == "RD_indep" || bayesType == "RD_Joint";
     vector<McmcSamples*> mcmcSamplesPar;
     for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
         McmcSamples *mcmcSamples = mcmcSampleVec[i];
@@ -799,7 +826,8 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
             if (pip == NULL) {
                 throw("Error: couldn't find MCMC samples for PIP!\n");
             }
-            data.outputSnpResults(mcmcSamples->posteriorMean, mcmcSamples->posteriorSqrMean, pip->posteriorMean, noscale, filename + ".snpRes", false, mcmcSamples->sd());
+            if (!ownSnpRes)
+                data.outputSnpResults(mcmcSamples->posteriorMean, mcmcSamples->posteriorSqrMean, pip->posteriorMean, noscale, filename + ".snpRes", false, mcmcSamples->sd());
         }
         else if (mcmcSamples->label == "CovEffects") {
 //            if (mcmcSamples->datMat.size()) data.outputFixedEffects(mcmcSamples->datMat, filename + ".covRes");
@@ -890,69 +918,66 @@ void GCTB::outputResults(Data &data, const vector<McmcSamples*> &mcmcSampleVec, 
         }
         out << endl;
         
-        // estimate P value from PIP
         VectorXf pip_vec = 1.0 - deltaPiVec[0]->posteriorMean.array();
-        McmcSamples *numSnp1 = NULL;
-        for (unsigned i=0; i<mcmcSampleVec.size(); ++i) {
-            McmcSamples *mcmcSamples = mcmcSampleVec[i];
-            if (mcmcSamples->label == "NumSnp1") numSnp1 = mcmcSampleVec[i];
+        // (P values from the PIPs, pip2p, were computed here but are not written: their column is commented out.)
+
+        // Each SNP's line formatted with snprintf, the same text as the boost::format and stream output it replaces
+        // (an integer in a %s field is %d or %u; the stream's default float output is %g), in parallel over pieces of
+        // the SNP list, written in order.
+        const unsigned numSnps = data.numSnps, pieceSize = 16384, piecesPerBatch = 64;
+        const unsigned numPieces = (numSnps + pieceSize - 1) / pieceSize;
+        vector<unsigned> firstIdx(numPieces + 1, 0);  // each piece's first output index (over the included SNPs)
+        for (unsigned piece=0; piece<numPieces; ++piece) {
+            unsigned count = 0;
+            for (unsigned i=piece*pieceSize; i<std::min(numSnps, (piece+1)*pieceSize); ++i) count += data.fullSnpFlag[i];
+            firstIdx[piece + 1] = firstIdx[piece] + count;
         }
-        float propNull = numSnp1->posteriorMean[0]/(float)data.numIncdSnps;
-        VectorXf pval(data.numIncdSnps);
-        pip2p(data, pip_vec, propNull, pval);
-        // END
-        
-        for (unsigned i=0, idx=0; i<data.numSnps; ++i) {
-            SnpInfo *snp = data.snpInfoVec[i];
-            if(!data.fullSnpFlag[i]) continue;
-            float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
-            if (snp->gwas_scalar) sqrt2pq = snp->gwas_scalar;
-            float effect = (snp->flipped ? - snpEffects->posteriorMean[idx] : snpEffects->posteriorMean[idx]);
-            float varExp = snpEffects->posteriorSqrMean[idx];
-            float se = snpEffects->sdAt(idx);
-            if (snp->unconverged) {
-                effect = 0.0;
-                varExp = 0.0;
-                se = 0.0;
-            }
-            out << boost::format("%6s %20s %6s %12s %6s %6s %12.6f %12.6f %12.6f %12.6e")
-            % (i+1)
-            % snp->ID
-            % snp->chrom
-            % snp->physPos
-            % (snp->flipped ? snp->a2 : snp->a1)
-            % (snp->flipped ? snp->a1 : snp->a2)
-            % (snp->flipped ? 1.0-snp->af : snp->af)
-            % (noscale ? effect : effect/sqrt2pq)
-            % (noscale ? se : se/sqrt2pq)
-            % (noscale ? sqrt2pq*sqrt2pq*varExp : varExp);
-            if (snp->unconverged) {
-                if (pep) {
-                    out << boost::format(" %12.6f") % 0;
-                }
-                for (unsigned j = 0; j < deltaPiVec.size(); ++j) {
-                    if (j==0) out << boost::format(" %12.0f") % 1;
-                    else out << boost::format(" %12.0f") % 0;
-                }
-                out << " " << setw(14) << 0;
-                if (pip) {
-                    if (pip->numChains > 1) out << " " << setw(12) << 0;
-                }
-            } else {
-                if (pep) {
-                    out << boost::format(" %12.6f") % pep->posteriorMean[idx];
-                }
-                for (unsigned j = 0; j < deltaPiVec.size(); ++j) {
-                    out << boost::format(" %12.6f") % deltaPiVec[j]->posteriorMean[idx];
-                }
-                //out << " " << setw(14) << (pip_vec[idx]) << " " << setw(14) << pval[idx];
-                out << " " << setw(14) << (pip_vec[idx]);
-                if (pip) {
-                    if (pip->numChains > 1) out << " " << setw(12) << pip->GelmanRubinStat[idx];
+        const bool gelmanRubin = pip && pip->numChains > 1;
+        for (unsigned batch=0; batch<numPieces; batch+=piecesPerBatch) {
+            const unsigned batchEnd = std::min(numPieces, batch + piecesPerBatch);
+            vector<string> text(batchEnd - batch);
+            #pragma omp parallel for schedule(dynamic)
+            for (unsigned piece=batch; piece<batchEnd; ++piece) {
+                string &buf = text[piece - batch];
+                buf.reserve(256 * pieceSize);
+                unsigned idx = firstIdx[piece];
+                for (unsigned i=piece*pieceSize; i<std::min(numSnps, (piece+1)*pieceSize); ++i) {
+                    SnpInfo *snp = data.snpInfoVec[i];
+                    if(!data.fullSnpFlag[i]) continue;
+                    float sqrt2pq = sqrt(2.0*snp->af*(1.0-snp->af));
+                    if (snp->gwas_scalar) sqrt2pq = snp->gwas_scalar;
+                    float effect = (snp->flipped ? - snpEffects->posteriorMean[idx] : snpEffects->posteriorMean[idx]);
+                    float varExp = snpEffects->posteriorSqrMean[idx];
+                    float se = snpEffects->sdAt(idx);
+                    if (snp->unconverged) {
+                        effect = 0.0;
+                        varExp = 0.0;
+                        se = 0.0;
+                    }
+                    appendf(buf, "%6u %20s %6d %12d %6s %6s %12.6f %12.6f %12.6f %12.6e",
+                            i+1, snp->ID.c_str(), snp->chrom, snp->physPos,
+                            (snp->flipped ? snp->a2 : snp->a1).c_str(), (snp->flipped ? snp->a1 : snp->a2).c_str(),
+                            (snp->flipped ? 1.0-snp->af : snp->af),
+                            (double)(noscale ? effect : effect/sqrt2pq),
+                            (double)(noscale ? se : se/sqrt2pq),
+                            (double)(noscale ? sqrt2pq*sqrt2pq*varExp : varExp));
+                    if (snp->unconverged) {
+                        if (pep) appendf(buf, " %12d", 0);
+                        for (unsigned j = 0; j < deltaPiVec.size(); ++j) appendf(buf, " %12d", j == 0 ? 1 : 0);
+                        appendf(buf, " %14d", 0);
+                        if (gelmanRubin) appendf(buf, " %12d", 0);
+                    } else {
+                        if (pep) appendf(buf, " %12.6f", (double)pep->posteriorMean[idx]);
+                        for (unsigned j = 0; j < deltaPiVec.size(); ++j)
+                            appendf(buf, " %12.6f", (double)deltaPiVec[j]->posteriorMean[idx]);
+                        appendf(buf, " %14g", (double)pip_vec[idx]);
+                        if (gelmanRubin) appendf(buf, " %12g", (double)pip->GelmanRubinStat[idx]);
+                    }
+                    buf += '\n';
+                    ++idx;
                 }
             }
-            out << endl;
-            ++idx;
+            for (const string &buf : text) out.write(buf.data(), buf.size());
         }
         out.close();
     }
@@ -1435,6 +1460,7 @@ void GCTB::calcCredibleSets(Data &data, McmcSamples &snpEffects, const float pip
     }
     
     // calculate variance explained by each SNP
+    #pragma omp parallel for schedule(dynamic, 4096)
     for (unsigned j=0; j<data.numSnps; ++j) {
         SnpInfo *snpj = data.snpInfoVec[j];
         VectorXf betaj = snpEffects.datMatSp.col(j);
@@ -1452,16 +1478,36 @@ void GCTB::calcCredibleSets(Data &data, McmcSamples &snpEffects, const float pip
     
     vector<CredibleSetInfo*> csInfoVec;
     
-    // sort each SNP's LD friends by their PIP
+    // sort each SNP's LD friends by their PIP: the lists in parallel, each sorted with its PIPs alongside (the same
+    // comparisons as comparePIP, so the same order)
+    vector<vector<SnpInfo*>*> friendLists;
+    friendLists.reserve(data.LDmap.size());
     map<SnpInfo*, vector<SnpInfo*> >::iterator it, end = data.LDmap.end();
-    for (it=data.LDmap.begin(); it!=data.LDmap.end(); ++it) {
-        std::sort(it->second.begin(), it->second.end(), &GCTB::comparePIP);
+    for (it=data.LDmap.begin(); it!=data.LDmap.end(); ++it) friendLists.push_back(&it->second);
+    #pragma omp parallel
+    {
+        vector<pair<float, SnpInfo*> > keyed;
+        #pragma omp for schedule(dynamic, 1024)
+        for (size_t i = 0; i < friendLists.size(); ++i) {
+            vector<SnpInfo*> &friends = *friendLists[i];
+            keyed.resize(friends.size());
+            for (size_t k = 0; k < friends.size(); ++k) keyed[k] = make_pair(friends[k]->pip, friends[k]);
+            std::sort(keyed.begin(), keyed.end(),
+                      [](const pair<float, SnpInfo*> &x, const pair<float, SnpInfo*> &y) { return x.first > y.first; });
+            for (size_t k = 0; k < friends.size(); ++k) friends[k] = keyed[k].second;
+        }
     }
     
     
-    // sort SNPs by PIP
-    vector<SnpInfo*> snpInfoVecSorted = data.snpInfoVec;
-    std::sort(snpInfoVecSorted.begin(), snpInfoVecSorted.end(), &GCTB::comparePIP);
+    // sort SNPs by PIP (with the PIPs alongside: the same comparisons as comparePIP, so the same order)
+    vector<SnpInfo*> snpInfoVecSorted(data.snpInfoVec.size());
+    {
+        vector<pair<float, SnpInfo*> > keyed(data.snpInfoVec.size());
+        for (size_t i = 0; i < keyed.size(); ++i) keyed[i] = make_pair(data.snpInfoVec[i]->pip, data.snpInfoVec[i]);
+        std::sort(keyed.begin(), keyed.end(),
+                  [](const pair<float, SnpInfo*> &x, const pair<float, SnpInfo*> &y) { return x.first > y.first; });
+        for (size_t i = 0; i < keyed.size(); ++i) snpInfoVecSorted[i] = keyed[i].second;
+    }
     
 //    for(unsigned j=0; j < 20; j++){
 //        SnpInfo *snpj = snpInfoVecSorted[j];
@@ -1471,10 +1517,13 @@ void GCTB::calcCredibleSets(Data &data, McmcSamples &snpEffects, const float pip
     // construct CS for each SNP
     unsigned numCS = 0;
     unsigned sumCSsize = 0;
+    vector<SnpInfo*> cs;
+    VectorXf csPGVmcmc(snpEffects.nrow);
+    vector<float> squares;  // a SNP's squared nonzero effect samples
     for(unsigned j=0; j < data.numSnps; j++){
         SnpInfo *snpj = snpInfoVecSorted[j];
         float cumPIP = snpj->pip;
-        vector<SnpInfo*> cs;
+        cs.clear();
         cs.push_back(snpj);
         vector<SnpInfo*> &LDfriend = data.LDmap[snpj];
         unsigned numLDfriends = LDfriend.size();
@@ -1497,16 +1546,18 @@ void GCTB::calcCredibleSets(Data &data, McmcSamples &snpEffects, const float pip
         }
         if (csValid) {
             // calculate posterior probability of SNP-based heritability enrichment
-            VectorXf csPGVmcmc;
-            csPGVmcmc.setZero(snpEffects.nrow);
+            // (each SNP's squared effect samples added where nonzero: the zeros of its dense column add nothing)
+            csPGVmcmc.setZero();
             float csPGV = 0.0;
             unsigned csSize = cs.size();
             for (unsigned k=0; k<csSize; ++k) {
                 SnpInfo *snpk = cs[k];
                 csPGV += snpk->varExplained;
-                VectorXf betak = snpEffects.datMatSp.col(snpk->index - 1);
-                VectorXf vark = betak.array().square();
-                csPGVmcmc += vark;
+                const long long col = snpk->index - 1;
+                squares.clear();
+                for (SpMat::InnerIterator it(snpEffects.datMatSp, col); it; ++it) squares.push_back(it.value() * it.value());
+                size_t n = 0;
+                for (SpMat::InnerIterator it(snpEffects.datMatSp, col); it; ++it) csPGVmcmc[it.row()] += squares[n++];
             }
             csPGVmcmc = csPGVmcmc.array()/totalVar.array();
             unsigned numPositives = 0;
@@ -1647,15 +1698,42 @@ void GCTB::calcCredibleSets(Data &data, McmcSamples &snpEffects, const float pip
 
     out3 << boost::format("%12s %12s %12s\n") % "Alpha" % "SNP" % "PIP";
     
-    std::sort(data.snpInfoVec.begin(), data.snpInfoVec.end(), &GCTB::comparePIP);
+    data.snpInfoVec = snpInfoVecSorted;  // = std::sort(data.snpInfoVec, comparePIP): the same list sorted the same way
     
-    for (unsigned k=0; k<threshold_vec.size(); ++k) {
-        double cumPip = 0.0;
-        for (unsigned j=0; j<data.numSnps; ++j){
-            SnpInfo *snp = data.snpInfoVec[j];
-            cumPip += snp->pip;
-            out3 << boost::format("%12.2f %12s %12s\n") % threshold_vec[k]  % snp->ID % snp->pip;
-            if (cumPip > threshold_vec[k]*nnz) break;
+    // For each threshold, the top SNPs until their PIPs pass it: the counts found first, then the lines formatted with
+    // snprintf (the same text as boost::format: a float in a %s field is %g) in parallel over pieces, written in order.
+    {
+        const unsigned numThresholds = threshold_vec.size(), pieceSize = 16384;
+        vector<unsigned> numLines(numThresholds);
+        for (unsigned k=0; k<numThresholds; ++k) {
+            double cumPip = 0.0;
+            unsigned j = 0;
+            while (j<data.numSnps) {
+                cumPip += data.snpInfoVec[j++]->pip;
+                if (cumPip > threshold_vec[k]*nnz) break;
+            }
+            numLines[k] = j;
+        }
+        vector<pair<unsigned, unsigned> > pieces;  // (threshold, first line)
+        for (unsigned k=0; k<numThresholds; ++k) {
+            for (unsigned first=0; first<numLines[k]; first+=pieceSize) pieces.push_back(make_pair(k, first));
+        }
+        const size_t piecesPerBatch = 256;
+        for (size_t batch=0; batch<pieces.size(); batch+=piecesPerBatch) {
+            const size_t batchEnd = std::min(pieces.size(), batch + piecesPerBatch);
+            vector<string> text(batchEnd - batch);
+            #pragma omp parallel for schedule(dynamic)
+            for (size_t i=batch; i<batchEnd; ++i) {
+                const unsigned k = pieces[i].first, first = pieces[i].second;
+                const unsigned last = std::min(numLines[k], first + pieceSize);
+                string &buf = text[i - batch];
+                buf.reserve(40 * (last - first));
+                for (unsigned j=first; j<last; ++j) {
+                    SnpInfo *snp = data.snpInfoVec[j];
+                    appendf(buf, "%12.2f %12s %12g\n", (double)threshold_vec[k], snp->ID.c_str(), (double)snp->pip);
+                }
+            }
+            for (const string &buf : text) out3.write(buf.data(), buf.size());
         }
     }
     out3.close();
