@@ -1029,9 +1029,10 @@ void Options::inputOptions(const int argc, const char* argv[]){
     }
 
     if (batchChains) {
-        if ((analysisType != "SBayes" && analysisType != "GWFM") || (bayesType != "R" && bayesType != "RC"))
-            cout << "Note: --batch-chains applies to SBayesR and SBayesRC (also with --gwfm, including its component"
-                 << " selection); not used for this analysis." << endl;
+        const bool rd = bayesType == "RD" || bayesType == "RD_indep" || bayesType == "RD_Joint";
+        if ((analysisType != "SBayes" && analysisType != "GWFM") || (bayesType != "R" && bayesType != "RC" && !rd))
+            cout << "Note: --batch-chains applies to SBayesR, SBayesRC and SBayesRD (also with --gwfm, including its"
+                 << " component selection); not used for this analysis." << endl;
         else if (numChains < 2 && analysisType == "GWFM")
             cout << "Note: with one chain, --batch-chains batches only the component selection's models." << endl;
         else if (numChains < 2)

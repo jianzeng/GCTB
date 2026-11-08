@@ -870,6 +870,9 @@ public:
         }
     }
     
+    // One iteration of all chains: the --batch-chains sweep, the shared annotation passes and each chain's own step.
+    // Used by MultiChainSBayesRC::sampleUnknowns and MultiChainSBayesRD::sampleUnknowns, which then collect the values.
+    void sampleChains(const vector<ApproxBayesRC*> &chains, const unsigned iter);
     void sampleUnknowns(const unsigned iter);
     void sampleStartVal(void) {
         for (unsigned i=0; i<chainVec.size(); ++i) chainVec[i]->sampleStartVal();

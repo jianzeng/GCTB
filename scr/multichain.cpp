@@ -414,20 +414,20 @@ void MultiChainSBayesRC::computePredictionAccuracyEnrichment(){
         annoPerSnpRsqEnrich.perChainValues.col(c) = annoPerSnpRsqEnrich.values;
 }
 
-void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
+void MultiChainSBayesRC::sampleChains(const vector<ApproxBayesRC*> &chains, const unsigned iter){
 
     // --batch-chains (changes the sampling, multichain.hpp): all chains' SNP effects in one sweep that reads each LD
     // block once; each chain then runs the rest of its iteration without its own sweep.
     if (batchChains && batchSupported < 0) {
-        batchSupported = multichain::snpSweepSupported(chainVec);
+        batchSupported = multichain::snpSweepSupported(chains);
         cout << "Batched multi-chain SNP sweep: " << (batchSupported ? "on" : "not supported for this run, off") << endl;
     }
     const bool batchedSweep = batchChains && batchSupported == 1;
     if (batchedSweep) {
         // GCTB_PROFILE_RC: the LD-swap step and the sweep go into every chain's profile.
-        const bool profile = chainVec[0]->profileTiming;
+        const bool profile = chains[0]->profileTiming;
         const double t0 = profile ? gctbWallTime() : 0.0;
-        if (chainVec[0]->algorithm != ApproxBayesR::gibbs) {  // TGS / TGS_thin: each chain's LD-swap step first
+        if (chains[0]->algorithm != ApproxBayesR::gibbs) {  // TGS / TGS_thin: each chain's LD-swap step first
             std::exception_ptr swapException;
             Stat::prepareParallelChainRng(numThreadLevel1);
 #pragma omp parallel for num_threads(numThreadLevel1)
@@ -435,7 +435,7 @@ void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
                 omp_set_num_threads(numThreadLevel2);
                 Stat::McmcChainRngScope chainRng(i);
                 try {
-                    chainVec[i]->sampleLdSwap(iter);
+                    chains[i]->sampleLdSwap(iter);
                 } catch (...) {
 #pragma omp critical(gctb_multichain_rc_swap_exception)
                     {
@@ -447,20 +447,20 @@ void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
             if (swapException) std::rethrow_exception(swapException);
         }
         const double t1 = profile ? gctbWallTime() : 0.0;
-        multichain::sampleSnpEffects(multichain::sweepChains(chainVec), numThreadTotal, batchSweepCache);
+        multichain::sampleSnpEffects(multichain::sweepChains(chains), numThreadTotal, batchSweepCache);
         if (profile) {
             const double t2 = gctbWallTime();
-            for (ApproxBayesRC *chain : chainVec) {
+            for (ApproxBayesRC *chain : chains) {
                 chain->addSharedProfileTime(chain->profileTimeTgs, t1 - t0);
                 chain->addSharedProfileTime(chain->profileTimeSnpEffects, t2 - t1);
             }
         }
-        for (ApproxBayesRC *chain : chainVec) chain->snpSweepDone = true;
+        for (ApproxBayesRC *chain : chains) chain->snpSweepDone = true;
     }
 
     // Shared annotation passes (multichain.hpp): each chain's iteration runs in two stages around its annotation
     // sampler, with its random stream carried from stage 1 to stage 2, and the passes after each stage.
-    const bool sharedAnno = multichain::sharedAnnoPasses(chainVec);
+    const bool sharedAnno = multichain::sharedAnnoPasses(chains);
     vector<Stat::random_engine> chainEngine(sharedAnno ? numChains : 0);
     vector<Stat::normal_distribution> chainNormal(sharedAnno ? numChains : 0);
     std::exception_ptr firstException;
@@ -475,18 +475,18 @@ void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
                 Stat::engine = chainEngine[i];
                 Stat::snorm.distribution() = chainNormal[i];
             }
-            chainVec[i]->summaryRequired = summaryRequired;  // set by MCMC::run for this wrapper
-            chainVec[i]->annoPassStage = stage;
+            chains[i]->summaryRequired = summaryRequired;  // set by MCMC::run for this wrapper
+            chains[i]->annoPassStage = stage;
 
             try {
-                chainVec[i]->sampleUnknowns(iter);
+                chains[i]->sampleUnknowns(iter);
             } catch (...) {
 #pragma omp critical(gctb_multichain_rc_exception)
                 {
                     if (!firstException) firstException = std::current_exception();
                 }
             }
-            chainVec[i]->annoPassStage = 0;
+            chains[i]->annoPassStage = 0;
             if (stage == 1) {
                 chainEngine[i] = Stat::engine;
                 chainNormal[i] = Stat::snorm.distribution();
@@ -498,35 +498,39 @@ void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
         runChains(0);
     } else {
         // GCTB_PROFILE_RC: the shared passes go into every chain's profile, which is reported after them.
-        const bool profile = chainVec[0]->profileTiming;
+        const bool profile = chains[0]->profileTiming;
         double scores = 0.0, probabilities = 0.0, logPi = 0.0;
         runChains(1);
         if (!firstException) {
             const double t0 = profile ? gctbWallTime() : 0.0;
-            multichain::annoFirstScores(chainVec);
+            multichain::annoFirstScores(chains);
             if (profile) scores = gctbWallTime() - t0;
             runChains(2);
         }
         if (!firstException) {
             const double t0 = profile ? gctbWallTime() : 0.0;
-            multichain::annoProbabilities(chainVec);
+            multichain::annoProbabilities(chains);
             const double t1 = profile ? gctbWallTime() : 0.0;
-            for (ApproxBayesRC *chain : chainVec) ApproxBayesRC::logPiFromP(chain->snpP, chain->snpLogPi);  // each in parallel
+            for (ApproxBayesRC *chain : chains) ApproxBayesRC::logPiFromP(chain->snpP, chain->snpLogPi);  // each in parallel
             if (profile) {
                 probabilities = t1 - t0;
                 logPi = gctbWallTime() - t1;
             }
         }
         if (profile && !firstException) {
-            for (ApproxBayesRC *chain : chainVec) {
+            for (ApproxBayesRC *chain : chains) {
                 chain->addSharedProfileTime(chain->profileTimeAnnoEffects, scores + probabilities);
                 chain->addSharedProfileTime(chain->profileTimeLogPi, logPi);
                 chain->reportProfile(iter);
             }
         }
     }
-    if (batchedSweep) for (ApproxBayesRC *chain : chainVec) chain->snpSweepDone = false;
+    if (batchedSweep) for (ApproxBayesRC *chain : chains) chain->snpSweepDone = false;
     if (firstException) std::rethrow_exception(firstException);
+}
+
+void MultiChainSBayesRC::sampleUnknowns(const unsigned iter){
+    sampleChains(chainVec, iter);
         
     snpEffects.getValues();
     pip.getValues();
@@ -635,27 +639,9 @@ void MultiChainSBayesRD::NumBadSnps::output(){
 }
 
 void MultiChainSBayesRD::sampleUnknowns(const unsigned iter){
-
-    Stat::prepareParallelChainRng(numThreadLevel1);
-    std::exception_ptr firstException;
-#pragma omp parallel for num_threads(numThreadLevel1)
-    for (unsigned i=0; i<numChains; ++i) {
-//        cout << "sampling chain " << i << " in " << numChains << " chains " << endl;
-        omp_set_num_threads(numThreadLevel2);
-        Stat::McmcChainRngScope chainRng(i);
-        chainVec[i]->summaryRequired = summaryRequired;  // set by MCMC::run for this wrapper
-
-        try {
-            chainVec[i]->sampleUnknowns(iter);
-        } catch (...) {
-#pragma omp critical(gctb_multichain_rd_exception)
-            {
-                if (!firstException) firstException = std::current_exception();
-            }
-        }
-    }
-    Stat::finishParallelChainRng();
-    if (firstException) std::rethrow_exception(firstException);
+    // The chain loop of SBayesRC (with --batch-chains the batched SNP sweep); SBayesRD's chains have no annotation
+    // pass stages (ApproxBayesRD::annoPassStagesSupported), so each chain runs its whole iteration.
+    sampleChains(vector<ApproxBayesRC*>(chainVec.begin(), chainVec.end()), iter);
         
     snpEffects.getValues();
     pip.getValues();
@@ -770,7 +756,8 @@ void MultiChainSBayesS::sampleUnknowns(const unsigned iter){
 // Work shared by the chains of a multi-chain run (namespace multichain, multichain.hpp).
 
 bool multichain::sharedAnnoPasses(const vector<ApproxBayesRC*> &chains) {
-    return chains.size() > 1 && chains[0]->estimatePi && !chains[0]->annoEffects.blockedGaussian;
+    return chains.size() > 1 && chains[0]->annoPassStagesSupported() && chains[0]->estimatePi
+        && !chains[0]->annoEffects.blockedGaussian;
 }
 
 void multichain::annoFirstScores(const vector<ApproxBayesRC*> &chains) {

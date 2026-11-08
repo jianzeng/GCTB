@@ -3161,14 +3161,33 @@ public:
     int annoPassStage = 0;
     VectorXf annoFirstLatents;
     VectorXd annoFirstScores;
+    virtual bool annoPassStagesSupported() const { return true; }  // SBayesRD's annotation step has no stages
 
+    // TGS: the LD-swap move runs every iteration, TGS_thin every 10th (also the annotation swap moves of SBayesRD).
+    bool isLdSwapIteration(const unsigned iter) const { return algorithm == tgs || (algorithm == tgs_thin && !(iter % 10)); }
     void sampleLdSwap(const unsigned iter);
 
+    // GCTB_PROFILE_RC: adds the wall time since the last call to a bucket of this chain's profile.
+    struct ProfileClock {
+        bool on = false;
+        double last = 0.0;
+        double add(double &bucket) {
+            if (!on) return 0.0;
+            const double now = gctbWallTime(), elapsed = now - last;
+            bucket += elapsed;
+            last = now;
+            return elapsed;
+        }
+    };
+
+    // One iteration, shared by SBayesRC and SBayesRD; the step that samples the annotation effects and updates snpP and
+    // log pi (sampleAnnotations) is the only model-specific part, with the profile report.
     void sampleUnknowns(const unsigned iter);
+    virtual void sampleAnnotations(const unsigned iter, ProfileClock &clock);
     // GCTB_PROFILE_RC: the wall time of work MultiChainSBayesRC does for all chains, added to a bucket of this chain's
     // profile and to its total (each chain waits for it); and the end of an iteration's profile (count, report).
     void addSharedProfileTime(double &bucket, const double seconds);
-    void reportProfile(const unsigned iter);
+    virtual void reportProfile(const unsigned iter);
     void prepareMarginalizedContext(const Data &data, const bool message = true);
     void recomputeOriginalContextWhatBlocks(void);
     double contextVarianceLogPosterior(const double logRatio) const;
@@ -3182,9 +3201,10 @@ public:
 //    void sampleUnknownsTGS(vector<vector<int> > &selectedSnps);
     void computePfromPi(const MatrixXf &snpPi, MatrixXf &snpP);
     // snpLogPi = log pi from snpP after each annotation update: pi_k = (1 - p_k) p_0 ... p_{k-1} (the last component
-    // without the 1 - p factor), then the log; in parallel. (computeLogPiFromP sums logs of p instead.)
+    // without the 1 - p factor), then the log; in parallel. computeLogPiFromP sums the logs of p instead, which does not
+    // underflow (SBayesRD, VI warm start); also in parallel, with the arithmetic of a serial pass.
     static void logPiFromP(const MatrixXf &snpP, MatrixXf &snpLogPi);
-    void computeLogPiFromP(const MatrixXf &snpP, MatrixXf &snpLogPi);
+    static void computeLogPiFromP(const MatrixXf &snpP, MatrixXf &snpLogPi);
     void initSnpPandPi(const VectorXf &pis, const unsigned numSnps, MatrixXf &snpP, MatrixXf &snpPi);
     void getSnpAnnoCntInv(const MatrixXf &annoMat, VectorXf &snpAnnoCntInv);
 };
@@ -3616,7 +3636,10 @@ public:
         }
     }
 
-    void sampleUnknowns(const unsigned iter);
+    // The iteration is ApproxBayesRC::sampleUnknowns; only the annotation step and the profile report differ.
+    void sampleAnnotations(const unsigned iter, ProfileClock &clock) override;
+    void reportProfile(const unsigned iter) override;
+    bool annoPassStagesSupported() const override { return false; }
 
 };
 

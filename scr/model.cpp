@@ -8354,6 +8354,42 @@ VectorXf annotationDiag(const MatrixXf &annoMat, const float numRows) {
     return diag;
 }
 
+// The data of annotation step i, the probit for "component > i" among the SNPs with component >= i: their outcomes z
+// and, for i > 0, their stored predictors a_j'alpha_i and rows of A (at step 0, all SNPs: use A and
+// predictorMeans.col(0) as they are). `eligible` lists the SNPs with component > i-1 in ascending order (filled at
+// step 0) and is narrowed to those with component > i for the next step. Shared by SBayesRC's and SBayesRD's samplers.
+struct AnnotationStep {
+    VectorXf z;           // outcome: component > i
+    VectorXf predictors;  // a_j'alpha_i of the eligible SNPs (i > 0)
+    MatrixXf rows;        // their rows of A (i > 0)
+};
+
+void annotationStep(const unsigned i, const unsigned numComp, const VectorXi &membership, const MatrixXf &annoMat,
+                    const MatrixXf &predictorMeans, vector<unsigned> &eligible, AnnotationStep &step) {
+    if (i == 0) {
+        const unsigned numSnps = membership.size();
+        step.z.resize(numSnps);
+        eligible.clear();
+        for (unsigned j=0; j<numSnps; ++j) {
+            step.z[j] = membership[j] > 0;
+            if (numComp > 1 && step.z[j]) eligible.push_back(j);
+        }
+        return;
+    }
+    const unsigned n = eligible.size();
+    step.rows = annotationRows(annoMat, eligible);  // the rows of this step, before the list is narrowed
+    step.z.resize(n);
+    step.predictors.resize(n);
+    unsigned next = 0;
+    for (unsigned idx=0; idx<n; ++idx) {
+        const unsigned j = eligible[idx];
+        step.z[idx] = membership[j] > int(i);
+        step.predictors[idx] = predictorMeans(j,i);
+        if (i+1 < numComp && step.z[idx]) eligible[next++] = j;
+    }
+    eligible.resize(next);
+}
+
 // Probit latents minus their means for one boundary: y_j ~ N(a_j'alpha, 1), truncated to y_j > 0
 // if z_j and to y_j < 0 otherwise. Each SNP row block has its own RNG stream (keyed by block and
 // boundary), so the draws do not depend on the thread count.
@@ -8412,40 +8448,21 @@ void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(const VectorXi &membership, 
         throw(string("Error: shared first-boundary scores require the scalar Gibbs annotation updates."));
     initPredictors(annoMat, snpP);
 
-    // Ones at each boundary identify the rows eligible for the next boundary.
-    vector<unsigned> active;
+    // The SNPs eligible for each step (annotationStep narrows the list as the steps go).
+    vector<unsigned> eligible;
+    AnnotationStep step;
     unsigned numSnps = membership.size();
     for (unsigned i=0; i<numComp; ++i) {
         VectorXf &alphai = (*this)[i]->values;
-        const unsigned numDP = i==0 ? numSnps : active.size();
+        const unsigned numDP = i==0 ? numSnps : eligible.size();
 
         if(numDP == 0){
             alphai.setZero();
             alphai[0] = -10.0;
             ssq[i] = 0;
         }else{
-            VectorXf zi(numDP);
-            VectorXf selectedMeans;
-            MatrixXf annoMatPO;
-            if (i==0) {
-                for (unsigned j=0; j<numSnps; ++j) {
-                    zi[j] = membership[j] > 0;
-                    if (numComp > 1 && zi[j]) active.push_back(j);
-                }
-            } else {
-                // Copy the current rows before retaining only those needed by the next boundary.
-                annoMatPO = annotationRows(annoMat, active);
-                selectedMeans.resize(numDP);
-                unsigned next = 0;
-                for (unsigned idx=0; idx<numDP; ++idx) {
-                    const unsigned j = active[idx];
-                    zi[idx] = membership[j] > int(i);
-                    selectedMeans[idx] = predictorMeans(j,i);
-                    if (i+1 < numComp && zi[idx]) active[next++] = j;
-                }
-                active.resize(next);
-            }
-            const MatrixXf &annoMati = i==0 ? annoMat : annoMatPO;
+            annotationStep(i, numComp, membership, annoMat, predictorMeans, eligible, step);
+            const MatrixXf &annoMati = i==0 ? annoMat : step.rows;
             const VectorXf annoDiagi = i==0 ? annoDiag : annotationDiag(annoMati, numDP);
 
             // With firstScores, the first boundary's latents were drawn earlier and only their scores are needed.
@@ -8454,7 +8471,7 @@ void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(const VectorXi &membership, 
             if (!given)
                 y = annotationLatentResiduals(*this,
                                               i == 0 ? predictorMeans.col(0).data()
-                                                     : selectedMeans.data(), zi, i);
+                                                     : step.predictors.data(), step.z, i);
 
             if (blockedGaussian) {
                 AnnotationSampler::gaussian(annoMati,y,alphai,sigmaSq[i],
@@ -8679,19 +8696,48 @@ void ApproxBayesRC::logPiFromP(const MatrixXf &snpP, MatrixXf &snpLogPi) {
     }
 }
 
-void ApproxBayesRC::computeLogPiFromP(const MatrixXf &snpP, MatrixXf &snpLogPi) {
-    unsigned numSnps = snpP.rows();
-    unsigned numDist = snpP.cols() + 1;
-    snpLogPi.setZero(numSnps, numDist);
+// Starts of the pieces [starts[b], starts[b+1]) of a parallel pass over `rows` floats written to `dst`, such that
+// Eigen's vectorized evaluation of each piece takes the same elements one packet at a time as one pass over all rows
+// would: Eigen handles the elements before dst's first packet-aligned address, and those after the last whole packet,
+// with the scalar function (whose result can differ in the last bit), so the pieces after the first start on packet
+// boundaries of the whole pass and are a whole number of packets long.
+static vector<unsigned> packetAlignedPieces(const float *dst, const unsigned rows) {
+    const unsigned packet = Eigen::internal::packet_traits<float>::size, bytes = packet * sizeof(float);
+    const unsigned head = unsigned((bytes - reinterpret_cast<uintptr_t>(dst) % bytes) % bytes / sizeof(float));
+    const unsigned size = annotationRowBlockSize;  // a multiple of the packet size
+    vector<unsigned> starts(1, 0);
+    for (size_t s = size_t(head) + size; s < rows; s += size) starts.push_back(unsigned(s));
+    starts.push_back(rows);
+    return starts;
+}
 
-    VectorXf logPrefix;
-    logPrefix.setZero(numSnps);
+// log pi as a sum of logs, log pi_k = log(1 - p_k) + log p_0 + ... + log p_{k-1} (the last component without the first
+// term), which cannot underflow where the product of the p's would (logPiFromP); used by SBayesRD and the VI warm start.
+// In parallel over pieces of rows that keep the arithmetic of one serial pass (packetAlignedPieces).
+void ApproxBayesRC::computeLogPiFromP(const MatrixXf &snpP, MatrixXf &snpLogPi) {
+    const unsigned numSnps = snpP.rows(), numDist = snpP.cols() + 1;
+    snpLogPi.setZero(numSnps, numDist);
+    VectorXf logPrefix = VectorXf::Zero(numSnps);
+    const vector<unsigned> prefixPieces = packetAlignedPieces(logPrefix.data(), numSnps);
     for (unsigned i=0; i<numDist; ++i) {
+        const vector<unsigned> pieces = packetAlignedPieces(snpLogPi.col(i).data(), numSnps);
+        const unsigned numPieces = pieces.size() - 1;
+        #pragma omp parallel for schedule(static) if(numPieces > 1)
+        for (unsigned b=0; b<numPieces; ++b) {
+            const unsigned first = pieces[b], count = pieces[b+1] - pieces[b];
+            if (i < numDist-1)
+                snpLogPi.col(i).segment(first, count) = logPrefix.segment(first, count).array()
+                                                        + (1.0f - snpP.col(i).segment(first, count).array()).log();
+            else
+                snpLogPi.col(i).segment(first, count) = logPrefix.segment(first, count);
+        }
         if (i < numDist-1) {
-            snpLogPi.col(i) = logPrefix.array() + (1.0f - snpP.col(i).array()).log();
-            logPrefix.array() += snpP.col(i).array().log();
-        } else {
-            snpLogPi.col(i) = logPrefix;
+            const unsigned numPrefixPieces = prefixPieces.size() - 1;
+            #pragma omp parallel for schedule(static) if(numPrefixPieces > 1)
+            for (unsigned b=0; b<numPrefixPieces; ++b) {
+                const unsigned first = prefixPieces[b], count = prefixPieces[b+1] - prefixPieces[b];
+                logPrefix.segment(first, count).array() += snpP.col(i).segment(first, count).array().log();
+            }
         }
     }
 }
@@ -9701,9 +9747,8 @@ void ApproxBayesRC::getSnpAnnoCntInv(const MatrixXf &annoMat, VectorXf &snpAnnoC
 // The LD-swap step of TGS (every iteration) and TGS_thin (every 10th iteration), before the SNP sweep. It draws from
 // its own random stream (sampleFromLDSwapMH_eigen), so it can run before the rest of the iteration or within it.
 void ApproxBayesRC::sampleLdSwap(const unsigned iter) {
-    const bool ldSwapIteration = algorithm == tgs || (algorithm == tgs_thin && !(iter % 10));
     const bool supportsLdSwap = lowRankModel && !data.coreContextLdmEigen;
-    if (ldSwapIteration && supportsLdSwap) {
+    if (isLdSwapIteration(iter) && supportsLdSwap) {
         const vector<MatrixXf> &swapQblocks = integrateOutContext
             && !data.precomputedMarginalizedContext
             ? marginalizedContextQblocks : data.Qblocks;
@@ -9721,20 +9766,12 @@ void ApproxBayesRC::sampleLdSwap(const unsigned iter) {
 
 void ApproxBayesRC::sampleUnknowns(const unsigned iter){
     double profileStart = 0.0;
-    double profileLast = 0.0;
+    ProfileClock clock;
+    clock.on = profileTiming;
     if (profileTiming) {
-        profileStart = profileLast = gctbWallTime();
+        profileStart = clock.last = gctbWallTime();
     }
-    auto addProfileTime = [&](double &bucket) -> double {
-        if (profileTiming) {
-            double now = gctbWallTime();
-            double elapsed = now - profileLast;
-            bucket += elapsed;
-            profileLast = now;
-            return elapsed;
-        }
-        return 0.0;
-    };
+    auto addProfileTime = [&](double &bucket) -> double { return clock.add(bucket); };
 
     // Multi-chain runs split the iteration around the annotation sampler (annoPassStage, see MultiChainSBayesRC).
     if (annoPassStage != 2) {
@@ -9824,22 +9861,7 @@ void ApproxBayesRC::sampleUnknowns(const unsigned iter){
         return;
     }
 
-    if (estimatePi) {
-        annoEffects.sampleFromFC_Gibbs(snpEffects.membership, data.annoMat, sigmaSqAnno.values, snpP,
-                                       annoPassStage == 2 ? &annoFirstScores : NULL);
-        annoCondProb.compute_probit(annoEffects, data.annoInfoVec);
-        addProfileTime(profileTimeAnnoEffects);
-        sigmaSqAnno.sampleFromFC(annoEffects.ssq, VectorXf::Constant(annoEffects.numComp, annoEffects.numAnno - 1));
-        addProfileTime(profileTimeAnnoVar);
-
-        // log pi from snpP; with the shared passes (stage 2) the wrapper does this for all chains.
-        if (annoPassStage != 2) logPiFromP(snpP, snpLogPi);
-        addProfileTime(profileTimeLogPi);
-        annoJointProb.compute(annoCondProb);
-        addProfileTime(profileTimeAnnoJointProb);
-    } else {
-        addProfileTime(profileTimeAnnoEffects);
-    }
+    sampleAnnotations(iter, clock);
 
     // Update genetic and residual variance components.
     if (lowRankModel) {
@@ -9944,6 +9966,26 @@ void ApproxBayesRC::sampleUnknowns(const unsigned iter){
     if (profileTiming) {
         profileTimeTotal += gctbWallTime() - profileStart;
         if (annoPassStage != 2) reportProfile(iter);  // with the shared passes, MultiChainSBayesRC reports after them
+    }
+}
+
+// The annotation effects, snpP and log pi: SBayesRC's step of the iteration (SBayesRD overrides it).
+void ApproxBayesRC::sampleAnnotations(const unsigned iter, ProfileClock &clock) {
+    if (estimatePi) {
+        annoEffects.sampleFromFC_Gibbs(snpEffects.membership, data.annoMat, sigmaSqAnno.values, snpP,
+                                       annoPassStage == 2 ? &annoFirstScores : NULL);
+        annoCondProb.compute_probit(annoEffects, data.annoInfoVec);
+        clock.add(profileTimeAnnoEffects);
+        sigmaSqAnno.sampleFromFC(annoEffects.ssq, VectorXf::Constant(annoEffects.numComp, annoEffects.numAnno - 1));
+        clock.add(profileTimeAnnoVar);
+
+        // log pi from snpP; with the shared passes (stage 2) the wrapper does this for all chains.
+        if (annoPassStage != 2) logPiFromP(snpP, snpLogPi);
+        clock.add(profileTimeLogPi);
+        annoJointProb.compute(annoCondProb);
+        clock.add(profileTimeAnnoJointProb);
+    } else {
+        clock.add(profileTimeAnnoEffects);
     }
 }
 
@@ -10514,20 +10556,13 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(
         annotationProbabilities(*this, annoMat, {&values}, {&predictorMeans}, {&snpP});
     }
     mixtureCounts.setZero();
-    VectorXf numOnes(numComp);
-    #pragma omp parallel for schedule(static)
-    for (unsigned i=0; i<numComp; ++i) {
-        unsigned cnt = 0;
-        for (unsigned j=0; j<(unsigned)membership.size(); ++j) {
-            if (membership[j] > int(i)) ++cnt;
-        }
-        numOnes[i] = cnt;
-    }
 
     unsigned numSnps = membership.size();
     numNonZeros.setZero(numComp);
 
     float logDelta0, logDelta1, probDelta1;
+    vector<unsigned> eligible;  // the SNPs eligible for each step (annotationStep narrows the list)
+    AnnotationStep step;
 
     for (unsigned i=0; i<numComp; ++i) {
         VectorXf &alphai = (*this)[i]->values;
@@ -10539,10 +10574,8 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(
         pip.setZero();
         pip[0] = 1.0;
 
-        VectorXf y, zi;
-        unsigned numDP;  // number of data points for each component
-        if (i==0) numDP = numSnps;
-        else numDP = numOnes[i-1];
+        VectorXf y;
+        const unsigned numDP = i==0 ? numSnps : eligible.size();  // the step's SNPs (component >= i)
 
         if(numDP == 0){
             alphai.setZero();
@@ -10559,31 +10592,13 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(
                 numNonZeros[i] += group != 0;
             }
         }else{
-            zi.setZero(numDP);
-            VectorXf selectedMeans;
-            MatrixXf annoMatPO;
-            // get annotation coefficient matrix for component i
-            if (i==0) {
-                for (unsigned j=0; j<numSnps; ++j) zi[j] = membership[j] > 0;
-            } else {
-                vector<unsigned> active(numDP);
-                selectedMeans.resize(numDP);
-                for (unsigned j=0, idx=0; j<numSnps; ++j) {
-                    if (membership[j] > int(i-1)) {
-                        active[idx] = j;
-                        zi[idx] = membership[j] > int(i);
-                        selectedMeans[idx] = predictorMeans(j,i);
-                        ++idx;
-                    }
-                }
-                annoMatPO = annotationRows(annoMat, active);
-            }
-            const MatrixXf &annoMati = i==0 ? annoMat : annoMatPO;
-            const VectorXf annoDiagi = i==0 ? annoDiag : annotationDiag(annoMati, numOnes[i-1]);
+            annotationStep(i, numComp, membership, annoMat, predictorMeans, eligible, step);
+            const MatrixXf &annoMati = i==0 ? annoMat : step.rows;
+            const VectorXf annoDiagi = i==0 ? annoDiag : annotationDiag(annoMati, numDP);
 
             // latent variables adjusted by all annotation effects
             y = annotationLatentResiduals(*this, i == 0 ? predictorMeans.col(0).data()
-                                                       : selectedMeans.data(), zi, i);
+                                                       : step.predictors.data(), step.z, i);
 
             // intercept is fitted with a flat prior
             float oldSample = alphai[0];
@@ -10844,15 +10859,6 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
         annotationProbabilities(*this, annoMat, {&values}, {&predictorMeans}, {&snpP});
     }
     mixtureCounts.setZero();
-    VectorXf numOnes(numComp);
-#pragma omp parallel for schedule(static)
-    for (unsigned i=0; i<numComp; ++i) {
-        unsigned cnt = 0;
-        for (unsigned j=0; j<(unsigned)membership.size(); ++j) {
-            if (membership[j] > int(i)) ++cnt;
-        }
-        numOnes[i] = cnt;
-    }
 
     unsigned numSnps = membership.size();
     numNonZeros.setZero(numComp);
@@ -10861,66 +10867,50 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
     pip[0] = 1.0;  // always fit intercept in the model
     nnz = 0;
 
-    VectorXi numDP(numComp);  // number of data points for each component
-    unsigned numNZComp = 0;   // number of components with at least one nonzero SNP
-    for (unsigned i=0; i<numComp; ++i) {
-        VectorXf &alphai = (*this)[i]->values;
-        if (i==0) numDP[i] = numSnps;
-        else numDP[i] = numOnes[i-1];
-        if(numDP[i] == 0){
-            alphai.setZero();
-            alphai[0] = -10.0;
-            ssq[i] = 0;
-        }else{
-            ++numNZComp;
-        }
-    }
-
-    if (bayesR) numNZComp = numComp;
-    vector<VectorXf> Y(numNZComp);
-    vector<MatrixXf> subsets(numNZComp);       // eligible rows for boundaries after the first
-    vector<const MatrixXf*> Amat(numNZComp);
-    MatrixXf Alpha(numAnno, numNZComp);
-    MatrixXf APAdiag(numAnno, numNZComp);
+    // The steps with SNPs come first (each step's SNPs are among the previous step's); the joint update below takes
+    // those, or all steps with the BayesR-type prior: an empty step has no data, so its intercept stays at -10 and its
+    // other effects are drawn from the prior.
+    vector<unsigned> eligible;  // the SNPs eligible for each step (annotationStep narrows the list)
+    AnnotationStep step;
+    vector<VectorXf> Y(numComp);
+    vector<MatrixXf> subsets(numComp);       // eligible rows for boundaries after the first
+    vector<const MatrixXf*> Amat(numComp);
+    MatrixXf Alpha(numAnno, numComp);
+    MatrixXf APAdiag(numAnno, numComp);
+    unsigned numNZComp = 0;   // the number of steps in the joint update
 
     Stat::Bernoulli &bernoulli = (*this)[0]->bernoulli;
 
-    for (unsigned i=0; i<numNZComp; ++i) {
+    for (unsigned i=0; i<numComp; ++i) {
         VectorXf &alphai = (*this)[i]->values;
-        if (bayesR && numDP[i] == 0) {
+        const unsigned numDP = i==0 ? numSnps : eligible.size();  // the step's SNPs (component >= i)
+        if (numDP == 0) {
+            alphai.setZero();
+            alphai[0] = -10.0;
+            ssq[i] = 0;
+            if (!bayesR) continue;
             Y[i].resize(0);
             subsets[i].resize(0,numAnno);
             Amat[i] = &subsets[i];
             APAdiag.col(i).setZero();
             Alpha.col(i) = alphai;
+            ++numNZComp;
             continue;
         }
-        VectorXf zi(numDP[i]);
-        VectorXf selectedMeans;
-        // get annotation coefficient matrix for component i
+        ++numNZComp;
+        annotationStep(i, numComp, membership, annoMat, predictorMeans, eligible, step);
         if (i==0) {
             Amat[i] = &annoMat;
-            for (unsigned j=0; j<numSnps; ++j) zi[j] = membership[j] > 0;
         } else {
-            vector<unsigned> active(numDP[i]);
-            selectedMeans.resize(numDP[i]);
-            for (unsigned j=0, idx=0; j<numSnps; ++j) {
-                if (membership[j] > int(i-1)) {
-                    active[idx] = j;
-                    zi[idx] = membership[j] > int(i);
-                    selectedMeans[idx] = predictorMeans(j,i);
-                    ++idx;
-                }
-            }
-            subsets[i] = annotationRows(annoMat, active);
+            subsets[i].swap(step.rows);  // each step's rows are kept for the joint update below
             Amat[i] = &subsets[i];
         }
         const MatrixXf &annoMati = *Amat[i];
-        const VectorXf annoDiagi = i==0 ? annoDiag : annotationDiag(annoMati, numOnes[i-1]);
+        const VectorXf annoDiagi = i==0 ? annoDiag : annotationDiag(annoMati, numDP);
 
         // latent variables adjusted by all annotation effects
         VectorXf y = annotationLatentResiduals(*this, i == 0 ? predictorMeans.col(0).data()
-                                                           : selectedMeans.data(), zi, i);
+                                                           : step.predictors.data(), step.z, i);
 
         // intercept is fitted with a flat prior
         float oldSample = alphai[0];
@@ -10937,6 +10927,12 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
         ssq[i] = 0;
         Alpha.col(i) = alphai;
     }
+    // Keep only the steps in the joint update (their indices come first).
+    Y.resize(numNZComp);
+    subsets.resize(numNZComp);
+    Amat.resize(numNZComp);
+    Alpha.conservativeResize(Eigen::NoChange, numNZComp);
+    APAdiag.conservativeResize(Eigen::NoChange, numNZComp);
 
     if (runAnnotationSwap)
         sampleFromAnnotationSwapMH_joint(Alpha, Y, Amat);
@@ -11033,74 +11029,10 @@ void ApproxBayesRD::AnnoCondProb::compute(const AnnoEffects &annoEffects, const 
     }
 }
 
-void ApproxBayesRD::sampleUnknowns(const unsigned iter){
-    double profileStart = 0.0;
-    double profileLast = 0.0;
-    if (profileTiming) {
-        profileStart = profileLast = gctbWallTime();
-    }
-    auto addProfileTime = [&](double &bucket) -> double {
-        if (profileTiming) {
-            double now = gctbWallTime();
-            double elapsed = now - profileLast;
-            bucket += elapsed;
-            profileLast = now;
-            return elapsed;
-        }
-        return 0.0;
-    };
-
-    const bool ldSwapIteration = algorithm == tgs
-        || (algorithm == tgs_thin && !(iter % 10));
-    const bool supportsLdSwap = lowRankModel && !data.coreContextLdmEigen;
-    if (ldSwapIteration && supportsLdSwap) {
-        unsigned proposals = 0;
-        unsigned accepted = 0;
-        snpEffects.sampleFromLDSwapMH_eigen(
-                wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec,
-                data.nGWASblock, vareBlk.values, snpLogPi, data.tgsWorksets,
-                data.incdSnpInfoVec, proposals, accepted,
-                quantizedLowRankModel ? &data.quantizedEigenBlocks : nullptr);
-        ldSwapProposals += proposals;
-        ldSwapAccepted += accepted;
-    }
-    addProfileTime(profileTimeTgs);
-
-    if (lowRankModel) {
-        if (quantizedLowRankModel) {
-            fixedSnpEffects.sampleFromFC_quantizedEigen(snpEffects, wcorrBlocks, data.quantizedEigenBlocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, data.numFixedEffectSnps);
-            snpEffects.sampleFromFC_quantizedEigen(wcorrBlocks, data.quantizedEigenBlocks, whatBlocks,
-                                    data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
-                                    snpLogPi, gamma.values, vargRandom.value, deltaPi, hsqPercModel, sigmaSq.value, data.incdSnpInfoVec,
-                                    data.numFixedEffectSnps,
-                                    data.coreContextLdmEigen ? &data.coreContextLdBlocks : nullptr,
-                                    data.coreContextLdmEigen ? &data.wcorrBlocks : nullptr);
-        } else {
-            fixedSnpEffects.sampleFromFC_eigen(snpEffects, wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, data.numFixedEffectSnps);
-            snpEffects.sampleFromFC_eigen(wcorrBlocks, data.Qblocks, whatBlocks,
-                                          data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
-                                          snpLogPi, gamma.values, vargRandom.value, deltaPi,
-                                          hsqPercModel, sigmaSq.value, data.incdSnpInfoVec, data.numFixedEffectSnps);
-        }
-    } else {
-        fixedSnpEffects.sampleFromFC_sparse(snpEffects, rcorr, data.ZPZsp, data.ZPZdiag, data.snp2pq, data.incdSnpInfoVec, varg.value, vare.value, data.numFixedEffectSnps);
-        snpEffects.sampleFromFC_sparse(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.chromInfoVec, sigmaSq.value, snpLogPi, gamma.values, vare.value,
-                                       vargRandom.value, hsqPercModel, deltaPi, data.incdSnpInfoVec);
-    }
-    addProfileTime(profileTimeSnpEffects);
-
-    snpEffects.computePosteriorMean(iter);
-    snpPip.getValues(snpEffects.pip);
-    nnzSnp.getValue(snpEffects.numNonZeros);
-    numSnps.getValues(snpEffects.numSnpMix);
-    addProfileTime(profileTimePosterior);
-
-    if (robustMode) {
-        sigmaSq.value = vargRandom.value/(data.numIncdSnps*gamma.values.dot(Pis.values));
-    } else {
-        sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
-    }
-
+// SBayesRD's annotation step: the annotation effects (independent or joint assignment), their mixture weights, pi,
+// log pi and the conditional/joint probabilities. The rest of the iteration is ApproxBayesRC::sampleUnknowns.
+void ApproxBayesRD::sampleAnnotations(const unsigned iter, ProfileClock &clock) {
+    const bool ldSwapIteration = isLdSwapIteration(iter);
     if (estimatePi) {
         if (sampleAnnoEffectsIndep)
             annoEffects.sampleFromFC_indep(snpEffects.membership, data.annoMat,
@@ -11112,7 +11044,7 @@ void ApproxBayesRD::sampleUnknowns(const unsigned iter){
                                            sigmaSqAnno.values, piAnno.value, snpP,
                                            annotationSwapEnabled && ldSwapIteration,
                                            annotationTgsEnabled);
-        addProfileTime(profileTimeAnnoEffects);
+        clock.add(profileTimeAnnoEffects);
         annoEffects.updateMixtureWeights(sampleAnnoEffectsIndep);
         // Retain inclusion-probability outputs as the total nonzero mixture mass.
         if (sampleAnnoEffectsIndep) {
@@ -11124,126 +11056,56 @@ void ApproxBayesRD::sampleUnknowns(const unsigned iter){
         } else {
             piAnno.value = 1.0f-annoEffects.mixtureWeights[0]->values[0];
         }
-        addProfileTime(profileTimePiUpdate);
+        clock.add(profileTimePiUpdate);
         computeLogPiFromP(snpP, snpLogPi);
-        addProfileTime(profileTimeLogPi);
+        clock.add(profileTimeLogPi);
         annoCondProb.compute(annoEffects, data.annoInfoVec);
-        addProfileTime(profileTimeAnnoCondProb);
+        clock.add(profileTimeAnnoCondProb);
         annoJointProb.compute(annoCondProb);
-        addProfileTime(profileTimeAnnoJointProb);
+        clock.add(profileTimeAnnoJointProb);
         if (sampleAnnoEffectsIndep)
             annoPips.getValues(annoEffects);
         else
             annoPip.getValues(annoEffects.pip);
     } else {
-        addProfileTime(profileTimeAnnoEffects);
+        clock.add(profileTimeAnnoEffects);
     }
+}
 
-    if (lowRankModel) {
-        vargBlk.compute(whatBlocks);
-        vareBlk.sampleFromFC(wcorrBlocks, vargBlk.values, snpEffects.ssqBlocks, data.nGWASblock, data.numEigenvalBlock);
-        //vareBlk.sampleFromFC(wcorrBlocks, snpEffects.values, data.b, data.nGWASblock, data.keptLdBlockInfoVec);
-        vargRandom.value = vargBlk.total;
-        vare.value = vareBlk.mean;
-    } else {
-        varg.compute(snpEffects.values, data.ZPy, rcorr);
-        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, status);
-        if (data.numFixedEffectSnps && data.varGenotypic > 0.f)
-            vargRandom.value = varg.value * (data.vargRandomSnpEffects / data.varGenotypic);
-        else
-            vargRandom.value = varg.value;
-    }
-    hsqRandom.compute(vargRandom.value, data.varPhenotypic);
-    if (data.numFixedEffectSnps) {
-        hsqFixed.compute(snpEffects.values, data);
-        hsq.value = hsqRandom.value + hsqFixed.value;
-        if (lowRankModel)
-            varg.value = vargRandom.value + hsqFixed.value * data.varPhenotypic;
-    } else {
-        hsq.value = hsqRandom.value;
-        if (lowRankModel)
-            varg.value = vargRandom.value;
-    }
-    addProfileTime(profileTimeVariance);
-
-    // Report-only annotation summaries: needed for kept samples and the last iteration (MCMC::run).
-    if (summaryRequired) {
-        annoGenVar.compute(snpEffects.values, snpEffects.snpset, data.annoMat);
-        profileTimeAnnoSummary += addProfileTime(profileTimeAnnoGenVar);
-        annoTotalGenVar.compute(annoGenVar);
-        profileTimeAnnoSummary += addProfileTime(profileTimeAnnoTotalGenVar);
-        annoPerSnpHsqEnrich.compute(annoTotalGenVar.values, data.annoInfoVec);
-        profileTimeAnnoSummary += addProfileTime(profileTimeAnnoPerSnpHsqEnrich);
-        annoConditionalHsqEnrich.compute(annoJointProb, gamma.values);
-        annoConditionalPolygenicityEnrich.compute(annoJointProb);
-    }
-
-    Vgs.compute(snpEffects.values, snpEffects.snpset);
-
-    snpHsqPep.compute(snpEffects.values, vargRandom.value);
-    addProfileTime(profileTimeMiscSummary);
-
-    if (!(iter % 10)) {
-        if (lowRankModel) {
-            if (quantizedLowRankModel)
-                nBadSnps.compute_quantizedEigen(snpEffects.badSnps, snpEffects.values, snpEffects.posteriorMean, data.b, wcorrBlocks, data.quantizedEigenBlocks, data.keptLdBlockInfoVec, iter, data);
-            else
-                nBadSnps.compute_eigen(snpEffects.badSnps, snpEffects.values, snpEffects.posteriorMean, data.b, wcorrBlocks, data.Qblocks, data.keptLdBlockInfoVec, iter, data);
-        } else {
-            nBadSnps.compute_sparse(snpEffects.badSnps, snpEffects.values, snpEffects.posteriorMean, data.b, rcorr, data.ZPZsp, data.chromInfoVec, iter, data);
+void ApproxBayesRD::reportProfile(const unsigned iter) {
+    ++profileTimingCount;
+    if (!(iter % profileTimingFreq)) {
+        double denom = double(profileTimingCount);
+        cout << "\nSBayesRD timing profile (avg seconds/iteration over "
+             << profileTimingCount << " iterations):" << endl;
+        cout << "  SNP effects:        " << profileTimeSnpEffects / denom << endl;
+        cout << "  LD swap MH:         " << profileTimeTgs / denom << endl;
+        if (ldSwapProposals) {
+            cout << "    accepted:         " << ldSwapAccepted << "/" << ldSwapProposals
+                 << " (" << 100.0 * ldSwapAccepted / ldSwapProposals << "%)" << endl;
         }
-    }
-    addProfileTime(profileTimeBadSnps);
-
-    if (!(iter % 100)) {
-        if (lowRankModel) {
-            if (quantizedLowRankModel)
-                rounding.computeWcorr_quantizedEigen(data.wcorrBlocks, data.quantizedEigenBlocks, data.keptLdBlockInfoVec, snpEffects.values, wcorrBlocks);
-            else
-                rounding.computeWcorr_eigen(data.wcorrBlocks, data.Qblocks, data.keptLdBlockInfoVec, snpEffects.values, wcorrBlocks);
-        } else {
-            rounding.computeRcorr_sparse(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
+        cout << "  Posterior updates:  " << profileTimePosterior / denom << endl;
+        cout << "  Annotation effects: " << profileTimeAnnoEffects / denom << endl;
+        if (annoEffects.swapProposals) {
+            cout << "    swap accepted:    " << annoEffects.swapAccepted << "/"
+                 << annoEffects.swapProposals << " ("
+                 << 100.0 * annoEffects.swapAccepted / annoEffects.swapProposals
+                 << "%)" << endl;
         }
-    }
-    addProfileTime(profileTimeRounding);
-
-    if (profileTiming) {
-        double now = gctbWallTime();
-        profileTimeTotal += now - profileStart;
-        ++profileTimingCount;
-        if (!(iter % profileTimingFreq)) {
-            double denom = double(profileTimingCount);
-            cout << "\nSBayesRD timing profile (avg seconds/iteration over "
-                 << profileTimingCount << " iterations):" << endl;
-            cout << "  SNP effects:        " << profileTimeSnpEffects / denom << endl;
-            cout << "  LD swap MH:         " << profileTimeTgs / denom << endl;
-            if (ldSwapProposals) {
-                cout << "    accepted:         " << ldSwapAccepted << "/" << ldSwapProposals
-                     << " (" << 100.0 * ldSwapAccepted / ldSwapProposals << "%)" << endl;
-            }
-            cout << "  Posterior updates:  " << profileTimePosterior / denom << endl;
-            cout << "  Annotation effects: " << profileTimeAnnoEffects / denom << endl;
-            if (annoEffects.swapProposals) {
-                cout << "    swap accepted:    " << annoEffects.swapAccepted << "/"
-                     << annoEffects.swapProposals << " ("
-                     << 100.0 * annoEffects.swapAccepted / annoEffects.swapProposals
-                     << "%)" << endl;
-            }
-            cout << "    anno variance:    " << profileTimeAnnoVar / denom << endl;
-            cout << "    pi update:        " << profileTimePiUpdate / denom << endl;
-            cout << "    log-prior update: " << profileTimeLogPi / denom << endl;
-            cout << "    anno cond prob:   " << profileTimeAnnoCondProb / denom << endl;
-            cout << "    anno joint prob:  " << profileTimeAnnoJointProb / denom << endl;
-            cout << "  Variance updates:   " << profileTimeVariance / denom << endl;
-            cout << "  Annotation summary: " << profileTimeAnnoSummary / denom << endl;
-            cout << "    anno GenVar:      " << profileTimeAnnoGenVar / denom << endl;
-            cout << "    anno total GenVar:" << profileTimeAnnoTotalGenVar / denom << endl;
-            cout << "    per-SNP hsq enrich:" << profileTimeAnnoPerSnpHsqEnrich / denom << endl;
-            cout << "  Misc summary:       " << profileTimeMiscSummary / denom << endl;
-            cout << "  Bad SNP check:      " << profileTimeBadSnps / denom << endl;
-            cout << "  Rounding:           " << profileTimeRounding / denom << endl;
-            cout << "  Total:              " << profileTimeTotal / denom << endl;
-        }
+        cout << "    anno variance:    " << profileTimeAnnoVar / denom << endl;
+        cout << "    pi update:        " << profileTimePiUpdate / denom << endl;
+        cout << "    log-prior update: " << profileTimeLogPi / denom << endl;
+        cout << "    anno cond prob:   " << profileTimeAnnoCondProb / denom << endl;
+        cout << "    anno joint prob:  " << profileTimeAnnoJointProb / denom << endl;
+        cout << "  Variance updates:   " << profileTimeVariance / denom << endl;
+        cout << "  Annotation summary: " << profileTimeAnnoSummary / denom << endl;
+        cout << "    anno GenVar:      " << profileTimeAnnoGenVar / denom << endl;
+        cout << "    anno total GenVar:" << profileTimeAnnoTotalGenVar / denom << endl;
+        cout << "    per-SNP hsq enrich:" << profileTimeAnnoPerSnpHsqEnrich / denom << endl;
+        cout << "  Misc summary:       " << profileTimeMiscSummary / denom << endl;
+        cout << "  Bad SNP check:      " << profileTimeBadSnps / denom << endl;
+        cout << "  Rounding:           " << profileTimeRounding / denom << endl;
+        cout << "  Total:              " << profileTimeTotal / denom << endl;
     }
 }
 
