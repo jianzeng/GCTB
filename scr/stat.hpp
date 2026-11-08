@@ -73,6 +73,11 @@ namespace Stat {
     static const unsigned tgsBlockRngSalt = 0x54475342u;
     static const unsigned ldSwapRngSalt = 0x4C44534Du;
     static const unsigned annotationSwapRngSalt = 0x414E5357u;
+    // --batch-chains sweep (multichain.cpp): the chunk order shared by the chains, each chain's orders within the
+    // chunks, and its draws.
+    static const unsigned batchSweepChunkRngSalt = 0x43484E4Bu;
+    static const unsigned batchSweepOrderRngSalt = 0x57495448u;
+    static const unsigned batchSweepDrawRngSalt = 0x44524157u;
 
     extern unsigned masterSeed;
     extern unsigned mcmcIterationForRng;

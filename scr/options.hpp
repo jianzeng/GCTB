@@ -120,6 +120,8 @@ public:
     bool twoStageModel;  // two-step approach for estimating X-chr dosage model and G by sex
     bool binSnp;  // bin SNPs
     bool robustMode;  // use the robust parameterisation in SBayes models
+    bool batchChains;          // --batch-chains: sample the chains' (or component-selection models') SNP effects together
+    bool numChainsGiven;       // --num-chains given
     bool removeSkepticalSnps;  // zero/skip skeptical SNPs detected during SBayes MCMC
     bool perSnpGV;
     bool mergeLdm;
@@ -310,6 +312,8 @@ public:
         twoStageModel           = false;
         binSnp                  = false;
         robustMode              = false;
+        batchChains             = false;
+        numChainsGiven          = false;
         removeSkepticalSnps     = false;
         perSnpGV                = false;
         mergeLdm                = false;

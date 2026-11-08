@@ -28,6 +28,42 @@ void annoFirstScores(const vector<ApproxBayesRC*> &chains);
 // then refreshes each chain's snpLogPi with logPiFromP).
 void annoProbabilities(const vector<ApproxBayesRC*> &chains);
 
+// --batch-chains (changes the sampling): all chains' SNP effects in one sweep that reads each LD block's Q once; see
+// sampleSnpEffects. MultiChainSBayesRC runs it before the chains' iterations, which then skip their own sweep.
+struct SweepCache {  // per run: each block's SNPs by Q column and the chunks' Gram matrices
+    struct BlockLayout {
+        vector<unsigned> pos, chunkStart, noColumn;
+        vector<int> col;
+    };
+    vector<BlockLayout> layout;        // per block: SNPs (positions) by Q column, chunk starts, SNPs without a column
+    vector<vector<float> > chunkGram;  // per block: each chunk's Q_chunk'Q_chunk
+};
+// One chain (or component-selection model) of a batched sweep: the model, its SNP effects and the snpset and component
+// counts they fill (SBayesRC declares its own SnpEffects over SBayesR's, with its own snpset), and where its prior
+// comes from: SBayesRC's per-SNP prior log pi (and its full conditional means), else SBayesR's pis.
+struct SweepChain {
+    ApproxBayesR *model;
+    ApproxBayesR::SnpEffects *effects;
+    vector<vector<unsigned> > *snpset;
+    ArrayXf *numSnpMix;        // SBayesRC's component counts, or
+    VectorXf *snpStore;        // SBayesR's
+    const MatrixXf *snpLogPi;  // SBayesRC only
+    VectorXf *fcMean;          // SBayesRC only
+};
+SweepChain sweepChain(ApproxBayesR &chain);
+SweepChain sweepChain(ApproxBayesRC &chain);
+template<typename Chain>
+vector<SweepChain> sweepChains(const vector<Chain*> &chains) {
+    vector<SweepChain> views;
+    for (Chain *chain : chains) views.push_back(sweepChain(*chain));
+    return views;
+}
+// Two or more chains (or models) with low-rank LD (float32, q16 or q8), no core or marginalized context and no SNPs
+// fitted as fixed effects; for SBayesRC also Gibbs, TGS or TGS_thin (the wrapper runs the LD-swap step first).
+bool snpSweepSupported(const vector<SweepChain> &chains);
+bool snpSweepSupported(const vector<ApproxBayesRC*> &chains);
+void sampleSnpEffects(const vector<SweepChain> &chains, const unsigned numThreads, SweepCache &cache);
+
 }
 
 inline const vector<string> &emptyMultiChainHeader(){
@@ -246,6 +282,9 @@ public:
     bool hsqPercModel;
     VectorXf gammaValues;
     unsigned numChains;
+    bool batchChains;          // --batch-chains
+    int batchSupported = -1;   // whether the batched SNP sweep applies to this run (-1: not checked yet)
+    multichain::SweepCache batchSweepCache;
     
     // for nested OMP
     unsigned numThreadTotal;
@@ -268,6 +307,7 @@ public:
     hsqPercModel(opt.hsqPercModel),
     gammaValues(opt.gamma),
     numChains(opt.numChains),
+    batchChains(opt.batchChains),
     chainVec(data, opt, constructChains),
     hsq(chainVec),
     pip(constructChains ? data.snpEffectNames : emptyMultiChainHeader(), chainVec),
