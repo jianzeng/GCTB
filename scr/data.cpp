@@ -13,6 +13,9 @@
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
+#include <limits>
+#include <functional>
+#include <cctype>
 #include <zlib.h>
 #include <dirent.h>
 
@@ -93,9 +96,31 @@ class TextLineReader {
     bool gz;
     ifstream in;
     gzFile zin;
+    bool atEnd;    // the whole file has been read into pieces
+    string carry;  // the start of a line the last piece cut
+
+    // Up to n bytes of the file (fewer only at its end).
+    size_t read(char *p, const size_t n) {
+        if (gz) {
+            size_t got = 0;
+            while (got < n) {
+                const unsigned chunk = (unsigned)std::min<size_t>(n - got, size_t(1) << 30);
+                const int r = gzread(zin, p + got, chunk);
+                if (r <= 0) break;
+                got += size_t(r);
+            }
+            return got;
+        }
+        in.read(p, n);
+        return size_t(in.gcount());
+    }
 
 public:
-    TextLineReader(const string &filename) : gz(endsWithString(filename, ".gz")), zin(NULL) {
+    // The current piece (nextPiece): whole lines of the file; line i starts at lineStart[i].
+    string text;
+    vector<size_t> lineStart;
+
+    TextLineReader(const string &filename) : gz(endsWithString(filename, ".gz")), zin(NULL), atEnd(false) {
         if (gz) {
             zin = gzopen(filename.c_str(), "rb");
         } else {
@@ -128,7 +153,50 @@ public:
         }
         return true;
     }
+
+    // The rest of the file in pieces of whole lines (about pieceBytes each), for parsing a piece's lines in parallel:
+    // false at the end. Line i of the piece is [lineBegin(i), lineEnd(i)), without its '\n' (the last line of the file
+    // may have none), as std::getline gives it.
+    bool nextPiece(const size_t pieceBytes = size_t(1) << 28) {
+        text.swap(carry);
+        carry.clear();
+        lineStart.clear();
+        size_t have = text.size();
+        while (!atEnd) {
+            text.resize(have + pieceBytes);
+            const size_t got = read(&text[have], pieceBytes);
+            have += got;
+            text.resize(have);
+            if (got < pieceBytes) { atEnd = true; break; }  // the end of the file: its last line is whole
+            const size_t lastNewline = text.rfind('\n');
+            if (lastNewline != string::npos) {
+                carry.assign(text, lastNewline + 1, string::npos);
+                text.resize(lastNewline + 1);
+                break;
+            }
+        }
+        if (text.empty()) return false;
+        for (size_t pos = 0; pos < text.size(); ) {
+            lineStart.push_back(pos);
+            const void *newline = memchr(text.data() + pos, '\n', text.size() - pos);
+            pos = newline ? (const char*)newline - text.data() + 1 : text.size();
+        }
+        return true;
+    }
+    size_t numLines() const { return lineStart.size(); }
+    const char *lineBegin(const size_t i) const { return text.data() + lineStart[i]; }
+    const char *lineEnd(const size_t i) const {
+        const char *e = text.data() + (i + 1 < lineStart.size() ? lineStart[i + 1] : text.size());
+        return e > lineBegin(i) && e[-1] == '\n' ? e - 1 : e;
+    }
 };
+
+// atof of the field [first, last) of a line, which a space, tab, '\n' or '\0' follows (so strtod stops at its end,
+// unless it starts with white space it would skip).
+double fieldAtof(const char *first, const char *last) {
+    if (first < last && isspace((unsigned char)*first)) return atof(string(first, last).c_str());
+    return strtod(first, NULL);
+}
 
 const char PWLD_BIN_MAGIC[8] = {'G','C','T','B','P','W','L','D'};
 const uint32_t PWLD_BIN_VERSION = 2;
@@ -5858,8 +5926,8 @@ void Data::jackknifeLDmatrix(const string &ldmatrixFile, const string &outLDmatT
 
 
 void Data::readAnnotationFile(const string &annoFile, const bool transpose, const bool allowMultiAnno) {
-    ifstream in(annoFile.c_str());
-    if (!in) throw ("Error: can not open the annotation file [" + annoFile + "] to read.");
+    TextLineReader in(annoFile);
+    if (!in.good()) throw ("Error: can not open the annotation file [" + annoFile + "] to read.");
     cout << "Reading SNP annotation from [" + annoFile + "]." << endl;
     
     map<string, SnpInfo*>::iterator it, end=snpInfoMap.end();
@@ -5869,7 +5937,7 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
     string inputStr;
     string sep(" \t");
     
-    getline(in,inputStr);
+    in.getline(inputStr);
     header.getTokens(inputStr, sep);
     long size=header.size();
     long line=0;
@@ -5878,7 +5946,7 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
     if (transpose) {
         vector<vector<string> > datmat;
         datmat.push_back(header);
-        while (getline(in,inputStr)) {
+        while (in.getline(inputStr)) {
             colData.getTokens(inputStr, sep);
             if (colData.size() != size) {
                 throw("Error: the annotation file does not have consistent number of columns!");
@@ -5900,6 +5968,7 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
             }
             out << "\n";
         }
+        out.close();  // flushed before it is read back
         readAnnotationFile(outfile, false, allowMultiAnno);
         return;
     }
@@ -5914,28 +5983,72 @@ void Data::readAnnotationFile(const string &annoFile, const bool transpose, cons
     }
     numAnnos = annoInfoVec.size();
 
-    string id;
-    while (getline(in,inputStr)) {
-        colData.getTokens(inputStr, sep);
-        id = colData[0];
-        it = snpInfoMap.find(id);
-        if (it != end) {
-            snp = it->second;
-            snp->annoValues.setZero(size-1);
-            if (atof(colData[1].c_str()) != 1) {
+    // The rest of the file in pieces of whole lines: a piece's lines parsed in parallel (fields split on spaces and tabs
+    // as Gadget::Tokenizer does, each value read as atof does), then its SNPs updated in file order.
+    struct ParsedLine {
+        SnpInfo *snp = NULL;
+        VectorXf values;      // the nonzero values, zero elsewhere
+        unsigned numNonzero = 0;
+        vector<unsigned> underflow;  // nonzero values that are 0 as a float (still annotations, as before)
+        bool intercept = true;  // the first value is 1
+        bool complete = true;   // the line has a value for every annotation
+    };
+    vector<ParsedLine> parsed;
+    auto isSep = [](const char c) { return c == ' ' || c == '\t'; };
+    while (in.nextPiece()) {
+        const size_t numLines = in.numLines();
+        parsed.assign(numLines, ParsedLine());
+        #pragma omp parallel for schedule(dynamic, 1024)
+        for (size_t l = 0; l < numLines; ++l) {
+            const char *p = in.lineBegin(l), *e = in.lineEnd(l);
+            while (p < e && isSep(*p)) ++p;
+            const char *q = p;
+            while (q < e && !isSep(*q)) ++q;
+            if (q == p) continue;  // no fields
+            map<string, SnpInfo*>::iterator found = snpInfoMap.find(string(p, q));
+            if (found == end) continue;
+            ParsedLine &out = parsed[l];
+            out.snp = found->second;
+            out.values.setZero(size-1);
+            for (long j=1; j<size; ++j) {
+                p = q;
+                while (p < e && isSep(*p)) ++p;
+                if (p == e) { out.complete = false; break; }
+                q = p;
+                while (q < e && !isSep(*q)) ++q;
+                const double value = fieldAtof(p, q);
+                if (j == 1 && value != 1) out.intercept = false;
+                if (value) {
+                    out.values[j-1] = value;
+                    ++out.numNonzero;
+                    if (!out.values[j-1]) out.underflow.push_back(j-1);
+                }
+            }
+        }
+        for (size_t l = 0; l < numLines; ++l) {
+            ParsedLine &rec = parsed[l];
+            if (!rec.snp) continue;
+            snp = rec.snp;
+            if (!rec.complete) {
+                throw("\nError: a line of the annotation file for SNP " + snp->ID + " has fewer values than the header.\n");
+            }
+            if (!rec.intercept) {
                 throw("\nError: did you forget to include a column of 1 for all SNPs after SNP ID in the annotation file?\n");
             }
+            snp->annoVec.reserve(snp->annoVec.size() + rec.numNonzero);
+            unsigned next = 0;  // in rec.underflow
             for (unsigned j=1; j<size; ++j) {
-                if (atof(colData[j].c_str())) {
+                const bool tiny = next < rec.underflow.size() && rec.underflow[next] == j-1;
+                if (tiny) ++next;
+                if (rec.values[j-1] || tiny) {
                     snp->annoVec.push_back(annoInfoVec[j-1]);
-                    snp->annoValues[j-1] = atof(colData[j].c_str());  // NEW LINE
                     snp->numAnnos++;
                 }
             }
+            snp->annoValues = std::move(rec.values);
             ++line;
         }
     }
-    in.close();
     
     unsigned numMultiAnno = 0;
     
@@ -7214,7 +7327,65 @@ static void buildTgsLdMapEntries(const map<SnpInfo*, vector<SnpInfo*> > &LDmap,
          });
 }
 
+namespace {
+// White space that `in >> x` skips (the "C" locale's isspace), other than '\n'.
+inline bool isStreamSpaceChar(const char c) { return c == ' ' || c == '\t' || c == '\v' || c == '\f' || c == '\r'; }
+
+// The field [p, e) read as `in >> value` would read it, when it is all of a plain number (false: leave it to the stream).
+bool plainFloatField(const char *p, const char *e, float &value) {
+    const size_t n = e - p;
+    if (n == 0 || n > 63) return false;
+    for (size_t i = 0; i < n; ++i) {
+        const char c = p[i];
+        if (!((c >= '0' && c <= '9') || c == '.' || c == '+' || c == '-' || c == 'e' || c == 'E')) return false;
+    }
+    char buf[64];
+    memcpy(buf, p, n);
+    buf[n] = '\0';
+    char *end;
+    value = strtof(buf, &end);
+    return end == buf + n && !std::isinf(value);
+}
+}
+
+// LDmap from the SNP pairs (ids into snpOfId, two per pair) in file order: what LDmap[snp1].push_back(snp2) and
+// LDmap[snp2].push_back(snp1) for each pair in turn give, each SNP's list sized once.
+static void setLdMapFromPairs(map<SnpInfo*, vector<SnpInfo*> > &LDmap, const vector<SnpInfo*> &snpOfId,
+                              const vector<uint32_t> &pairIds) {
+    const size_t numIds = snpOfId.size();
+    vector<uint64_t> count(numIds, 0);
+    for (size_t p = 0; p < pairIds.size(); ++p) ++count[pairIds[p]];
+    vector<uint32_t> withFriends;
+    for (size_t id = 0; id < numIds; ++id) if (count[id]) withFriends.push_back(uint32_t(id));
+    std::sort(withFriends.begin(), withFriends.end(),
+              [&snpOfId](const uint32_t x, const uint32_t y) { return std::less<SnpInfo*>()(snpOfId[x], snpOfId[y]); });
+    LDmap.clear();
+    vector<vector<SnpInfo*>*> listOf(numIds, NULL);
+    for (size_t i = 0; i < withFriends.size(); ++i) {  // in key order, so each insert goes at the end
+        const uint32_t id = withFriends[i];
+        map<SnpInfo*, vector<SnpInfo*> >::iterator it = LDmap.emplace_hint(LDmap.end(), snpOfId[id], vector<SnpInfo*>());
+        it->second.reserve(count[id]);
+        listOf[id] = &it->second;
+    }
+    for (size_t p = 0; p + 1 < pairIds.size(); p += 2) {
+        listOf[pairIds[p]]->push_back(snpOfId[pairIds[p + 1]]);
+        listOf[pairIds[p + 1]]->push_back(snpOfId[pairIds[p]]);
+    }
+}
+
 void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold, const bool buildTgsWorksets){
+    // The SNPs numbered in snpInfoMap's order, for looking up IDs in parallel and collecting the pairs.
+    vector<SnpInfo*> snpOfId;
+    std::unordered_map<string, uint32_t> idOf;
+    snpOfId.reserve(snpInfoMap.size());
+    idOf.reserve(snpInfoMap.size());
+    for (map<string, SnpInfo*>::const_iterator it = snpInfoMap.begin(); it != snpInfoMap.end(); ++it) {
+        idOf.emplace(it->first, uint32_t(snpOfId.size()));
+        snpOfId.push_back(it->second);
+    }
+    const uint32_t none = std::numeric_limits<uint32_t>::max();
+    vector<uint32_t> pairIds;  // the pairs kept, in file order
+
     if (endsWithString(ldfile, ".bin")) {
         FILE *bin = fopen(ldfile.c_str(), "rb");
         if (!bin) throw("Error: cannot open file [" + ldfile + "].");
@@ -7225,140 +7396,107 @@ void Data::inputPairwiseLD(const string &ldfile, const float rsqThreshold, const
         vector<string> fileSnpIDs;
         readPwldBinHeader(bin, ldfile, fileNumSnps, numRecords, fileSnpIDs);
 
-        vector<SnpInfo*> fileSnps(fileNumSnps, NULL);
-        map<string, SnpInfo*>::iterator end = snpInfoMap.end();
+        vector<uint32_t> fileSnps(fileNumSnps, none);
         for (uint64_t s = 0; s < fileNumSnps; ++s) {
-            map<string, SnpInfo*>::iterator it = snpInfoMap.find(fileSnpIDs[s]);
-            if (it != end) fileSnps[s] = it->second;
+            std::unordered_map<string, uint32_t>::const_iterator it = idOf.find(fileSnpIDs[s]);
+            if (it != idOf.end()) fileSnps[s] = it->second;
         }
 
-        LDmap.clear();
-        for (uint64_t r = 0; r < numRecords; ++r) {
-            PwldBinRecord rec;
-            if (fread(&rec, sizeof(PwldBinRecord), 1, bin) != 1) {
+        // The records in pieces, each filtered in parallel.
+        const uint64_t pieceRecords = uint64_t(1) << 22;
+        vector<PwldBinRecord> recs;
+        vector<char> keep;
+        for (uint64_t done = 0; done < numRecords; ) {
+            const uint64_t n = std::min(pieceRecords, numRecords - done);
+            recs.resize(n);
+            const size_t got = fread(recs.data(), sizeof(PwldBinRecord), n, bin);
+            if (got != n) {
                 fclose(bin);
                 throw("Error: incomplete binary pairwise LD record in [" + ldfile + "].");
             }
-            if (rec.snp1 >= fileSnps.size() || rec.snp2 >= fileSnps.size()) continue;
-            if (rsqThreshold < 1.0 && rec.ldcor * rec.ldcor <= rsqThreshold) continue;
-            SnpInfo *snp1 = fileSnps[rec.snp1];
-            SnpInfo *snp2 = fileSnps[rec.snp2];
-            if (!snp1 || !snp2) continue;
-            LDmap[snp1].push_back(snp2);
-            LDmap[snp2].push_back(snp1);
+            keep.assign(n, 0);
+            #pragma omp parallel for schedule(static)
+            for (long r = 0; r < (long)n; ++r) {
+                const PwldBinRecord &rec = recs[r];
+                if (rec.snp1 >= fileSnps.size() || rec.snp2 >= fileSnps.size()) continue;
+                if (rsqThreshold < 1.0 && rec.ldcor * rec.ldcor <= rsqThreshold) continue;
+                if (fileSnps[rec.snp1] == none || fileSnps[rec.snp2] == none) continue;
+                keep[r] = 1;
+            }
+            for (uint64_t r = 0; r < n; ++r) {
+                if (!keep[r]) continue;
+                pairIds.push_back(fileSnps[recs[r].snp1]);
+                pairIds.push_back(fileSnps[recs[r].snp2]);
+            }
+            done += n;
         }
         fclose(bin);
-
-        map<SnpInfo*, vector<SnpInfo*> >::iterator itLDmap, endLDmap = LDmap.end();
-        unsigned cnt = 0;
-        unsigned sum = 0;
-        for (itLDmap=LDmap.begin(); itLDmap!=endLDmap; ++itLDmap) {
-            ++cnt;
-            sum += itLDmap->second.size();
+    } else {
+        TextLineReader in(ldfile);
+        if (!in.good()) {
+            throw("Error: cannot open file [" + ldfile + "].");
         }
+        cout << "Reading pairwise LD correlations from file [" << ldfile << "]..." << endl;
 
-        tgsWorksets.clear();
-        tgsWorksetsByBlock.clear();
-        tgsLdMapEntries.clear();
-        if (buildTgsWorksets) {
-            buildTgsLdMapEntries(LDmap, tgsLdMapEntries);
-            tgsWorksets.reserve(LDmap.size());
-            tgsWorksetsByBlock.resize(keptLdBlockInfoVec.size());
-            for (itLDmap=LDmap.begin(); itLDmap!=endLDmap; ++itLDmap) {
-                SnpInfo *snp = itLDmap->first;
-                if (!snp || snp->fitAsFixedEffect || snp->index < 0) continue;
-                TgsWorkset ws;
-                ws.focalSnpIdx = (unsigned)snp->index;
-                ws.blockIdx = snp->blockIdx;
-                ws.selectedSnps.reserve(itLDmap->second.size() + 1);
-                ws.selectedSnps.push_back(snp->index);
-                for (unsigned j = 0; j < itLDmap->second.size(); ++j) {
-                    SnpInfo *friendSnp = itLDmap->second[j];
-                    if (!friendSnp || friendSnp->index < 0) continue;
-                    if (friendSnp->blockIdx != snp->blockIdx) continue;
-                    ws.selectedSnps.push_back(friendSnp->index);
+        string header;
+        in.getline(header);
+
+        // The lines in pieces, each parsed in parallel as `stringstream(line) >> snp1ID >> snp2ID >> ldcor` reads them
+        // (a line that does not read is skipped, as are SNPs not in the data).
+        vector<uint32_t> lineIds;
+        while (in.nextPiece()) {
+            const size_t numLines = in.numLines();
+            lineIds.assign(2 * numLines, none);
+            #pragma omp parallel
+            {
+                string lastID[2];       // the IDs looked up last on this thread (lines next to each other share SNPs)
+                uint32_t lastIdOf[2] = {none, none};
+                #pragma omp for schedule(dynamic, 16384)
+                for (size_t l = 0; l < numLines; ++l) {
+                    const char *p = in.lineBegin(l), *e = in.lineEnd(l);
+                    if (p == e) continue;
+                    const char *field[3], *fieldEnd[3];
+                    unsigned numFields = 0;
+                    while (numFields < 3) {
+                        while (p < e && isStreamSpaceChar(*p)) ++p;
+                        if (p == e) break;
+                        field[numFields] = p;
+                        while (p < e && !isStreamSpaceChar(*p)) ++p;
+                        fieldEnd[numFields++] = p;
+                    }
+                    if (numFields < 3) continue;
+                    float ldcor;
+                    if (!plainFloatField(field[2], fieldEnd[2], ldcor)) {
+                        stringstream ss(string(in.lineBegin(l), e));
+                        string id1, id2;
+                        if (!(ss >> id1 >> id2 >> ldcor)) continue;
+                    }
+                    if (rsqThreshold < 1.0 && !(ldcor*ldcor > rsqThreshold)) continue;
+                    uint32_t ids[2];
+                    for (unsigned k = 0; k < 2; ++k) {
+                        const size_t len = fieldEnd[k] - field[k];
+                        if (lastID[k].size() != len || lastID[k].compare(0, len, field[k], len) != 0) {
+                            lastID[k].assign(field[k], len);
+                            std::unordered_map<string, uint32_t>::const_iterator it = idOf.find(lastID[k]);
+                            lastIdOf[k] = it == idOf.end() ? none : it->second;
+                        }
+                        ids[k] = lastIdOf[k];
+                    }
+                    if (ids[0] == none || ids[1] == none) continue;
+                    lineIds[2 * l] = ids[0];
+                    lineIds[2 * l + 1] = ids[1];
                 }
-                if (ws.selectedSnps.size() > 1) {
-                    sort(ws.selectedSnps.begin() + 1, ws.selectedSnps.end());
-                    ws.selectedSnps.erase(unique(ws.selectedSnps.begin(), ws.selectedSnps.end()), ws.selectedSnps.end());
-                    tgsWorksets.push_back(ws);
-                    if (ws.blockIdx < tgsWorksetsByBlock.size())
-                        tgsWorksetsByBlock[ws.blockIdx].push_back(ws);
-                }
             }
-            sort(tgsWorksets.begin(), tgsWorksets.end(),
-                 [](const TgsWorkset &a, const TgsWorkset &b) {
-                     return a.focalSnpIdx < b.focalSnpIdx;
-                 });
-            for (unsigned blk = 0; blk < tgsWorksetsByBlock.size(); ++blk) {
-                sort(tgsWorksetsByBlock[blk].begin(), tgsWorksetsByBlock[blk].end(),
-                     [](const TgsWorkset &a, const TgsWorkset &b) {
-                         return a.focalSnpIdx < b.focalSnpIdx;
-                     });
+            for (size_t l = 0; l < numLines; ++l) {
+                if (lineIds[2 * l] == none) continue;
+                pairIds.push_back(lineIds[2 * l]);
+                pairIds.push_back(lineIds[2 * l + 1]);
             }
         }
-
-        const float avgNumLdFriends = cnt ? float(sum)/float(cnt) : 0.0f;
-        if (rsqThreshold < 1.0) {
-            cout << "Found on average " << avgNumLdFriends << " LD friends for each of " << cnt << " SNPs given the rsq threshold of " << rsqThreshold << "." << endl;
-        } else {
-            cout << "Found on average " << avgNumLdFriends << " LD friends for each of " << cnt << " SNPs." << endl;
-        }
-        return;
     }
+    setLdMapFromPairs(LDmap, snpOfId, pairIds);
+    vector<uint32_t>().swap(pairIds);
 
-    TextLineReader in(ldfile);
-    if (!in.good()) {
-        throw("Error: cannot open file [" + ldfile + "].");
-    }
-    cout << "Reading pairwise LD correlations from file [" << ldfile << "]..." << endl;
-
-
-    LDmap.clear();
-    
-    string snp1ID, snp2ID;
-    SnpInfo *snp1;
-    SnpInfo *snp2;
-    float ldcor;
-
-    map<string, SnpInfo*>::iterator it1, it2, end = snpInfoMap.end();
-
-    string header;
-    in.getline(header);
-    unsigned line = 0;
-    
-    string inputStr;
-    while (in.getline(inputStr)) {
-        if (inputStr.empty()) continue;
-        stringstream ss(inputStr);
-        if (!(ss >> snp1ID >> snp2ID >> ldcor)) continue;
-        it1 = snpInfoMap.find(snp1ID);
-        it2 = snpInfoMap.find(snp2ID);
-        if (it1 == end) {
-            continue;
-            //throw("ERROR: cannot find SNP " + snp1ID + ".");
-        }
-        if (it2 == end) {
-            continue;
-            //throw("ERROR: cannot find SNP " + snp2ID + ".");
-        }
-        snp1 = it1->second;
-        snp2 = it2->second;
-//        snp1 = snpInfoMap[snp1ID];
-//        snp2 = snpInfoMap[snp2ID];
-        if (rsqThreshold < 1.0) {
-            if (ldcor*ldcor > rsqThreshold) {
-                LDmap[snp1].push_back(snp2);
-                LDmap[snp2].push_back(snp1);
-            }
-        } else {
-            LDmap[snp1].push_back(snp2);
-            LDmap[snp2].push_back(snp1);
-        }
-        //if (!(++line%10000)) cout << " read " << line << " lines in the file. \r" << flush;
-        //if (line == 10000) break;
-    }
-    
     map<SnpInfo*, vector<SnpInfo*> >::iterator itLDmap, endLDmap = LDmap.end();
     unsigned cnt = 0;
     unsigned sum = 0;

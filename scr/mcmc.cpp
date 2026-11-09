@@ -47,23 +47,30 @@ void McmcSamples::accumulateIteration(){
     const unsigned chains = jointStatistic ? 1 : numChains;
     const double t = cntPosteriorSample;
     const double count = t * chains;
-    for (unsigned c=0; c<chains; ++c) {
-        // Welford's centered moments, retaining chain identity for R-hat.
-        const VectorXd delta = sampleIter.col(c).cast<double>() - perChainMean.col(c);
-        perChainMean.col(c) += delta / t;
-        perChainM2.col(c).array() += delta.array()
-            * (sampleIter.col(c).cast<double>() - perChainMean.col(c)).array();
-        thresholdCount.array() += (sampleIter.col(c).array() > criticalValue).cast<double>();
-    }
-    for (unsigned p=0; p<ncol; ++p) {
-        const double mu = perChainMean.row(p).mean();
-        const double m2 = perChainM2.row(p).sum()
-            + t * (perChainMean.row(p).array() - mu).square().sum();
-        posteriorMean[p] = mu;
-        // Retain E[x^2] for expected squared effects / variance explained.
-        posteriorSqrMean[p] = m2 / count + mu * mu;
-        probGreaterThanCriticalValue[p] = jointStatistic
-            ? std::numeric_limits<float>::quiet_NaN() : thresholdCount[p] / count;
+    // In parallel over row ranges (a per-SNP parameter set has millions of rows); each row's arithmetic is unchanged.
+    const long rows = ncol, rangeRows = 1 << 14;
+    #pragma omp parallel for schedule(static) if (rows > rangeRows)
+    for (long first = 0; first < rows; first += rangeRows) {
+        const long n = std::min(rangeRows, rows - first);
+        for (unsigned c=0; c<chains; ++c) {
+            // Welford's centered moments, retaining chain identity for R-hat.
+            const auto x = sampleIter.col(c).segment(first, n);
+            auto mean = perChainMean.col(c).segment(first, n);
+            const VectorXd delta = x.cast<double>() - mean;
+            mean += delta / t;
+            perChainM2.col(c).segment(first, n).array() += delta.array() * (x.cast<double>() - mean).array();
+            thresholdCount.segment(first, n).array() += (x.array() > criticalValue).cast<double>();
+        }
+        for (long p=first; p<first+n; ++p) {
+            const double mu = perChainMean.row(p).mean();
+            const double m2 = perChainM2.row(p).sum()
+                + t * (perChainMean.row(p).array() - mu).square().sum();
+            posteriorMean[p] = mu;
+            // Retain E[x^2] for expected squared effects / variance explained.
+            posteriorSqrMean[p] = m2 / count + mu * mu;
+            probGreaterThanCriticalValue[p] = jointStatistic
+                ? std::numeric_limits<float>::quiet_NaN() : thresholdCount[p] / count;
+        }
     }
     if (storageMode == dense) {
         for (unsigned c=0; c<numChains; ++c)

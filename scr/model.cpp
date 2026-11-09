@@ -11,14 +11,6 @@
 #include <limits>
 #include <unordered_map>
 
-static double gctbWallTime()
-{
-#ifdef _OPENMP
-    return omp_get_wtime();
-#else
-    return double(clock()) / double(CLOCKS_PER_SEC);
-#endif
-}
 
 namespace {
 SnpInfo *blockSnpInfoByIndex(const LDBlockInfo *block, unsigned globalSnpIdx) {
@@ -5120,19 +5112,60 @@ void ApproxBayesR::SnpEffects::sampleFromFC_full(VectorXf &rcorr, const vector<V
     pip = VectorXf::Map(pipPtr, size);
 }
 
+namespace {
+// The components' prior variances gamma*sigma^2 (or gamma*0.01*varg), inverse and log, for a SNP sweep.
+void sweepPriorVariances(const VectorXf &gamma, const float sigmaSq, const float varg, const bool hsqPercModel,
+                         ArrayXf &invWtdSigmaSq, ArrayXf &logWtdSigmaSq) {
+    ArrayXf wtdSigmaSq(gamma.size());
+    if (hsqPercModel && varg) {
+        wtdSigmaSq = gamma * 0.01 * varg;
+    } else {
+        wtdSigmaSq = gamma * sigmaSq;
+    }
+    invWtdSigmaSq = wtdSigmaSq.inverse();
+    logWtdSigmaSq = wtdSigmaSq.log();
+}
+}
+
+ApproxBayesR::SnpEffects::SweepTerms::SweepTerms(const VectorXf &gamma, const float sigmaSq, const float varg,
+                                                 const bool hsqPercModel, DeltaPi &deltaPi, const MatrixXf &snpLogPi,
+                                                 VectorXf &fcMean)
+: gamma(gamma), deltaPi(deltaPi), snpLogPi(&snpLogPi), fcMean(fcMean.data()) {
+    sweepPriorVariances(gamma, sigmaSq, varg, hsqPercModel, invWtdSigmaSq, logWtdSigmaSq);
+}
+
+ApproxBayesR::SnpEffects::SweepTerms::SweepTerms(const VectorXf &gamma, const float sigmaSq, const float varg,
+                                                 const bool hsqPercModel, DeltaPi &deltaPi, const VectorXf &pis)
+: gamma(gamma), deltaPi(deltaPi), logPis(pis.array().log()), listZero(true) {
+    sweepPriorVariances(gamma, sigmaSq, varg, hsqPercModel, invWtdSigmaSq, logWtdSigmaSq);
+}
+
+void ApproxBayesR::SnpEffects::startSweep(DeltaPi &deltaPi) {
+    pip.setZero(size);
+    membership.setZero(size);
+    for (unsigned k=0; k<deltaPi.size; ++k) {
+        deltaPi[k]->values.setZero(size);
+    }
+}
+
+vector<ApproxBayesR::SnpEffects::BlockTally> ApproxBayesR::SnpEffects::blockTallies(const unsigned nBlocks,
+                                                                                    const unsigned ndist) {
+    vector<BlockTally> tallies(nBlocks);
+    for (BlockTally &tally : tallies) tally.snpset.resize(ndist);
+    return tallies;
+}
+
 void ApproxBayesR::SnpEffects::sampleBlockFromFC_eigen(const unsigned blk, const MatrixXf &Q, VectorXf &wcorr, VectorXf &what,
-                                                       LDBlockInfo *blockInfo, const float invVareDn,
-                                                       const ArrayXf &logPis, const ArrayXf &invWtdSigmaSq, const ArrayXf &logWtdSigmaSq,
-                                                       const VectorXf &pis, const VectorXf &gamma, const float varg,
-                                                       const bool hsqPercModel, const float sigmaSq, DeltaPi &deltaPi,
-                                                       float *valuesPtr, float *pipPtr, const vector<float> &urnd, const vector<float> &nrnd,
-                                                       float &ssq, float &wtdssq, float &nnz, vector<vector<unsigned> > &snpsetBlock,
-                                                       const vector<vector<TgsWorkset> > *tgsWorksetsByBlock) {
+                                                       LDBlockInfo *blockInfo, const float invVareDn, const SweepTerms &terms,
+                                                       const VectorXf &pis, const float varg, const bool hsqPercModel,
+                                                       const float sigmaSq, const vector<float> &urnd, const vector<float> &nrnd,
+                                                       BlockTally &tally, const vector<vector<TgsWorkset> > *tgsWorksetsByBlock) {
     const int ndist = pis.size();
     const VectorXf &qDiag = blockInfo->qDiag;
 
     what.setZero();
 
+    SnpScratch scratch(ndist);
     vector<int> snpIndexVec = blockSnpIndexVec(blockInfo, blk);
     for (unsigned t = 0; t < snpIndexVec.size(); t++) {
         unsigned i = snpIndexVec[t];
@@ -5140,61 +5173,26 @@ void ApproxBayesR::SnpEffects::sampleBlockFromFC_eigen(const unsigned blk, const
         if (qcolR < 0) continue;
         SnpInfo *snp = blockSnpInfoByIndex(blockInfo, i);
         if (!snp) continue;
-        if (snp->skip) {
-            valuesPtr[i] = 0.0;
-            pipPtr[i] = 0.0f;
-            for (unsigned k = 0; k < (unsigned)ndist; ++k)
-                deltaPi[k]->values[i] = (k == 0) ? 1.0f : 0.0f;
-            continue;
-        }
-        if (badSnps[i]) {
-            valuesPtr[i] = 0.0;
-            continue;
-        }
-        if (snp->fitAsFixedEffect) {
-            continue;
-        }
-        float oldSample = valuesPtr[i];
+        if (clearUnsampledSnp(i, snp, terms.deltaPi) || snp->fitAsFixedEffect) continue;
+        const float oldSample = values[i];
         Ref<const VectorXf> Qi = Q.col(qcolR);
-        const float qii = qDiag[qcolR];
-        ArrayXf invLhs = 1.0f/(qii * invVareDn + invWtdSigmaSq);
-        ArrayXf logInvLhsMsigma = invLhs.log() - logWtdSigmaSq;
-        float rhs = (Qi.dot(wcorr) + qii * oldSample) * invVareDn;
-        ArrayXf uhat = invLhs * rhs;
-        ArrayXf logDelta = 0.5 * (logInvLhsMsigma + uhat * rhs) + logPis;
-        logDelta[0] = logPis[0];
-
-        ArrayXf probDelta(ndist);
-        for (unsigned k = 0; k < (unsigned)ndist; ++k) {
-            probDelta[k] = 1.0f / (logDelta - logDelta[k]).exp().sum();
-            deltaPi[k]->values[i] = probDelta[k];
-        }
-        pipPtr[i] = 1.0f - probDelta[0];
-
-        unsigned delta = bernoulli.sample(probDelta, urnd[i]);
-        membership[i] = delta;
-        snpsetBlock[delta].push_back(i);
-
+        const unsigned delta = sampleSnp(i, Qi.dot(wcorr), qDiag[qcolR], invVareDn, terms, urnd[i], nrnd[i], scratch, tally);
         if (delta) {
-            valuesPtr[i] = uhat[delta] + nrnd[i] * sqrtf(invLhs[delta]);
-            wcorr += Qi * (oldSample - valuesPtr[i]);
-            what += Qi * valuesPtr[i];
-            ssq += valuesPtr[i] * valuesPtr[i];
-            wtdssq += (valuesPtr[i] * valuesPtr[i]) / gamma[delta];
-            ++nnz;
-        } else {
-            if (oldSample) wcorr += Qi * oldSample;
-            valuesPtr[i] = 0.0;
+            wcorr += Qi * (oldSample - values[i]);
+            what += Qi * values[i];
+        } else if (oldSample) {
+            wcorr += Qi * oldSample;
         }
     }
 
     if (tgsWorksetsByBlock && blk < tgsWorksetsByBlock->size() && !(*tgsWorksetsByBlock)[blk].empty()) {
         sampleFromTGSBlock_eigen(blk, &Q, NULL, wcorr, what, blockInfo, (*tgsWorksetsByBlock)[blk],
-                                 invVareDn, pis, gamma, varg, deltaPi, hsqPercModel, sigmaSq);
-        ssq = 0.0f;
-        wtdssq = 0.0f;
-        nnz = 0.0f;
-        for (unsigned k=0; k<(unsigned)ndist; ++k) snpsetBlock[k].clear();
+                                 invVareDn, pis, terms.gamma, varg, terms.deltaPi, hsqPercModel, sigmaSq);
+        tally.ssq = 0.0f;
+        tally.wtdssq = 0.0f;
+        tally.nnz = 0.0f;
+        tally.zeroCount = 0;
+        for (unsigned k=0; k<(unsigned)ndist; ++k) tally.snpset[k].clear();
         vector<int> snpIndices = blockSnpIndexVec(blockInfo, blk);
         for (unsigned t=0; t<snpIndices.size(); ++t) {
             unsigned i = snpIndices[t];
@@ -5202,12 +5200,15 @@ void ApproxBayesR::SnpEffects::sampleBlockFromFC_eigen(const unsigned blk, const
             unsigned delta = membership[i];
             if ((snp && (snp->skip || snp->fitAsFixedEffect)) || badSnps[i] || delta >= (unsigned)ndist)
                 delta = 0;
-            snpsetBlock[delta].push_back(i);
-            if (!delta) continue;
-            float beta = valuesPtr[i];
-            ssq += beta * beta;
-            wtdssq += beta * beta / gamma[delta];
-            ++nnz;
+            tally.snpset[delta].push_back(i);
+            if (!delta) {
+                ++tally.zeroCount;
+                continue;
+            }
+            float beta = values[i];
+            tally.ssq += beta * beta;
+            tally.wtdssq += beta * beta / terms.gamma[delta];
+            ++tally.nnz;
         }
     }
 }
@@ -5230,51 +5231,15 @@ void ApproxBayesR::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
         whatBlocks[i].resize(wcorrBlocks[i].size());
     }
 
-    float ssq[nBlocks], wtdssq[nBlocks], s2pq[nBlocks], nnz[nBlocks];
-    memset(ssq,0, sizeof(float)*nBlocks);
-    memset(wtdssq,0, sizeof(float)*nBlocks);
-    memset(s2pq,0,sizeof(float)*nBlocks);
-    memset(nnz,0, sizeof(float)*nBlocks);
-
-    pip.setZero(size);
-    float *valuesPtr = values.data(); // for openmp, otherwise when one thread writes to the vector, the vector locking prevents the writing from other threads
-    float *pipPtr = pip.data();
-
     vector<float> urnd(size), nrnd(size);
     for (unsigned i=0; i<size; ++i) { // need this for openmp to work
         urnd[i] = Stat::ranf();
         nrnd[i] = Stat::snorm();
     }
 
-    membership.setZero(size);
-
-    // R specific parameters
-    int ndist = pis.size();
-    ArrayXf logPis = pis.array().log();
-    ArrayXf wtdSigmaSq(ndist);
-    ArrayXf invWtdSigmaSq(ndist);
-    ArrayXf logWtdSigmaSq(ndist);
-
-    if (hsqPercModel && varg) {
-        wtdSigmaSq = gamma * 0.01 * varg;
-    } else {
-        wtdSigmaSq = gamma * sigmaSq;
-    }
-
-    invWtdSigmaSq = wtdSigmaSq.inverse();
-    logWtdSigmaSq = wtdSigmaSq.log();
-
-    vector<vector<vector<unsigned> > > snpsetBlocks(nBlocks);
-    for (unsigned i=0; i<nBlocks; ++i) {
-        snpsetBlocks[i].resize(ndist);
-        for (unsigned k=0; k<ndist; ++k) {
-            snpsetBlocks[i][k].resize(0);
-        }
-    }
-
-    for (unsigned k=0; k<ndist; ++k) {
-        deltaPi[k]->values.setZero(size);
-    }
+    startSweep(deltaPi);
+    const SweepTerms terms(gamma, sigmaSq, varg, hsqPercModel, deltaPi, pis);
+    vector<BlockTally> tallies = blockTallies(nBlocks, pis.size());
 
     if (coreContextLdBlocks && baseWcorrBlocks && coreContextLdBlocks->size() == (unsigned)nBlocks) {
         if (tgsWorksetsByBlock)
@@ -5292,35 +5257,10 @@ void ApproxBayesR::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
                                            *coreContextLdBlocks, *contextEffects, wcorrBlocks[blk]);
             LDBlockInfo *blockInfo = keptLdBlockInfoVec[blk];
             float invVareDn = nGWASblocks[blk] / vareBlocks[blk];
-            sampleBlockFromFC_eigen(blk, Qblocks[blk], wcorrBlocks[blk], whatBlocks[blk], blockInfo, invVareDn,
-                                    logPis, invWtdSigmaSq, logWtdSigmaSq, pis, gamma, varg,
-                                    hsqPercModel, sigmaSq, deltaPi, valuesPtr, pipPtr, urnd, nrnd,
-                                    ssq[blk], wtdssq[blk], nnz[blk], snpsetBlocks[blk], nullptr);
+            sampleBlockFromFC_eigen(blk, Qblocks[blk], wcorrBlocks[blk], whatBlocks[blk], blockInfo, invVareDn, terms,
+                                    pis, varg, hsqPercModel, sigmaSq, urnd, nrnd, tallies[blk], nullptr);
         }
-
-        sumSq = 0.0;
-        wtdSumSq = 0.0;
-        numNonZeros = 0;
-        nnzPerBlk.setZero(nBlocks);
-        ssqBlocks.setZero(nBlocks);
-        snpStore.setZero(ndist);
-        snpset.resize(ndist);
-        for (unsigned k=0; k<ndist; ++k) snpset[k].resize(0);
-        for (unsigned blk=0; blk<nBlocks; ++blk) {
-            sumSq += ssq[blk];
-            wtdSumSq += wtdssq[blk];
-            numNonZeros += nnz[blk];
-            nnzPerBlk[blk] = nnz[blk];
-            ssqBlocks[blk] = ssq[blk];
-            for (unsigned k=0; k<ndist; ++k) {
-                for (unsigned j=0; j<snpsetBlocks[blk][k].size(); ++j) {
-                    snpset[k].push_back(snpsetBlocks[blk][k][j]);
-                    snpStore[k]++;
-                }
-            }
-        }
-        values = VectorXf::Map(valuesPtr, size);
-        pip = VectorXf::Map(pipPtr, size);
+        finishSweep(tallies, snpStore, snpset);
         return;
     }
 
@@ -5337,46 +5277,18 @@ void ApproxBayesR::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks,
         float invVareDn = nGWASblocks[blk] / vareBlocks[blk];
         if (tgsWorksetsByBlock) {
             Stat::ParallelTaskRngScope taskRng(blk, Stat::tgsBlockRngSalt);
-            sampleBlockFromFC_eigen(blk, Qblocks[blk], wcorrBlocks[blk], whatBlocks[blk], blockInfo, invVareDn,
-                                    logPis, invWtdSigmaSq, logWtdSigmaSq, pis, gamma, varg,
-                                    hsqPercModel, sigmaSq, deltaPi, valuesPtr, pipPtr, urnd, nrnd,
-                                    ssq[blk], wtdssq[blk], nnz[blk], snpsetBlocks[blk], tgsWorksetsByBlock);
+            sampleBlockFromFC_eigen(blk, Qblocks[blk], wcorrBlocks[blk], whatBlocks[blk], blockInfo, invVareDn, terms,
+                                    pis, varg, hsqPercModel, sigmaSq, urnd, nrnd, tallies[blk], tgsWorksetsByBlock);
         } else {
-            sampleBlockFromFC_eigen(blk, Qblocks[blk], wcorrBlocks[blk], whatBlocks[blk], blockInfo, invVareDn,
-                                    logPis, invWtdSigmaSq, logWtdSigmaSq, pis, gamma, varg,
-                                    hsqPercModel, sigmaSq, deltaPi, valuesPtr, pipPtr, urnd, nrnd,
-                                    ssq[blk], wtdssq[blk], nnz[blk], snpsetBlocks[blk], nullptr);
+            sampleBlockFromFC_eigen(blk, Qblocks[blk], wcorrBlocks[blk], whatBlocks[blk], blockInfo, invVareDn, terms,
+                                    pis, varg, hsqPercModel, sigmaSq, urnd, nrnd, tallies[blk], nullptr);
         }
     }
 
     // ---------------------------------------------------------------------
     // Tally up the effect sum of squares and the number of non-zero effects
     // ---------------------------------------------------------------------
-    sumSq = 0.0;
-    wtdSumSq = 0.0;
-    numNonZeros = 0;
-    nnzPerBlk.setZero(nBlocks);
-    ssqBlocks.setZero(nBlocks);
-    snpStore.setZero(ndist);
-    snpset.resize(ndist);
-    for (unsigned k=0; k<ndist; ++k) {
-        snpset[k].resize(0);
-    }
-    for (unsigned blk=0; blk<nBlocks; ++blk) {
-        sumSq += ssq[blk];
-        wtdSumSq += wtdssq[blk];
-        numNonZeros += nnz[blk];
-        nnzPerBlk[blk] = nnz[blk];
-        ssqBlocks[blk] = ssq[blk];
-        for (unsigned k=0; k<ndist; ++k) {
-            for (unsigned j=0; j<snpsetBlocks[blk][k].size(); ++j) {
-                snpset[k].push_back(snpsetBlocks[blk][k][j]);
-                snpStore[k]++;
-            }
-        }
-    }
-    values = VectorXf::Map(valuesPtr, size);
-    pip = VectorXf::Map(pipPtr, size);
+    finishSweep(tallies, snpStore, snpset);
 }
 
 void ApproxBayesR::SnpEffects::sampleFromFC_quantizedEigen(vector<VectorXf> &wcorrBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks, vector<VectorXf> &whatBlocks,
@@ -5394,50 +5306,16 @@ void ApproxBayesR::SnpEffects::sampleFromFC_quantizedEigen(vector<VectorXf> &wco
         whatBlocks[i].resize(wcorrBlocks[i].size());
     }
 
-    float ssq[nBlocks], wtdssq[nBlocks], s2pq[nBlocks], nnz[nBlocks];
-    memset(ssq,0, sizeof(float)*nBlocks);
-    memset(wtdssq,0, sizeof(float)*nBlocks);
-    memset(s2pq,0,sizeof(float)*nBlocks);
-    memset(nnz,0, sizeof(float)*nBlocks);
-
-    pip.setZero(size);
-    float *valuesPtr = values.data();
-    float *pipPtr = pip.data();
-
     vector<float> urnd(size), nrnd(size);
     for (unsigned i=0; i<size; ++i) {
         urnd[i] = Stat::ranf();
         nrnd[i] = Stat::snorm();
     }
 
-    membership.setZero(size);
-
-    int ndist = pis.size();
-    ArrayXf logPis = pis.array().log();
-    ArrayXf wtdSigmaSq(ndist);
-    ArrayXf invWtdSigmaSq(ndist);
-    ArrayXf logWtdSigmaSq(ndist);
-
-    if (hsqPercModel && varg) {
-        wtdSigmaSq = gamma * 0.01 * varg;
-    } else {
-        wtdSigmaSq = gamma * sigmaSq;
-    }
-
-    invWtdSigmaSq = wtdSigmaSq.inverse();
-    logWtdSigmaSq = wtdSigmaSq.log();
-
-    vector<vector<vector<unsigned> > > snpsetBlocks(nBlocks);
-    for (unsigned i=0; i<nBlocks; ++i) {
-        snpsetBlocks[i].resize(ndist);
-        for (unsigned k=0; k<ndist; ++k) {
-            snpsetBlocks[i][k].resize(0);
-        }
-    }
-
-    for (unsigned k=0; k<ndist; ++k) {
-        deltaPi[k]->values.setZero(size);
-    }
+    const int ndist = pis.size();
+    startSweep(deltaPi);
+    const SweepTerms terms(gamma, sigmaSq, varg, hsqPercModel, deltaPi, pis);
+    vector<BlockTally> tallies = blockTallies(nBlocks, ndist);
 
     VectorXf frozenValues;
     const VectorXf *contextEffects = &values;
@@ -5463,7 +5341,6 @@ void ApproxBayesR::SnpEffects::sampleFromFC_quantizedEigen(vector<VectorXf> &wco
         LDBlockInfo *blockInfo = keptLdBlockInfoVec[blk];
         const VectorXf &qDiag = blockInfo->qDiag;
 
-        unsigned contextStart = blockInfo->startSnpIdx;
         unsigned blockStart = blockInfo->startSnpIdx;
         unsigned blockEnd   = blockInfo->endSnpIdx;
         unsigned blockSize  = blockEnd - blockStart + 1;
@@ -5472,110 +5349,56 @@ void ApproxBayesR::SnpEffects::sampleFromFC_quantizedEigen(vector<VectorXf> &wco
 
         vector<int> snpIndexVec = Gadget::shuffle_index(blockStart, blockEnd, blk);
 
+        SnpScratch scratch(ndist);
+        BlockTally &tally = tallies[blk];
         for (unsigned t = 0; t < blockSize; t++) {
             unsigned i = snpIndexVec[t];
             SnpInfo *snp = blockSnpInfoByIndex(blockInfo, i);
             if (!snp) continue;
-            if (snp->skip) {
-                valuesPtr[i] = 0.0;
-                pipPtr[i] = 0.0f;
-                for (unsigned k = 0; k < (unsigned)ndist; ++k)
-                    deltaPi[k]->values[i] = (k == 0) ? 1.0f : 0.0f;
-                continue;
-            }
-            if (badSnps[i]) {
-                valuesPtr[i] = 0.0;
-                continue;
-            }
-            if (snp->fitAsFixedEffect) {
-                continue;
-            }
-            float oldSample = valuesPtr[i];
+            if (clearUnsampledSnp(i, snp, deltaPi) || snp->fitAsFixedEffect) continue;
+            const float oldSample = values[i];
             int qcolR = eigenQColIndex(blockInfo, i);
             if (qcolR < 0) continue;
-            const float qii = qDiag[qcolR];
-            ArrayXf invLhs = 1.0f/(qii * invVareDn + invWtdSigmaSq);
-            ArrayXf logInvLhsMsigma = invLhs.log() - logWtdSigmaSq;
-            float rhs = (Qq.dotQ(qcolR, wcorr.data()) + qii * oldSample) * invVareDn;
-            ArrayXf uhat = invLhs * rhs;
-            ArrayXf logDelta = 0.5 * (logInvLhsMsigma + uhat * rhs) + logPis;
-            logDelta[0] = logPis[0];
-
-            ArrayXf probDelta(ndist);
-            for (unsigned k = 0; k < ndist; ++k) {
-                probDelta[k] = 1.0f / (logDelta - logDelta[k]).exp().sum();
-                deltaPi[k]->values[i] = probDelta[k];
-            }
-            pipPtr[i] = 1.0f - probDelta[0];
-
-            unsigned delta = bernoulli.sample(probDelta, urnd[i]);
-            membership[i] = delta;
-            snpsetBlocks[blk][delta].push_back(i);
-
+            const unsigned delta = sampleSnp(i, Qq.dotQ(qcolR, wcorr.data()), qDiag[qcolR], invVareDn, terms,
+                                             urnd[i], nrnd[i], scratch, tally);
             if (delta) {
-                valuesPtr[i] = uhat[delta] + nrnd[i] * sqrtf(invLhs[delta]);
                 Qq.decodeQColumn(qcolR, decodedQ);
-                wcorr += decodedQ * (oldSample - valuesPtr[i]);
-                what += decodedQ * valuesPtr[i];
-                ssq[blk] += valuesPtr[i] * valuesPtr[i];
-                wtdssq[blk] += (valuesPtr[i] * valuesPtr[i]) / gamma[delta];
-                ++nnz[blk];
-            } else {
-                if (oldSample) Qq.addScaledQ(qcolR, oldSample, wcorr);
-                valuesPtr[i] = 0.0;
+                wcorr += decodedQ * (oldSample - values[i]);
+                what += decodedQ * values[i];
+            } else if (oldSample) {
+                Qq.addScaledQ(qcolR, oldSample, wcorr);
             }
         }
 
         if (tgsWorksetsByBlock && blk < tgsWorksetsByBlock->size() && !(*tgsWorksetsByBlock)[blk].empty()) {
             sampleFromTGSBlock_eigen(blk, NULL, &Qq, wcorrBlocks[blk], whatBlocks[blk], blockInfo, (*tgsWorksetsByBlock)[blk],
                                      invVareDn, pis, gamma, varg, deltaPi, hsqPercModel, sigmaSq);
-            ssq[blk] = 0.0f;
-            wtdssq[blk] = 0.0f;
-            nnz[blk] = 0.0f;
-            for (unsigned k=0; k<(unsigned)ndist; ++k) snpsetBlocks[blk][k].clear();
-        vector<int> snpIndices = blockSnpIndexVec(blockInfo, blk);
-        for (unsigned t=0; t<snpIndices.size(); ++t) {
-            unsigned i = snpIndices[t];
+            tally.ssq = 0.0f;
+            tally.wtdssq = 0.0f;
+            tally.nnz = 0.0f;
+            tally.zeroCount = 0;
+            for (unsigned k=0; k<(unsigned)ndist; ++k) tally.snpset[k].clear();
+            vector<int> snpIndices = blockSnpIndexVec(blockInfo, blk);
+            for (unsigned t=0; t<snpIndices.size(); ++t) {
+                unsigned i = snpIndices[t];
                 SnpInfo *snp = blockSnpInfoByIndex(blockInfo, i);
                 unsigned delta = membership[i];
                 if ((snp && (snp->skip || snp->fitAsFixedEffect)) || badSnps[i] || delta >= (unsigned)ndist)
                     delta = 0;
-                snpsetBlocks[blk][delta].push_back(i);
-                if (!delta) continue;
-                float beta = valuesPtr[i];
-                ssq[blk] += beta * beta;
-                wtdssq[blk] += beta * beta / gamma[delta];
-                ++nnz[blk];
-            }
-        }
-
-    }
-
-    sumSq = 0.0;
-    wtdSumSq = 0.0;
-    numNonZeros = 0;
-    nnzPerBlk.setZero(nBlocks);
-    ssqBlocks.setZero(nBlocks);
-    snpStore.setZero(ndist);
-    snpset.resize(ndist);
-    for (unsigned k=0; k<ndist; ++k) {
-        snpset[k].resize(0);
-    }
-    for (unsigned blk=0; blk<nBlocks; ++blk) {
-        sumSq += ssq[blk];
-        wtdSumSq += wtdssq[blk];
-        numNonZeros += nnz[blk];
-        nnzPerBlk[blk] = nnz[blk];
-        ssqBlocks[blk] = ssq[blk];
-        for (unsigned k=0; k<ndist; ++k) {
-            for (unsigned j=0; j<snpsetBlocks[blk][k].size(); ++j) {
-                snpset[k].push_back(snpsetBlocks[blk][k][j]);
-                snpStore[k]++;
+                tally.snpset[delta].push_back(i);
+                if (!delta) {
+                    ++tally.zeroCount;
+                    continue;
+                }
+                float beta = values[i];
+                tally.ssq += beta * beta;
+                tally.wtdssq += beta * beta / gamma[delta];
+                ++tally.nnz;
             }
         }
     }
-    values = VectorXf::Map(valuesPtr, size);
-    pip = VectorXf::Map(pipPtr, size);
+
+    finishSweep(tallies, snpStore, snpset);
 }
 
 void ApproxBayesR::SnpEffects::sampleFromTGSBlock_eigen(const unsigned blockIdx, const MatrixXf *Q, const QuantizedEigenBlock *Qq,
@@ -5679,8 +5502,14 @@ void ApproxBayesR::SnpEffects::sampleFromTGSBlock_eigen(const unsigned blockIdx,
             ArrayXf priorLogPi = snpLogPi ? snpLogPi->row(focal_snp_idx).transpose().array() : logPis;
             ArrayXf logDelta = 0.5*(logInvLhsMsigmaFocal + uhat_focal*rhs_focal) + priorLogPi;
             logDelta[0] = priorLogPi[0];
+            // Compute each exponential once, factoring out the largest log weight for stability.
+            ArrayXf weights = (logDelta - logDelta.maxCoeff()).exp();
+            // Preserve exact zero priors: Eigen's exp(-inf) can be a tiny positive value.
+            for (unsigned k=0; k<(unsigned)ndist; ++k)
+                if (logDelta[k] == -std::numeric_limits<float>::infinity()) weights[k] = 0.0f;
+            weights /= weights.sum();
             for (unsigned k=0; k<(unsigned)ndist; ++k) {
-                probDelta(focal_snp,k) = 1.0f/(logDelta-logDelta[k]).exp().sum();
+                probDelta(focal_snp,k) = weights[k];
                 if(isnan(probDelta(focal_snp,k))) probDelta(focal_snp,k) = 0;
             }
             if (0 == delta_focal_old || 0 == delta[focal_snp]) {
@@ -5703,8 +5532,14 @@ void ApproxBayesR::SnpEffects::sampleFromTGSBlock_eigen(const unsigned blockIdx,
                     ArrayXf priorLogPi = snpLogPi ? snpLogPi->row(snpIdx).transpose().array() : logPis;
                     ArrayXf logDelta = 0.5*(logInvLhsMsigma + uhat*rhs) + priorLogPi;
                     logDelta[0] = priorLogPi[0];
+                    // Compute each exponential once, factoring out the largest log weight for stability.
+                    ArrayXf weights = (logDelta - logDelta.maxCoeff()).exp();
+                    // Preserve exact zero priors: Eigen's exp(-inf) can be a tiny positive value.
+                    for (unsigned k=0; k<(unsigned)ndist; ++k)
+                        if (logDelta[k] == -std::numeric_limits<float>::infinity()) weights[k] = 0.0f;
+                    weights /= weights.sum();
                     for (unsigned k=0; k<(unsigned)ndist; ++k) {
-                        probDelta(i,k) = 1.0f/(logDelta-logDelta[k]).exp().sum();
+                        probDelta(i,k) = weights[k];
                         if(isnan(probDelta(i,k))) probDelta(i,k) = 0;
                     }
                 }
@@ -5954,8 +5789,14 @@ void ApproxBayesR::SnpEffects::sampleFromTGS_eigen(vector<VectorXf> &wcorrBlocks
             ArrayXf priorLogPi = snpLogPi ? snpLogPi->row(focal_snp_idx).transpose().array() : logPis;
             ArrayXf logDelta = 0.5*(logInvLhsMsigmaFocal + uhat_focal*rhs_focal) + priorLogPi;
             logDelta[0] = priorLogPi[0];
+            // Compute each exponential once, factoring out the largest log weight for stability.
+            ArrayXf weights = (logDelta - logDelta.maxCoeff()).exp();
+            // Preserve exact zero priors: Eigen's exp(-inf) can be a tiny positive value.
+            for (unsigned k=0; k<(unsigned)ndist; ++k)
+                if (logDelta[k] == -std::numeric_limits<float>::infinity()) weights[k] = 0.0f;
+            weights /= weights.sum();
             for (unsigned k=0; k<(unsigned)ndist; ++k) {
-                probDelta(focal_snp,k) = 1.0f/(logDelta-logDelta[k]).exp().sum();
+                probDelta(focal_snp,k) = weights[k];
                 if(isnan(probDelta(focal_snp,k))) probDelta(focal_snp,k) = 0;
             }
             if (0 == delta_focal_old || 0 == delta[focal_snp]) {
@@ -5981,8 +5822,14 @@ void ApproxBayesR::SnpEffects::sampleFromTGS_eigen(vector<VectorXf> &wcorrBlocks
                     ArrayXf priorLogPi = snpLogPi ? snpLogPi->row(snpIdx).transpose().array() : logPis;
                     ArrayXf logDelta = 0.5*(logInvLhsMsigma + uhat*rhs) + priorLogPi;
                     logDelta[0] = priorLogPi[0];
+                    // Compute each exponential once, factoring out the largest log weight for stability.
+                    ArrayXf weights = (logDelta - logDelta.maxCoeff()).exp();
+                    // Preserve exact zero priors: Eigen's exp(-inf) can be a tiny positive value.
+                    for (unsigned k=0; k<(unsigned)ndist; ++k)
+                        if (logDelta[k] == -std::numeric_limits<float>::infinity()) weights[k] = 0.0f;
+                    weights /= weights.sum();
                     for (unsigned k=0; k<(unsigned)ndist; ++k) {
-                        probDelta(i,k) = 1.0f/(logDelta-logDelta[k]).exp().sum();
+                        probDelta(i,k) = weights[k];
                         if(isnan(probDelta(i,k))) probDelta(i,k) = 0;
                     }
                 }
@@ -6394,8 +6241,14 @@ void ApproxBayesR::SnpEffects::sampleFromFC(const VectorXf &ZPy, const SpMat &ZP
         logDelta = 0.5*(invLhs.log() - logWtdSigmaSq + uhat*rhs) + logPis;
         logDelta[0] = logPis[0];
 
+        // Compute each exponential once, factoring out the largest log weight for stability.
+        probDelta = (logDelta - logDelta.maxCoeff()).exp();
+        // Preserve exact zero priors: Eigen's exp(-inf) can be a tiny positive value.
+        for (unsigned k=0; k<ndist; ++k)
+            if (logDelta[k] == -std::numeric_limits<float>::infinity()) probDelta[k] = 0.0f;
+        probDelta /= probDelta.sum();
+
         for (unsigned k=0; k<ndist; ++k) {
-            probDelta[k] = 1.0f/(logDelta-logDelta[k]).exp().sum();
             deltaPi[k]->values[i] = probDelta[k];
         }
 
@@ -6516,7 +6369,9 @@ void ApproxBayesR::updateRHSlowRankModel(vector<VectorXf> &wcorrBlocks, const ve
 
 void ApproxBayesR::sampleUnknowns(const unsigned iter){
     const vector<vector<TgsWorkset> > *tgsWorksetsByBlock = nullptr;
-    if (lowRankModel) {
+    if (snpSweepDone) {
+        // --batch-chains: the multi-chain wrapper has sampled all chains' SNP effects together (multichain.hpp)
+    } else if (lowRankModel) {
         if (quantizedLowRankModel) {
             fixedSnpEffects.sampleFromFC_quantizedEigen(snpEffects, wcorrBlocks, data.quantizedEigenBlocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, data.numFixedEffectSnps);
             snpEffects.sampleFromFC_quantizedEigen(wcorrBlocks, data.quantizedEigenBlocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, sigmaSq.value, Pis.values, gamma.values, snpStore, vargRandom.value, hsqPercModel, deltaPi, tgsWorksetsByBlock,
@@ -7567,8 +7422,14 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_sparse(VectorXf &rcorr, const vecto
             logDelta = 0.5*(invLhs.log() - logWtdSigmaSq + uhat*rhs) + snpLogPi.row(i).transpose().array();
             logDelta[0] = snpLogPi(i,0);
 
+            // Compute each exponential once, factoring out the largest log weight for stability.
+            probDelta = (logDelta - logDelta.maxCoeff()).exp();
+            // Preserve exact zero priors: Eigen's exp(-inf) can be a tiny positive value.
+            for (unsigned k=0; k<ndist; ++k)
+                if (logDelta[k] == -std::numeric_limits<float>::infinity()) probDelta[k] = 0.0f;
+            probDelta /= probDelta.sum();
+
             for (unsigned k=0; k<ndist; ++k) {
-                probDelta[k] = 1.0f/(logDelta-logDelta[k]).exp().sum();
                 deltaPi[k]->values[i] = probDelta[k];
             }
             pipPtr[i] = 1.0f - probDelta[0];
@@ -7718,8 +7579,14 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_coreContextEigen(vector<VectorXf> &
             logDelta[0] = snpLogPi(i, 0);
 
             ArrayXf probDelta(ndist);
+            // Compute each exponential once, factoring out the largest log weight for stability.
+            probDelta = (logDelta - logDelta.maxCoeff()).exp();
+            // Preserve exact zero priors: Eigen's exp(-inf) can be a tiny positive value.
+            for (unsigned k = 0; k < ndist; ++k)
+                if (logDelta[k] == -std::numeric_limits<float>::infinity()) probDelta[k] = 0.0f;
+            probDelta /= probDelta.sum();
+
             for (unsigned k = 0; k < ndist; ++k) {
-                probDelta[k] = 1.0f / (logDelta - logDelta[k]).exp().sum();
                 if (isnan(probDelta[k])) probDelta[k] = 0.0f;
                 deltaPi[k]->values[i] = probDelta[k];
             }
@@ -7879,8 +7746,14 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_marginalizedContextEigen(
             logDelta[0] = snpLogPi(i, 0);
 
             ArrayXf probDelta(ndist);
+            // Compute each exponential once, factoring out the largest log weight for stability.
+            probDelta = (logDelta - logDelta.maxCoeff()).exp();
+            // Preserve exact zero priors: Eigen's exp(-inf) can be a tiny positive value.
+            for (unsigned k = 0; k < ndist; ++k)
+                if (logDelta[k] == -std::numeric_limits<float>::infinity()) probDelta[k] = 0.0f;
+            probDelta /= probDelta.sum();
+
             for (unsigned k = 0; k < ndist; ++k) {
-                probDelta[k] = 1.0f / (logDelta - logDelta[k]).exp().sum();
                 if (isnan(probDelta[k])) probDelta[k] = 0.0f;
                 deltaPi[k]->values[i] = probDelta[k];
             }
@@ -7948,44 +7821,14 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks
         whatBlocks[i].resize(wcorrBlocks[i].size());
     }
 
-    float ssq[nBlocks], wtdssq[nBlocks], nnz[nBlocks];
-    memset(ssq,0, sizeof(float)*nBlocks);
-    memset(wtdssq,0, sizeof(float)*nBlocks);
-    memset(nnz,0, sizeof(float)*nBlocks);
-
-    float *valuesPtr = values.data(); // for openmp, otherwise when one thread writes to the vector, the vector locking prevents the writing from other threads
-    float *fcMeanPtr = fcMean.data(); // for openmp, otherwise when one thread writes to the vector, the vector locking prevents the writing from other threads
-
     vector<float> urnd(size), nrnd(size);
     for (unsigned i=0; i<size; ++i) { // need this for openmp to work
         urnd[i] = Stat::ranf();
         nrnd[i] = Stat::snorm();
     }
-    pip.setZero(size);
-    membership.setZero(size);
-
-    ArrayXf wtdSigmaSq(ndist);
-
-    if (hsqPercModel && varg) {
-        wtdSigmaSq = gamma * 0.01 * varg;
-    } else {
-        wtdSigmaSq = gamma * sigmaSq;
-    }
-
-    ArrayXf invWtdSigmaSq = wtdSigmaSq.inverse();
-    ArrayXf logWtdSigmaSq = wtdSigmaSq.log();
-
-    vector<vector<vector<unsigned> > > snpsetBlocks(nBlocks);
-    for (unsigned i=0; i<nBlocks; ++i) {
-        snpsetBlocks[i].resize(ndist);
-        for (unsigned k=0; k<ndist; ++k) {
-            snpsetBlocks[i][k].resize(0);
-        }
-    }
-
-    for (unsigned k=0; k<ndist; ++k) {
-        deltaPi[k]->values.setZero(size);
-    }
+    startSweep(deltaPi);
+    const SweepTerms terms(gamma, sigmaSq, varg, hsqPercModel, deltaPi, snpLogPi, fcMean);
+    vector<BlockTally> tallies = blockTallies(nBlocks, ndist);
 
     #pragma omp parallel for schedule(dynamic)
     for(unsigned blk = 0; blk < nBlocks; blk++){
@@ -8005,102 +7848,33 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks
 
         vector<int> snpIndexVec = Gadget::shuffle_index(blockStart, blockEnd, blk);
 
-        // Per-SNP scratch, allocated once per block (probDelta is a VectorXf for Bernoulli::sample).
-        ArrayXf invLhs(ndist), logInvLhsMsigma(ndist), uhat(ndist), logDelta(ndist);
-        VectorXf probDelta(ndist);
+        SnpScratch scratch(ndist);
+        BlockTally &tally = tallies[blk];
         for (unsigned t = 0; t < blockSize; ++t) {
             unsigned i = snpIndexVec[t];
-            unsigned blockIndex = i - blockStart;
-            SnpInfo *snp = blockInfo->snpInfoVec[blockIndex];
-            if (snp->skip) {
-                valuesPtr[i] = 0.0;
-                pip[i] = 0.0f;
-                for (unsigned k = 0; k < (unsigned)ndist; ++k)
-                    deltaPi[k]->values[i] = (k == 0) ? 1.0f : 0.0f;
-                continue;
-            }
-            if (badSnps[i]) {
-                valuesPtr[i] = 0.0;
-                continue;
-            }
-            if (snp->fitAsFixedEffect) continue;
-            float oldSample = valuesPtr[i];
+            SnpInfo *snp = blockInfo->snpInfoVec[i - blockStart];
+            if (clearUnsampledSnp(i, snp, deltaPi) || snp->fitAsFixedEffect) continue;
+            const float oldSample = values[i];
             const int qcol = eigenQColIndex(blockInfo, i);
             if (qcol < 0) continue;
             Ref<const VectorXf> Qi = Q.col(qcol);
-            const float qii = qDiag[qcol];
-            invLhs = 1.0f/(qii * invVareDn + invWtdSigmaSq);
-            logInvLhsMsigma = invLhs.log() - logWtdSigmaSq;
-            float rhs = (Qi.dot(wcorr) + qii * oldSample)*invVareDn;
-            uhat = invLhs * rhs;
-            logDelta = 0.5*(logInvLhsMsigma + uhat*rhs) + snpLogPi.row(i).transpose().array();
-            logDelta[0] = snpLogPi(i,0);
-
-            for (unsigned k=0; k<ndist; ++k) {
-                probDelta[k] = 1.0f/(logDelta-logDelta[k]).exp().sum();
-                if(isnan(probDelta[k])) probDelta[k] = 0;
-                deltaPi[k]->values[i] = probDelta[k];
-            }
-            pip[i] = 1.0f - probDelta[0];
-
-            unsigned delta = bernoulli.sample(probDelta, urnd[i]);
-            snpsetBlocks[blk][delta].push_back(i);
-            membership[i] = delta;
-
+            const unsigned delta = sampleSnp(i, Qi.dot(wcorr), qDiag[qcol], invVareDn, terms, urnd[i], nrnd[i],
+                                             scratch, tally);
             if (delta) {
-                valuesPtr[i] = uhat[delta] + nrnd[i]*sqrtf(invLhs[delta]);
-                wcorr += Qi*(oldSample - valuesPtr[i]);
-                what  += Qi* valuesPtr[i];
-                ssq[blk] += valuesPtr[i] * valuesPtr[i];
-                wtdssq[blk] += (valuesPtr[i] * valuesPtr[i]) / gamma[delta];
-                ++nnz[blk];
+                wcorr += Qi*(oldSample - values[i]);
+                what  += Qi* values[i];
             }
-            else {
-                if (oldSample) wcorr += Qi * oldSample;
-                valuesPtr[i] = 0.0;
-            }
-
-            uhat[0] = 0.0;
-            fcMeanPtr[i] = (uhat * probDelta.array()).sum();  // full conditional mean
+            else if (oldSample) wcorr += Qi * oldSample;
         }
-
     }
     // Fixed-effect SNPs report their sampled value; skip the scan when there are none.
     if (numFixedEffectSnps) {
         for (unsigned i = 0; i < size; ++i) {
             if (incdSnpInfoVec[i]->fitAsFixedEffect)
-                fcMeanPtr[i] = valuesPtr[i];
+                fcMean[i] = values[i];
         }
     }
-
-    // ---------------------------------------------------------------------
-    // Tally up the effect sum of squares and the number of non-zero effects
-    // ---------------------------------------------------------------------
-    sumSq = 0.0;
-    wtdSumSq = 0.0;
-    numNonZeros = 0;
-    nnzPerBlk.setZero(nBlocks);
-    ssqBlocks.setZero(nBlocks);
-    numSnpMix.setZero(ndist);
-    snpset.resize(ndist);
-    for (unsigned k=0; k<ndist; ++k) {
-        snpset[k].resize(0);
-    }
-    for (unsigned blk=0; blk<nBlocks; ++blk) {
-        sumSq += ssq[blk];
-        wtdSumSq += wtdssq[blk];
-        numNonZeros += nnz[blk];
-        nnzPerBlk[blk] = nnz[blk];
-        ssqBlocks[blk] = ssq[blk];
-        for (unsigned k=0; k<ndist; ++k) {
-            for (unsigned j=0; j<snpsetBlocks[blk][k].size(); ++j) {
-                snpset[k].push_back(snpsetBlocks[blk][k][j]);
-                numSnpMix[k]++;
-            }
-        }
-    }
-    values = VectorXf::Map(valuesPtr, size);
-    fcMean = VectorXf::Map(fcMeanPtr, size);
+    finishSweep(tallies, numSnpMix, snpset);
 }
 
 void ApproxBayesRC::SnpEffects::sampleFromFC_quantizedEigen(vector<VectorXf> &wcorrBlocks, const vector<QuantizedEigenBlock> &quantizedEigenBlocks, vector<VectorXf> &whatBlocks,
@@ -8117,46 +7891,15 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_quantizedEigen(vector<VectorXf> &wc
         whatBlocks[i].resize(wcorrBlocks[i].size());
     }
 
-    float ssq[nBlocks], wtdssq[nBlocks], s2pq[nBlocks], nnz[nBlocks];
-    memset(ssq,0, sizeof(float)*nBlocks);
-    memset(wtdssq,0, sizeof(float)*nBlocks);
-    memset(s2pq,0,sizeof(float)*nBlocks);
-    memset(nnz,0, sizeof(float)*nBlocks);
-
-    float *valuesPtr = values.data();
-    float *fcMeanPtr = fcMean.data();
 
     vector<float> urnd(size), nrnd(size);
     for (unsigned i=0; i<size; ++i) {
         urnd[i] = Stat::ranf();
         nrnd[i] = Stat::snorm();
     }
-
-    pip.setZero(size);
-    membership.setZero(size);
-
-    ArrayXf wtdSigmaSq(ndist);
-    if (hsqPercModel && varg) {
-        wtdSigmaSq = gamma * 0.01 * varg;
-    } else {
-        wtdSigmaSq = gamma * sigmaSq;
-    }
-
-    ArrayXf invWtdSigmaSq = wtdSigmaSq.inverse();
-    ArrayXf logWtdSigmaSq = wtdSigmaSq.log();
-
-    vector<vector<vector<unsigned> > > snpsetBlocks(nBlocks);
-    for (unsigned i=0; i<nBlocks; ++i) {
-        snpsetBlocks[i].resize(ndist);
-        for (unsigned k=0; k<ndist; ++k) {
-            snpsetBlocks[i][k].resize(0);
-        }
-    }
-
-    for (unsigned k=0; k<ndist; ++k) {
-        deltaPi[k]->values.setZero(size);
-    }
-
+    startSweep(deltaPi);
+    const SweepTerms terms(gamma, sigmaSq, varg, hsqPercModel, deltaPi, snpLogPi, fcMean);
+    vector<BlockTally> tallies = blockTallies(nBlocks, ndist);
     // Block-keyed RNG that restores the thread's engine, so dynamic scheduling does not change results.
     #pragma omp parallel for schedule(dynamic) if(!coreContextLdBlocks)
     for(unsigned blk = 0; blk < nBlocks; blk++){
@@ -8188,98 +7931,34 @@ void ApproxBayesRC::SnpEffects::sampleFromFC_quantizedEigen(vector<VectorXf> &wc
 
         vector<int> snpIndexVec = Gadget::shuffle_index(blockStart, blockEnd, blk);
 
-        // Per-SNP scratch, allocated once per block (probDelta is a VectorXf for Bernoulli::sample).
-        ArrayXf invLhs(ndist), logInvLhsMsigma(ndist), uhat(ndist), logDelta(ndist);
-        VectorXf probDelta(ndist);
+        SnpScratch scratch(ndist);
+        BlockTally &tally = tallies[blk];
         for (unsigned t = 0; t < blockSize; t++) {
             unsigned i = snpIndexVec[t];
             SnpInfo *snp = blockInfo->snpInfoVec[i-blockStart];
-            if (snp->skip) {
-                valuesPtr[i] = 0.0;
-                pip[i] = 0.0f;
-                for (unsigned k = 0; k < (unsigned)ndist; ++k)
-                    deltaPi[k]->values[i] = (k == 0) ? 1.0f : 0.0f;
-                continue;
-            }
-            if (badSnps[i]) {
-                valuesPtr[i] = 0.0;
-                continue;
-            }
-            if (snp->fitAsFixedEffect) continue;
-            float oldSample = valuesPtr[i];
+            if (clearUnsampledSnp(i, snp, deltaPi) || snp->fitAsFixedEffect) continue;
+            const float oldSample = values[i];
             int qcolRC = eigenQColIndex(blockInfo, i);
             if (qcolRC < 0) continue;
-            const float qii = qDiag[qcolRC];
-            invLhs = 1.0f/(qii * invVareDn + invWtdSigmaSq);
-            logInvLhsMsigma = invLhs.log() - logWtdSigmaSq;
-            float rhs = (Qq.dotQ(qcolRC, wcorr.data()) + qii * oldSample)*invVareDn;
-            uhat = invLhs * rhs;
-            logDelta = 0.5*(logInvLhsMsigma + uhat*rhs) + snpLogPi.row(i).transpose().array();
-            logDelta[0] = snpLogPi(i,0);
-
-            for (unsigned k=0; k<ndist; ++k) {
-                probDelta[k] = 1.0f/(logDelta-logDelta[k]).exp().sum();
-                if(isnan(probDelta[k])) probDelta[k] = 0;
-                deltaPi[k]->values[i] = probDelta[k];
-            }
-            pip[i] = 1.0f - probDelta[0];
-
-            unsigned delta = bernoulli.sample(probDelta, urnd[i]);
-            snpsetBlocks[blk][delta].push_back(i);
-            membership[i] = delta;
-
+            const unsigned delta = sampleSnp(i, Qq.dotQ(qcolRC, wcorr.data()), qDiag[qcolRC], invVareDn, terms,
+                                             urnd[i], nrnd[i], scratch, tally);
             if (delta) {
-                valuesPtr[i] = uhat[delta] + nrnd[i]*sqrtf(invLhs[delta]);
                 Qq.decodeQColumn(qcolRC, decodedQ);
-                wcorr += decodedQ * (oldSample - valuesPtr[i]);
-                what += decodedQ * valuesPtr[i];
-                ssq[blk] += valuesPtr[i] * valuesPtr[i];
-                wtdssq[blk] += (valuesPtr[i] * valuesPtr[i]) / gamma[delta];
-                ++nnz[blk];
+                wcorr += decodedQ * (oldSample - values[i]);
+                what += decodedQ * values[i];
             }
-            else {
-                if (oldSample) Qq.addScaledQ(qcolRC, oldSample, wcorr);
-                valuesPtr[i] = 0.0;
-            }
-
-            uhat[0] = 0.0;
-            fcMeanPtr[i] = (uhat * probDelta.array()).sum();
+            else if (oldSample) Qq.addScaledQ(qcolRC, oldSample, wcorr);
         }
-
     }
     // Fixed-effect SNPs report their sampled value; skip the scan when there are none.
     if (numFixedEffectSnps) {
         for (unsigned i = 0; i < size; ++i) {
             if (incdSnpInfoVec[i]->fitAsFixedEffect)
-                fcMeanPtr[i] = valuesPtr[i];
+                fcMean[i] = values[i];
         }
     }
 
-    sumSq = 0.0;
-    wtdSumSq = 0.0;
-    numNonZeros = 0;
-    nnzPerBlk.setZero(nBlocks);
-    ssqBlocks.setZero(nBlocks);
-    numSnpMix.setZero(ndist);
-    snpset.resize(ndist);
-    for (unsigned k=0; k<ndist; ++k) {
-        snpset[k].resize(0);
-    }
-    for (unsigned blk=0; blk<nBlocks; ++blk) {
-        sumSq += ssq[blk];
-        wtdSumSq += wtdssq[blk];
-        numNonZeros += nnz[blk];
-        nnzPerBlk[blk] = nnz[blk];
-        ssqBlocks[blk] = ssq[blk];
-        for (unsigned k=0; k<ndist; ++k) {
-            for (unsigned j=0; j<snpsetBlocks[blk][k].size(); ++j) {
-                snpset[k].push_back(snpsetBlocks[blk][k][j]);
-                numSnpMix[k]++;
-            }
-        }
-    }
-    values = VectorXf::Map(valuesPtr, size);
-    fcMean = VectorXf::Map(fcMeanPtr, size);
+    finishSweep(tallies, numSnpMix, snpset);
 }
 
 void ApproxBayesRC::SnpEffects::sampleFromLDSwapMH_eigen(
@@ -8523,14 +8202,7 @@ void ApproxBayesRC::SnpEffects::sampleFromLDSwapMH_eigen(
     }
 }
 
-namespace {
-// Helpers for the probit annotation samplers of SBayesRC (also used by BayesRC) and SBayesRD.
-
-// SNP rows are processed in blocks of annotationRowBlockSize, a multiple of 96 to match the row
-// grouping of Eigen's current product kernels.
-const unsigned annotationRowBlockSize = 96 * 256;
-
-// Row blocks for the latent and probability products; a tail under 96 rows joins the last block.
+// Row blocks for the annotation samplers' latent and probability products (model.hpp).
 unsigned annotationRowBlocks(const unsigned rows) {
     const unsigned tail = rows % annotationRowBlockSize;
     return (rows + annotationRowBlockSize - 1) / annotationRowBlockSize
@@ -8540,6 +8212,95 @@ unsigned annotationRowBlocks(const unsigned rows) {
 unsigned annotationRowBlockRows(const unsigned block, const unsigned numBlocks, const unsigned rows) {
     return block + 1 == numBlocks ? rows - block * annotationRowBlockSize : annotationRowBlockSize;
 }
+
+// scores[c][k] = a_k'y[c] (model.hpp). Each task takes a group of columns and runs down the rows in chunks of a
+// multiple of four rows, carrying annotationDot's four partial sums from chunk to chunk, so every sum is
+// accumulated in annotationDot's order. Within a chunk, each column is read once for all y[c], and each y[c] chunk
+// is reused from cache by the group's columns; groups of four when there are enough columns for the threads.
+void annotationScores(const MatrixXf &annoMat, const vector<const VectorXf*> &y, const vector<VectorXd*> &scores) {
+    const int rows = annoMat.rows(), cols = annoMat.cols(), chunkRows = 4096;
+    const int groupCols = cols >= 4 * omp_get_max_threads() ? 4 : 1;
+    const unsigned numChains = y.size(), numGroups = (cols + groupCols - 1) / groupCols;
+    for (unsigned c=0; c<numChains; ++c) scores[c]->resize(cols);
+    #pragma omp parallel for schedule(dynamic) if(rows > (int)annotationRowBlockSize)
+    for (unsigned g=0; g<numGroups; ++g) {
+        const int firstCol = g * groupCols, numCols = std::min(groupCols, cols - firstCol);
+        vector<double> sums(4 * size_t(numCols) * numChains, 0.0);
+        for (int first=0; first<rows; first+=chunkRows) {
+            const int end = std::min(rows, first + chunkRows);
+            for (int kk=0; kk<numCols; ++kk) {
+                const float *a = annoMat.col(firstCol + kk).data();
+                for (unsigned c=0; c<numChains; ++c) {
+                    const float *b = y[c]->data();
+                    double *s = &sums[4 * (size_t(kk) * numChains + c)];
+                    double s0=s[0], s1=s[1], s2=s[2], s3=s[3];
+                    int j=first;
+                    for (; j+4<=end; j+=4) {
+                        s0 += double(a[j]) * b[j];
+                        s1 += double(a[j+1]) * b[j+1];
+                        s2 += double(a[j+2]) * b[j+2];
+                        s3 += double(a[j+3]) * b[j+3];
+                    }
+                    for (; j<end; ++j) s0 += double(a[j]) * b[j];
+                    s[0]=s0; s[1]=s1; s[2]=s2; s[3]=s3;
+                }
+            }
+        }
+        for (int kk=0; kk<numCols; ++kk)
+            for (unsigned c=0; c<numChains; ++c) {
+                const double *s = &sums[4 * (size_t(kk) * numChains + c)];
+                (*scores[c])[firstCol + kk] = (s[0]+s[1])+(s[2]+s[3]);
+            }
+    }
+}
+
+// predictorMeans[c] = annoMat*alpha[c] and snpP[c] = Phi(predictorMeans[c]) (model.hpp), one product per SNP row block
+// and chain. With several chains, per tile of 768 rows of a block, as one product with all chains' alpha side by side,
+// so that the tile is read and packed (Eigen packs a product's left operand) once for all chains. Each chain's results
+// are those of its own product: for whole groups of 96 rows, Eigen's kernels sum each element in the same order
+// whatever the number of columns; a tile with other rows (the last) keeps one product per chain.
+void annotationProbabilities(Stat::Normal &dist, const MatrixXf &annoMat, const vector<const MatrixXf*> &alpha,
+                             const vector<MatrixXf*> &predictorMeans, const vector<MatrixXf*> &snpP) {
+    const unsigned rows = annoMat.rows(), numBlocks = annotationRowBlocks(rows), numChains = alpha.size();
+    const unsigned tileRows = 768;
+    vector<unsigned> offset(numChains + 1, 0);  // chain c's columns in alphaAll
+    for (unsigned c=0; c<numChains; ++c) {
+        predictorMeans[c]->resize(rows, alpha[c]->cols());
+        snpP[c]->resize(rows, alpha[c]->cols());
+        offset[c + 1] = offset[c] + alpha[c]->cols();
+    }
+    MatrixXf alphaAll;
+    if (numChains > 1) {
+        alphaAll.resize(annoMat.cols(), offset[numChains]);
+        for (unsigned c=0; c<numChains; ++c) alphaAll.middleCols(offset[c], alpha[c]->cols()) = *alpha[c];
+    }
+    #pragma omp parallel for schedule(static) if(numBlocks > 1)
+    for (unsigned block=0; block<numBlocks; ++block) {
+        const unsigned first = block * annotationRowBlockSize;
+        const unsigned count = annotationRowBlockRows(block, numBlocks, rows);
+        const unsigned numTiles = numChains > 1 ? std::max(1u, count / tileRows) : 1;
+        MatrixXf tile;  // all chains' products for one tile
+        for (unsigned t=0; t<numTiles; ++t) {
+            const unsigned tileFirst = first + t * tileRows;
+            const unsigned tileCount = t + 1 < numTiles ? tileRows : first + count - tileFirst;
+            if (numChains > 1 && tileCount % 96 == 0) {
+                tile.noalias() = annoMat.middleRows(tileFirst, tileCount) * alphaAll;
+                for (unsigned c=0; c<numChains; ++c)
+                    predictorMeans[c]->middleRows(tileFirst, tileCount) = tile.middleCols(offset[c], alpha[c]->cols());
+            } else {
+                for (unsigned c=0; c<numChains; ++c)
+                    predictorMeans[c]->middleRows(tileFirst, tileCount).noalias()
+                        = annoMat.middleRows(tileFirst, tileCount) * *alpha[c];
+            }
+        }
+        for (unsigned c=0; c<numChains; ++c)
+            for (unsigned i=0; i<alpha[c]->cols(); ++i)
+                dist.cdf_01(predictorMeans[c]->col(i).data() + first, snpP[c]->col(i).data() + first, count);
+    }
+}
+
+namespace {
+// Helpers for the probit annotation samplers of SBayesRC (also used by BayesRC) and SBayesRD.
 
 // Float dot product accumulated in double, as four partial sums combined in a fixed order.
 double annotationDot(const float *a, const float *b, int rows) {
@@ -8593,26 +8354,58 @@ VectorXf annotationDiag(const MatrixXf &annoMat, const float numRows) {
     return diag;
 }
 
+// The data of annotation step i, the probit for "component > i" among the SNPs with component >= i: their outcomes z
+// and, for i > 0, their stored predictors a_j'alpha_i and rows of A (at step 0, all SNPs: use A and
+// predictorMeans.col(0) as they are). `eligible` lists the SNPs with component > i-1 in ascending order (filled at
+// step 0) and is narrowed to those with component > i for the next step. Shared by SBayesRC's and SBayesRD's samplers.
+struct AnnotationStep {
+    VectorXf z;           // outcome: component > i
+    VectorXf predictors;  // a_j'alpha_i of the eligible SNPs (i > 0)
+    MatrixXf rows;        // their rows of A (i > 0)
+};
+
+void annotationStep(const unsigned i, const unsigned numComp, const VectorXi &membership, const MatrixXf &annoMat,
+                    const MatrixXf &predictorMeans, vector<unsigned> &eligible, AnnotationStep &step) {
+    if (i == 0) {
+        const unsigned numSnps = membership.size();
+        step.z.resize(numSnps);
+        eligible.clear();
+        for (unsigned j=0; j<numSnps; ++j) {
+            step.z[j] = membership[j] > 0;
+            if (numComp > 1 && step.z[j]) eligible.push_back(j);
+        }
+        return;
+    }
+    const unsigned n = eligible.size();
+    step.rows = annotationRows(annoMat, eligible);  // the rows of this step, before the list is narrowed
+    step.z.resize(n);
+    step.predictors.resize(n);
+    unsigned next = 0;
+    for (unsigned idx=0; idx<n; ++idx) {
+        const unsigned j = eligible[idx];
+        step.z[idx] = membership[j] > int(i);
+        step.predictors[idx] = predictorMeans(j,i);
+        if (i+1 < numComp && step.z[idx]) eligible[next++] = j;
+    }
+    eligible.resize(next);
+}
+
 // Probit latents minus their means for one boundary: y_j ~ N(a_j'alpha, 1), truncated to y_j > 0
 // if z_j and to y_j < 0 otherwise. Each SNP row block has its own RNG stream (keyed by block and
 // boundary), so the draws do not depend on the thread count.
-VectorXf annotationLatentResiduals(Stat::TruncatedNormal &dist, const MatrixXf &annoMat,
-                                   const VectorXf &alpha, const VectorXf &z, const unsigned boundary) {
-    const unsigned rows = annoMat.rows(), numBlocks = annotationRowBlocks(rows);
+VectorXf annotationLatentResiduals(Stat::TruncatedNormal &dist, const float *means,
+                                   const VectorXf &z, const unsigned boundary) {
+    const unsigned rows = z.size(), numBlocks = annotationRowBlocks(rows);
     const unsigned latentRngSalt = 0x414c4154u; // "ALAT": annotation latents
-    VectorXf mean(rows), y(rows);
+    VectorXf y(rows);
     #pragma omp parallel for schedule(static) if(numBlocks > 1)
     for (unsigned block=0; block<numBlocks; ++block) {
         Stat::ParallelTaskRngScope latentRng(block, latentRngSalt + boundary);
         const unsigned first = block * annotationRowBlockSize;
         const unsigned count = annotationRowBlockRows(block, numBlocks, rows);
-        mean.segment(first, count).noalias() = annoMat.middleRows(first, count) * alpha;
-        for (unsigned j=first; j<first+count; ++j) {
-            if (z[j]) y[j] = dist.sample_lower_truncated(mean[j], 1.0, 0.0);
-            else y[j] = dist.sample_upper_truncated(mean[j], 1.0, 0.0);
-        }
+        dist.sample_truncated_at_zero(means + first, z.data() + first, y.data() + first, count);
     }
-    y -= mean;
+    y -= Map<const VectorXf>(means, rows);
     return y;
 }
 
@@ -8623,12 +8416,11 @@ class AnnotationScores {
 public:
     AnnotationScores(const MatrixXf &annoMat, VectorXf &y, const MatrixXd *gram)
     : annoMat(annoMat), y(y), gram(gram) {
-        if (!gram) return;
-        scores.resize(annoMat.cols());
-        #pragma omp parallel for schedule(static) if(annoMat.rows() > annotationRowBlockSize)
-        for (unsigned k=0; k<annoMat.cols(); ++k)
-            scores[k] = annotationDot(annoMat.col(k).data(), y.data(), annoMat.rows());
+        if (gram) annotationScores(annoMat, {&y}, {&scores});
     }
+    // With the scores already computed (multi-chain shared passes); y is then not used.
+    AnnotationScores(const MatrixXf &annoMat, VectorXf &y, const MatrixXd *gram, const VectorXd &given)
+    : annoMat(annoMat), y(y), gram(gram), scores(given) {}
     // a_k'y; column 0 is the intercept, all ones.
     float dot(const unsigned k) const {
         if (gram) return float(scores[k]);
@@ -8647,75 +8439,39 @@ private:
     VectorXd scores;
 };
 
-// snpP = Phi(annoMat*alpha) for all SNPs and boundaries, one product per SNP row block.
-void annotationProbabilities(Stat::Normal &dist, const MatrixXf &annoMat, const MatrixXf &alpha,
-                             MatrixXf &snpP) {
-    const unsigned rows = annoMat.rows(), numBlocks = annotationRowBlocks(rows);
-    #pragma omp parallel for schedule(static) if(numBlocks > 1)
-    for (unsigned block=0; block<numBlocks; ++block) {
-        const unsigned first = block * annotationRowBlockSize;
-        const unsigned count = annotationRowBlockRows(block, numBlocks, rows);
-        snpP.middleRows(first, count).noalias() = annoMat.middleRows(first, count) * alpha;
-        for (unsigned i=0; i<alpha.cols(); ++i)
-            for (unsigned j=first; j<first+count; ++j)
-                snpP(j,i) = dist.cdf_01(snpP(j,i));
-    }
-}
 } // namespace
 
 void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(const VectorXi &membership, const MatrixXf &annoMat,
-                                                    const VectorXf &sigmaSq, MatrixXf &snpP) {
-    MatrixXf conditionalMembership = MatrixXf::Zero(membership.size(), numComp);
-    for (unsigned j=0; j<(unsigned)membership.size(); ++j) {
-        for (int k=0; k<membership[j]; ++k) {
-            conditionalMembership(j,k) = 1.0f;
-        }
-    }
+                                                    const VectorXf &sigmaSq, MatrixXf &snpP,
+                                                    const VectorXd *firstScores) {
+    if (firstScores && blockedGaussian)
+        throw(string("Error: shared first-boundary scores require the scalar Gibbs annotation updates."));
+    initPredictors(annoMat, snpP);
 
-    sampleFromFC_Gibbs(conditionalMembership, annoMat, sigmaSq, snpP);
-}
-
-void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(MatrixXf &conditionalMembership,
-                                                    const MatrixXf &annoMat,
-                                                    const VectorXf &sigmaSq, MatrixXf &snpP) {
-
-    VectorXf numOnes(numComp);
-    #pragma omp parallel for schedule(dynamic)
-    for (unsigned i=0; i<numComp; ++i) {
-        numOnes[i] = conditionalMembership.col(i).sum();
-    }
-
-    unsigned numSnps = conditionalMembership.rows();
+    // The SNPs eligible for each step (annotationStep narrows the list as the steps go).
+    vector<unsigned> eligible;
+    AnnotationStep step;
+    unsigned numSnps = membership.size();
     for (unsigned i=0; i<numComp; ++i) {
         VectorXf &alphai = (*this)[i]->values;
-        unsigned numDP;
-        if (i==0) numDP = numSnps;
-        else numDP = numOnes[i-1];
+        const unsigned numDP = i==0 ? numSnps : eligible.size();
 
         if(numDP == 0){
             alphai.setZero();
             alphai[0] = -10.0;
             ssq[i] = 0;
         }else{
-            VectorXf zi(numDP);
-            MatrixXf annoMatPO;
-            if (i==0) {
-                zi = conditionalMembership.col(i);
-            } else {
-                vector<unsigned> active(numDP);
-                for (unsigned j=0, idx=0; j<numSnps; ++j) {
-                    if (conditionalMembership(j,i-1)) {
-                        active[idx] = j;
-                        zi[idx] = conditionalMembership(j,i);
-                        ++idx;
-                    }
-                }
-                annoMatPO = annotationRows(annoMat, active);
-            }
-            const MatrixXf &annoMati = i==0 ? annoMat : annoMatPO;
-            const VectorXf annoDiagi = i==0 ? annoDiag : annotationDiag(annoMati, numOnes[i-1]);
+            annotationStep(i, numComp, membership, annoMat, predictorMeans, eligible, step);
+            const MatrixXf &annoMati = i==0 ? annoMat : step.rows;
+            const VectorXf annoDiagi = i==0 ? annoDiag : annotationDiag(annoMati, numDP);
 
-            VectorXf y = annotationLatentResiduals(*this, annoMati, alphai, zi, i);
+            // With firstScores, the first boundary's latents were drawn earlier and only their scores are needed.
+            const bool given = i == 0 && firstScores;
+            VectorXf y;
+            if (!given)
+                y = annotationLatentResiduals(*this,
+                                              i == 0 ? predictorMeans.col(0).data()
+                                                     : step.predictors.data(), step.z, i);
 
             if (blockedGaussian) {
                 AnnotationSampler::gaussian(annoMati,y,alphai,sigmaSq[i],
@@ -8723,7 +8479,8 @@ void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(MatrixXf &conditionalMembers
                 ssq[i] = alphai.tail(numAnno-1).squaredNorm();
             } else {
                 if (i==0 && !coordinateGram.size()) coordinateGram = annotationGram(annoMati);
-                AnnotationScores scores(annoMati, y, i==0 ? &coordinateGram : NULL);
+                AnnotationScores scores = given ? AnnotationScores(annoMati, y, &coordinateGram, *firstScores)
+                                                : AnnotationScores(annoMati, y, i==0 ? &coordinateGram : NULL);
 
                 float oldSample = alphai[0];
                 float rhs = scores.dot(0) + annoDiagi[0]*oldSample;
@@ -8750,10 +8507,31 @@ void ApproxBayesRC::AnnoEffects::sampleFromFC_Gibbs(MatrixXf &conditionalMembers
 
     }
 
+    // With firstScores, the shared passes refresh the predictors and snpP (multichain::annoProbabilities).
+    if (firstScores) return;
     // snpP is not read above, so it is computed for all boundaries after sampling.
     MatrixXf alpha(numAnno, numComp);
     for (unsigned i=0; i<numComp; ++i) alpha.col(i) = (*this)[i]->values;
-    annotationProbabilities(*this, annoMat, alpha, snpP);
+    annotationProbabilities(*this, annoMat, {&alpha}, {&predictorMeans}, {&snpP});
+}
+
+// A*alpha (and snpP) from the current coefficients on first use, i.e. after initialization or a VI warm start;
+// afterwards each annotation update refreshes them.
+void ApproxBayesRC::AnnoEffects::initPredictors(const MatrixXf &annoMat, MatrixXf &snpP) {
+    if (predictorMeans.rows() == annoMat.rows() && predictorMeans.cols() == numComp) return;
+    MatrixXf alpha(numAnno, numComp);
+    for (unsigned i=0; i<numComp; ++i) alpha.col(i) = (*this)[i]->values;
+    annotationProbabilities(*this, annoMat, {&alpha}, {&predictorMeans}, {&snpP});
+}
+
+// The first boundary's latent residuals, as sampleFromFC_Gibbs draws them. Their random streams are keyed by
+// chain, iteration and row block, so they can be drawn before the rest of the update.
+VectorXf ApproxBayesRC::AnnoEffects::firstBoundaryLatents(const VectorXi &membership, const MatrixXf &annoMat,
+                                                          MatrixXf &snpP) {
+    initPredictors(annoMat, snpP);
+    VectorXf z(membership.size());
+    for (unsigned j=0; j<(unsigned)membership.size(); ++j) z[j] = membership[j] > 0;
+    return annotationLatentResiduals(*this, predictorMeans.col(0).data(), z, 0);
 }
 
 void ApproxBayesRC::AnnoEffects::sampleFromFC_MH(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP) {
@@ -8891,45 +8669,75 @@ void ApproxBayesRC::VarAnnoEffects::sampleFromFC(const VectorXf &ssq, const Vect
 //    }
 //}
 
-void ApproxBayesRC::computePiFromP(const MatrixXf &snpP, MatrixXf &snpPi) {
-//    cout << "computing Pi from p ..." << endl;
-//    cout << "snpP" << endl;
-//    cout << snpP << endl;
-    unsigned numDist = snpPi.cols();
-    unsigned numSnps = snpPi.rows();
-
-    for (unsigned i=0; i<numDist; ++i) {
-        if (i < numDist-1) snpPi.col(i) = (1.0 - snpP.col(i).array());
-        else snpPi.col(i).setOnes();
-        if (i) {
+void ApproxBayesRC::logPiFromP(const MatrixXf &snpP, MatrixXf &snpLogPi) {
+    // pi, by SNP row blocks in parallel: elementwise products, so the values do not depend on the split.
+    const unsigned numDist = snpLogPi.cols(), rows = snpLogPi.rows(), numBlocks = annotationRowBlocks(rows);
+    #pragma omp parallel for schedule(static) if(numBlocks > 1)
+    for (unsigned block=0; block<numBlocks; ++block) {
+        const unsigned first = block * annotationRowBlockSize;
+        const unsigned count = annotationRowBlockRows(block, numBlocks, rows);
+        Block<MatrixXf> pi = snpLogPi.middleRows(first, count);
+        const Block<const MatrixXf> p = snpP.middleRows(first, count);
+        for (unsigned i=0; i<numDist; ++i) {
+            if (i < numDist-1) pi.col(i) = (1.0 - p.col(i).array());
+            else pi.col(i).setOnes();
             for (unsigned j=0; j<i; ++j) {
-                snpPi.col(i).array() *= snpP.col(j).array();
+                pi.col(i).array() *= p.col(j).array();
             }
         }
     }
-//    snpPi.col(0) = 1.0 - snpP.col(0).array();
-//    snpPi.col(1) = (1.0 - snpP.col(1).array()) * snpP.col(0).array();
-//    snpPi.col(2) = (1.0 - snpP.col(2).array()) * snpP.col(0).array() * snpP.col(1).array();
-//    snpPi.col(3) = snpP.col(0).array() * snpP.col(1).array() * snpP.col(2).array();
-
-//    cout << snpPi.row(0) << endl;
-//    cout << snpPi.row(1) << endl;
-//    cout << snpPi.row(2) << endl;
+    // Then the log, in parallel over pieces of the matrix's memory. Eigen takes logs four floats at a time and the
+    // last one to three with the scalar log; pieces of a multiple of four floats keep that as in one pass.
+    const long size = snpLogPi.size(), piece = 4L * annotationRowBlockSize;
+    #pragma omp parallel for schedule(static) if(size > piece)
+    for (long first = 0; first < size; first += piece) {
+        Map<ArrayXf> x(snpLogPi.data() + first, std::min(piece, size - first));
+        x = x.log();
+    }
 }
 
-void ApproxBayesRC::computeLogPiFromP(const MatrixXf &snpP, MatrixXf &snpLogPi) {
-    unsigned numSnps = snpP.rows();
-    unsigned numDist = snpP.cols() + 1;
-    snpLogPi.setZero(numSnps, numDist);
+// Starts of the pieces [starts[b], starts[b+1]) of a parallel pass over `rows` floats written to `dst`, such that
+// Eigen's vectorized evaluation of each piece takes the same elements one packet at a time as one pass over all rows
+// would: Eigen handles the elements before dst's first packet-aligned address, and those after the last whole packet,
+// with the scalar function (whose result can differ in the last bit), so the pieces after the first start on packet
+// boundaries of the whole pass and are a whole number of packets long.
+static vector<unsigned> packetAlignedPieces(const float *dst, const unsigned rows) {
+    const unsigned packet = Eigen::internal::packet_traits<float>::size, bytes = packet * sizeof(float);
+    const unsigned head = unsigned((bytes - reinterpret_cast<uintptr_t>(dst) % bytes) % bytes / sizeof(float));
+    const unsigned size = annotationRowBlockSize;  // a multiple of the packet size
+    vector<unsigned> starts(1, 0);
+    for (size_t s = size_t(head) + size; s < rows; s += size) starts.push_back(unsigned(s));
+    starts.push_back(rows);
+    return starts;
+}
 
-    VectorXf logPrefix;
-    logPrefix.setZero(numSnps);
+// log pi as a sum of logs, log pi_k = log(1 - p_k) + log p_0 + ... + log p_{k-1} (the last component without the first
+// term), which cannot underflow where the product of the p's would (logPiFromP); used by SBayesRD and the VI warm start.
+// In parallel over pieces of rows that keep the arithmetic of one serial pass (packetAlignedPieces).
+void ApproxBayesRC::computeLogPiFromP(const MatrixXf &snpP, MatrixXf &snpLogPi) {
+    const unsigned numSnps = snpP.rows(), numDist = snpP.cols() + 1;
+    snpLogPi.setZero(numSnps, numDist);
+    VectorXf logPrefix = VectorXf::Zero(numSnps);
+    const vector<unsigned> prefixPieces = packetAlignedPieces(logPrefix.data(), numSnps);
     for (unsigned i=0; i<numDist; ++i) {
+        const vector<unsigned> pieces = packetAlignedPieces(snpLogPi.col(i).data(), numSnps);
+        const unsigned numPieces = pieces.size() - 1;
+        #pragma omp parallel for schedule(static) if(numPieces > 1)
+        for (unsigned b=0; b<numPieces; ++b) {
+            const unsigned first = pieces[b], count = pieces[b+1] - pieces[b];
+            if (i < numDist-1)
+                snpLogPi.col(i).segment(first, count) = logPrefix.segment(first, count).array()
+                                                        + (1.0f - snpP.col(i).segment(first, count).array()).log();
+            else
+                snpLogPi.col(i).segment(first, count) = logPrefix.segment(first, count);
+        }
         if (i < numDist-1) {
-            snpLogPi.col(i) = logPrefix.array() + (1.0f - snpP.col(i).array()).log();
-            logPrefix.array() += snpP.col(i).array().log();
-        } else {
-            snpLogPi.col(i) = logPrefix;
+            const unsigned numPrefixPieces = prefixPieces.size() - 1;
+            #pragma omp parallel for schedule(static) if(numPrefixPieces > 1)
+            for (unsigned b=0; b<numPrefixPieces; ++b) {
+                const unsigned first = prefixPieces[b], count = prefixPieces[b+1] - prefixPieces[b];
+                logPrefix.segment(first, count).array() += snpP.col(i).segment(first, count).array().log();
+            }
         }
     }
 }
@@ -9155,8 +8963,14 @@ void ApproxBayesRC::runViWarmStartLowRank(const Data &data, const unsigned nIter
                 ArrayXf logDelta = 0.5f * (logInvLhsMsigma + uhat * rhs) + snpLogPi.row(i).transpose().array();
                 logDelta[0] = snpLogPi(i, 0);
 
+                // Compute each exponential once, factoring out the largest log weight for stability.
+                probDelta = (logDelta - logDelta.maxCoeff()).exp();
+                // Preserve exact zero priors: Eigen's exp(-inf) can be a tiny positive value.
+                for (unsigned k = 0; k < snpEffects.ndist; ++k)
+                    if (logDelta[k] == -std::numeric_limits<float>::infinity()) probDelta[k] = 0.0f;
+                probDelta /= probDelta.sum();
+
                 for (unsigned k = 0; k < snpEffects.ndist; ++k) {
-                    probDelta[k] = 1.0f / (logDelta - logDelta[k]).exp().sum();
                     if (isnan(probDelta[k])) probDelta[k] = 0.0f;
                     deltaPi[k]->values[i] = probDelta[k];
                 }
@@ -9930,26 +9744,11 @@ void ApproxBayesRC::getSnpAnnoCntInv(const MatrixXf &annoMat, VectorXf &snpAnnoC
     snpAnnoCntInv = snpAnnoCnt.array().inverse();
 }
 
-void ApproxBayesRC::sampleUnknowns(const unsigned iter){
-    double profileStart = 0.0;
-    double profileLast = 0.0;
-    if (profileTiming) {
-        profileStart = profileLast = gctbWallTime();
-    }
-    auto addProfileTime = [&](double &bucket) -> double {
-        if (profileTiming) {
-            double now = gctbWallTime();
-            double elapsed = now - profileLast;
-            bucket += elapsed;
-            profileLast = now;
-            return elapsed;
-        }
-        return 0.0;
-    };
-
-    const bool ldSwapIteration = algorithm == tgs || (algorithm == tgs_thin && !(iter % 10));
+// The LD-swap step of TGS (every iteration) and TGS_thin (every 10th iteration), before the SNP sweep. It draws from
+// its own random stream (sampleFromLDSwapMH_eigen), so it can run before the rest of the iteration or within it.
+void ApproxBayesRC::sampleLdSwap(const unsigned iter) {
     const bool supportsLdSwap = lowRankModel && !data.coreContextLdmEigen;
-    if (ldSwapIteration && supportsLdSwap) {
+    if (isLdSwapIteration(iter) && supportsLdSwap) {
         const vector<MatrixXf> &swapQblocks = integrateOutContext
             && !data.precomputedMarginalizedContext
             ? marginalizedContextQblocks : data.Qblocks;
@@ -9963,98 +9762,106 @@ void ApproxBayesRC::sampleUnknowns(const unsigned iter){
         ldSwapProposals += proposals;
         ldSwapAccepted += accepted;
     }
-    addProfileTime(profileTimeTgs);
+}
 
-    // Sample fixed and random SNP effects.
-    if (lowRankModel) {
-        if (quantizedLowRankModel) {
-            fixedSnpEffects.sampleFromFC_quantizedEigen(snpEffects, wcorrBlocks, data.quantizedEigenBlocks,
-                                                        whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock,
-                                                        vareBlk.values, data.numFixedEffectSnps);
-            snpEffects.sampleFromFC_quantizedEigen(wcorrBlocks, data.quantizedEigenBlocks, whatBlocks,
-                                                   data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
-                                                   snpLogPi, gamma.values, vargRandom.value, deltaPi,
-                                                   hsqPercModel, sigmaSq.value, data.incdSnpInfoVec, data.numFixedEffectSnps,
-                                                   data.coreContextLdmEigen ? &data.coreContextLdBlocks : nullptr,
-                                                   data.coreContextLdmEigen ? &data.wcorrBlocks : nullptr);
-        } else {
-            if (integrateOutContext) {
-                const vector<MatrixXf> &contextQblocks = data.precomputedMarginalizedContext
-                    ? data.Qblocks : marginalizedContextQblocks;
-                snpEffects.sampleFromFC_marginalizedContextEigen(
-                        wcorrBlocks, contextQblocks, marginalizedContextQdiagBlocks,
-                        marginalizedContextRowPrecisionBlocks, whatBlocks,
-                        data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
-                        snpLogPi, gamma.values, vargRandom.value, deltaPi,
-                        hsqPercModel, sigmaSq.value, data.incdSnpInfoVec);
+void ApproxBayesRC::sampleUnknowns(const unsigned iter){
+    double profileStart = 0.0;
+    ProfileClock clock;
+    clock.on = profileTiming;
+    if (profileTiming) {
+        profileStart = clock.last = gctbWallTime();
+    }
+    auto addProfileTime = [&](double &bucket) -> double { return clock.add(bucket); };
+
+    // Multi-chain runs split the iteration around the annotation sampler (annoPassStage, see MultiChainSBayesRC).
+    if (annoPassStage != 2) {
+        if (!snpSweepDone) sampleLdSwap(iter);  // with the batched sweep, MultiChainSBayesRC runs it first
+        addProfileTime(profileTimeTgs);
+
+        // Sample fixed and random SNP effects.
+        if (lowRankModel) {
+            if (quantizedLowRankModel) {
+                fixedSnpEffects.sampleFromFC_quantizedEigen(snpEffects, wcorrBlocks, data.quantizedEigenBlocks,
+                                                            whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock,
+                                                            vareBlk.values, data.numFixedEffectSnps);
+                if (!snpSweepDone) {  // with the batched sweep, MultiChainSBayesRC has sampled them
+                    snpEffects.sampleFromFC_quantizedEigen(wcorrBlocks, data.quantizedEigenBlocks, whatBlocks,
+                                                           data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
+                                                           snpLogPi, gamma.values, vargRandom.value, deltaPi,
+                                                           hsqPercModel, sigmaSq.value, data.incdSnpInfoVec, data.numFixedEffectSnps,
+                                                           data.coreContextLdmEigen ? &data.coreContextLdBlocks : nullptr,
+                                                           data.coreContextLdmEigen ? &data.wcorrBlocks : nullptr);
+                }
             } else {
-                fixedSnpEffects.sampleFromFC_eigen(snpEffects, wcorrBlocks, data.Qblocks, whatBlocks,
-                                                   data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
-                                                   data.numFixedEffectSnps);
+                if (integrateOutContext) {
+                    const vector<MatrixXf> &contextQblocks = data.precomputedMarginalizedContext
+                        ? data.Qblocks : marginalizedContextQblocks;
+                    snpEffects.sampleFromFC_marginalizedContextEigen(
+                            wcorrBlocks, contextQblocks, marginalizedContextQdiagBlocks,
+                            marginalizedContextRowPrecisionBlocks, whatBlocks,
+                            data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
+                            snpLogPi, gamma.values, vargRandom.value, deltaPi,
+                            hsqPercModel, sigmaSq.value, data.incdSnpInfoVec);
+                } else {
+                    fixedSnpEffects.sampleFromFC_eigen(snpEffects, wcorrBlocks, data.Qblocks, whatBlocks,
+                                                       data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
+                                                       data.numFixedEffectSnps);
+                }
+                if (data.coreContextLdmEigen && !integrateOutContext) {
+                    snpEffects.sampleFromFC_coreContextEigen(wcorrBlocks, data.Qblocks, whatBlocks,
+                                                             data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
+                                                             snpLogPi, gamma.values, vargRandom.value, deltaPi,
+                                                             hsqPercModel, sigmaSq.value, data.incdSnpInfoVec,
+                                                             data.coreContextLdBlocks, data.wcorrBlocks);
+                } else if (!integrateOutContext && !snpSweepDone) {
+                    snpEffects.sampleFromFC_eigen(wcorrBlocks, data.Qblocks, whatBlocks,
+                                                  data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
+                                                  snpLogPi, gamma.values, vargRandom.value, deltaPi,
+                                                  hsqPercModel, sigmaSq.value, data.incdSnpInfoVec, data.numFixedEffectSnps);
+                }
             }
-            if (data.coreContextLdmEigen && !integrateOutContext) {
-                snpEffects.sampleFromFC_coreContextEigen(wcorrBlocks, data.Qblocks, whatBlocks,
-                                                         data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
-                                                         snpLogPi, gamma.values, vargRandom.value, deltaPi,
-                                                         hsqPercModel, sigmaSq.value, data.incdSnpInfoVec,
-                                                         data.coreContextLdBlocks, data.wcorrBlocks);
-            } else if (!integrateOutContext) {
-                snpEffects.sampleFromFC_eigen(wcorrBlocks, data.Qblocks, whatBlocks,
-                                              data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
-                                              snpLogPi, gamma.values, vargRandom.value, deltaPi,
-                                              hsqPercModel, sigmaSq.value, data.incdSnpInfoVec, data.numFixedEffectSnps);
+        } else {
+            fixedSnpEffects.sampleFromFC_sparse(snpEffects, rcorr, data.ZPZsp, data.ZPZdiag, data.snp2pq,
+                                                data.incdSnpInfoVec, varg.value, vare.value, data.numFixedEffectSnps);
+            snpEffects.sampleFromFC_sparse(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.chromInfoVec,
+                                           sigmaSq.value, snpLogPi, gamma.values, vare.value, vargRandom.value,
+                                           hsqPercModel, deltaPi, data.incdSnpInfoVec);
+        }
+        addProfileTime(profileTimeSnpEffects);
+
+        // Core-context sampling uses a block residual that includes the updated context effects.
+        if (lowRankModel && data.coreContextLdmEigen && !quantizedLowRankModel && !integrateOutContext) {
+            for (unsigned blk = 0; blk < data.keptLdBlockInfoVec.size(); ++blk) {
+                recomputeCoreContextWcorrBlock(blk, data.wcorrBlocks, data.Qblocks, data.keptLdBlockInfoVec,
+                                               data.coreContextLdBlocks, snpEffects.values, wcorrBlocks[blk]);
             }
         }
-    } else {
-        fixedSnpEffects.sampleFromFC_sparse(snpEffects, rcorr, data.ZPZsp, data.ZPZdiag, data.snp2pq,
-                                            data.incdSnpInfoVec, varg.value, vare.value, data.numFixedEffectSnps);
-        snpEffects.sampleFromFC_sparse(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.chromInfoVec,
-                                       sigmaSq.value, snpLogPi, gamma.values, vare.value, vargRandom.value,
-                                       hsqPercModel, deltaPi, data.incdSnpInfoVec);
-    }
-    addProfileTime(profileTimeSnpEffects);
 
-    // Core-context sampling uses a block residual that includes the updated context effects.
-    if (lowRankModel && data.coreContextLdmEigen && !quantizedLowRankModel && !integrateOutContext) {
-        for (unsigned blk = 0; blk < data.keptLdBlockInfoVec.size(); ++blk) {
-            recomputeCoreContextWcorrBlock(blk, data.wcorrBlocks, data.Qblocks, data.keptLdBlockInfoVec,
-                                           data.coreContextLdBlocks, snpEffects.values, wcorrBlocks[blk]);
+        if (estimateContextVar && !(iter % contextVarianceUpdateFreq)) {
+            sampleContextVarianceRatio();
+        }
+
+        // Update posterior summaries and hyperparameters.
+        snpEffects.computePosteriorMean(iter);
+        snpPip.getValues(snpEffects.pip);
+        nnzSnp.getValue(snpEffects.numNonZeros);
+        numSnps.getValues(snpEffects.numSnpMix);
+        addProfileTime(profileTimePosterior);
+
+        if (robustMode) {
+            sigmaSq.value = vargRandom.value / (data.numIncdSnps * gamma.values.dot(Pis.values));
+        } else {
+            sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
         }
     }
-
-    if (estimateContextVar && !(iter % contextVarianceUpdateFreq)) {
-        sampleContextVarianceRatio();
+    if (annoPassStage == 1) {
+        if (estimatePi) annoFirstLatents = annoEffects.firstBoundaryLatents(snpEffects.membership, data.annoMat, snpP);
+        addProfileTime(profileTimeAnnoEffects);  // as in a whole iteration, with sigmaSq's update before it
+        if (profileTiming) profileTimeTotal += gctbWallTime() - profileStart;
+        return;
     }
 
-    // Update posterior summaries and hyperparameters.
-    snpEffects.computePosteriorMean(iter);
-    snpPip.getValues(snpEffects.pip);
-    nnzSnp.getValue(snpEffects.numNonZeros);
-    numSnps.getValues(snpEffects.numSnpMix);
-    addProfileTime(profileTimePosterior);
-
-    if (robustMode) {
-        sigmaSq.value = vargRandom.value / (data.numIncdSnps * gamma.values.dot(Pis.values));
-    } else {
-        sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
-    }
-
-    if (estimatePi) {
-        annoEffects.sampleFromFC_Gibbs(snpEffects.membership, data.annoMat, sigmaSqAnno.values, snpP);
-        annoCondProb.compute_probit(annoEffects, data.annoInfoVec);
-        addProfileTime(profileTimeAnnoEffects);
-        sigmaSqAnno.sampleFromFC(annoEffects.ssq, VectorXf::Constant(annoEffects.numComp, annoEffects.numAnno - 1));
-        addProfileTime(profileTimeAnnoVar);
-
-        // computePiFromP overwrites every entry, so it can write into snpLogPi directly.
-        computePiFromP(snpP, snpLogPi);
-        snpLogPi = snpLogPi.array().log().matrix();
-        addProfileTime(profileTimeLogPi);
-        annoJointProb.compute(annoCondProb);
-        addProfileTime(profileTimeAnnoJointProb);
-    } else {
-        addProfileTime(profileTimeAnnoEffects);
-    }
+    sampleAnnotations(iter, clock);
 
     // Update genetic and residual variance components.
     if (lowRankModel) {
@@ -10157,34 +9964,62 @@ void ApproxBayesRC::sampleUnknowns(const unsigned iter){
     addProfileTime(profileTimeRounding);
 
     if (profileTiming) {
-        double now = gctbWallTime();
-        profileTimeTotal += now - profileStart;
-        ++profileTimingCount;
-        if (!(iter % profileTimingFreq)) {
-            double denom = double(profileTimingCount);
-            cout << "\nSBayesRC timing profile (avg seconds/iteration over "
-                 << profileTimingCount << " iterations):" << endl;
-            cout << "  SNP effects:        " << profileTimeSnpEffects / denom << endl;
-            cout << "  LD swap MH:         " << profileTimeTgs / denom << endl;
-            if (ldSwapProposals) {
-                cout << "    accepted:         " << ldSwapAccepted << "/" << ldSwapProposals
-                     << " (" << 100.0 * ldSwapAccepted / ldSwapProposals << "%)" << endl;
-            }
-            cout << "  Posterior updates:  " << profileTimePosterior / denom << endl;
-            cout << "  Annotation effects: " << profileTimeAnnoEffects / denom << endl;
-            cout << "    anno variance:    " << profileTimeAnnoVar / denom << endl;
-            cout << "    log-prior update: " << profileTimeLogPi / denom << endl;
-            cout << "    anno joint prob:  " << profileTimeAnnoJointProb / denom << endl;
-            cout << "  Variance updates:   " << profileTimeVariance / denom << endl;
-            cout << "  Annotation summary: " << profileTimeAnnoSummary / denom << endl;
-            cout << "    anno GenVar:      " << profileTimeAnnoGenVar / denom << endl;
-            cout << "    anno total GenVar:" << profileTimeAnnoTotalGenVar / denom << endl;
-            cout << "    per-SNP hsq/rsq enrich:" << profileTimeAnnoPerSnpHsqEnrich / denom << endl;
-            cout << "  Misc summary:       " << profileTimeMiscSummary / denom << endl;
-            cout << "  Bad SNP check:      " << profileTimeBadSnps / denom << endl;
-            cout << "  Rounding:           " << profileTimeRounding / denom << endl;
-            cout << "  Total:              " << profileTimeTotal / denom << endl;
+        profileTimeTotal += gctbWallTime() - profileStart;
+        if (annoPassStage != 2) reportProfile(iter);  // with the shared passes, MultiChainSBayesRC reports after them
+    }
+}
+
+// The annotation effects, snpP and log pi: SBayesRC's step of the iteration (SBayesRD overrides it).
+void ApproxBayesRC::sampleAnnotations(const unsigned iter, ProfileClock &clock) {
+    if (estimatePi) {
+        annoEffects.sampleFromFC_Gibbs(snpEffects.membership, data.annoMat, sigmaSqAnno.values, snpP,
+                                       annoPassStage == 2 ? &annoFirstScores : NULL);
+        annoCondProb.compute_probit(annoEffects, data.annoInfoVec);
+        clock.add(profileTimeAnnoEffects);
+        sigmaSqAnno.sampleFromFC(annoEffects.ssq, VectorXf::Constant(annoEffects.numComp, annoEffects.numAnno - 1));
+        clock.add(profileTimeAnnoVar);
+
+        // log pi from snpP; with the shared passes (stage 2) the wrapper does this for all chains.
+        if (annoPassStage != 2) logPiFromP(snpP, snpLogPi);
+        clock.add(profileTimeLogPi);
+        annoJointProb.compute(annoCondProb);
+        clock.add(profileTimeAnnoJointProb);
+    } else {
+        clock.add(profileTimeAnnoEffects);
+    }
+}
+
+void ApproxBayesRC::addSharedProfileTime(double &bucket, const double seconds) {
+    bucket += seconds;
+    profileTimeTotal += seconds;
+}
+
+void ApproxBayesRC::reportProfile(const unsigned iter) {
+    ++profileTimingCount;
+    if (!(iter % profileTimingFreq)) {
+        double denom = double(profileTimingCount);
+        cout << "\nSBayesRC timing profile (avg seconds/iteration over "
+             << profileTimingCount << " iterations):" << endl;
+        cout << "  SNP effects:        " << profileTimeSnpEffects / denom << endl;
+        cout << "  LD swap MH:         " << profileTimeTgs / denom << endl;
+        if (ldSwapProposals) {
+            cout << "    accepted:         " << ldSwapAccepted << "/" << ldSwapProposals
+                 << " (" << 100.0 * ldSwapAccepted / ldSwapProposals << "%)" << endl;
         }
+        cout << "  Posterior updates:  " << profileTimePosterior / denom << endl;
+        cout << "  Annotation effects: " << profileTimeAnnoEffects / denom << endl;
+        cout << "    anno variance:    " << profileTimeAnnoVar / denom << endl;
+        cout << "    log-prior update: " << profileTimeLogPi / denom << endl;
+        cout << "    anno joint prob:  " << profileTimeAnnoJointProb / denom << endl;
+        cout << "  Variance updates:   " << profileTimeVariance / denom << endl;
+        cout << "  Annotation summary: " << profileTimeAnnoSummary / denom << endl;
+        cout << "    anno GenVar:      " << profileTimeAnnoGenVar / denom << endl;
+        cout << "    anno total GenVar:" << profileTimeAnnoTotalGenVar / denom << endl;
+        cout << "    per-SNP hsq/rsq enrich:" << profileTimeAnnoPerSnpHsqEnrich / denom << endl;
+        cout << "  Misc summary:       " << profileTimeMiscSummary / denom << endl;
+        cout << "  Bad SNP check:      " << profileTimeBadSnps / denom << endl;
+        cout << "  Rounding:           " << profileTimeRounding / denom << endl;
+        cout << "  Total:              " << profileTimeTotal / denom << endl;
     }
 }
 
@@ -10353,7 +10188,9 @@ void BayesRC::sampleUnknowns(const unsigned iter){
 
     if (estimatePi) {
         //if (algorithm == gibbs) {
-            annoEffects.sampleFromFC_Gibbs(snpEffects.z, data.annoMat, sigmaSqAnno.values, snpP);
+            // Each row of z has leading ones, whose count is the sampled mixture component.
+            VectorXi membership = snpEffects.z.rowwise().sum().cast<int>();
+            annoEffects.sampleFromFC_Gibbs(membership, data.annoMat, sigmaSqAnno.values, snpP);
             annoCondProb.compute_probit(annoEffects, data.annoInfoVec);
         //} else {
         //    annoEffects.sampleFromFC_MH(snpEffects.z, data.annoMat, sigmaSqAnno.values, snpP);
@@ -10713,21 +10550,19 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(
         const VectorXf &pi, MatrixXf &snpP, bool runAnnotationSwap,
         bool runAnnotationTgs){
     if (bayesR) { runAnnotationSwap = false; runAnnotationTgs = false; }
-    mixtureCounts.setZero();
-    VectorXf numOnes(numComp);
-    #pragma omp parallel for schedule(static)
-    for (unsigned i=0; i<numComp; ++i) {
-        unsigned cnt = 0;
-        for (unsigned j=0; j<(unsigned)membership.size(); ++j) {
-            if (membership[j] > int(i)) ++cnt;
-        }
-        numOnes[i] = cnt;
+    // A*alpha is computed here on first use, then refreshed at the end.
+    if (predictorMeans.rows() != annoMat.rows() || predictorMeans.cols() != numComp) {
+        for (unsigned i=0; i<numComp; ++i) values.col(i) = (*this)[i]->values;
+        annotationProbabilities(*this, annoMat, {&values}, {&predictorMeans}, {&snpP});
     }
+    mixtureCounts.setZero();
 
     unsigned numSnps = membership.size();
     numNonZeros.setZero(numComp);
 
     float logDelta0, logDelta1, probDelta1;
+    vector<unsigned> eligible;  // the SNPs eligible for each step (annotationStep narrows the list)
+    AnnotationStep step;
 
     for (unsigned i=0; i<numComp; ++i) {
         VectorXf &alphai = (*this)[i]->values;
@@ -10739,10 +10574,8 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(
         pip.setZero();
         pip[0] = 1.0;
 
-        VectorXf y, zi;
-        unsigned numDP;  // number of data points for each component
-        if (i==0) numDP = numSnps;
-        else numDP = numOnes[i-1];
+        VectorXf y;
+        const unsigned numDP = i==0 ? numSnps : eligible.size();  // the step's SNPs (component >= i)
 
         if(numDP == 0){
             alphai.setZero();
@@ -10759,27 +10592,13 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(
                 numNonZeros[i] += group != 0;
             }
         }else{
-            zi.setZero(numDP);
-            MatrixXf annoMatPO;
-            // get annotation coefficient matrix for component i
-            if (i==0) {
-                for (unsigned j=0; j<numSnps; ++j) zi[j] = membership[j] > 0;
-            } else {
-                vector<unsigned> active(numDP);
-                for (unsigned j=0, idx=0; j<numSnps; ++j) {
-                    if (membership[j] > int(i-1)) {
-                        active[idx] = j;
-                        zi[idx] = membership[j] > int(i);
-                        ++idx;
-                    }
-                }
-                annoMatPO = annotationRows(annoMat, active);
-            }
-            const MatrixXf &annoMati = i==0 ? annoMat : annoMatPO;
-            const VectorXf annoDiagi = i==0 ? annoDiag : annotationDiag(annoMati, numOnes[i-1]);
+            annotationStep(i, numComp, membership, annoMat, predictorMeans, eligible, step);
+            const MatrixXf &annoMati = i==0 ? annoMat : step.rows;
+            const VectorXf annoDiagi = i==0 ? annoDiag : annotationDiag(annoMati, numDP);
 
             // latent variables adjusted by all annotation effects
-            y = annotationLatentResiduals(*this, annoMati, alphai, zi, i);
+            y = annotationLatentResiduals(*this, i == 0 ? predictorMeans.col(0).data()
+                                                       : step.predictors.data(), step.z, i);
 
             // intercept is fitted with a flat prior
             float oldSample = alphai[0];
@@ -10856,7 +10675,7 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_indep(
     }
 
     // snpP is not read above, so it is computed for all boundaries after sampling.
-    annotationProbabilities(*this, annoMat, values, snpP);
+    annotationProbabilities(*this, annoMat, {&values}, {&predictorMeans}, {&snpP});
 
     nnz = numNonZeros.sum();
     numAnnoTotal = (numAnno - 1) * numComp;
@@ -11034,16 +10853,12 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
         const float pi, MatrixXf &snpP, bool runAnnotationSwap,
         bool runAnnotationTgs){
     if (bayesR) { runAnnotationSwap = false; runAnnotationTgs = false; }
-    mixtureCounts.setZero();
-    VectorXf numOnes(numComp);
-#pragma omp parallel for schedule(static)
-    for (unsigned i=0; i<numComp; ++i) {
-        unsigned cnt = 0;
-        for (unsigned j=0; j<(unsigned)membership.size(); ++j) {
-            if (membership[j] > int(i)) ++cnt;
-        }
-        numOnes[i] = cnt;
+    // A*alpha is computed here on first use, then refreshed at the end.
+    if (predictorMeans.rows() != annoMat.rows() || predictorMeans.cols() != numComp) {
+        for (unsigned i=0; i<numComp; ++i) values.col(i) = (*this)[i]->values;
+        annotationProbabilities(*this, annoMat, {&values}, {&predictorMeans}, {&snpP});
     }
+    mixtureCounts.setZero();
 
     unsigned numSnps = membership.size();
     numNonZeros.setZero(numComp);
@@ -11052,62 +10867,50 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
     pip[0] = 1.0;  // always fit intercept in the model
     nnz = 0;
 
-    VectorXi numDP(numComp);  // number of data points for each component
-    unsigned numNZComp = 0;   // number of components with at least one nonzero SNP
-    for (unsigned i=0; i<numComp; ++i) {
-        VectorXf &alphai = (*this)[i]->values;
-        if (i==0) numDP[i] = numSnps;
-        else numDP[i] = numOnes[i-1];
-        if(numDP[i] == 0){
-            alphai.setZero();
-            alphai[0] = -10.0;
-            ssq[i] = 0;
-        }else{
-            ++numNZComp;
-        }
-    }
-
-    if (bayesR) numNZComp = numComp;
-    vector<VectorXf> Y(numNZComp);
-    vector<MatrixXf> subsets(numNZComp);       // eligible rows for boundaries after the first
-    vector<const MatrixXf*> Amat(numNZComp);
-    MatrixXf Alpha(numAnno, numNZComp);
-    MatrixXf APAdiag(numAnno, numNZComp);
+    // The steps with SNPs come first (each step's SNPs are among the previous step's); the joint update below takes
+    // those, or all steps with the BayesR-type prior: an empty step has no data, so its intercept stays at -10 and its
+    // other effects are drawn from the prior.
+    vector<unsigned> eligible;  // the SNPs eligible for each step (annotationStep narrows the list)
+    AnnotationStep step;
+    vector<VectorXf> Y(numComp);
+    vector<MatrixXf> subsets(numComp);       // eligible rows for boundaries after the first
+    vector<const MatrixXf*> Amat(numComp);
+    MatrixXf Alpha(numAnno, numComp);
+    MatrixXf APAdiag(numAnno, numComp);
+    unsigned numNZComp = 0;   // the number of steps in the joint update
 
     Stat::Bernoulli &bernoulli = (*this)[0]->bernoulli;
 
-    for (unsigned i=0; i<numNZComp; ++i) {
+    for (unsigned i=0; i<numComp; ++i) {
         VectorXf &alphai = (*this)[i]->values;
-        if (bayesR && numDP[i] == 0) {
+        const unsigned numDP = i==0 ? numSnps : eligible.size();  // the step's SNPs (component >= i)
+        if (numDP == 0) {
+            alphai.setZero();
+            alphai[0] = -10.0;
+            ssq[i] = 0;
+            if (!bayesR) continue;
             Y[i].resize(0);
             subsets[i].resize(0,numAnno);
             Amat[i] = &subsets[i];
             APAdiag.col(i).setZero();
             Alpha.col(i) = alphai;
+            ++numNZComp;
             continue;
         }
-        VectorXf zi(numDP[i]);
-        // get annotation coefficient matrix for component i
+        ++numNZComp;
+        annotationStep(i, numComp, membership, annoMat, predictorMeans, eligible, step);
         if (i==0) {
             Amat[i] = &annoMat;
-            for (unsigned j=0; j<numSnps; ++j) zi[j] = membership[j] > 0;
         } else {
-            vector<unsigned> active(numDP[i]);
-            for (unsigned j=0, idx=0; j<numSnps; ++j) {
-                if (membership[j] > int(i-1)) {
-                    active[idx] = j;
-                    zi[idx] = membership[j] > int(i);
-                    ++idx;
-                }
-            }
-            subsets[i] = annotationRows(annoMat, active);
+            subsets[i].swap(step.rows);  // each step's rows are kept for the joint update below
             Amat[i] = &subsets[i];
         }
         const MatrixXf &annoMati = *Amat[i];
-        const VectorXf annoDiagi = i==0 ? annoDiag : annotationDiag(annoMati, numOnes[i-1]);
+        const VectorXf annoDiagi = i==0 ? annoDiag : annotationDiag(annoMati, numDP);
 
         // latent variables adjusted by all annotation effects
-        VectorXf y = annotationLatentResiduals(*this, annoMati, alphai, zi, i);
+        VectorXf y = annotationLatentResiduals(*this, i == 0 ? predictorMeans.col(0).data()
+                                                           : step.predictors.data(), step.z, i);
 
         // intercept is fitted with a flat prior
         float oldSample = alphai[0];
@@ -11124,6 +10927,12 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
         ssq[i] = 0;
         Alpha.col(i) = alphai;
     }
+    // Keep only the steps in the joint update (their indices come first).
+    Y.resize(numNZComp);
+    subsets.resize(numNZComp);
+    Amat.resize(numNZComp);
+    Alpha.conservativeResize(Eigen::NoChange, numNZComp);
+    APAdiag.conservativeResize(Eigen::NoChange, numNZComp);
 
     if (runAnnotationSwap)
         sampleFromAnnotationSwapMH_joint(Alpha, Y, Amat);
@@ -11205,7 +11014,7 @@ void ApproxBayesRD::AnnoEffects::sampleFromFC_joint(
     }
 
     for (unsigned i=0; i<numComp; ++i) values.col(i) = (*this)[i]->values;
-    annotationProbabilities(*this, annoMat, values, snpP);
+    annotationProbabilities(*this, annoMat, {&values}, {&predictorMeans}, {&snpP});
 
     numAnnoTotal = numAnno - 1;
 }
@@ -11220,74 +11029,10 @@ void ApproxBayesRD::AnnoCondProb::compute(const AnnoEffects &annoEffects, const 
     }
 }
 
-void ApproxBayesRD::sampleUnknowns(const unsigned iter){
-    double profileStart = 0.0;
-    double profileLast = 0.0;
-    if (profileTiming) {
-        profileStart = profileLast = gctbWallTime();
-    }
-    auto addProfileTime = [&](double &bucket) -> double {
-        if (profileTiming) {
-            double now = gctbWallTime();
-            double elapsed = now - profileLast;
-            bucket += elapsed;
-            profileLast = now;
-            return elapsed;
-        }
-        return 0.0;
-    };
-
-    const bool ldSwapIteration = algorithm == tgs
-        || (algorithm == tgs_thin && !(iter % 10));
-    const bool supportsLdSwap = lowRankModel && !data.coreContextLdmEigen;
-    if (ldSwapIteration && supportsLdSwap) {
-        unsigned proposals = 0;
-        unsigned accepted = 0;
-        snpEffects.sampleFromLDSwapMH_eigen(
-                wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec,
-                data.nGWASblock, vareBlk.values, snpLogPi, data.tgsWorksets,
-                data.incdSnpInfoVec, proposals, accepted,
-                quantizedLowRankModel ? &data.quantizedEigenBlocks : nullptr);
-        ldSwapProposals += proposals;
-        ldSwapAccepted += accepted;
-    }
-    addProfileTime(profileTimeTgs);
-
-    if (lowRankModel) {
-        if (quantizedLowRankModel) {
-            fixedSnpEffects.sampleFromFC_quantizedEigen(snpEffects, wcorrBlocks, data.quantizedEigenBlocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, data.numFixedEffectSnps);
-            snpEffects.sampleFromFC_quantizedEigen(wcorrBlocks, data.quantizedEigenBlocks, whatBlocks,
-                                    data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
-                                    snpLogPi, gamma.values, vargRandom.value, deltaPi, hsqPercModel, sigmaSq.value, data.incdSnpInfoVec,
-                                    data.numFixedEffectSnps,
-                                    data.coreContextLdmEigen ? &data.coreContextLdBlocks : nullptr,
-                                    data.coreContextLdmEigen ? &data.wcorrBlocks : nullptr);
-        } else {
-            fixedSnpEffects.sampleFromFC_eigen(snpEffects, wcorrBlocks, data.Qblocks, whatBlocks, data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values, data.numFixedEffectSnps);
-            snpEffects.sampleFromFC_eigen(wcorrBlocks, data.Qblocks, whatBlocks,
-                                          data.keptLdBlockInfoVec, data.nGWASblock, vareBlk.values,
-                                          snpLogPi, gamma.values, vargRandom.value, deltaPi,
-                                          hsqPercModel, sigmaSq.value, data.incdSnpInfoVec, data.numFixedEffectSnps);
-        }
-    } else {
-        fixedSnpEffects.sampleFromFC_sparse(snpEffects, rcorr, data.ZPZsp, data.ZPZdiag, data.snp2pq, data.incdSnpInfoVec, varg.value, vare.value, data.numFixedEffectSnps);
-        snpEffects.sampleFromFC_sparse(rcorr, data.ZPZsp, data.ZPZdiag, data.ZPy, data.chromInfoVec, sigmaSq.value, snpLogPi, gamma.values, vare.value,
-                                       vargRandom.value, hsqPercModel, deltaPi, data.incdSnpInfoVec);
-    }
-    addProfileTime(profileTimeSnpEffects);
-
-    snpEffects.computePosteriorMean(iter);
-    snpPip.getValues(snpEffects.pip);
-    nnzSnp.getValue(snpEffects.numNonZeros);
-    numSnps.getValues(snpEffects.numSnpMix);
-    addProfileTime(profileTimePosterior);
-
-    if (robustMode) {
-        sigmaSq.value = vargRandom.value/(data.numIncdSnps*gamma.values.dot(Pis.values));
-    } else {
-        sigmaSq.sampleFromFC(snpEffects.wtdSumSq, snpEffects.numNonZeros);
-    }
-
+// SBayesRD's annotation step: the annotation effects (independent or joint assignment), their mixture weights, pi,
+// log pi and the conditional/joint probabilities. The rest of the iteration is ApproxBayesRC::sampleUnknowns.
+void ApproxBayesRD::sampleAnnotations(const unsigned iter, ProfileClock &clock) {
+    const bool ldSwapIteration = isLdSwapIteration(iter);
     if (estimatePi) {
         if (sampleAnnoEffectsIndep)
             annoEffects.sampleFromFC_indep(snpEffects.membership, data.annoMat,
@@ -11299,7 +11044,7 @@ void ApproxBayesRD::sampleUnknowns(const unsigned iter){
                                            sigmaSqAnno.values, piAnno.value, snpP,
                                            annotationSwapEnabled && ldSwapIteration,
                                            annotationTgsEnabled);
-        addProfileTime(profileTimeAnnoEffects);
+        clock.add(profileTimeAnnoEffects);
         annoEffects.updateMixtureWeights(sampleAnnoEffectsIndep);
         // Retain inclusion-probability outputs as the total nonzero mixture mass.
         if (sampleAnnoEffectsIndep) {
@@ -11311,126 +11056,56 @@ void ApproxBayesRD::sampleUnknowns(const unsigned iter){
         } else {
             piAnno.value = 1.0f-annoEffects.mixtureWeights[0]->values[0];
         }
-        addProfileTime(profileTimePiUpdate);
+        clock.add(profileTimePiUpdate);
         computeLogPiFromP(snpP, snpLogPi);
-        addProfileTime(profileTimeLogPi);
+        clock.add(profileTimeLogPi);
         annoCondProb.compute(annoEffects, data.annoInfoVec);
-        addProfileTime(profileTimeAnnoCondProb);
+        clock.add(profileTimeAnnoCondProb);
         annoJointProb.compute(annoCondProb);
-        addProfileTime(profileTimeAnnoJointProb);
+        clock.add(profileTimeAnnoJointProb);
         if (sampleAnnoEffectsIndep)
             annoPips.getValues(annoEffects);
         else
             annoPip.getValues(annoEffects.pip);
     } else {
-        addProfileTime(profileTimeAnnoEffects);
+        clock.add(profileTimeAnnoEffects);
     }
+}
 
-    if (lowRankModel) {
-        vargBlk.compute(whatBlocks);
-        vareBlk.sampleFromFC(wcorrBlocks, vargBlk.values, snpEffects.ssqBlocks, data.nGWASblock, data.numEigenvalBlock);
-        //vareBlk.sampleFromFC(wcorrBlocks, snpEffects.values, data.b, data.nGWASblock, data.keptLdBlockInfoVec);
-        vargRandom.value = vargBlk.total;
-        vare.value = vareBlk.mean;
-    } else {
-        varg.compute(snpEffects.values, data.ZPy, rcorr);
-        vare.sampleFromFC(data.ypy, snpEffects.values, data.ZPy, rcorr, status);
-        if (data.numFixedEffectSnps && data.varGenotypic > 0.f)
-            vargRandom.value = varg.value * (data.vargRandomSnpEffects / data.varGenotypic);
-        else
-            vargRandom.value = varg.value;
-    }
-    hsqRandom.compute(vargRandom.value, data.varPhenotypic);
-    if (data.numFixedEffectSnps) {
-        hsqFixed.compute(snpEffects.values, data);
-        hsq.value = hsqRandom.value + hsqFixed.value;
-        if (lowRankModel)
-            varg.value = vargRandom.value + hsqFixed.value * data.varPhenotypic;
-    } else {
-        hsq.value = hsqRandom.value;
-        if (lowRankModel)
-            varg.value = vargRandom.value;
-    }
-    addProfileTime(profileTimeVariance);
-
-    // Report-only annotation summaries: needed for kept samples and the last iteration (MCMC::run).
-    if (summaryRequired) {
-        annoGenVar.compute(snpEffects.values, snpEffects.snpset, data.annoMat);
-        profileTimeAnnoSummary += addProfileTime(profileTimeAnnoGenVar);
-        annoTotalGenVar.compute(annoGenVar);
-        profileTimeAnnoSummary += addProfileTime(profileTimeAnnoTotalGenVar);
-        annoPerSnpHsqEnrich.compute(annoTotalGenVar.values, data.annoInfoVec);
-        profileTimeAnnoSummary += addProfileTime(profileTimeAnnoPerSnpHsqEnrich);
-        annoConditionalHsqEnrich.compute(annoJointProb, gamma.values);
-        annoConditionalPolygenicityEnrich.compute(annoJointProb);
-    }
-
-    Vgs.compute(snpEffects.values, snpEffects.snpset);
-
-    snpHsqPep.compute(snpEffects.values, vargRandom.value);
-    addProfileTime(profileTimeMiscSummary);
-
-    if (!(iter % 10)) {
-        if (lowRankModel) {
-            if (quantizedLowRankModel)
-                nBadSnps.compute_quantizedEigen(snpEffects.badSnps, snpEffects.values, snpEffects.posteriorMean, data.b, wcorrBlocks, data.quantizedEigenBlocks, data.keptLdBlockInfoVec, iter, data);
-            else
-                nBadSnps.compute_eigen(snpEffects.badSnps, snpEffects.values, snpEffects.posteriorMean, data.b, wcorrBlocks, data.Qblocks, data.keptLdBlockInfoVec, iter, data);
-        } else {
-            nBadSnps.compute_sparse(snpEffects.badSnps, snpEffects.values, snpEffects.posteriorMean, data.b, rcorr, data.ZPZsp, data.chromInfoVec, iter, data);
+void ApproxBayesRD::reportProfile(const unsigned iter) {
+    ++profileTimingCount;
+    if (!(iter % profileTimingFreq)) {
+        double denom = double(profileTimingCount);
+        cout << "\nSBayesRD timing profile (avg seconds/iteration over "
+             << profileTimingCount << " iterations):" << endl;
+        cout << "  SNP effects:        " << profileTimeSnpEffects / denom << endl;
+        cout << "  LD swap MH:         " << profileTimeTgs / denom << endl;
+        if (ldSwapProposals) {
+            cout << "    accepted:         " << ldSwapAccepted << "/" << ldSwapProposals
+                 << " (" << 100.0 * ldSwapAccepted / ldSwapProposals << "%)" << endl;
         }
-    }
-    addProfileTime(profileTimeBadSnps);
-
-    if (!(iter % 100)) {
-        if (lowRankModel) {
-            if (quantizedLowRankModel)
-                rounding.computeWcorr_quantizedEigen(data.wcorrBlocks, data.quantizedEigenBlocks, data.keptLdBlockInfoVec, snpEffects.values, wcorrBlocks);
-            else
-                rounding.computeWcorr_eigen(data.wcorrBlocks, data.Qblocks, data.keptLdBlockInfoVec, snpEffects.values, wcorrBlocks);
-        } else {
-            rounding.computeRcorr_sparse(data.ZPy, data.ZPZsp, data.windStart, data.windSize, data.chromInfoVec, snpEffects.values, rcorr);
+        cout << "  Posterior updates:  " << profileTimePosterior / denom << endl;
+        cout << "  Annotation effects: " << profileTimeAnnoEffects / denom << endl;
+        if (annoEffects.swapProposals) {
+            cout << "    swap accepted:    " << annoEffects.swapAccepted << "/"
+                 << annoEffects.swapProposals << " ("
+                 << 100.0 * annoEffects.swapAccepted / annoEffects.swapProposals
+                 << "%)" << endl;
         }
-    }
-    addProfileTime(profileTimeRounding);
-
-    if (profileTiming) {
-        double now = gctbWallTime();
-        profileTimeTotal += now - profileStart;
-        ++profileTimingCount;
-        if (!(iter % profileTimingFreq)) {
-            double denom = double(profileTimingCount);
-            cout << "\nSBayesRD timing profile (avg seconds/iteration over "
-                 << profileTimingCount << " iterations):" << endl;
-            cout << "  SNP effects:        " << profileTimeSnpEffects / denom << endl;
-            cout << "  LD swap MH:         " << profileTimeTgs / denom << endl;
-            if (ldSwapProposals) {
-                cout << "    accepted:         " << ldSwapAccepted << "/" << ldSwapProposals
-                     << " (" << 100.0 * ldSwapAccepted / ldSwapProposals << "%)" << endl;
-            }
-            cout << "  Posterior updates:  " << profileTimePosterior / denom << endl;
-            cout << "  Annotation effects: " << profileTimeAnnoEffects / denom << endl;
-            if (annoEffects.swapProposals) {
-                cout << "    swap accepted:    " << annoEffects.swapAccepted << "/"
-                     << annoEffects.swapProposals << " ("
-                     << 100.0 * annoEffects.swapAccepted / annoEffects.swapProposals
-                     << "%)" << endl;
-            }
-            cout << "    anno variance:    " << profileTimeAnnoVar / denom << endl;
-            cout << "    pi update:        " << profileTimePiUpdate / denom << endl;
-            cout << "    log-prior update: " << profileTimeLogPi / denom << endl;
-            cout << "    anno cond prob:   " << profileTimeAnnoCondProb / denom << endl;
-            cout << "    anno joint prob:  " << profileTimeAnnoJointProb / denom << endl;
-            cout << "  Variance updates:   " << profileTimeVariance / denom << endl;
-            cout << "  Annotation summary: " << profileTimeAnnoSummary / denom << endl;
-            cout << "    anno GenVar:      " << profileTimeAnnoGenVar / denom << endl;
-            cout << "    anno total GenVar:" << profileTimeAnnoTotalGenVar / denom << endl;
-            cout << "    per-SNP hsq enrich:" << profileTimeAnnoPerSnpHsqEnrich / denom << endl;
-            cout << "  Misc summary:       " << profileTimeMiscSummary / denom << endl;
-            cout << "  Bad SNP check:      " << profileTimeBadSnps / denom << endl;
-            cout << "  Rounding:           " << profileTimeRounding / denom << endl;
-            cout << "  Total:              " << profileTimeTotal / denom << endl;
-        }
+        cout << "    anno variance:    " << profileTimeAnnoVar / denom << endl;
+        cout << "    pi update:        " << profileTimePiUpdate / denom << endl;
+        cout << "    log-prior update: " << profileTimeLogPi / denom << endl;
+        cout << "    anno cond prob:   " << profileTimeAnnoCondProb / denom << endl;
+        cout << "    anno joint prob:  " << profileTimeAnnoJointProb / denom << endl;
+        cout << "  Variance updates:   " << profileTimeVariance / denom << endl;
+        cout << "  Annotation summary: " << profileTimeAnnoSummary / denom << endl;
+        cout << "    anno GenVar:      " << profileTimeAnnoGenVar / denom << endl;
+        cout << "    anno total GenVar:" << profileTimeAnnoTotalGenVar / denom << endl;
+        cout << "    per-SNP hsq enrich:" << profileTimeAnnoPerSnpHsqEnrich / denom << endl;
+        cout << "  Misc summary:       " << profileTimeMiscSummary / denom << endl;
+        cout << "  Bad SNP check:      " << profileTimeBadSnps / denom << endl;
+        cout << "  Rounding:           " << profileTimeRounding / denom << endl;
+        cout << "  Total:              " << profileTimeTotal / denom << endl;
     }
 }
 

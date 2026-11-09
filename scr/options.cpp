@@ -146,7 +146,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
             pairwiseLDfile = "rsq0.5.pwld";
             rsqThreshold = 0.5;
             flank = 5000;
-            numChains = 4;
+            if (!numChainsGiven) numChains = 4;  // GWFM's default; an explicit --num-chains wins in any order
             ss << "--gwfm " << argv[i] << "\n";
         }else if(!strcmp(argv[i], "--eig-cutoff")){
             eigCutMethod = argv[++i];
@@ -550,6 +550,7 @@ void Options::inputOptions(const int argc, const char* argv[]){
         }
         else if (!strcmp(argv[i], "--num-chains")) {
             numChains = atoi(argv[++i]);
+            numChainsGiven = true;
             ss << "--num-chains " << argv[i] << "\n";
         }
         else if (!strcmp(argv[i], "--chain-length")) {
@@ -903,6 +904,12 @@ void Options::inputOptions(const int argc, const char* argv[]){
             robustMode = true;
             ss << "--robust " << "\n";
         }
+        else if (!strcmp(argv[i], "--batch-chains")) {  // a flag: the number of chains is --num-chains
+            batchChains = true;
+            if (i + 1 < argc && argv[i+1][0] && strspn(argv[i+1], "0123456789") == strlen(argv[i+1]))
+                throw("Error: --batch-chains takes no number; set the number of chains with --num-chains.");
+            ss << "--batch-chains " << "\n";
+        }
         else if (!strcmp(argv[i], "--n-dist-auto")) {
             nDistAuto = true;
             nDistAutoByPred = false;
@@ -1019,6 +1026,17 @@ void Options::inputOptions(const int argc, const char* argv[]){
 
     if (analysisType == "SBayes" && bayesType == "R" && !annotationFile.empty()) {
         throw("Error: --sbayes R does not use annotation data from --annot. Remove --annot for SBayesR, or use --sbayes RC if you intend to fit annotation effects.");
+    }
+
+    if (batchChains) {
+        const bool rd = bayesType == "RD" || bayesType == "RD_indep" || bayesType == "RD_Joint";
+        if ((analysisType != "SBayes" && analysisType != "GWFM") || (bayesType != "R" && bayesType != "RC" && !rd))
+            cout << "Note: --batch-chains applies to SBayesR, SBayesRC and SBayesRD (also with --gwfm, including its"
+                 << " component selection); not used for this analysis." << endl;
+        else if (numChains < 2 && analysisType == "GWFM")
+            cout << "Note: with one chain, --batch-chains batches only the component selection's models." << endl;
+        else if (numChains < 2)
+            cout << "Note: --batch-chains has no effect with a single chain; set --num-chains 2 or more." << endl;
     }
 
     validateJointAnno();

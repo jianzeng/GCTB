@@ -73,6 +73,11 @@ namespace Stat {
     static const unsigned tgsBlockRngSalt = 0x54475342u;
     static const unsigned ldSwapRngSalt = 0x4C44534Du;
     static const unsigned annotationSwapRngSalt = 0x414E5357u;
+    // --batch-chains sweep (multichain.cpp): the chunk order shared by the chains, each chain's orders within the
+    // chunks, and its draws.
+    static const unsigned batchSweepChunkRngSalt = 0x43484E4Bu;
+    static const unsigned batchSweepOrderRngSalt = 0x57495448u;
+    static const unsigned batchSweepDrawRngSalt = 0x44524157u;
 
     extern unsigned masterSeed;
     extern unsigned mcmcIterationForRng;
@@ -123,6 +128,10 @@ namespace Stat {
         double cdf_01(const double value);
         double quantile_01(const double value);
         double pdf_01(const double value);
+        // The same for n values, evaluated across SIMD lanes (stat.cpp); used by the annotation samplers.
+        void cdf_01(const float *x, float *p, const unsigned n);
+        void cdf_01(const float *x, double *p, const unsigned n);
+        void quantile_01(const double *p, double *q, const unsigned n);
     };
     
     class Flat : public Normal {
@@ -177,6 +186,8 @@ namespace Stat {
         float sample_tail_01_rejection(const float a);
         float sample_lower_truncated(const float mean, const float sd, const float a);  // a < x < inf
         float sample_upper_truncated(const float mean, const float sd, const float b);  // -inf < x < b
+        // y[j] = sample_lower_truncated(mean[j], 1, 0) where above[j] is nonzero, else sample_upper_truncated(mean[j], 1, 0)
+        void sample_truncated_at_zero(const float *mean, const float *above, float *y, const unsigned n);
     };
 }
 

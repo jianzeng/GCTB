@@ -20,6 +20,16 @@
 #include "stat.hpp"
 #include "data.hpp"
 
+// Wall-clock seconds, for the timing profiles (GCTB_PROFILE_RC).
+inline double gctbWallTime()
+{
+#ifdef _OPENMP
+    return omp_get_wtime();
+#else
+    return double(clock()) / double(CLOCKS_PER_SEC);
+#endif
+}
+
 using namespace std;
 
 // Conditional annotation kernels. Residuals are latent responses minus A*alpha.
@@ -1955,6 +1965,47 @@ public:
             wtdSumSq = 0.0;
             deltaNZ.setZero(size);
         }
+
+        // The SNP sweep's parts shared by the low-rank samplers of SBayesR and SBayesRC (sampleFromFC_eigen,
+        // sampleFromFC_quantizedEigen) and the batched multi-chain sweep (multichain.cpp), which differ only in how
+        // they compute q_i'w and update their residuals.
+        struct SweepTerms {  // per sweep
+            ArrayXf invWtdSigmaSq, logWtdSigmaSq;  // the components' prior variances gamma*sigma^2: inverse and log
+            const VectorXf &gamma;
+            DeltaPi &deltaPi;
+            const MatrixXf *snpLogPi = nullptr;    // SBayesRC: each SNP's prior log pi (row i) ...
+            ArrayXf logPis;                        // ... SBayesR: the log of its pis, the same for every SNP
+            float *fcMean = nullptr;               // SBayesRC: the full conditional means
+            bool listZero = false;                 // SBayesR: component 0's SNPs listed in snpset[0] too
+            SweepTerms(const VectorXf &gamma, const float sigmaSq, const float varg, const bool hsqPercModel,
+                       DeltaPi &deltaPi, const MatrixXf &snpLogPi, VectorXf &fcMean);  // SBayesRC
+            SweepTerms(const VectorXf &gamma, const float sigmaSq, const float varg, const bool hsqPercModel,
+                       DeltaPi &deltaPi, const VectorXf &pis);                          // SBayesR
+        };
+        struct SnpScratch {  // per block: the per-SNP arrays (probDelta is a VectorXf for Bernoulli::sample)
+            ArrayXf invLhs, logInvLhsMsigma, uhat, logDelta;
+            VectorXf probDelta;
+            explicit SnpScratch(const unsigned ndist)
+            : invLhs(ndist), logInvLhsMsigma(ndist), uhat(ndist), logDelta(ndist), probDelta(ndist) {}
+        };
+        struct BlockTally {  // per block: sums of squares, nonzero effects, the zero component's count, SNPs per component
+            float ssq = 0.0f, wtdssq = 0.0f, nnz = 0.0f;
+            unsigned zeroCount = 0;
+            vector<vector<unsigned> > snpset;  // per component (0 only with SweepTerms::listZero)
+        };
+        void startSweep(DeltaPi &deltaPi);  // pip, membership and deltaPi set to zero
+        static vector<BlockTally> blockTallies(const unsigned nBlocks, const unsigned ndist);
+        // A skipped or bad SNP: its effect (and, if skipped, pip and deltaPi) set as not sampled; returns whether it was.
+        bool clearUnsampledSnp(const unsigned i, const SnpInfo *snp, DeltaPi &deltaPi);
+        // One SNP's update from qw = q_i'w at the time of the update and qii = q_ii: deltaPi, pip, the component
+        // (membership; the block's snpset or zero count), the new effect (values; the block's sums) and fcMean.
+        // Returns the component; the caller then updates its residual and what with the change of values[i].
+        unsigned sampleSnp(const unsigned i, const float qw, const float qii, const float invVareDn, const SweepTerms &terms,
+                           const float urnd, const float nrnd, SnpScratch &scratch, BlockTally &tally);
+        // sumSq, wtdSumSq, numNonZeros, nnzPerBlk, ssqBlocks, the component counts (SBayesRC's numSnpMix, SBayesR's
+        // snpStore) and snpset (SBayesRC declares its own) from the blocks' tallies.
+        template<typename Counts>
+        void finishSweep(const vector<BlockTally> &tallies, Counts &counts, vector<vector<unsigned> > &snpset);
         
         void sampleFromFC_sparse(VectorXf &rcorr, const vector<SparseVector<float> > &ZPZsp, const VectorXf &ZPZdiag, const VectorXf &ZPy,
                           const vector<ChromInfo*> &chromInfoVec,
@@ -1972,13 +2023,10 @@ public:
                           const vector<SnpInfo*> *incdSnpInfoVec = nullptr);
         
         void sampleBlockFromFC_eigen(const unsigned blk, const MatrixXf &Q, VectorXf &wcorr, VectorXf &what,
-                                     LDBlockInfo *blockInfo, const float invVareDn,
-                                     const ArrayXf &logPis, const ArrayXf &invWtdSigmaSq, const ArrayXf &logWtdSigmaSq,
-                                     const VectorXf &pis, const VectorXf &gamma, const float varg,
-                                     const bool hsqPercModel, const float sigmaSq, DeltaPi &deltaPi,
-                                     float *valuesPtr, float *pipPtr, const vector<float> &urnd, const vector<float> &nrnd,
-                                     float &ssq, float &wtdssq, float &nnz, vector<vector<unsigned> > &snpsetBlock,
-                                     const vector<vector<TgsWorkset> > *tgsWorksetsByBlock = nullptr);
+                                     LDBlockInfo *blockInfo, const float invVareDn, const SweepTerms &terms,
+                                     const VectorXf &pis, const float varg, const bool hsqPercModel, const float sigmaSq,
+                                     const vector<float> &urnd, const vector<float> &nrnd, BlockTally &tally,
+                                     const vector<vector<TgsWorkset> > *tgsWorksetsByBlock);
         void sampleFromFC_eigen(vector<VectorXf> &wcorrBlocks, const vector<MatrixXf> &Qblocks, vector<VectorXf> &whatBlocks,
                           const vector<LDBlockInfo*> &keptLdBlockInfoVec, const VectorXf &nGWASblocks, const VectorXf &vareBlocks,
                           const float sigmaSq, const VectorXf &pis, const VectorXf &gamma, VectorXf &snpStore, const float varg,
@@ -2080,6 +2128,7 @@ public:
 
     vector<VectorXf> wcorrBlocks;
     vector<VectorXf> whatBlocks;
+    bool snpSweepDone = false;  // --batch-chains: the wrapper has sampled all chains' SNP effects (multichain.hpp)
 
     ApproxBayesC::FixedEffects fixedSnpEffects;
     BayesC::HeritabilityFixedEffects hsqFixed;
@@ -2479,6 +2528,110 @@ public:
 // Approximate Bayes RC: fitting functional annotations
 // -----------------------------------------------------------------------------------------------
 
+// The SNP sweep's per-SNP steps (ApproxBayesR::SnpEffects), defined here so that each sweep inlines them; with
+// GCC and Clang always (model.cpp is large enough that GCC's growth limits would otherwise leave them as calls).
+#if defined(__GNUC__)
+#define GCTB_ALWAYS_INLINE inline __attribute__((always_inline))
+#else
+#define GCTB_ALWAYS_INLINE inline
+#endif
+GCTB_ALWAYS_INLINE bool ApproxBayesR::SnpEffects::clearUnsampledSnp(const unsigned i, const SnpInfo *snp, DeltaPi &deltaPi) {
+    if (snp->skip) {
+        values[i] = 0.0;
+        pip[i] = 0.0f;
+        for (unsigned k = 0; k < deltaPi.size; ++k) deltaPi[k]->values[i] = (k == 0) ? 1.0f : 0.0f;
+        return true;
+    }
+    if (badSnps[i]) {
+        values[i] = 0.0;
+        return true;
+    }
+    return false;
+}
+
+GCTB_ALWAYS_INLINE unsigned ApproxBayesR::SnpEffects::sampleSnp(const unsigned i, const float qw, const float qii,
+                                                                const float invVareDn, const SweepTerms &terms,
+                                                                const float urnd, const float nrnd, SnpScratch &s,
+                                                                BlockTally &tally) {
+    const unsigned ndist = terms.invWtdSigmaSq.size();
+    const float oldSample = values[i];
+    s.invLhs = 1.0f/(qii * invVareDn + terms.invWtdSigmaSq);
+    s.logInvLhsMsigma = s.invLhs.log() - terms.logWtdSigmaSq;
+    const float rhs = (qw + qii * oldSample)*invVareDn;
+    s.uhat = s.invLhs * rhs;
+    if (terms.snpLogPi) {
+        s.logDelta = 0.5*(s.logInvLhsMsigma + s.uhat*rhs) + terms.snpLogPi->row(i).transpose().array();
+        s.logDelta[0] = (*terms.snpLogPi)(i,0);
+    } else {
+        s.logDelta = 0.5*(s.logInvLhsMsigma + s.uhat*rhs) + terms.logPis;
+        s.logDelta[0] = terms.logPis[0];
+    }
+
+    // Compute each exponential once, factoring out the largest log weight for stability.
+    s.probDelta = (s.logDelta - s.logDelta.maxCoeff()).exp().matrix();
+    // Preserve exact zero priors: Eigen's exp(-inf) can be a tiny positive value.
+    for (unsigned k=0; k<ndist; ++k)
+        if (s.logDelta[k] == -std::numeric_limits<float>::infinity()) s.probDelta[k] = 0.0f;
+    s.probDelta /= s.probDelta.sum();
+
+    for (unsigned k=0; k<ndist; ++k) {
+        if (std::isnan(s.probDelta[k])) s.probDelta[k] = 0;
+        terms.deltaPi[k]->values[i] = s.probDelta[k];
+    }
+    pip[i] = 1.0f - s.probDelta[0];
+
+    const unsigned delta = bernoulli.sample(s.probDelta, urnd);
+    if (delta || terms.listZero) tally.snpset[delta].push_back(i);
+    if (!delta) ++tally.zeroCount;
+    membership[i] = delta;
+
+    if (delta) {
+        values[i] = s.uhat[delta] + nrnd*sqrtf(s.invLhs[delta]);
+        tally.ssq += values[i] * values[i];
+        tally.wtdssq += (values[i] * values[i]) / terms.gamma[delta];
+        ++tally.nnz;
+    } else {
+        values[i] = 0.0;
+    }
+
+    if (terms.fcMean) {
+        s.uhat[0] = 0.0;
+        terms.fcMean[i] = (s.uhat * s.probDelta.array()).sum();  // full conditional mean
+    }
+    return delta;
+}
+
+template<typename Counts>
+void ApproxBayesR::SnpEffects::finishSweep(const vector<BlockTally> &tallies, Counts &counts,
+                                           vector<vector<unsigned> > &snpset) {
+    const unsigned nBlocks = tallies.size(), ndist = nBlocks ? tallies[0].snpset.size() : counts.size();
+    sumSq = 0.0;
+    wtdSumSq = 0.0;
+    numNonZeros = 0;
+    nnzPerBlk.setZero(nBlocks);
+    ssqBlocks.setZero(nBlocks);
+    counts.setZero(ndist);
+    snpset.resize(ndist);
+    for (unsigned k=0; k<ndist; ++k) {
+        snpset[k].resize(0);
+    }
+    for (unsigned blk=0; blk<nBlocks; ++blk) {
+        const BlockTally &tally = tallies[blk];
+        sumSq += tally.ssq;
+        wtdSumSq += tally.wtdssq;
+        numNonZeros += tally.nnz;
+        nnzPerBlk[blk] = tally.nnz;
+        ssqBlocks[blk] = tally.ssq;
+        counts[0] += tally.zeroCount;
+        for (unsigned k=0; k<ndist; ++k) {
+            for (unsigned j=0; j<tally.snpset[k].size(); ++j) {
+                snpset[k].push_back(tally.snpset[k][j]);
+                if (k) counts[k]++;
+            }
+        }
+    }
+}
+
 class ApproxBayesRC : public ApproxBayesR {
 public:
         
@@ -2486,6 +2639,8 @@ public:
     public:
         unsigned ndist;
         ArrayXf numSnpMix;
+        // SNP indices per component. The float32 and q16/q8 eigen samplers leave snpset[0]
+        // empty (nothing reads it); use numSnpMix[0] for the zero-component count.
         vector<vector<unsigned> > snpset;
         VectorXf fcMean;
         
@@ -2555,6 +2710,7 @@ public:
         // Only component zero uses a fixed set of SNP rows.
         vector<MatrixXd> gaussianGramCache;
         MatrixXd coordinateGram; // A'A for the first boundary's scalar Gibbs updates
+        MatrixXf predictorMeans; // A*alpha: computed by the first Gibbs update, then refreshed after each update
         bool blockedGaussian;
 
         VectorXf varProp;
@@ -2598,8 +2754,12 @@ public:
         }
         
 //        void sampleFromFC(MatrixXf &snpP, const MatrixXf &annoMat);
-        void sampleFromFC_Gibbs(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
-        void sampleFromFC_Gibbs(MatrixXf &conditionalMembership, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
+        // firstScores (multi-chain shared passes, multichain.hpp): the first boundary's scores a_k'y, computed for
+        // all chains from firstBoundaryLatents; snpP and the predictors are then also left to the shared passes.
+        void sampleFromFC_Gibbs(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP,
+                                const VectorXd *firstScores = NULL);
+        void initPredictors(const MatrixXf &annoMat, MatrixXf &snpP);
+        VectorXf firstBoundaryLatents(const VectorXi &membership, const MatrixXf &annoMat, MatrixXf &snpP);
         void sampleFromFC_MH(const VectorXi &membership, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
         void sampleFromFC_MH(MatrixXf &z, const MatrixXf &annoMat, const VectorXf &sigmaSq, MatrixXf &snpP);
         void initIntercept_probit(const VectorXf &pis);
@@ -2995,7 +3155,39 @@ public:
         }
     }
 
+    // Multi-chain shared annotation passes (MultiChainSBayesRC, multichain.hpp): 0 = the whole iteration; 1 = stop
+    // before the annotation sampler, after drawing annoFirstLatents; 2 = resume there with annoFirstScores, leaving
+    // snpP and log pi to the shared passes.
+    int annoPassStage = 0;
+    VectorXf annoFirstLatents;
+    VectorXd annoFirstScores;
+    virtual bool annoPassStagesSupported() const { return true; }  // SBayesRD's annotation step has no stages
+
+    // TGS: the LD-swap move runs every iteration, TGS_thin every 10th (also the annotation swap moves of SBayesRD).
+    bool isLdSwapIteration(const unsigned iter) const { return algorithm == tgs || (algorithm == tgs_thin && !(iter % 10)); }
+    void sampleLdSwap(const unsigned iter);
+
+    // GCTB_PROFILE_RC: adds the wall time since the last call to a bucket of this chain's profile.
+    struct ProfileClock {
+        bool on = false;
+        double last = 0.0;
+        double add(double &bucket) {
+            if (!on) return 0.0;
+            const double now = gctbWallTime(), elapsed = now - last;
+            bucket += elapsed;
+            last = now;
+            return elapsed;
+        }
+    };
+
+    // One iteration, shared by SBayesRC and SBayesRD; the step that samples the annotation effects and updates snpP and
+    // log pi (sampleAnnotations) is the only model-specific part, with the profile report.
     void sampleUnknowns(const unsigned iter);
+    virtual void sampleAnnotations(const unsigned iter, ProfileClock &clock);
+    // GCTB_PROFILE_RC: the wall time of work MultiChainSBayesRC does for all chains, added to a bucket of this chain's
+    // profile and to its total (each chain waits for it); and the end of an iteration's profile (count, report).
+    void addSharedProfileTime(double &bucket, const double seconds);
+    virtual void reportProfile(const unsigned iter);
     void prepareMarginalizedContext(const Data &data, const bool message = true);
     void recomputeOriginalContextWhatBlocks(void);
     double contextVarianceLogPosterior(const double logRatio) const;
@@ -3008,11 +3200,28 @@ public:
                                                  const float dampAnno);
 //    void sampleUnknownsTGS(vector<vector<int> > &selectedSnps);
     void computePfromPi(const MatrixXf &snpPi, MatrixXf &snpP);
-    void computePiFromP(const MatrixXf &snpP, MatrixXf &snpPi);
-    void computeLogPiFromP(const MatrixXf &snpP, MatrixXf &snpLogPi);
+    // snpLogPi = log pi from snpP after each annotation update: pi_k = (1 - p_k) p_0 ... p_{k-1} (the last component
+    // without the 1 - p factor), then the log; in parallel. computeLogPiFromP sums the logs of p instead, which does not
+    // underflow (SBayesRD, VI warm start); also in parallel, with the arithmetic of a serial pass.
+    static void logPiFromP(const MatrixXf &snpP, MatrixXf &snpLogPi);
+    static void computeLogPiFromP(const MatrixXf &snpP, MatrixXf &snpLogPi);
     void initSnpPandPi(const VectorXf &pis, const unsigned numSnps, MatrixXf &snpP, MatrixXf &snpPi);
     void getSnpAnnoCntInv(const MatrixXf &annoMat, VectorXf &snpAnnoCntInv);
 };
+
+// The annotation samplers process SNP rows in blocks of annotationRowBlockSize, a multiple of 96 to match the row
+// grouping of Eigen's current product kernels; a tail under 96 rows joins the last block.
+const unsigned annotationRowBlockSize = 96 * 256;
+unsigned annotationRowBlocks(const unsigned rows);
+unsigned annotationRowBlockRows(const unsigned block, const unsigned numBlocks, const unsigned rows);
+// The annotation samplers' two passes over annoMat (SBayesRC, BayesRC, SBayesRD), for one chain or for several at once:
+// MultiChainSBayesRC's shared passes (multichain.hpp) read annoMat once for all chains. Each chain's results are those
+// of a call for that chain alone.
+// scores[c][k] = a_k'y[c], each sum accumulated in the order of annotationDot (model.cpp).
+void annotationScores(const MatrixXf &annoMat, const vector<const VectorXf*> &y, const vector<VectorXd*> &scores);
+// predictorMeans[c] = annoMat*alpha[c] and snpP[c] = Phi(predictorMeans[c]).
+void annotationProbabilities(Stat::Normal &dist, const MatrixXf &annoMat, const vector<const MatrixXf*> &alpha,
+                             const vector<MatrixXf*> &predictorMeans, const vector<MatrixXf*> &snpP);
 
 
 class BayesRC : public BayesR {
@@ -3156,6 +3365,7 @@ public:
         MatrixXf values;
         VectorXf annoDiag;
         MatrixXd coordinateGram; // A'A for the first boundary's scalar Gibbs updates
+        MatrixXf predictorMeans; // A*alpha: computed by the first Gibbs update, then refreshed after each update
         VectorXf ssq;
         VectorXf numNonZeros;
         vector<string> colnames;
@@ -3426,7 +3636,10 @@ public:
         }
     }
 
-    void sampleUnknowns(const unsigned iter);
+    // The iteration is ApproxBayesRC::sampleUnknowns; only the annotation step and the profile report differ.
+    void sampleAnnotations(const unsigned iter, ProfileClock &clock) override;
+    void reportProfile(const unsigned iter) override;
+    bool annoPassStagesSupported() const override { return false; }
 
 };
 

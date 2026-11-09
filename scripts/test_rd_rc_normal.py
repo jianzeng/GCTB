@@ -72,14 +72,16 @@ def simulate(folder):
 
 def normal_build(folder):
     source = (ROOT / "scr/model.cpp").read_text()
-    start = source.index("void ApproxBayesRD::sampleUnknowns(const unsigned iter){")
+    # SBayesRD's own step of the iteration (the rest is ApproxBayesRC::sampleUnknowns).
+    header = "void ApproxBayesRD::sampleAnnotations(const unsigned iter, ProfileClock &clock) {"
+    start = source.index(header)
     source = source[:start] + source[start:].replace(
-        "void ApproxBayesRD::sampleUnknowns(const unsigned iter){",
-        "void ApproxBayesRD::sampleUnknowns(const unsigned iter){\n"
+        header,
+        header + "\n"
         "    annoEffects.bayesR = false;\n"
         "    piAnno.values.setOnes(); piAnno.value = 1.0f;\n", 1)
     start = source.index("        annoEffects.updateMixtureWeights(sampleAnnoEffectsIndep);", start)
-    end = source.index("        addProfileTime(profileTimePiUpdate);", start)
+    end = source.index("        clock.add(profileTimePiUpdate);", start)
     source = source[:start] + (
         "        sigmaSqAnno.sampleFromFC(annoEffects.ssq,\n"
         "            VectorXf::Constant(annoEffects.numComp, annoEffects.numAnno - 1));\n"
